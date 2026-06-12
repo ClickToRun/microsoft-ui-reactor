@@ -30,6 +30,12 @@ public sealed class Win2DAnimatedCanvasHandler : IElementHandler<Win2DAnimatedCa
         var ctrl = ctx.RentControl<CanvasAnimatedControl>();
         Reconciler.SetElementTag(ctrl, el);
 
+        // Set UseSharedDevice before the control realizes its device so resource creation
+        // (incl. UseCanvasResources, which builds on CanvasDevice.GetSharedDevice) targets
+        // the same device the control draws with. Rented controls may carry a stale value.
+        if (ctrl.UseSharedDevice != el.UseSharedDevice)
+            ctrl.UseSharedDevice = el.UseSharedDevice;
+
         if (ctrl.ClearColor != el.ClearColor)
             ctrl.ClearColor = el.ClearColor;
         if (ctrl.TargetElapsedTime != el.TargetElapsedTime)
@@ -75,6 +81,9 @@ public sealed class Win2DAnimatedCanvasHandler : IElementHandler<Win2DAnimatedCa
             subscriptions.Element = newEl;
 
         Reconciler.SetElementTag(ctrl, newEl);
+
+        // UseSharedDevice is fixed at mount; toggling it on a live control can crash (see guard).
+        Win2DSharedDeviceGuard.EnsureUseSharedDeviceUnchanged(oldEl.UseSharedDevice, newEl.UseSharedDevice);
 
         // IsPaused is enforced inside InvokeUpdate/InvokeDraw by skipping the user's
         // delegate when the latest element says paused. We do NOT write

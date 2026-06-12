@@ -18,6 +18,12 @@ public sealed class Win2DCanvasHandler : IElementHandler<Win2DCanvasElement, Can
         var ctrl = ctx.RentControl<CanvasControl>();
         Reconciler.SetElementTag(ctrl, el);
 
+        // Set UseSharedDevice before the control realizes its device so resource creation
+        // (incl. UseCanvasResources, which builds on CanvasDevice.GetSharedDevice) targets
+        // the same device the control draws with. Rented controls may carry a stale value.
+        if (ctrl.UseSharedDevice != el.UseSharedDevice)
+            ctrl.UseSharedDevice = el.UseSharedDevice;
+
         if (ctrl.ClearColor != el.ClearColor)
             ctrl.ClearColor = el.ClearColor;
 
@@ -44,6 +50,9 @@ public sealed class Win2DCanvasHandler : IElementHandler<Win2DCanvasElement, Can
     {
         Reconciler.SetElementTag(ctrl, newEl);
         var bind = ctx.BindFor(ctrl, newEl);
+
+        // UseSharedDevice is fixed at mount; toggling it on a live control can crash (see guard).
+        Win2DSharedDeviceGuard.EnsureUseSharedDeviceUnchanged(oldEl.UseSharedDevice, newEl.UseSharedDevice);
 
         if (ctrl.ClearColor != newEl.ClearColor)
             bind.WriteSuppressed(() => ctrl.ClearColor = newEl.ClearColor);

@@ -26,6 +26,22 @@ public sealed record Win2DCanvasElement : Element
     public Color ClearColor { get; init; } = new() { A = 0, R = 0, G = 0, B = 0 };
 
     /// <summary>
+    /// Whether the control draws with Win2D's process-wide shared <see cref="CanvasDevice"/>
+    /// (<see cref="CanvasControl.UseSharedDevice"/>) instead of its own dedicated device.
+    /// </summary>
+    /// <remarks>
+    /// This <b>must</b> be <c>true</c> when the canvas draws resources created by the
+    /// <c>UseCanvasResources</c> hook (or any other resource built from
+    /// <see cref="CanvasDevice.GetSharedDevice()"/>). Win2D resources are device-affine:
+    /// drawing a shared-device resource with a control that owns a different device raises a
+    /// cross-device error that surfaces as a fatal stowed exception. See
+    /// <see href="docs/guide/win2d-canvas.md#shared-device">the shared-device guidance</see>.
+    /// This is a device-construction setting evaluated once when the control mounts; to change it,
+    /// remount the canvas (e.g. via a different key) rather than toggling it on a live control.
+    /// </remarks>
+    public bool UseSharedDevice { get; init; }
+
+    /// <summary>
     /// Opaque key that triggers <see cref="CanvasControl.Invalidate"/> when the key object changes.
     /// </summary>
     public object? RedrawKey { get; init; }

@@ -83,6 +83,10 @@ class AnimatedCanvasDemo : Component
                     .TargetFps(60)
                     .Width(420)
                     .Height(220)
+                    // UseCanvasResources builds the sprite on Win2D's shared device, so the
+                    // canvas must draw with that same device — otherwise the cross-device
+                    // DrawImage raises a fatal stowed exception.
+                    .UseSharedDevice()
             ).Padding(20);
         });
     }

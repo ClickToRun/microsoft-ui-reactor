@@ -72,5 +72,33 @@ public sealed class Win2DCanvasModifiersTests
 
         Assert.Throws<ArgumentOutOfRangeException>(() => original.TargetFps(0));
     }
+
+    [Fact]
+    public void UseSharedDevice_OptsInForAllCanvasKindsWithoutMutatingOriginal()
+    {
+        var canvas = Win2DCanvas(static (CanvasDrawingSession _, CanvasDrawEventArgs _) => { });
+        var animated = Win2DAnimatedCanvas(
+            static (CanvasAnimatedUpdateEventArgs _, object? _) => { },
+            static (CanvasDrawingSession _, CanvasAnimatedDrawEventArgs _, object? _) => { });
+        var virtualCanvas = Win2DVirtualCanvas(static (CanvasDrawingSession _, Rect _) => { }, new Size(10, 10));
+
+        Assert.False(canvas.UseSharedDevice);
+        Assert.False(animated.UseSharedDevice);
+        Assert.False(virtualCanvas.UseSharedDevice);
+
+        var canvasUpdated = canvas.UseSharedDevice();
+        var animatedUpdated = animated.UseSharedDevice();
+        var virtualUpdated = virtualCanvas.UseSharedDevice();
+
+        Assert.NotSame(canvas, canvasUpdated);
+        Assert.False(canvas.UseSharedDevice);
+        Assert.False(animated.UseSharedDevice);
+        Assert.False(virtualCanvas.UseSharedDevice);
+        Assert.True(canvasUpdated.UseSharedDevice);
+        Assert.True(animatedUpdated.UseSharedDevice);
+        Assert.True(virtualUpdated.UseSharedDevice);
+
+        Assert.False(animatedUpdated.UseSharedDevice(false).UseSharedDevice);
+    }
 }
 

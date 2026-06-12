@@ -41,6 +41,27 @@ public static class Win2DCanvasModifiers
     }
 
     /// <summary>
+    /// Opts a manual Win2D canvas into Win2D's process-wide shared device. Required when the
+    /// canvas draws resources created by the <c>UseCanvasResources</c> hook.
+    /// </summary>
+    public static Win2DCanvasElement UseSharedDevice(this Win2DCanvasElement el, bool useSharedDevice = true) =>
+        el with { UseSharedDevice = useSharedDevice };
+
+    /// <summary>
+    /// Opts an animated Win2D canvas into Win2D's process-wide shared device. Required when the
+    /// canvas draws resources created by the <c>UseCanvasResources</c> hook.
+    /// </summary>
+    public static Win2DAnimatedCanvasElement UseSharedDevice(this Win2DAnimatedCanvasElement el, bool useSharedDevice = true) =>
+        el with { UseSharedDevice = useSharedDevice };
+
+    /// <summary>
+    /// Opts a virtual Win2D canvas into Win2D's process-wide shared device. Required when the
+    /// canvas draws resources created by the <c>UseCanvasResources</c> hook.
+    /// </summary>
+    public static Win2DVirtualCanvasElement UseSharedDevice(this Win2DVirtualCanvasElement el, bool useSharedDevice = true) =>
+        el with { UseSharedDevice = useSharedDevice };
+
+    /// <summary>
     /// Adds a raw <see cref="CanvasControl"/> setter to a manual Win2D canvas.
     /// </summary>
     public static Win2DCanvasElement Set(this Win2DCanvasElement el, Action<CanvasControl> setter) =>

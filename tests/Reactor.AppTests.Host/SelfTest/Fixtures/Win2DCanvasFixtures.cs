@@ -252,6 +252,73 @@ internal static class Win2DCanvasFixtures
         }
     }
 
+    /// <summary>
+    /// Regression guard for the cross-device crash: <c>UseCanvasResources</c> builds a
+    /// <c>CanvasBitmap</c> on Win2D's shared device, so the canvas drawing it must opt into
+    /// the shared device via <c>.UseSharedDevice()</c>. Without it the game-thread
+    /// <c>DrawImage</c> raises a cross-device error that surfaces as a fatal stowed exception
+    /// (process crash). With it, the canvas draws the shared-device resource cleanly.
+    /// </summary>
+    internal class AnimatedCanvasSharedDeviceResourceDraws(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var drawCount = 0;
+            var spriteDrawn = 0;
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var sprite = ctx.UseCanvasResources<CanvasBitmap>(device =>
+                {
+                    byte[] pixels =
+                    [
+                        0x00, 0x78, 0xD4, 0xFF,
+                        0x50, 0xC8, 0x78, 0xFF,
+                        0xFF, 0xB9, 0x00, 0xFF,
+                        0xD8, 0x3B, 0x01, 0xFF,
+                    ];
+
+                    var bitmap = CanvasBitmap.CreateFromBytes(
+                        device,
+                        pixels,
+                        widthInPixels: 2,
+                        heightInPixels: 2,
+                        global::Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized);
+                    return ValueTask.FromResult(bitmap);
+                });
+
+                return VStack(8,
+                    Win2DAnimatedCanvas(
+                        onUpdate: (_, _) => { },
+                        onDraw: (session, _, _) =>
+                        {
+                            Interlocked.Increment(ref drawCount);
+                            session.Clear(Colors.Black);
+                            if (sprite.Current is { } bitmap)
+                            {
+                                // Cross-device draw when the canvas owns a different device →
+                                // fatal stowed exception. Safe only because of .UseSharedDevice().
+                                session.DrawImage(bitmap, 8, 8, new Rect(0, 0, 2, 2), 0.85f);
+                                Interlocked.Increment(ref spriteDrawn);
+                            }
+                        })
+                        .TargetFps(30)
+                        .Width(240)
+                        .Height(120)
+                        .UseSharedDevice());
+            });
+
+            H.Check("Win2D_AnimatedCanvas_SharedDeviceResourceDraws_Draws",
+                await Harness.WaitFor(() => Volatile.Read(ref drawCount) >= 1, maxPasses: 60, perPassMs: 25));
+
+            H.Check("Win2D_AnimatedCanvas_SharedDeviceResourceDraws_SpriteDrawn",
+                await Harness.WaitFor(() => Volatile.Read(ref spriteDrawn) >= 1, maxPasses: 120, perPassMs: 25));
+
+            host.Mount(_ => TextBlock("Win2D shared-device resource unmounted"));
+            await Harness.Render();
+        }
+    }
+
     private sealed class AnimatedProbe
     {
         public int Ticks;

@@ -17,6 +17,13 @@ public sealed class Win2DVirtualCanvasHandler : IElementHandler<Win2DVirtualCanv
     {
         var ctrl = ctx.RentControl<CanvasVirtualControl>();
         Reconciler.SetElementTag(ctrl, el);
+
+        // Set UseSharedDevice before the control realizes its device so resource creation
+        // (incl. UseCanvasResources, which builds on CanvasDevice.GetSharedDevice) targets
+        // the same device the control draws with. Rented controls may carry a stale value.
+        if (ctrl.UseSharedDevice != el.UseSharedDevice)
+            ctrl.UseSharedDevice = el.UseSharedDevice;
+
         ApplyContentSize(ctrl, el);
 
         var bind = ctx.BindFor(ctrl, el);
@@ -41,6 +48,9 @@ public sealed class Win2DVirtualCanvasHandler : IElementHandler<Win2DVirtualCanv
     public void Update(UpdateContext ctx, Win2DVirtualCanvasElement oldEl, Win2DVirtualCanvasElement newEl, CanvasVirtualControl ctrl)
     {
         Reconciler.SetElementTag(ctrl, newEl);
+
+        // UseSharedDevice is fixed at mount; toggling it on a live control can crash (see guard).
+        Win2DSharedDeviceGuard.EnsureUseSharedDeviceUnchanged(oldEl.UseSharedDevice, newEl.UseSharedDevice);
 
         if (!SizesEqual(ctrl.Width, ctrl.Height, newEl.ContentSize.Width, newEl.ContentSize.Height))
             ApplyContentSize(ctrl, newEl);

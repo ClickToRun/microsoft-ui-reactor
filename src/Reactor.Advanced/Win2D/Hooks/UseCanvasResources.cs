@@ -13,9 +13,20 @@ public static class UseCanvasResourcesHook
     /// after <see cref="CanvasDevice.DeviceLost"/>, and disposes them on unmount.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// Resources are created on the process-wide shared device
+    /// (<see cref="CanvasDevice.GetSharedDevice()"/>). Win2D resources are device-affine, so any
+    /// canvas that draws these resources <b>must</b> opt into the shared device via
+    /// <c>.UseSharedDevice()</c> (or <c>UseSharedDevice = true</c>). A canvas defaults to its own
+    /// dedicated device; drawing a shared-device resource with that device raises a cross-device
+    /// error that surfaces as a fatal stowed exception. See
+    /// <see href="docs/guide/win2d-canvas.md#shared-device">the shared-device guidance</see>.
+    /// </para>
+    /// <para>
     /// The resource factory can run on a Win2D worker or game thread depending on
     /// the host canvas. See <see href="docs/guide/win2d-canvas.md#threading">the
     /// Win2D canvas threading guide</see> and <see href="docs/guide/win2d-canvas.md#device-loss">device loss</see>.
+    /// </para>
     /// </remarks>
     public static Ref<TResources?> UseCanvasResources<TResources>(
         this RenderContext ctx,

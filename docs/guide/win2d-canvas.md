@@ -99,6 +99,10 @@ class AnimatedCanvasDemo : Component
                     .TargetFps(60)
                     .Width(420)
                     .Height(220)
+                    // UseCanvasResources builds the sprite on Win2D's shared device, so the
+                    // canvas must draw with that same device — otherwise the cross-device
+                    // DrawImage raises a fatal stowed exception.
+                    .UseSharedDevice()
             ).Padding(20);
         });
     }
@@ -221,6 +225,10 @@ class AnimatedCanvasDemo : Component
                     .TargetFps(60)
                     .Width(420)
                     .Height(220)
+                    // UseCanvasResources builds the sprite on Win2D's shared device, so the
+                    // canvas must draw with that same device — otherwise the cross-device
+                    // DrawImage raises a fatal stowed exception.
+                    .UseSharedDevice()
             ).Padding(20);
         });
     }
@@ -250,6 +258,47 @@ var sprite = ctx.UseCanvasResources<CanvasBitmap>(device =>
         Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized);
     return ValueTask.FromResult(bitmap);
 });
+```
+
+> **Shared device required.** `UseCanvasResources` builds resources on Win2D's process-wide shared device. Any canvas that draws those resources must opt into the same device with `.UseSharedDevice()` — see [Shared device](#shared-device).
+
+### Shared device
+
+Win2D resources (bitmaps, geometries, render targets) are **device-affine**: a resource created on one `CanvasDevice` can only be drawn by a drawing session from that same device. By default each canvas control owns a *dedicated* device, while `UseCanvasResources` builds resources on the *shared* device returned by `CanvasDevice.GetSharedDevice()`. Drawing a shared-device resource with a control that owns a different device raises a cross-device error that surfaces as a **fatal stowed exception** (the app crashes, not throws).
+
+Opt the canvas into the shared device with the declarative `.UseSharedDevice()` modifier whenever it draws `UseCanvasResources` output (or any resource built from `CanvasDevice.GetSharedDevice()`):
+
+```csharp
+Win2DAnimatedCanvas(onUpdate: ..., onDraw: ..., drawState: dots.Current)
+    .TargetFps(60)
+    .UseSharedDevice();
+```
+
+The modifier is available on all three canvas elements (`Win2DCanvas`, `Win2DAnimatedCanvas`, `Win2DVirtualCanvas`). Resources created and drawn entirely within a single canvas's own `OnCreateResources` (using that control's device) do not need it.
+
+`UseSharedDevice` is a **device-construction setting**: Win2D evaluates it once when the control first realizes its device. It is fixed for the control's lifetime — toggling `.UseSharedDevice()` on a live canvas across re-renders is not supported (it would force a crash-prone in-place device recreation, so Reactor ignores the change in release builds and throws a clear error in debug builds). To switch devices, remount the canvas via a different `key`.
+
+#### Choosing between `UseCanvasResources` and `OnCreateResources`
+
+Both create device-backed resources with device-loss recovery; they differ in *which* device owns the resource:
+
+| | `UseCanvasResources` hook | Canvas `OnCreateResources` callback |
+|---|---|---|
+| Device | Win2D's process-wide **shared** device | The **canvas's own** device (`ctrl.Device`) |
+| Requires `.UseSharedDevice()` | Yes, on every canvas that draws the resource | No |
+| Reuse across multiple canvases | Yes — one hook, many canvases | No — per canvas |
+| Resource lifetime | Owned by the hook (ref + auto-dispose on unmount) | You store/dispose it yourself |
+| Best for | Sprites/atlases shared by several canvases, or component-level resource state | A resource only one canvas draws |
+
+The `create` callback you pass to `UseCanvasResources` already receives the `CanvasDevice` to build on — the hook deliberately supplies the *shared* device so a single resource can feed any number of canvases. Passing a canvas's own device into the hook instead is not supported: the control creates its device lazily (it is usually not realized when the hook's effect runs) and replaces it on device loss, so there is no stable per-canvas device to hand the hook. When you want a resource bound to one canvas's device, create it in that canvas's `OnCreateResources` — Win2D re-raises the callback with the fresh device after a loss:
+
+```csharp
+Win2DAnimatedCanvas(
+    onUpdate: ...,
+    onDraw: (session, _, _) => { if (_sprite is { } s) session.DrawImage(s); }) with
+{
+    OnCreateResources = async ctrl => _sprite = await CanvasBitmap.LoadAsync(ctrl.Device, spriteUri)
+};
 ```
 
 ### `UseDrawCommand`
@@ -300,7 +349,7 @@ The [Particle Storm sample](../../samples/apps/particle-storm/) is the canonical
 
 - **Manual invalidate pattern.** Derive a `RedrawKey` from every value the manual scene reads, and let reconciliation schedule exactly one invalidate.
 - **Reactive game-loop pattern.** Store particle/physics buffers in `UseDrawState`; drive parameters from [hooks](hooks.md) and let `OnUpdate` read the latest values on the next tick.
-- **Device-loss-safe resource pattern.** Acquire bitmaps and render targets through `UseCanvasResources`, draw only when the ref is non-null, and dispose custom resources in the hook's `dispose` callback when needed.
+- **Device-loss-safe resource pattern.** Acquire bitmaps and render targets through `UseCanvasResources`, draw only when the ref is non-null, and dispose custom resources in the hook's `dispose` callback when needed. Add `.UseSharedDevice()` to the canvas that draws them (see [Shared device](#shared-device)).
 - **Virtual tile pattern.** Use coordinate-derived drawing and pass a new `InvalidateRegions` list for changed tiles.
 
 ## Common Mistakes
@@ -309,6 +358,7 @@ The [Particle Storm sample](../../samples/apps/particle-storm/) is the canonical
 - Missing `RedrawKey` for value-driven manual scenes, which leaves stale pixels until a resize or DPI change.
 - Allocating bitmaps, brushes, arrays, or strings per frame in `OnDraw` instead of reusing draw state and resources.
 - Passing the same `InvalidateRegions` list instance after mutating it; Reactor keys invalidation by reference change.
+- Drawing `UseCanvasResources` output (or any `CanvasDevice.GetSharedDevice()` resource) on a canvas that has not opted into `.UseSharedDevice()`; the cross-device draw crashes the app with a stowed exception. See [Shared device](#shared-device).
 
 ## Next Steps
 
