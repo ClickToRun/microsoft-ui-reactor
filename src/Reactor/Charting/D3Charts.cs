@@ -248,7 +248,6 @@ public static class D3Charts
     /// <summary>Creates a path from SVG path data string.  Accepts null pathData gracefully (renders nothing).</summary>
     public static PathElement D3Path(string? pathData, Brush? stroke = null, Brush? fill = null, double strokeWidth = 1.5)
     {
-        global::System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(PathElement).TypeHandle);
         return new()
         {
             Data = pathData != null ? PathDataParser.Parse(pathData) : null,
@@ -262,7 +261,6 @@ public static class D3Charts
     /// <summary>Creates a path from SVG path data with a translate transform.  Accepts null pathData gracefully (renders nothing).</summary>
     public static PathElement D3PathTranslated(string? pathData, double translateX, double translateY, Brush? stroke = null, Brush? fill = null, double strokeWidth = 1.5)
     {
-        global::System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(PathElement).TypeHandle);
         return new()
         {
             Data = pathData != null ? PathDataParser.Parse(pathData) : null,
