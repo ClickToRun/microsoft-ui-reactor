@@ -31,6 +31,8 @@
     <PackageProjectUrl>https://github.com/microsoft/microsoft-ui-reactor</PackageProjectUrl>
     <RepositoryUrl>https://github.com/microsoft/microsoft-ui-reactor</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591;CS8305;REACTOR_DOC_001;REACTOR_DOC_002</NoWarn>
   </PropertyGroup>

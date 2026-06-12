@@ -25,6 +25,7 @@ Your project should target a Windows TFM with WinUI enabled:
 <PropertyGroup>
   <OutputType>WinExe</OutputType>
   <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+  <Platforms>x64;ARM64</Platforms>
   <UseWinUI>true</UseWinUI>
   <ImplicitUsings>enable</ImplicitUsings>
   <Nullable>enable</Nullable>
@@ -65,29 +66,39 @@ internal sealed class Counter : Component
 
 `ReactorApp.Run<TRoot>` opens a window, mounts your root component, and starts the render loop. When `setCount` updates state, Reactor re-renders the component and patches only the `TextBlock` that changed.
 
+## Common Patterns
+
+From here, the same model scales to real apps. The [getting started guide](https://github.com/microsoft/microsoft-ui-reactor/blob/main/docs/guide/getting-started.md) walks through each with complete, copy-pasteable code:
+
+- **Controlled inputs & keyed lists** — `TextBox`/`CheckBox` driven by state, with `.WithKey(...)` for stable list reconciliation.
+- **Side effects with cleanup** — `UseEffect` for timers, subscriptions, and I/O, returning an `Action` that runs on unmount.
+- **Async data loading** — kick off work from an effect, update UI thread-safely with `UseState(..., threadSafe: true)`, and cancel on unmount.
+- **Composition** — embed components with `Component<T>()` so each child keeps its own state.
+
 ## Key Features
 
-- **Declarative components** — describe UI as immutable records via factory methods (`TextBlock`, `Button`, `VStack`, `HStack`, …); never construct or mutate WinUI controls directly.
-- **Hooks** — `UseState`, `UseEffect`, `UseReducer`, `UseMemo`, `UseRef`, and more, with cross-thread state updates via `threadSafe: true`.
-- **Fluent modifiers** — chain `.FontSize()`, `.SemiBold()`, `.Padding()`, `.Width()`, `.Foreground()`, `.IsEnabled()`, and others while preserving the concrete element type.
+- **Declarative components** — describe UI as immutable records via factory methods (`TextBlock`, `Button`, `VStack`, `HStack`, `TextBox`, `CheckBox`, …); never construct or mutate WinUI controls directly.
+- **Hooks** — `UseState`, `UseEffect`, `UseReducer`, `UseMemo`, `UseRef`, and more, with opt-in cross-thread state updates via `threadSafe: true`.
+- **Fluent modifiers** — chain `.FontSize()`, `.SemiBold()`, `.Padding()`, `.Margin()`, `.Width()`, `.Foreground()`, `.Background()`, `.IsEnabled()`, `.HAlign()`, and others while preserving the concrete element type.
+- **Theme tokens** — color with system-aware tokens (`Theme.PrimaryText`, `Theme.Accent`, `Theme.SystemCritical`, …) that track light/dark mode automatically.
+- **Keyed reconciliation** — `.WithKey(...)` gives list items stable identity for minimal, correct updates; control pooling keeps updates allocation-light.
 - **Flexbox layout** — `FlexPanel` brings CSS Flexbox to WinUI via an embedded pure-C# port of Meta's Yoga engine.
-- **Efficient reconciliation** — a diffing reconciler plus control pooling keep updates minimal and allocation-light.
 - **Trim & Native AOT support** — ship small, fast, self-contained native binaries.
 
 ## Main Types
 
-| Type | Description |
-|------|-------------|
-| `ReactorApp` | Entry point — `Run<TRoot>(...)` creates the window and starts the render loop. |
-| `Component` | Base class for your components; override `Render()` to return an `Element` tree. |
-| `Element` | Immutable record describing a piece of UI. |
-| `Factories` | Static factory methods (`TextBlock`, `Button`, `VStack`, `HStack`, `Slider`, …) — the DSL entry point. |
-| `RenderContext` | Hosts the hooks (`UseState`, `UseEffect`, …) available inside `Render()`. |
+- **`ReactorApp`** — entry point; `Run<TRoot>(...)` creates the window and starts the render loop.
+- **`Component`** — base class for your components; override `Render()` to return an `Element` tree.
+- **`Element`** — immutable record describing a piece of UI.
+- **`Factories`** — static factory methods (`TextBlock`, `Button`, `VStack`, `HStack`, `TextBox`, `CheckBox`, `ForEach`, `Component<T>`, …); the DSL entry point.
+- **`RenderContext`** — hosts the hooks (`UseState`, `UseEffect`, `UseReducer`, …) available inside `Render()`.
+- **`Theme`** — system-aware color and brush tokens.
 
 ## Additional Documentation
 
 - [Getting started guide](https://github.com/microsoft/microsoft-ui-reactor/blob/main/docs/guide/getting-started.md)
 - [User guide](https://github.com/microsoft/microsoft-ui-reactor/tree/main/docs/guide)
+- [AOT support guide](https://github.com/microsoft/microsoft-ui-reactor/blob/main/docs/aot-support.md)
 - [Samples](https://github.com/microsoft/microsoft-ui-reactor/tree/main/samples)
 - [Windows App SDK documentation](https://learn.microsoft.com/windows/apps/windows-app-sdk/)
 - [WinUI 3 documentation](https://learn.microsoft.com/windows/apps/winui/winui3/)

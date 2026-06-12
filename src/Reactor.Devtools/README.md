@@ -54,6 +54,13 @@ The devtools surface is **developer-loop only** and ships with hard gates:
 - **ETW trace correlation** — emits a `Microsoft-UI-Reactor` `EventSource` for correlated Reactor + WinUI timelines (see [`INTERNALS.md`](https://github.com/microsoft/microsoft-ui-reactor/blob/main/src/Reactor.Devtools/INTERNALS.md)).
 - **Agent config generation** — `mur devtools --print-config` emits MCP config fragments for popular agents.
 
+## Best Practices
+
+- **Reference it Debug-only.** Wrap the `PackageReference` and the `Reactor.DevtoolsSupport` switch in a `'$(Configuration)' == 'Debug'` condition so Release and AOT builds carry no devtools surface at all.
+- **Never ship devtools to end users.** The MCP port has no authentication in v1; treat it as a local development tool only.
+- **Keep it on loopback.** Don't expose the MCP port through a reverse proxy, remote-binding tunnel, or `0.0.0.0` container forwarding.
+- **Run only with trusted local processes.** Any process on the same machine can call the MCP tools while the session is active.
+
 ## Additional Documentation
 
 - [Devtools internals & ETW guide](https://github.com/microsoft/microsoft-ui-reactor/blob/main/src/Reactor.Devtools/INTERNALS.md)

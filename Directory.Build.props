@@ -18,7 +18,7 @@
   -->
   <PropertyGroup>
     <WindowsAppSDKVersion>2.0.1</WindowsAppSDKVersion>
-    <Win2DVersion>1.3.0</Win2DVersion>
+    <Win2DVersion>1.4.0</Win2DVersion>
     <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
   </PropertyGroup>
 
@@ -37,6 +37,37 @@
     <PackageProjectUrl Condition="'$(PackageProjectUrl)' == ''">https://github.com/microsoft/microsoft-ui-reactor</PackageProjectUrl>
     <RepositoryUrl Condition="'$(RepositoryUrl)' == ''">https://github.com/microsoft/microsoft-ui-reactor</RepositoryUrl>
     <RepositoryType Condition="'$(RepositoryType)' == ''">git</RepositoryType>
+  </PropertyGroup>
+
+  <!--
+    SourceLink — lets consumers step into Reactor source while debugging. The
+    GitHub provider (Microsoft.SourceLink.GitHub) is bundled in the .NET SDK and
+    auto-imported for GitHub-hosted repos, so no PackageReference is needed (which
+    also avoids having to seed the package into the sealed-container internal feed).
+    These properties make the published .snupkg carry SourceLink metadata:
+      - PublishRepositoryUrl embeds RepositoryUrl in the package.
+      - EmbedUntrackedSources embeds generated/untracked sources (e.g. source-gen
+        output) so every PDB document resolves.
+      - ContinuousIntegrationBuild + DeterministicSourcePaths normalize source paths
+        to deterministic roots so PDBs don't leak local paths (e.g. E:\repos\...) and
+        match the committed source on GitHub. Gated to CI: turning them on locally
+        rewrites paths and breaks stepping into your own working-tree builds.
+
+    NOTE on '$(CI)': despite the name, this is the universal "automated build agent"
+    flag (set by GitHub Actions, ADO, etc.), NOT "the CI/PR-gate pipeline". BOTH the
+    PR-gate (OneBranch.CI.Reactor.yml) AND the release/pack pipeline
+    (OneBranch.Official.Reactor.yml) set CI=true — so the deterministic-path arm below
+    DOES run for the signed release packages. "CI" here means "not a developer's
+    interactive working-tree build", which is exactly when we want deterministic,
+    source-linked PDBs.
+  -->
+  <PropertyGroup>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(CI)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <DeterministicSourcePaths>true</DeterministicSourcePaths>
   </PropertyGroup>
 
   <!--

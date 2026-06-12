@@ -1,5 +1,5 @@
 using System.Text;
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 
 namespace Microsoft.UI.Reactor.Cli.Loc;
 
@@ -16,9 +16,12 @@ internal sealed class CopilotTranslationProvider : ITranslationProvider
 
     public CopilotTranslationProvider(string? model = null)
     {
+        // Default model: gpt-5.4-mini — a fast, low-cost model well-suited to
+        // straightforward string translation (gpt-4o is no longer offered by the
+        // Copilot runtime → session.create fails). Override via --model or COPILOT_MODEL.
         _model = model
             ?? Environment.GetEnvironmentVariable("COPILOT_MODEL")
-            ?? "gpt-4o";
+            ?? "gpt-5.4-mini";
     }
 
     public async Task<TranslationResult> TranslateAsync(TranslationBatch batch, CancellationToken ct = default)
@@ -38,7 +41,7 @@ internal sealed class CopilotTranslationProvider : ITranslationProvider
         var tcs = new TaskCompletionSource<string>();
         var responseBuilder = new StringBuilder();
 
-        session.On(evt =>
+        session.On<SessionEvent>(evt =>
         {
             switch (evt)
             {

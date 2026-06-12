@@ -290,7 +290,7 @@ internal static class TranslateCommand
         Console.WriteLine("  --source <dir>     Source locale directory (default: Strings/en-US/)");
         Console.WriteLine("  --target <locales>  Comma-separated target locales (e.g., fr-FR,ar-SA)");
         Console.WriteLine("  --missing-only     Only translate missing or AI-draft keys");
-        Console.WriteLine("  --model <name>     Model to use (default: gpt-4o, or COPILOT_MODEL env var)");
+        Console.WriteLine("  --model <name>     Model to use (default: gpt-5.4-mini, or COPILOT_MODEL env var)");
         Console.WriteLine();
         Console.WriteLine("Requires GitHub CLI (gh) to be installed and authenticated with a");
         Console.WriteLine("Copilot-enabled GitHub account.");

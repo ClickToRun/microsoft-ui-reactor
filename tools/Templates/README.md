@@ -24,11 +24,30 @@ dotnet run -p:Platform=x64
 
 This scaffolds a runnable WinUI 3 project that references `Microsoft.UI.Reactor` and the Windows App SDK, with a root component already wired up through `ReactorApp.Run`.
 
+### Template options
+
+- `--NativeAot` (bool, default `false`) — configure the project for Native AOT publishing.
+- `--UseProgramMain` (bool, default `false`) — generate an explicit `Program.Main` instead of top-level statements.
+- `--Framework <tfm>` (default `net10.0`) — choose the target framework.
+
+```shell
+# Example: a Native AOT-ready app with an explicit Main method
+dotnet new reactorapp -n MyApp --NativeAot --UseProgramMain
+```
+
 ## Included Templates
 
-| Template | Short name | Description |
-|----------|-----------|-------------|
-| Microsoft WinUI Reactor App | `reactorapp` | A Windows WinUI 3 application using Reactor (C#). |
+- **Microsoft WinUI Reactor App** (short name `reactorapp`) — a Windows WinUI 3 application using Reactor (C#).
+
+## Updating and uninstalling
+
+```shell
+# Update to the latest published templates
+dotnet new update
+
+# Remove the templates
+dotnet new uninstall Microsoft.UI.Reactor.ProjectTemplates
+```
 
 ## Additional Documentation
 

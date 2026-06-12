@@ -4,7 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 
 namespace DemoScriptTool.App.Services;
 
@@ -65,9 +65,9 @@ public sealed class CopilotSdkClient : IModelClient, IAsyncDisposable
             // provided — i.e. the SDK rides whichever account `gh auth` /
             // Copilot considers active. Pass an explicit token only when
             // a caller has resolved one (e.g. for a non-active gh account).
+            // We call StartAsync() ourselves below so startup failures surface here.
             var options = new CopilotClientOptions
             {
-                AutoStart = false, // we'll StartAsync ourselves so failures surface here
                 GitHubToken = _explicitToken,
             };
             var client = new CopilotClient(options);
@@ -125,7 +125,7 @@ public sealed class CopilotSdkClient : IModelClient, IAsyncDisposable
         bool sawDeltas = false;
         bool turnEnded = false;
 
-        using var subscription = session.On(evt =>
+        using var subscription = session.On<SessionEvent>(evt =>
         {
             // Trace every event type so envelope drift / unexpected sequencing
             // is visible during debugging. The line is kept short so it doesn't

@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
@@ -20,6 +21,7 @@ using ViewStatus = Microsoft.UI.Reactor.VsExtension.UI.EmbedStatus;
 
 namespace Reactor.VsExtension.Tests
 {
+    [Collection(OutputChannelTestCollection.Name)]
     public sealed class EmbedSessionTests
     {
         [Fact]
@@ -726,16 +728,17 @@ namespace Reactor.VsExtension.Tests
         }
     }
 
+    [Collection(OutputChannelTestCollection.Name)]
     public sealed class LoggingTests
     {
         [Fact]
         public async Task SafeAsync_Run_CatchesException_Logs_DoesNotThrow()
         {
             OutputChannel.ResetForTest();
-            var lines = new List<string>();
+            var lines = new ConcurrentQueue<string>();
             OutputChannel.InitializeForTest(line =>
             {
-                lines.Add(line);
+                lines.Enqueue(line);
                 return Task.CompletedTask;
             });
 
@@ -743,19 +746,20 @@ namespace Reactor.VsExtension.Tests
             SafeAsync.Run(context.Factory, () => throw new InvalidOperationException("boom"), "Explode");
 
             await EventuallyAsync(() => lines.Count >= 2);
-            Assert.Contains(lines, line => line.Contains("[Explode] InvalidOperationException: boom"));
-            Assert.Contains(lines, line => line.Contains("InvalidOperationException"));
+            var snapshot = lines.ToArray();
+            Assert.Contains(snapshot, line => line.Contains("[Explode] InvalidOperationException: boom"));
+            Assert.Contains(snapshot, line => line.Contains("InvalidOperationException"));
         }
 
         [Fact]
         public async Task SafeAsync_AsyncRun_NoGetAwaiterGetResult_OnUiThread()
         {
             OutputChannel.ResetForTest();
-            var lines = new List<string>();
+            var lines = new ConcurrentQueue<string>();
             OutputChannel.InitializeForTest(async line =>
             {
                 await Task.Yield();
-                lines.Add(line);
+                lines.Enqueue(line);
             });
 
             var context = new JoinableTaskContext();
@@ -770,7 +774,7 @@ namespace Reactor.VsExtension.Tests
             });
 
             await EventuallyAsync(() => lines.Count >= 2);
-            Assert.Contains(lines, line => line.Contains("[AsyncExplode] InvalidOperationException: async boom"));
+            Assert.Contains(lines.ToArray(), line => line.Contains("[AsyncExplode] InvalidOperationException: async boom"));
         }
 
         [Fact]
@@ -779,17 +783,18 @@ namespace Reactor.VsExtension.Tests
             OutputChannel.ResetForTest();
             await OutputChannel.WriteLineAsync("before");
 
-            var lines = new List<string>();
+            var lines = new ConcurrentQueue<string>();
             OutputChannel.InitializeForTest(line =>
             {
-                lines.Add(line);
+                lines.Enqueue(line);
                 return Task.CompletedTask;
             });
             await OutputChannel.WriteLineAsync("after");
 
-            Assert.Equal(2, lines.Count);
-            Assert.Contains("before", lines[0]);
-            Assert.Contains("after", lines[1]);
+            var snapshot = lines.ToArray();
+            Assert.Equal(2, snapshot.Length);
+            Assert.Contains("before", snapshot[0]);
+            Assert.Contains("after", snapshot[1]);
         }
 
         private static async Task EventuallyAsync(Func<bool> condition)
