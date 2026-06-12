@@ -12,38 +12,49 @@ namespace Microsoft.UI.Reactor.Hosting;
 /// An element that embeds a XAML Page inside a Frame, enabling navigation
 /// to existing XAML pages from within a Reactor component tree.
 /// </summary>
-public record XamlPageElement(Type PageType, object? Parameter = null) : Element
+/// <remarks>
+/// Spec 058 §15 (P5.28) — migrated to a generated monomorphic decorator
+/// (<c>[WrapDecorator]</c>): the generated Pattern-A cctor self-registers the
+/// decorator on first <c>new</c>, replacing the hand-written
+/// <c>XamlPageDescriptor</c>. The control is a <see cref="Frame"/> created once
+/// and re-navigated in place on update.
+/// </remarks>
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(Frame))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapDecorator(nameof(CreateFrame), OnUpdate = nameof(UpdateFrame), OnUnmount = nameof(TeardownFrame))]
+public partial record XamlPageElement(Type PageType, object? Parameter = null) : Element
 {
-    static XamlPageElement()
+    private static Frame CreateFrame(XamlPageElement element)
     {
-        // Spec 048 §3.4 — singleton-handler decorator registration on first
-        // type load. Provides the global ControlRegistry entry that legacy
-        // XamlInterop.Register also installs per-host, so callers that
-        // construct `new XamlPageElement(...)` directly (no Register call) are
-        // also covered now that the eager registrar (RegisterV1BuiltInHandlers)
-        // has been deleted.
-        Microsoft.UI.Reactor.Core.V1Protocol.ControlRegistry.RegisterDecorator<XamlPageElement>(
-            static () => Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.Descriptors.XamlPageDescriptor.Handler);
+        var frame = new Frame();
+        frame.Navigate(element.PageType, element.Parameter);
+        return frame;
     }
+
+    private static void UpdateFrame(XamlPageElement oldEl, XamlPageElement newEl, Frame frame)
+    {
+        if (oldEl.PageType != newEl.PageType || !Equals(oldEl.Parameter, newEl.Parameter))
+            frame.Navigate(newEl.PageType, newEl.Parameter);
+    }
+
+    // Navigate away (clear Content) to trigger Page.OnNavigatedFrom cleanup.
+    private static void TeardownFrame(Frame frame) => frame.Content = null;
 }
 
 /// <summary>
 /// An element that embeds an arbitrary FrameworkElement (UserControl, custom control, etc.)
 /// into the Reactor tree. The factory creates the control; the updater patches it.
 /// </summary>
-public record XamlHostElement(
+/// <remarks>
+/// Spec 058 §15 (P5.28) — migrated to a generated monomorphic decorator
+/// (<c>[WrapDecorator]</c>), replacing the hand-written <c>XamlHostDescriptor</c>.
+/// </remarks>
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(FrameworkElement))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapDecorator(nameof(CreateHost), OnUpdate = nameof(UpdateHost))]
+public partial record XamlHostElement(
     Func<FrameworkElement> Factory,
     Action<FrameworkElement>? Updater = null
 ) : Element
 {
-    static XamlHostElement()
-    {
-        // Spec 048 §3.4 — singleton-handler decorator registration on first
-        // type load. See XamlPageElement static ctor for rationale.
-        Microsoft.UI.Reactor.Core.V1Protocol.ControlRegistry.RegisterDecorator<XamlHostElement>(
-            static () => Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.Descriptors.XamlHostDescriptor.Handler);
-    }
-
     /// <summary>
     /// Optional discriminator for the reconciler's CanUpdate check.
     /// When set, two XamlHostElements can only update in place if their
@@ -51,6 +62,16 @@ public record XamlHostElement(
     /// being reconciled against each other.
     /// </summary>
     public string? TypeKey { get; init; }
+
+    private static FrameworkElement CreateHost(XamlHostElement element)
+    {
+        var control = element.Factory();
+        element.Updater?.Invoke(control);
+        return control;
+    }
+
+    private static void UpdateHost(XamlHostElement oldEl, XamlHostElement newEl, FrameworkElement control)
+        => newEl.Updater?.Invoke(control);
 }
 
 /// <summary>

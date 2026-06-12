@@ -2318,6 +2318,31 @@ public static partial class ElementExtensions
     }
 
     /// <summary>
+    /// Runs an action once when the element is unmounted (removed from the tree),
+    /// receiving the native control. The teardown half of <see cref="OnMount"/> —
+    /// the React <c>useEffect</c> cleanup / Compose <c>DisposableEffect { onDispose }</c>
+    /// shape — for controls that need an imperative stop/dispose (e.g. stopping a
+    /// camera preview, releasing a media session). Runs on genuine unmount, not on
+    /// re-render/update.
+    /// Usage: CameraPreview(...).OnMount(fe =&gt; Start(fe)).OnUnmount(fe =&gt; Stop(fe))
+    /// </summary>
+    public static T OnUnmount<T>(this T el, Action<FrameworkElement> action) where T : Element =>
+        Modify(el, new ElementModifiers { OnUnmountAction = action });
+
+    /// <summary>
+    /// Like <see cref="OnUnmount"/>, but composes with any unmount action already on
+    /// the element instead of overwriting it (pre-existing action runs first).
+    /// </summary>
+    public static T OnUnmountAdd<T>(this T el, Action<FrameworkElement> action) where T : Element
+    {
+        var existing = el.Modifiers?.OnUnmountAction;
+        Action<FrameworkElement> combined = existing is null
+            ? action
+            : fe => { existing(fe); action(fe); };
+        return Modify(el, new ElementModifiers { OnUnmountAction = combined });
+    }
+
+    /// <summary>
     /// Opts a subtree in or out of window drag-from-background hit testing.
     /// Use <c>.Drag(false)</c> on custom interactive regions that should not start a window move.
     /// </summary>
@@ -2583,7 +2608,7 @@ public static partial class ElementExtensions
         double? rangeValue = null,
         bool isReadOnly = true) where T : Element
     {
-        _ = V1.Reg<SemanticElement, SemanticPanel, Desc.SemanticDescriptorHandler>.Done;
+        global::System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(SemanticElement).TypeHandle);
         return new SemanticElement(el, new SemanticDescription(role, value, rangeMin, rangeMax, rangeValue, isReadOnly));
     }
 

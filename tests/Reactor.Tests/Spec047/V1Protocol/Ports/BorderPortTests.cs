@@ -1,7 +1,7 @@
 using System;
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Reactor.Core.V1Protocol;
-using Microsoft.UI.Reactor.Core.V1Protocol.Handlers;
+using Microsoft.UI.Reactor.Core.V1Protocol.Descriptor;
 using Xunit;
 
 namespace Microsoft.UI.Reactor.Tests.Spec047.V1Protocol.Ports;
@@ -14,18 +14,19 @@ public class BorderPortTests
     [Fact]
     public void BuiltIn_BorderHandler_In_Global_Registry()
     {
-        // Spec 048 §3.4 — test-only BuiltInHandlerBootstrap module
-        // initializer has touched Reg<BorderElement, Border, BorderHandler>.Done,
-        // installing the closed-generic handler in the global ControlRegistry.
+        // Spec 058 §15 (P5.18) — Border migrated to a generated descriptor; the
+        // test-only BuiltInHandlerBootstrap fires BorderElement's Pattern-A static
+        // cctor (RunClassConstructor), self-registering it in the global registry.
         Assert.True(Microsoft.UI.Reactor.Core.V1Protocol.ControlRegistry.TryResolve(
             typeof(BorderElement), out _));
     }
 
     [Fact]
-    public void Border_Handler_Declares_SingleContent_Strategy()
+    public void Border_Descriptor_Declares_SingleContent_Strategy()
     {
-        var handler = new BorderHandler();
-        var strategy = ((IElementHandler<BorderElement, Microsoft.UI.Xaml.Controls.Border>)handler).Children;
+        // The generated descriptor's [WrapContent("Child")] slot is a SingleContent
+        // children strategy (mirrors the deleted hand-coded BorderHandler.Children).
+        var strategy = BorderElement.Descriptor.Children;
         Assert.NotNull(strategy);
         Assert.IsType<SingleContent<BorderElement, Microsoft.UI.Xaml.Controls.Border>>(strategy);
     }

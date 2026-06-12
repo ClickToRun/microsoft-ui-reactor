@@ -101,25 +101,14 @@ public sealed class TrimAssertionTests
         // assertion must use the real class names or a positive substring
         // match will never trigger and the guard becomes vacuous for those
         // entries.
-        "TreeViewDescriptorHandler",
         "GridViewHandler",
-        "TabViewDescriptorHandler",
         "ListViewHandler",
         "FlipViewDescriptorHandler",
-        "PivotDescriptorHandler",
-        "NavigationViewDescriptorHandler",
-        "CalendarViewDescriptorHandler",
         "CalendarDatePickerDescriptorHandler",
         "TimePickerDescriptorHandler",
         "DatePickerDescriptorHandler",
-        "NumberBoxDescriptorHandler",
         "ColorPickerDescriptorHandler",
-        "MediaPlayerElementDescriptorHandler",
-        "WebView2DescriptorHandler",
         "MapControlDescriptorHandler",
-        "TeachingTipDescriptorHandler",
-        "InfoBarDescriptorHandler",
-        "BreadcrumbBarDescriptorHandler",
 
         // Reactor-owned element-record names for the same set. An element
         // record is reachable only if its factory is called *or* an external

@@ -39,10 +39,16 @@ internal static class BuiltInHandlerBootstrap
     internal static void Initialize()
     {
         // ── Descriptor-backed value controls ──
-        _ = V1.Reg<ToggleSwitchElement, WinUI.ToggleSwitch, Desc.ToggleSwitchDescriptorHandler>.Done;
-        _ = V1.Reg<SliderElement, WinUI.Slider, Desc.SliderDescriptorHandler>.Done;
-        _ = V1.Reg<TextBoxElement, WinUI.TextBox, Desc.TextBoxDescriptorHandler>.Done;
-        _ = V1.Reg<BorderElement, WinUI.Border, V1.Handlers.BorderHandler>.Done;
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(ToggleSwitchElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(SliderElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(TextBoxElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(BorderElement).TypeHandle);
+        // Controls migrated to generated descriptors (spec 058 §15 / P5.3+) self-
+        // register via their Pattern-A static cctor; fire it explicitly here
+        // (tests construct records directly, not via factories).
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(ViewboxElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(ProgressRingElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(ProgressElement).TypeHandle);
         _ = V1.Reg<ListViewElement, WinUI.ListView, V1.Handlers.ListViewHandler>.Done;
 
         _ = V1.Reg<NavigationHostElement, WinUI.Grid, V1.Handlers.NavigationHostHandler>.Done;
@@ -56,7 +62,7 @@ internal static class BuiltInHandlerBootstrap
         _ = V1.RegDecorator<MenuFlyoutElement, V1.Handlers.MenuFlyoutHandler>.Done;
         _ = V1.RegDecorator<PopupElement, V1.Handlers.PopupHandler>.Done;
         _ = V1.RegDecorator<CommandBarFlyoutElement, V1.Handlers.CommandBarFlyoutHandler>.Done;
-        _ = V1.Reg<ButtonElement, WinUI.Button, Desc.ButtonDescriptorHandler>.Done;
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(ButtonElement).TypeHandle);
 
         // ── Composite / validation decorators ──
         _ = V1.RegDecorator<Microsoft.UI.Reactor.Core.CommandHostElement, V1.Handlers.CommandHostHandler>.Done;
@@ -72,86 +78,90 @@ internal static class BuiltInHandlerBootstrap
         _ = Desc.ItemsViewDescriptor.Registration.Done;
 
         // ── Standard concrete descriptors (alphabetical, mirrors RegisterV1BuiltInHandlers) ──
-        _ = V1.Reg<AnimatedIconElement, WinUI.AnimatedIcon, Desc.AnimatedIconDescriptorHandler>.Done;
-        _ = V1.Reg<AnimatedVisualPlayerElement, WinUI.AnimatedVisualPlayer, Desc.AnimatedVisualPlayerDescriptorHandler>.Done;
-        _ = V1.Reg<AnnotatedScrollBarElement, WinUI.AnnotatedScrollBar, Desc.AnnotatedScrollBarDescriptorHandler>.Done;
-        _ = V1.Reg<AnnounceRegionElement, WinUI.TextBlock, Desc.AnnounceRegionDescriptorHandler>.Done;
-        _ = V1.Reg<AutoSuggestBoxElement, WinUI.AutoSuggestBox, Desc.AutoSuggestBoxDescriptorHandler>.Done;
-        _ = V1.Reg<BreadcrumbBarElement, WinUI.BreadcrumbBar, Desc.BreadcrumbBarDescriptorHandler>.Done;
-        _ = V1.Reg<CalendarDatePickerElement, WinUI.CalendarDatePicker, Desc.CalendarDatePickerDescriptorHandler>.Done;
-        _ = V1.Reg<CalendarViewElement, WinUI.CalendarView, Desc.CalendarViewDescriptorHandler>.Done;
-        _ = V1.Reg<CanvasElement, WinUI.Canvas, Desc.CanvasDescriptorHandler>.Done;
-        _ = V1.Reg<CheckBoxElement, WinUI.CheckBox, Desc.CheckBoxDescriptorHandler>.Done;
-        _ = V1.Reg<ColorPickerElement, WinUI.ColorPicker, Desc.ColorPickerDescriptorHandler>.Done;
-        _ = V1.Reg<ComboBoxElement, WinUI.ComboBox, Desc.ComboBoxDescriptorHandler>.Done;
-        _ = V1.Reg<DatePickerElement, WinUI.DatePicker, Desc.DatePickerDescriptorHandler>.Done;
-        _ = V1.Reg<DropDownButtonElement, WinUI.DropDownButton, Desc.DropDownButtonDescriptorHandler>.Done;
-        _ = V1.Reg<EllipseElement, WinShapes.Ellipse, Desc.EllipseDescriptorHandler>.Done;
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(AnimatedIconElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(AnimatedVisualPlayerElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(AnnotatedScrollBarElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(AnnounceRegionElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(AutoSuggestBoxElement).TypeHandle);
+        
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(CalendarDatePickerElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(CalendarViewElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(CanvasElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(CheckBoxElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(ColorPickerElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(ComboBoxElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(BreadcrumbBarElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(SelectorBarElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(SwipeControlElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(SemanticZoomElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(DatePickerElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(DropDownButtonElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(EllipseElement).TypeHandle);
         _ = V1.RegDecorator<ExpanderElement, V1.Handlers.ExpanderHandler>.Done;
-        _ = V1.Reg<FlexElement, Microsoft.UI.Reactor.Layout.FlexPanel, Desc.FlexPanelDescriptorHandler>.Done;
-        _ = V1.Reg<FlipViewElement, WinUI.FlipView, Desc.FlipViewDescriptorHandler>.Done;
-        _ = V1.Reg<FrameElement, WinUI.Frame, Desc.FrameDescriptorHandler>.Done;
-        _ = V1.Reg<GridElement, WinUI.Grid, Desc.GridDescriptorHandler>.Done;
-        _ = V1.Reg<HyperlinkButtonElement, WinUI.HyperlinkButton, Desc.HyperlinkButtonDescriptorHandler>.Done;
-        _ = V1.Reg<ImageElement, WinUI.Image, Desc.ImageDescriptorHandler>.Done;
-        _ = V1.Reg<InfoBadgeElement, WinUI.InfoBadge, Desc.InfoBadgeDescriptorHandler>.Done;
-        _ = V1.Reg<InfoBarElement, WinUI.InfoBar, Desc.InfoBarDescriptorHandler>.Done;
-        _ = V1.Reg<ItemContainerElement, WinUI.ItemContainer, Desc.ItemContainerDescriptorHandler>.Done;
-        _ = V1.Reg<LineElement, WinShapes.Line, Desc.LineDescriptorHandler>.Done;
-        _ = V1.Reg<ListBoxElement, WinUI.ListBox, Desc.ListBoxDescriptorHandler>.Done;
-        _ = V1.Reg<MapControlElement, WinUI.MapControl, Desc.MapControlDescriptorHandler>.Done;
-        _ = V1.Reg<MediaPlayerElementElement, WinUI.MediaPlayerElement, Desc.MediaPlayerElementDescriptorHandler>.Done;
-        _ = V1.Reg<NavigationViewElement, WinUI.NavigationView, Desc.NavigationViewDescriptorHandler>.Done;
-        _ = V1.Reg<NumberBoxElement, WinUI.NumberBox, Desc.NumberBoxDescriptorHandler>.Done;
-        _ = V1.Reg<ParallaxViewElement, WinUI.ParallaxView, Desc.ParallaxViewDescriptorHandler>.Done;
-        _ = V1.Reg<PasswordBoxElement, WinUI.PasswordBox, Desc.PasswordBoxDescriptorHandler>.Done;
-        _ = V1.Reg<PathElement, WinShapes.Path, Desc.PathDescriptorHandler>.Done;
-        _ = V1.Reg<PersonPictureElement, WinUI.PersonPicture, Desc.PersonPictureDescriptorHandler>.Done;
-        _ = V1.Reg<PipsPagerElement, WinUI.PipsPager, Desc.PipsPagerDescriptorHandler>.Done;
-        _ = V1.Reg<PivotElement, WinUI.Pivot, Desc.PivotDescriptorHandler>.Done;
-        _ = V1.Reg<ProgressElement, WinUI.ProgressBar, Desc.ProgressBarDescriptorHandler>.Done;
-        _ = V1.Reg<ProgressRingElement, WinUI.ProgressRing, Desc.ProgressRingDescriptorHandler>.Done;
-        _ = V1.Reg<RadioButtonElement, WinUI.RadioButton, Desc.RadioButtonDescriptorHandler>.Done;
-        _ = V1.Reg<RadioButtonsElement, WinUI.RadioButtons, Desc.RadioButtonsDescriptorHandler>.Done;
-        _ = V1.Reg<RatingControlElement, WinUI.RatingControl, Desc.RatingControlDescriptorHandler>.Done;
-        _ = V1.Reg<RectangleElement, WinShapes.Rectangle, Desc.RectangleDescriptorHandler>.Done;
-        _ = V1.Reg<RefreshContainerElement, WinUI.RefreshContainer, Desc.RefreshContainerDescriptorHandler>.Done;
-        _ = V1.Reg<RelativePanelElement, WinUI.RelativePanel, Desc.RelativePanelDescriptorHandler>.Done;
-        _ = V1.Reg<RepeatButtonElement, WinPrim.RepeatButton, Desc.RepeatButtonDescriptorHandler>.Done;
-        _ = V1.Reg<RichEditBoxElement, WinUI.RichEditBox, Desc.RichEditBoxDescriptorHandler>.Done;
-        _ = V1.Reg<RichTextBlockElement, WinUI.RichTextBlock, Desc.RichTextBlockDescriptorHandler>.Done;
-        _ = V1.Reg<ScrollViewElement, WinUI.ScrollView, Desc.ScrollViewDescriptorHandler>.Done;
-        _ = V1.Reg<ScrollViewerElement, WinUI.ScrollViewer, Desc.ScrollViewerDescriptorHandler>.Done;
-        _ = V1.Reg<SelectorBarElement, WinUI.SelectorBar, Desc.SelectorBarDescriptorHandler>.Done;
-        _ = V1.Reg<SemanticElement, SemanticPanel, Desc.SemanticDescriptorHandler>.Done;
-        _ = V1.Reg<SemanticZoomElement, WinUI.SemanticZoom, Desc.SemanticZoomDescriptorHandler>.Done;
-        _ = V1.Reg<SplitButtonElement, WinUI.SplitButton, Desc.SplitButtonDescriptorHandler>.Done;
-        _ = V1.Reg<SplitViewElement, WinUI.SplitView, Desc.SplitViewDescriptorHandler>.Done;
-        _ = V1.Reg<StackElement, WinUI.StackPanel, Desc.StackPanelDescriptorHandler>.Done;
-        _ = V1.Reg<SwipeControlElement, WinUI.SwipeControl, Desc.SwipeControlDescriptorHandler>.Done;
-        _ = V1.Reg<TabViewElement, WinUI.TabView, Desc.TabViewDescriptorHandler>.Done;
-        _ = V1.Reg<TeachingTipElement, WinUI.TeachingTip, Desc.TeachingTipDescriptorHandler>.Done;
-        _ = V1.Reg<TextBlockElement, WinUI.TextBlock, Desc.TextBlockDescriptorHandler>.Done;
-        _ = V1.Reg<TimePickerElement, WinUI.TimePicker, Desc.TimePickerDescriptorHandler>.Done;
-        _ = V1.Reg<TitleBarElement, WinUI.TitleBar, Desc.TitleBarDescriptorHandler>.Done;
-        _ = V1.Reg<ToggleButtonElement, WinPrim.ToggleButton, Desc.ToggleButtonDescriptorHandler>.Done;
-        _ = V1.Reg<ToggleSplitButtonElement, WinUI.ToggleSplitButton, Desc.ToggleSplitButtonDescriptorHandler>.Done;
-        _ = V1.Reg<TreeViewElement, WinUI.TreeView, Desc.TreeViewDescriptorHandler>.Done;
-        _ = V1.Reg<ViewboxElement, WinUI.Viewbox, Desc.ViewboxDescriptorHandler>.Done;
-        _ = V1.Reg<WebView2Element, WinUI.WebView2, Desc.WebView2DescriptorHandler>.Done;
-        _ = V1.Reg<WrapGridElement, WinUI.VariableSizedWrapGrid, Desc.WrapGridDescriptorHandler>.Done;
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(FlexElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(FlipViewElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(FrameElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(GridElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(HyperlinkButtonElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(ImageElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(InfoBadgeElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(InfoBarElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(ItemContainerElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(LineElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(ListBoxElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(MapControlElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(MediaPlayerElementElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(NavigationViewElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(NumberBoxElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(ParallaxViewElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(PasswordBoxElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(PathElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(PersonPictureElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(PipsPagerElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(PivotElement).TypeHandle);
+        // ProgressBar migrated to a generated descriptor (spec 058 §15 / P5.4) —
+        // its Pattern-A static cctor is fired near the top of this initializer.
+        // ProgressRing migrated to a generated descriptor (spec 058 §15 / P5.4) —
+        // its Pattern-A static cctor is fired near the top of this initializer.
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(RadioButtonElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(RadioButtonsElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(RatingControlElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(RectangleElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(RefreshContainerElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(RelativePanelElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(RepeatButtonElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(RichEditBoxElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(RichTextBlockElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(ScrollViewElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(ScrollViewerElement).TypeHandle);
+        
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(SemanticElement).TypeHandle);
+        
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(SplitButtonElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(SplitViewElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(StackElement).TypeHandle);
+        
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(TabViewElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(TeachingTipElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(TextBlockElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(TimePickerElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(TitleBarElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(ToggleButtonElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(ToggleSplitButtonElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(TreeViewElement).TypeHandle);
+        // Viewbox migrated to a generated descriptor (spec 058 §15 / P5.3) — its
+        // Pattern-A static cctor is fired near the top of this initializer.
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(WebView2Element).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(WrapGridElement).TypeHandle);
 
-        // IconElement / XamlPageElement / XamlHostElement: fully-qualified
-        // because the namespace contains other types of the same short name
-        // (Microsoft.UI.Xaml.Controls.IconElement). The handler classes for
-        // these three are private nested types, so RegDecorator<>'s new()
-        // constraint can't bind to them — register via a static lambda that
-        // returns the public Handler singleton instead.
-        V1.ControlRegistry.RegisterDecorator<Microsoft.UI.Reactor.Core.IconElement>(
-            static () => Desc.IconDescriptor.Handler);
-        V1.ControlRegistry.RegisterDecorator<Microsoft.UI.Reactor.Hosting.XamlPageElement>(
-            static () => Desc.XamlPageDescriptor.Handler);
-        V1.ControlRegistry.RegisterDecorator<Microsoft.UI.Reactor.Hosting.XamlHostElement>(
-            static () => Desc.XamlHostDescriptor.Handler);
+        // IconElement migrated to a generated polymorphic descriptor (spec 058
+        // §15 / P5.27): its Pattern-A static cctor self-registers the decorator.
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(Microsoft.UI.Reactor.Core.IconElement).TypeHandle);
+
+        // XamlPageElement / XamlHostElement migrated to generated monomorphic
+        // decorators (spec 058 §15 / P5.28): their Pattern-A static cctors
+        // self-register on first type load.
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(Microsoft.UI.Reactor.Hosting.XamlPageElement).TypeHandle);
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(Microsoft.UI.Reactor.Hosting.XamlHostElement).TypeHandle);
     }
 }

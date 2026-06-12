@@ -37,7 +37,7 @@ namespace Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.Descriptors;
 /// <see cref="Reconciler.GetElementTag(Microsoft.UI.Xaml.UIElement)"/> and dispatches through the
 /// base virtual — the closed-T leaf invokes its own <c>OnSelectedIndexChanged</c>.
 /// <see cref="ChangeEchoSuppressor"/> drains the programmatic-write
-/// echo, same as the simple <see cref="FlipViewDescriptor"/>.</para>
+/// echo, same as the simple <see cref="FlipViewElement"/>.</para>
 ///
 /// <para><b>SelectedIndex initial write ordering:</b> runs AFTER the
 /// binder (DescriptorHandler.Mount inlines the items binder before the

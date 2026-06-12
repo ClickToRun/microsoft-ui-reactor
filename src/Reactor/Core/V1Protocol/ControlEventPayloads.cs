@@ -120,7 +120,7 @@ internal sealed class RepeatButtonEventPayload
 
 /// <summary>Spec 047 §14 Phase 3 batch 4 — ToggleButton Click payload.
 /// Click fires both OnIsCheckedChanged (bool) and OnCheckedStateChanged (bool?)
-/// — see <see cref="V1Protocol.Descriptor.Descriptors.ToggleButtonDescriptor"/>.</summary>
+/// — see <see cref="ToggleButtonElement"/>.</summary>
 internal sealed class ToggleButtonEventPayload
 {
     public Microsoft.UI.Xaml.RoutedEventHandler? ClickTrampoline;

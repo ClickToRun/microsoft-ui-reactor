@@ -2,7 +2,6 @@ using System;
 using System.Reflection;
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Reactor.Core.V1Protocol.Descriptor;
-using Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.Descriptors;
 using Microsoft.UI.Xaml;
 using WinUI = Microsoft.UI.Xaml.Controls;
 using Xunit;
@@ -14,7 +13,7 @@ public class RichTextBlockDescriptorTests
     [Fact]
     public void Descriptor_BindsStandardElementPaddingToRichTextBlockPadding()
     {
-        var entry = Assert.Single(RichTextBlockDescriptor.Descriptor.Properties, IsPaddingEntry);
+        var entry = Assert.Single(RichTextBlockElement.Descriptor.Properties, IsPaddingEntry);
         var get = GetPrivateField<Func<RichTextBlockElement, Optional<Thickness>>>(entry, "_get");
         var set = GetPrivateField<Action<WinUI.RichTextBlock, Thickness>>(entry, "_set");
 

@@ -47,9 +47,7 @@ namespace Microsoft.UI.Reactor.Core.V1Protocol;
 /// non-deterministic dispatch outcome dependent on the app's factory
 /// call order. See <see cref="ControlRegistry.RegisterDecorator{TElement}"/>
 /// for the full discussion and the singleton-handler alternative for
-/// decorator handlers whose underlying type is private nested
-/// (IconDescriptor.Handler, XamlHostDescriptor.Handler,
-/// XamlPageDescriptor.Handler).</para>
+/// decorator handlers whose underlying type is private nested.</para>
 ///
 /// <para><b>One-shot semantics.</b> CLR guarantees the static initializer
 /// of <c>RegDecorator&lt;TElement, THandler&gt;</c> runs at most once per

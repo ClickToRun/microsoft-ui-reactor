@@ -19,7 +19,7 @@ namespace Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.Descriptors;
 /// <see cref="Panel{TElement,TControl}.PerChildAttached"/> using descriptor-owned
 /// anchor state and size-change subscription.</para>
 /// </summary>
-internal static class CanvasDescriptor
+internal static class CanvasChildrenStrategy
 {
     private sealed class CanvasAnchorState
     {
@@ -29,7 +29,7 @@ internal static class CanvasDescriptor
 
     private static readonly global::System.Runtime.CompilerServices.ConditionalWeakTable<FrameworkElement, CanvasAnchorState> _canvasAnchorStates = new();
 
-    private static readonly Panel<CanvasElement, WinUI.Canvas> ChildrenStrategy =
+    public static readonly Panel<CanvasElement, WinUI.Canvas> Strategy =
         new Panel<CanvasElement, WinUI.Canvas>(
             GetChildren: static e => e.Children,
             GetCollection: static c => c.Children)
@@ -46,25 +46,6 @@ internal static class CanvasDescriptor
                 ApplyCanvasPosition(fe, ca);
             },
         };
-
-    public static readonly ControlDescriptor<CanvasElement, WinUI.Canvas> Descriptor =
-        new ControlDescriptor<CanvasElement, WinUI.Canvas>
-        {
-            Children = ChildrenStrategy,
-            GetSetters = static e => e.Setters,
-        }
-        .OneWayConditional(
-            get:         static e => e.Width,
-            set:         static (c, v) => c.Width = v!.Value,
-            shouldWrite: static e => e.Width.HasValue)
-        .OneWayConditional(
-            get:         static e => e.Height,
-            set:         static (c, v) => c.Height = v!.Value,
-            shouldWrite: static e => e.Height.HasValue)
-        .OneWayConditional(
-            get:         static e => e.Background,
-            set:         static (c, v) => c.Background = v,
-            shouldWrite: static e => e.Background is not null);
 
     private static void ApplyCanvasPosition(FrameworkElement fe, CanvasAttached ca)
     {
@@ -111,11 +92,3 @@ internal static class CanvasDescriptor
             existing.Current = new CanvasAttached();
     }
 }
-
-/// <summary>
-/// Spec 048 §7 — thin <see cref="DescriptorHandler{TElement,TControl}"/>
-/// subclass so the Reactor.Factories DSL can reach this descriptor via
-/// the <c>Reg&lt;&gt;</c> registration touch without leaking
-/// <c>DescriptorHandler&lt;,&gt;</c> as a public surface.
-/// </summary>
-internal sealed class CanvasDescriptorHandler() : DescriptorHandler<CanvasElement, WinUI.Canvas>(CanvasDescriptor.Descriptor);

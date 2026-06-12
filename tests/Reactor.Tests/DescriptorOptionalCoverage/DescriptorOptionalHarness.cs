@@ -9,7 +9,7 @@ namespace Microsoft.UI.Reactor.Tests.DescriptorOptionalCoverage;
 internal static class DescriptorOptionalHarness
 {
     // NumberBox is intentionally NOT covered by a headless DescriptorOptionalCoverage
-    // test: NumberBoxDescriptor's static initializer evaluates
+    // test: NumberBoxElement.Descriptor's static initializer evaluates
     // `WinUI.NumberBox.TextProperty` (for the .Immediate observe entry),
     // which requires a live WinUI XAML runtime and throws COMException in
     // the headless Reactor.Tests process. Real runtime coverage for the

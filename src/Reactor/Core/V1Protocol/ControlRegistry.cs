@@ -135,27 +135,26 @@ public static class ControlRegistry
     /// shim (spec §10.3 Heading/Subheading both touching
     /// <c>Reg&lt;TextBlockElement, TextBlock, TextBlockHandler&gt;</c>).</para>
     ///
-    /// <para><b>Singleton-handler factories.</b> Decorator handlers exposed
-    /// as <c>public static readonly</c> singletons (e.g.
-    /// <c>IconDescriptor.Handler</c>, <c>XamlHostDescriptor.Handler</c>,
-    /// <c>XamlPageDescriptor.Handler</c>) cannot satisfy
-    /// <c>RegDecorator</c>'s <c>new()</c> constraint because the underlying
-    /// handler types are private nested classes. Those factories register
-    /// directly via this method with a <c>static</c> lambda returning the
-    /// singleton:
+    /// <para><b>Singleton-handler factories.</b> A decorator handler exposed
+    /// as a <c>public static readonly</c> singleton whose underlying type is a
+    /// private nested class cannot satisfy <c>RegDecorator</c>'s <c>new()</c>
+    /// constraint. Such a factory registers directly via this method with a
+    /// <c>static</c> lambda returning the singleton:
     /// <code>
-    /// public static IconElement Icon(IconKind kind)
+    /// public static MyElement My(...)
     /// {
-    ///     ControlRegistry.RegisterDecorator&lt;IconElement&gt;(
-    ///         static () =&gt; IconDescriptor.Handler);
-    ///     return new IconElement(kind);
+    ///     ControlRegistry.RegisterDecorator&lt;MyElement&gt;(
+    ///         static () =&gt; MyDescriptor.Handler);
+    ///     return new MyElement(...);
     /// }
     /// </code>
     /// This is functionally equivalent to <c>RegDecorator&lt;…&gt;.Done</c>
     /// — the static lambda still has no captures, the TryAdd still
     /// first-wins, and the trim story still routes every reference to the
     /// private handler type through the factory call-site path the
-    /// trimmer can see.</para>
+    /// trimmer can see. (The built-in Icon/XamlPage/XamlHost decorators that
+    /// formerly used this pattern are now source-generated — spec 058 §15
+    /// P5.27/P5.28 — and self-register via a generated Pattern-A cctor.)</para>
     /// </summary>
     /// <typeparam name="TElement">The element record type the decorator
     /// handler dispatches against. Used as the dispatch key

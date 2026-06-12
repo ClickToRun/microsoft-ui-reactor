@@ -37,7 +37,7 @@ public class SurfaceParityTests
     [Fact]
     public void TeachingTip_Descriptor_Declares_Exactly_One_Target_Reference_Entry()
     {
-        var referenceEntries = TeachingTipDescriptor.Descriptor.Properties
+        var referenceEntries = TeachingTipElement.Descriptor.Properties
             .OfType<UntypedReferencePropEntry<TeachingTipElement, WinUI.TeachingTip>>()
             .ToArray();
 
