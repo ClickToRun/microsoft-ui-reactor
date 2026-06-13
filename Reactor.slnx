@@ -311,6 +311,12 @@
       <Platform Solution="*|x64" Project="x64" />
     </Project>
   </Folder>
+  <Folder Name="/samples/apps/wct-controls/">
+    <Project Path="samples/apps/wct-controls/WctControls.csproj">
+      <Platform Solution="*|ARM64" Project="ARM64" />
+      <Platform Solution="*|x64" Project="x64" />
+    </Project>
+  </Folder>
   <Folder Name="/src/" />
   <Folder Name="/tests/">
     <Project Path="tests/Reactor.Compile.Analyzer.Tests/Reactor.Compile.Analyzer.Tests.csproj" />
