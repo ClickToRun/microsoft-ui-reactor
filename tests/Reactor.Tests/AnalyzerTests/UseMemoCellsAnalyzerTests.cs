@@ -95,7 +95,7 @@ namespace TestApp
                     .WithLocation(0)
                     .WithArguments(name));
         }
-        await t.RunAsync();
+        await t.RunAsync(TestContext.Current.CancellationToken);
     }
 
     // ── Happy path ────────────────────────────────────────────────────
@@ -295,6 +295,6 @@ namespace TestApp {
             CodeFixVerifier.Diagnostic(UseMemoCellsAnalyzer.DiagnosticId)
                 .WithLocation(0)
                 .WithArguments("theme"));
-        await t.RunAsync();
+        await t.RunAsync(TestContext.Current.CancellationToken);
     }
 }

@@ -28,7 +28,7 @@ public class Foo
             // The analyzer doesn't itself control whether CS1591 is on; only check
             // our diagnostic doesn't trip on valid crefs.
             CompilerDiagnostics = CompilerDiagnostics.None,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -47,6 +47,6 @@ public class Foo {}
             TestCode = test,
             CompilerDiagnostics = CompilerDiagnostics.None,
             ExpectedDiagnostics = { expected },
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 }

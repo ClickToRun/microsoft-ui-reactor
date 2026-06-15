@@ -40,7 +40,7 @@ class C
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -59,7 +59,7 @@ class C
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -78,7 +78,7 @@ class C
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -104,6 +104,6 @@ class C
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 }

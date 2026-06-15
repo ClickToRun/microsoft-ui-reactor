@@ -84,7 +84,7 @@ class C
         await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -103,7 +103,7 @@ class C
         await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -122,7 +122,7 @@ class C
         await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -143,7 +143,7 @@ class C
         await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -162,7 +162,7 @@ class C
         await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -192,7 +192,7 @@ class C
         {
             TestCode = before,
             FixedCode = after,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -222,7 +222,7 @@ class C
         {
             TestCode = before,
             FixedCode = after,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     // ── Block-bodied lambdas ────────────────────────────────────────────
@@ -243,7 +243,7 @@ class C
         await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -267,7 +267,7 @@ class C
         await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -297,7 +297,7 @@ class C
         {
             TestCode = before,
             FixedCode = after,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     // ── Margin / Thickness translation ──────────────────────────────────
@@ -329,7 +329,7 @@ class C
         {
             TestCode = before,
             FixedCode = after,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -359,7 +359,7 @@ class C
         {
             TestCode = before,
             FixedCode = after,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -383,6 +383,6 @@ class C
         {
             TestCode = code,
             FixedCode = code,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 }

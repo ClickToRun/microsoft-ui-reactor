@@ -25,7 +25,7 @@ public class Foo {}
         {
             TestCode = test,
             ExpectedDiagnostics = { expected },
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -38,7 +38,7 @@ public class Foo {}
         await new CSharpAnalyzerTest<XmlDocSummaryAnalyzer, DefaultVerifier>
         {
             TestCode = test,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -50,7 +50,7 @@ internal class Foo {}
         await new CSharpAnalyzerTest<XmlDocSummaryAnalyzer, DefaultVerifier>
         {
             TestCode = test,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -73,7 +73,7 @@ public class Derived : Base
         await new CSharpAnalyzerTest<XmlDocSummaryAnalyzer, DefaultVerifier>
         {
             TestCode = test,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -86,7 +86,7 @@ public class GeneratedFoo {}
         await new CSharpAnalyzerTest<XmlDocSummaryAnalyzer, DefaultVerifier>
         {
             TestCode = test,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -107,6 +107,6 @@ public class Foo
         {
             TestCode = test,
             ExpectedDiagnostics = { expected },
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 }

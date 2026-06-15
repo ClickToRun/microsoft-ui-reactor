@@ -157,7 +157,7 @@ class C
         await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     public static IEnumerable<object[]> AllTrappedProperties() =>

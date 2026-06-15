@@ -95,7 +95,7 @@ class C : Microsoft.UI.Reactor.Core.Component
             TestCode = test,
             ExpectedDiagnostics = { expected },
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -122,7 +122,7 @@ class C : Microsoft.UI.Reactor.Core.Component
             TestCode = test,
             ExpectedDiagnostics = { expected },
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -151,7 +151,7 @@ class C : Microsoft.UI.Reactor.Core.Component
             TestCode = test,
             ExpectedDiagnostics = { conditional, unstableDeps },
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -170,7 +170,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     // ── REACTOR_HOOKS_004 — freshly-allocated deps ────────────────────
@@ -196,7 +196,7 @@ class C : Microsoft.UI.Reactor.Core.Component
             TestCode = test,
             ExpectedDiagnostics = { expected },
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -220,7 +220,7 @@ class C : Microsoft.UI.Reactor.Core.Component
             TestCode = test,
             ExpectedDiagnostics = { expected },
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -240,7 +240,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     // ── REACTOR_HOOKS_005 — hook outside Render/custom hook ────────────
@@ -266,7 +266,7 @@ class C : Microsoft.UI.Reactor.Core.Component
             TestCode = test,
             ExpectedDiagnostics = { expected },
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -290,7 +290,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     // ── Non-hook lookalike ────────────────────────────────────────────
@@ -319,7 +319,7 @@ class C : Microsoft.UI.Reactor.Core.Component
             TestCode = test,
             ExpectedDiagnostics = { expected },
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -343,7 +343,7 @@ class C : Microsoft.UI.Reactor.Core.Component
             TestCode = test,
             ExpectedDiagnostics = { expected },
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -367,7 +367,7 @@ class C : Microsoft.UI.Reactor.Core.Component
             TestCode = test,
             ExpectedDiagnostics = { expected },
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -386,7 +386,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -407,7 +407,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     // ── Non-Reactor lookalike ────────────────────────────────────────
@@ -435,7 +435,7 @@ class Program
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     // ── REACTOR_HOOKS_008 — stale state read after setter ─────────────
@@ -477,7 +477,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -498,7 +498,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -519,7 +519,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -543,7 +543,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -566,7 +566,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -590,7 +590,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -612,7 +612,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -637,7 +637,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -658,7 +658,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -682,7 +682,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -707,7 +707,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -733,7 +733,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -756,7 +756,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -780,7 +780,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -802,7 +802,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -825,7 +825,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -849,7 +849,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -873,7 +873,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -895,7 +895,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -918,7 +918,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -940,7 +940,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -963,6 +963,6 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             TestCode = test,
         };
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 }

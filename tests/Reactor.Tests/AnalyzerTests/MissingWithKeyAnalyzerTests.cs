@@ -72,7 +72,7 @@ namespace TestApp
         await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -98,7 +98,7 @@ namespace TestApp
         await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -126,7 +126,7 @@ namespace TestApp
         await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     // ── Code-fix offers ─────────────────────────────────────────────────
@@ -179,7 +179,7 @@ namespace TestApp
             TestCode = before,
             FixedCode = after,
             CodeActionEquivalenceKey = $"{MissingWithKeyAnalyzer.Id}_WithKey_Item",
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -224,7 +224,7 @@ namespace TestApp
             TestCode = before,
             FixedCode = after,
             CodeActionEquivalenceKey = $"{MissingWithKeyAnalyzer.Id}_WithKey_Item_Id",
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -271,6 +271,6 @@ namespace TestApp
             TestCode = before,
             FixedCode = after,
             CodeActionEquivalenceKey = $"{MissingWithKeyAnalyzer.Id}_WithKey_Item_Key",
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 }
