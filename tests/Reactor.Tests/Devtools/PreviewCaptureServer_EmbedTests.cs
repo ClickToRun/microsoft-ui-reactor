@@ -107,8 +107,9 @@ public sealed class PreviewCaptureServer_EmbedTests
     public async Task EmbedAck_RequiresJsonContentType()
     {
         using var h = ServerHarness.Start();
+        using var content = new StringContent("{}", Encoding.UTF8, "text/plain");
 
-        using var response = await h.Client.PostAsync("/embed/ack", new StringContent("{}", Encoding.UTF8, "text/plain"), TestContext.Current.CancellationToken);
+        using var response = await h.Client.PostAsync("/embed/ack", content, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.UnsupportedMediaType, response.StatusCode);
     }
