@@ -1,6 +1,5 @@
 using System.Text;
 using Xunit;
-using Xunit.Sdk;
 
 namespace Reactor.AotHelloWorld.Advanced.TrimAssertions;
 
@@ -19,28 +18,28 @@ public sealed class TrimAssertionTests
         "Win2DVirtualCanvasHandler",
     ];
 
-    [SkippableFact]
+    [Fact]
     public void PublishedBinary_DoesNotContain_Win2DHandlerSymbols()
     {
         var publishDir = ResolvePublishDir("REACTOR_AOT_ADVANCED_PUBLISH_DIR", "Reactor.AotHelloWorld.Advanced");
-        Skip.If(string.IsNullOrEmpty(publishDir),
+        Assert.SkipWhen(string.IsNullOrEmpty(publishDir),
             "AOT publish folder not found. Set REACTOR_AOT_ADVANCED_PUBLISH_DIR or publish Reactor.AotHelloWorld.Advanced first.");
 
         var scannedFiles = AssembliesToScan(publishDir).ToArray();
-        Skip.If(scannedFiles.Length == 0, $"No Reactor*.dll/.exe found under {publishDir}.");
+        Assert.SkipWhen(scannedFiles.Length == 0, $"No Reactor*.dll/.exe found under {publishDir}.");
 
         var hits = FindSymbols(scannedFiles, ForbiddenSymbols).ToArray();
         Assert.Empty(hits);
     }
 
-    [SkippableFact]
+    [Fact]
     public void PublishedBinary_Contains_PositiveControlSymbol()
     {
         var publishDir = ResolvePublishDir("REACTOR_AOT_ADVANCED_PUBLISH_DIR", "Reactor.AotHelloWorld.Advanced");
-        Skip.If(string.IsNullOrEmpty(publishDir), "AOT publish folder not found — see negative assertion.");
+        Assert.SkipWhen(string.IsNullOrEmpty(publishDir), "AOT publish folder not found — see negative assertion.");
 
         var scannedFiles = AssembliesToScan(publishDir).ToArray();
-        Skip.If(scannedFiles.Length == 0, $"No Reactor*.dll/.exe found under {publishDir}.");
+        Assert.SkipWhen(scannedFiles.Length == 0, $"No Reactor*.dll/.exe found under {publishDir}.");
 
         Assert.True(scannedFiles.Any(f => BinaryContains(f, "App")),
             $"Positive control failed: App was not found under {publishDir}.");

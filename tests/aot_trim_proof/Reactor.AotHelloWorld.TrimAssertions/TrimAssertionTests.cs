@@ -228,16 +228,16 @@ public sealed class TrimAssertionTests
         return -1;
     }
 
-    [SkippableFact]
+    [Fact]
     public void PublishedBinary_DoesNotContain_ForbiddenSymbols()
     {
         var publishDir = ResolvePublishDir();
-        Skip.If(string.IsNullOrEmpty(publishDir),
+        Assert.SkipWhen(string.IsNullOrEmpty(publishDir),
             "AOT publish folder not found. Set REACTOR_AOT_PUBLISH_DIR or run " +
             "`dotnet publish tests/aot_trim_proof/Reactor.AotHelloWorld -c Release -r win-x64 -p:PublishAot=true` first.");
 
         var scannedFiles = AssembliesToScan(publishDir).ToArray();
-        Skip.If(scannedFiles.Length == 0,
+        Assert.SkipWhen(scannedFiles.Length == 0,
             $"No Reactor*.dll/.exe found under {publishDir}. The publish appears to be empty or incomplete.");
 
         var violations = new List<string>();
@@ -273,18 +273,18 @@ public sealed class TrimAssertionTests
         }
     }
 
-    [SkippableFact]
+    [Fact]
     public void PublishedBinary_Contains_PositiveControlSymbol()
     {
         // Negative assertions are only meaningful if the scanner can find
         // SOMETHING in the binary. If this test fails, the scanner is broken
         // and the negative assertions above are vacuous.
         var publishDir = ResolvePublishDir();
-        Skip.If(string.IsNullOrEmpty(publishDir),
+        Assert.SkipWhen(string.IsNullOrEmpty(publishDir),
             "AOT publish folder not found — see PublishedBinary_DoesNotContain_ForbiddenSymbols.");
 
         var scannedFiles = AssembliesToScan(publishDir).ToArray();
-        Skip.If(scannedFiles.Length == 0,
+        Assert.SkipWhen(scannedFiles.Length == 0,
             $"No Reactor*.dll/.exe found under {publishDir}.");
 
         var found = scannedFiles.Any(f => BinaryContains(f, PositiveControlSymbol));
