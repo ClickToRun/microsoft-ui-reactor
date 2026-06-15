@@ -196,7 +196,7 @@ public class ValidateExtensionTests
         var attached = new ValidationAttached("email", [],
             [asyncValidator]);
 
-        var messages = await attached.RunAsyncValidators("taken@test.com");
+        var messages = await attached.RunAsyncValidators("taken@test.com", cancellationToken: TestContext.Current.CancellationToken);
         Assert.Single(messages);
         Assert.Equal("Email already taken", messages[0].Text);
     }
@@ -213,7 +213,7 @@ public class ValidateExtensionTests
         var attached = new ValidationAttached("email", [],
             [asyncValidator]);
 
-        var messages = await attached.RunAsyncValidators("good@test.com");
+        var messages = await attached.RunAsyncValidators("good@test.com", cancellationToken: TestContext.Current.CancellationToken);
         Assert.Empty(messages);
     }
 

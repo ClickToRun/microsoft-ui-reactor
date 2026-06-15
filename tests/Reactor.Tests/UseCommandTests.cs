@@ -87,7 +87,7 @@ public class UseCommandTests
         // setIsExecuting(true) fires synchronously → 1st release
 
         await started.Task;
-        await stateChanged.WaitAsync(TimeSpan.FromSeconds(5)); // drain 1st release
+        await stateChanged.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken); // drain 1st release
 
         // Re-render to observe state (preserve callback for the next release)
         ctx.BeginRender(() => stateChanged.Release());
@@ -97,7 +97,7 @@ public class UseCommandTests
 
         // Complete the task; finally block calls setIsExecuting(false) → 2nd release
         tcs.SetResult();
-        await stateChanged.WaitAsync(TimeSpan.FromSeconds(5));
+        await stateChanged.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         // Re-render to observe completion
         Rerender(ctx);
@@ -141,8 +141,8 @@ public class UseCommandTests
             // Execute! synchronously sets IsExecuting=true (1st release), then Task.Run
             // lets the error fault the background task while still resetting
             // IsExecuting=false in finally (2nd release).
-            await stateChanged.WaitAsync(TimeSpan.FromSeconds(5));
-            await stateChanged.WaitAsync(TimeSpan.FromSeconds(5));
+            await stateChanged.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            await stateChanged.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
             Rerender(ctx);
             var result2 = ctx.UseCommand(cmd);
@@ -152,7 +152,7 @@ public class UseCommandTests
             {
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
-                await Task.Delay(10);
+                await Task.Delay(10, TestContext.Current.CancellationToken);
             }
             Assert.Equal(1, Volatile.Read(ref unobserved));
         }
@@ -205,7 +205,7 @@ public class UseCommandTests
         await started.Task;
         Assert.Equal("item-42", received);
 
-        await stateChanged.WaitAsync(TimeSpan.FromSeconds(5)); // drain 1st release
+        await stateChanged.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken); // drain 1st release
 
         // Re-render to observe IsExecuting=true (preserve callback for the next release)
         ctx.BeginRender(() => stateChanged.Release());
@@ -214,7 +214,7 @@ public class UseCommandTests
 
         // Complete the task; finally block calls setIsExecuting(false) → 2nd release
         tcs.SetResult();
-        await stateChanged.WaitAsync(TimeSpan.FromSeconds(5));
+        await stateChanged.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         Rerender(ctx);
         var result3 = ctx.UseCommand(cmd);

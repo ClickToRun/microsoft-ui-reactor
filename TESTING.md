@@ -12,7 +12,7 @@ Reactor has three test suites. Each lives in its own project, so there are no fi
 
 ```bash
 # 1. Unit
-dotnet test tests/Reactor.Tests
+dotnet test tests/Reactor.Tests -p:Platform=x64
 
 # 2. Selftest (in-process WinUI, ~10s; no filter needed)
 dotnet test tests/Reactor.SelfTests

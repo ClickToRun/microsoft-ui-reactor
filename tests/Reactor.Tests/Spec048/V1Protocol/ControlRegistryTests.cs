@@ -169,7 +169,7 @@ public class ControlRegistryTests
                     ControlRegistry.Register<ConcurrentRegisterElementA, UIElement>(static () => new ConcurrentRegisterHandlerA());
                 else
                     ControlRegistry.Register<ConcurrentRegisterElementB, UIElement>(static () => new ConcurrentRegisterHandlerB());
-            });
+            }, TestContext.Current.CancellationToken);
         }
         await Task.WhenAll(tasks);
 

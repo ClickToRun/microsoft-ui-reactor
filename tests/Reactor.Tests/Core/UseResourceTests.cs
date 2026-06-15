@@ -128,7 +128,7 @@ public class UseResourceTests
 
         tcs.SetResult(7);
         // Continuation is scheduled async (TCS.RunContinuationsAsynchronously) — poll briefly.
-        for (int i = 0; i < 20 && rerenders == 0; i++) await Task.Delay(10);
+        for (int i = 0; i < 20 && rerenders == 0; i++) await Task.Delay(10, TestContext.Current.CancellationToken);
         Assert.True(rerenders >= 1, $"Expected a rerender; got {rerenders}.");
 
         // Next render picks up the new value.
@@ -299,7 +299,7 @@ public class UseResourceTests
             probe = ctx.UseResource(fetcher, cache, Array.Empty<object>(),
                 new ResourceOptions(RetryCount: 3), dispatcher);
             if (probe is AsyncValue<int>.Data) break;
-            await Task.Delay(25);
+            await Task.Delay(25, TestContext.Current.CancellationToken);
         }
 
         Assert.Equal(3, Volatile.Read(ref calls));
@@ -336,7 +336,7 @@ public class UseResourceTests
             probe = ctx.UseResource(fetcher, cache, Array.Empty<object>(),
                 new ResourceOptions(RetryCount: 2), dispatcher);
             if (probe is AsyncValue<int>.Error) break;
-            await Task.Delay(25);
+            await Task.Delay(25, TestContext.Current.CancellationToken);
         }
 
         Assert.Equal(3, Volatile.Read(ref calls));
@@ -413,7 +413,7 @@ public class UseResourceTests
 
         tcs.SetResult(7);
 
-        await rerenderedTcs.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await rerenderedTcs.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
         Assert.Equal(1, Volatile.Read(ref rerendered));
     }
 
@@ -481,7 +481,7 @@ public class UseResourceTests
         var tcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
         _ = ctx.UseResource(_ => tcs.Task, cache, new object[] { "k" }, null, dispatcher);
         tcs.SetResult(5);
-        for (int i = 0; i < 20 && rerenders == baseline; i++) await Task.Delay(10);
+        for (int i = 0; i < 20 && rerenders == baseline; i++) await Task.Delay(10, TestContext.Current.CancellationToken);
 
         // If the short-circuit held, rerenders stayed the same across the refetch since the
         // continuation landed the same Data(5) as what LastValue already held.

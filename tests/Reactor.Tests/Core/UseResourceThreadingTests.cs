@@ -64,7 +64,7 @@ public class UseResourceThreadingTests : IDisposable
 
         // Now the late result arrives for the first fetch.
         firstGate.SetResult(999);
-        await Task.Delay(50);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
 
         // Next render still shows b's result, not a's stale 999.
         ctx.BeginRender(() => { });
@@ -94,7 +94,7 @@ public class UseResourceThreadingTests : IDisposable
         ctx.RunCleanups();
 
         gate.SetResult(42);
-        await Task.Delay(50);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
 
         Assert.False(cache.TryGet<int>("a", out _));
         AssertNoUnobserved();
@@ -122,7 +122,7 @@ public class UseResourceThreadingTests : IDisposable
             gate.SetResult(i);
         }
 
-        await Task.Delay(50);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
         AssertNoUnobserved();
         // Force an eviction sweep — every slot's subscriber count is zero, none have
         // entries (every fetch was cancelled before Set), so nothing to assert on
@@ -152,7 +152,7 @@ public class UseResourceThreadingTests : IDisposable
         ctx.FlushEffects();
 
         ctx.RunCleanups(); // triggers cancellation
-        await Task.Delay(200);
+        await Task.Delay(200, TestContext.Current.CancellationToken);
 
         AssertNoUnobserved();
     }
@@ -174,7 +174,7 @@ public class UseResourceThreadingTests : IDisposable
 
         Assert.IsType<AsyncValue<int>.Loading>(v1);
         gate.SetResult(123);
-        for (int i = 0; i < 20 && renderCount == 0; i++) await Task.Delay(10);
+        for (int i = 0; i < 20 && renderCount == 0; i++) await Task.Delay(10, TestContext.Current.CancellationToken);
 
         Assert.True(renderCount >= 1);
 
@@ -238,7 +238,7 @@ public class UseResourceThreadingTests : IDisposable
         Assert.Equal(1, Volatile.Read(ref calls));
 
         gate.SetResult(42);
-        await Task.Delay(50);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
 
         AssertNoUnobserved();
     }

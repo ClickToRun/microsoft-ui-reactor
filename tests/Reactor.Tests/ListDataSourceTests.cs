@@ -29,7 +29,7 @@ public class ListDataSourceTests
     public async Task Empty_Source_Returns_Empty_Page()
     {
         var source = CreateSource();
-        var page = await source.GetPageAsync(new DataRequest());
+        var page = await source.GetPageAsync(new DataRequest(), TestContext.Current.CancellationToken);
         Assert.Empty(page.Items);
         Assert.Equal(0, page.TotalCount);
         Assert.Null(page.ContinuationToken);
@@ -41,16 +41,16 @@ public class ListDataSourceTests
         var source = CreateSource(SampleItems);
         var req = new DataRequest { PageSize = 2 };
 
-        var page1 = await source.GetPageAsync(req);
+        var page1 = await source.GetPageAsync(req, TestContext.Current.CancellationToken);
         Assert.Equal(2, page1.Items.Count);
         Assert.Equal(5, page1.TotalCount);
         Assert.NotNull(page1.ContinuationToken);
 
-        var page2 = await source.GetPageAsync(req with { ContinuationToken = page1.ContinuationToken });
+        var page2 = await source.GetPageAsync(req with { ContinuationToken = page1.ContinuationToken }, TestContext.Current.CancellationToken);
         Assert.Equal(2, page2.Items.Count);
         Assert.NotNull(page2.ContinuationToken);
 
-        var page3 = await source.GetPageAsync(req with { ContinuationToken = page2.ContinuationToken });
+        var page3 = await source.GetPageAsync(req with { ContinuationToken = page2.ContinuationToken }, TestContext.Current.CancellationToken);
         Assert.Single(page3.Items);
         Assert.Null(page3.ContinuationToken); // last page
     }
@@ -64,7 +64,7 @@ public class ListDataSourceTests
             Filters = new[] { new FilterDescriptor("Age", FilterOperator.Equals, 30) },
         };
 
-        var page = await source.GetPageAsync(req);
+        var page = await source.GetPageAsync(req, TestContext.Current.CancellationToken);
         Assert.Equal(2, page.TotalCount); // Alice(30) and Eve(30)
         Assert.Equal(2, page.Items.Count);
     }
@@ -80,7 +80,7 @@ public class ListDataSourceTests
             Sort = new[] { new SortDescriptor("Name", SortDirection.Ascending) },
         };
 
-        var page = await source.GetPageAsync(req);
+        var page = await source.GetPageAsync(req, TestContext.Current.CancellationToken);
         Assert.Equal("Alice", page.Items[0].Name);
         Assert.Equal("Bob", page.Items[1].Name);
         Assert.Equal("Charlie", page.Items[2].Name);
@@ -95,7 +95,7 @@ public class ListDataSourceTests
             Sort = new[] { new SortDescriptor("Name", SortDirection.Descending) },
         };
 
-        var page = await source.GetPageAsync(req);
+        var page = await source.GetPageAsync(req, TestContext.Current.CancellationToken);
         Assert.Equal("Eve", page.Items[0].Name);
         Assert.Equal("Diana", page.Items[1].Name);
     }
@@ -109,7 +109,7 @@ public class ListDataSourceTests
             Sort = new[] { new SortDescriptor("Age", SortDirection.Ascending) },
         };
 
-        var page = await source.GetPageAsync(req);
+        var page = await source.GetPageAsync(req, TestContext.Current.CancellationToken);
         Assert.Equal(25, page.Items[0].Age); // Bob
         Assert.Equal(28, page.Items[1].Age); // Diana
     }
@@ -123,7 +123,7 @@ public class ListDataSourceTests
             Sort = new[] { new SortDescriptor("Age", SortDirection.Descending) },
         };
 
-        var page = await source.GetPageAsync(req);
+        var page = await source.GetPageAsync(req, TestContext.Current.CancellationToken);
         Assert.Equal(35, page.Items[0].Age); // Charlie
     }
 
@@ -140,7 +140,7 @@ public class ListDataSourceTests
             },
         };
 
-        var page = await source.GetPageAsync(req);
+        var page = await source.GetPageAsync(req, TestContext.Current.CancellationToken);
         Assert.Equal("Bob", page.Items[0].Name); // Age 25
         Assert.Equal("Diana", page.Items[1].Name); // Age 28
         // Age 30: Eve before Alice (descending Name)
@@ -159,7 +159,7 @@ public class ListDataSourceTests
             Filters = new[] { new FilterDescriptor("Name", FilterOperator.Equals, "Alice") },
         };
 
-        var page = await source.GetPageAsync(req);
+        var page = await source.GetPageAsync(req, TestContext.Current.CancellationToken);
         Assert.Single(page.Items);
         Assert.Equal("Alice", page.Items[0].Name);
     }
@@ -173,7 +173,7 @@ public class ListDataSourceTests
             Filters = new[] { new FilterDescriptor("Name", FilterOperator.NotEquals, "Alice") },
         };
 
-        var page = await source.GetPageAsync(req);
+        var page = await source.GetPageAsync(req, TestContext.Current.CancellationToken);
         Assert.Equal(4, page.Items.Count);
         Assert.DoesNotContain(page.Items, x => x.Name == "Alice");
     }
@@ -187,7 +187,7 @@ public class ListDataSourceTests
             Filters = new[] { new FilterDescriptor("Name", FilterOperator.Contains, "li") },
         };
 
-        var page = await source.GetPageAsync(req);
+        var page = await source.GetPageAsync(req, TestContext.Current.CancellationToken);
         Assert.Equal(2, page.Items.Count); // Alice, Charlie
     }
 
@@ -200,7 +200,7 @@ public class ListDataSourceTests
             Filters = new[] { new FilterDescriptor("Name", FilterOperator.StartsWith, "Ch") },
         };
 
-        var page = await source.GetPageAsync(req);
+        var page = await source.GetPageAsync(req, TestContext.Current.CancellationToken);
         Assert.Single(page.Items);
         Assert.Equal("Charlie", page.Items[0].Name);
     }
@@ -214,7 +214,7 @@ public class ListDataSourceTests
             Filters = new[] { new FilterDescriptor("Name", FilterOperator.EndsWith, "e") },
         };
 
-        var page = await source.GetPageAsync(req);
+        var page = await source.GetPageAsync(req, TestContext.Current.CancellationToken);
         Assert.Equal(3, page.Items.Count); // Alice, Charlie, Eve
     }
 
@@ -227,7 +227,7 @@ public class ListDataSourceTests
             Filters = new[] { new FilterDescriptor("Age", FilterOperator.GreaterThan, 30) },
         };
 
-        var page = await source.GetPageAsync(req);
+        var page = await source.GetPageAsync(req, TestContext.Current.CancellationToken);
         Assert.Single(page.Items); // Charlie(35)
     }
 
@@ -240,7 +240,7 @@ public class ListDataSourceTests
             Filters = new[] { new FilterDescriptor("Age", FilterOperator.LessThan, 28) },
         };
 
-        var page = await source.GetPageAsync(req);
+        var page = await source.GetPageAsync(req, TestContext.Current.CancellationToken);
         Assert.Single(page.Items); // Bob(25)
     }
 
@@ -253,7 +253,7 @@ public class ListDataSourceTests
             Filters = new[] { new FilterDescriptor("Age", FilterOperator.Between, 28, 30) },
         };
 
-        var page = await source.GetPageAsync(req);
+        var page = await source.GetPageAsync(req, TestContext.Current.CancellationToken);
         Assert.Equal(3, page.Items.Count); // Diana(28), Alice(30), Eve(30)
     }
 
@@ -266,7 +266,7 @@ public class ListDataSourceTests
             Filters = new[] { new FilterDescriptor("Name", FilterOperator.In, new[] { "Alice", "Eve" }) },
         };
 
-        var page = await source.GetPageAsync(req);
+        var page = await source.GetPageAsync(req, TestContext.Current.CancellationToken);
         Assert.Equal(2, page.Items.Count);
     }
 
@@ -279,7 +279,7 @@ public class ListDataSourceTests
             Filters = new[] { new FilterDescriptor("Email", FilterOperator.IsNull) },
         };
 
-        var page = await source.GetPageAsync(req);
+        var page = await source.GetPageAsync(req, TestContext.Current.CancellationToken);
         Assert.Single(page.Items); // Diana has null email
     }
 
@@ -292,7 +292,7 @@ public class ListDataSourceTests
             Filters = new[] { new FilterDescriptor("Email", FilterOperator.IsNotNull) },
         };
 
-        var page = await source.GetPageAsync(req);
+        var page = await source.GetPageAsync(req, TestContext.Current.CancellationToken);
         Assert.Equal(4, page.Items.Count);
     }
 
@@ -309,7 +309,7 @@ public class ListDataSourceTests
             },
         };
 
-        var page = await source.GetPageAsync(req);
+        var page = await source.GetPageAsync(req, TestContext.Current.CancellationToken);
         Assert.Equal(2, page.Items.Count); // Alice(30, has "li") and Charlie(35, has "li")
     }
 
@@ -321,7 +321,7 @@ public class ListDataSourceTests
         var source = CreateSource(SampleItems);
         var req = new DataRequest { SearchQuery = "bob" };
 
-        var page = await source.GetPageAsync(req);
+        var page = await source.GetPageAsync(req, TestContext.Current.CancellationToken);
         Assert.Single(page.Items); // Bob matches on both Name and Email
         Assert.Equal("Bob", page.Items[0].Name);
     }
@@ -332,7 +332,7 @@ public class ListDataSourceTests
         var source = CreateSource(SampleItems);
         var req = new DataRequest { SearchQuery = "test.com" };
 
-        var page = await source.GetPageAsync(req);
+        var page = await source.GetPageAsync(req, TestContext.Current.CancellationToken);
         Assert.Equal(4, page.Items.Count); // All non-null email items
     }
 
@@ -343,9 +343,9 @@ public class ListDataSourceTests
     {
         var source = CreateSource(SampleItems);
         var newItem = new TestItem(6, "Frank", 40, "frank@test.com");
-        await source.CreateAsync(newItem);
+        await source.CreateAsync(newItem, TestContext.Current.CancellationToken);
 
-        var page = await source.GetPageAsync(new DataRequest());
+        var page = await source.GetPageAsync(new DataRequest(), TestContext.Current.CancellationToken);
         Assert.Equal(6, page.Items.Count);
         Assert.Contains(page.Items, x => x.Name == "Frank");
     }
@@ -355,9 +355,9 @@ public class ListDataSourceTests
     {
         var source = CreateSource(SampleItems);
         var updated = new TestItem(1, "Alice Updated", 31, "alice@new.com");
-        await source.UpdateAsync((RowKey)1, updated);
+        await source.UpdateAsync((RowKey)1, updated, TestContext.Current.CancellationToken);
 
-        var page = await source.GetPageAsync(new DataRequest());
+        var page = await source.GetPageAsync(new DataRequest(), TestContext.Current.CancellationToken);
         Assert.Contains(page.Items, x => x.Name == "Alice Updated" && x.Age == 31);
     }
 
@@ -365,9 +365,9 @@ public class ListDataSourceTests
     public async Task DeleteAsync_Removes_Item()
     {
         var source = CreateSource(SampleItems);
-        await source.DeleteAsync((RowKey)1);
+        await source.DeleteAsync((RowKey)1, TestContext.Current.CancellationToken);
 
-        var page = await source.GetPageAsync(new DataRequest());
+        var page = await source.GetPageAsync(new DataRequest(), TestContext.Current.CancellationToken);
         Assert.Equal(4, page.Items.Count);
         Assert.DoesNotContain(page.Items, x => x.Name == "Alice");
     }
@@ -405,8 +405,8 @@ public class ListDataSourceTests
         for (int i = 0; i < 10; i++)
         {
             var id = 100 + i;
-            tasks.Add(source.CreateAsync(new TestItem(id, $"Item{id}", 20)));
-            tasks.Add(source.GetPageAsync(new DataRequest()));
+            tasks.Add(source.CreateAsync(new TestItem(id, $"Item{id}", 20), TestContext.Current.CancellationToken));
+            tasks.Add(source.GetPageAsync(new DataRequest(), TestContext.Current.CancellationToken));
         }
 
         await Task.WhenAll(tasks); // Should not throw

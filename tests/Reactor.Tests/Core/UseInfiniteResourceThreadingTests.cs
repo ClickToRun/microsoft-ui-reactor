@@ -202,8 +202,8 @@ public class UseInfiniteResourceThreadingTests : IDisposable
         Assert.Equal(3, r2.Items.Count);
 
         // Late completion arrives on a thread-pool thread after deps-change.
-        await Task.Run(() => gate.SetResult(new Page<int, string>(new[] { 999 }, null)));
-        await Task.Delay(50);
+        await Task.Run(() => gate.SetResult(new Page<int, string>(new[] { 999 }, null)), TestContext.Current.CancellationToken);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
 
         // New resource's state is untouched by the late result.
         Assert.Equal(3, r2.Items.Count);
@@ -236,8 +236,8 @@ public class UseInfiniteResourceThreadingTests : IDisposable
         ctx.RunCleanups();
 
         // Background completion observes cancellation — must be silent.
-        await Task.Run(() => gate.SetResult(new Page<int, string>(new[] { 1, 2 }, null)));
-        await Task.Delay(50);
+        await Task.Run(() => gate.SetResult(new Page<int, string>(new[] { 1, 2 }, null)), TestContext.Current.CancellationToken);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
 
         // Cache was never written.
         Assert.False(cache.TryGet<Page<int, string>>("unmount-test/page:0", out _));
@@ -288,8 +288,8 @@ public class UseInfiniteResourceThreadingTests : IDisposable
         Assert.Equal(3, r3.Items.Count);
 
         // Late completion of the first fetch arrives on a pool thread — must be ignored.
-        await Task.Run(() => firstGate.SetResult(new Page<int, string>(new[] { 999 }, null)));
-        await Task.Delay(50);
+        await Task.Run(() => firstGate.SetResult(new Page<int, string>(new[] { 999 }, null)), TestContext.Current.CancellationToken);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
 
         Assert.Equal(10, r3.Items[0]); // still the second-fetch value
         AssertNoUnobserved();
@@ -342,8 +342,8 @@ public class UseInfiniteResourceThreadingTests : IDisposable
             lock (gates)
                 foreach (var kvp in gates)
                     kvp.Value.TrySetResult(new Page<int, string>(new[] { 1 }, null));
-        });
-        await Task.Delay(50);
+        }, TestContext.Current.CancellationToken);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
 
         AssertNoUnobserved();
     }

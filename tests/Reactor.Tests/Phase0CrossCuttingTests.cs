@@ -79,8 +79,8 @@ public class Phase0CrossCuttingTests
         for (int i = 0; i < 20; i++)
         {
             var id = 1000 + i;
-            tasks.Add(source.CreateAsync(id));
-            tasks.Add(source.GetPageAsync(new DataRequest { PageSize = 10 }));
+            tasks.Add(source.CreateAsync(id, TestContext.Current.CancellationToken));
+            tasks.Add(source.GetPageAsync(new DataRequest { PageSize = 10 }, TestContext.Current.CancellationToken));
         }
 
         // All should complete without throwing
@@ -133,7 +133,7 @@ public class Phase0CrossCuttingTests
         var registry = new TypeRegistry();
 
         // Fetch page
-        var page = await source.GetPageAsync(new DataRequest());
+        var page = await source.GetPageAsync(new DataRequest(), TestContext.Current.CancellationToken);
         Assert.Equal(2, page.Items.Count);
 
         // Get FieldDescriptors from first item
