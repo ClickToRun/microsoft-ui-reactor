@@ -65,7 +65,9 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5.3.0
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: |
+            10.0.x
+            9.0.x
 
       - name: Install minver-cli
         run: dotnet tool install --global minver-cli --version 5.0.0
@@ -172,6 +174,23 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path artifacts/vsix | Out-Null
           $desktopVsix = 'src\vs-reactor\Reactor.VsExtension\bin\Release\Reactor.VsExtension.vsix'
+          # Desktop MSBuild in VS 2022 resolves SDK-style projects through the
+          # MSBuild SDK resolver. On hosted runners, .NET 10 SDK selection can
+          # require MSBuild 18+, while VS 2022 currently ships MSBuild 17.x.
+          # Pin resolver inputs to the latest installed .NET 9 SDK for this
+          # desktop build only; dotnet CLI steps still follow global.json (10.x).
+          $dotnetSdkRoot = 'C:\Program Files\dotnet\sdk'
+          $sdk9 = Get-ChildItem $dotnetSdkRoot -Directory |
+            Where-Object { $_.Name -like '9.*' } |
+            Sort-Object Name -Descending |
+            Select-Object -First 1
+          if (-not $sdk9) {
+            throw "No .NET 9 SDK found under '$dotnetSdkRoot' for desktop VSIX build."
+          }
+          $env:DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR = 'C:\Program Files\dotnet'
+          $env:DOTNET_MSBUILD_SDK_RESOLVER_SDKS_DIR = $sdk9.FullName
+          $env:DOTNET_MSBUILD_SDK_RESOLVER_SDKS_VER = $sdk9.Name
+          Write-Host "Pinned desktop MSBuild SDK resolver to $($sdk9.Name)"
           pwsh -File src\vs-reactor\Build-Vsix.ps1 -Configuration Release -NoRestore -Version '${{ steps.version.outputs.version }}'
           $buildExit = $LASTEXITCODE
           if ($buildExit -ne 0) {
