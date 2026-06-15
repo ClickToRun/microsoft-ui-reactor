@@ -24,7 +24,7 @@ namespace Reactor.VsExtension.SdkTests
         [Fact]
         public async Task EditorTracker_RaisesOnRDTEvent()
         {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(TestContext.Current.CancellationToken);
             var rdt = VsSdkMocks.CreateRunningDocumentTable();
             var dte = VsSdkMocks.CreateDte();
             var path = @"C:\\repo\\Component.cs";
@@ -34,7 +34,7 @@ namespace Reactor.VsExtension.SdkTests
             tracker.ActiveDocumentChanged += (_, activePath) => raisedPath = activePath;
 
             tracker.OnAfterSave(1);
-            await Task.Delay(250);
+            await Task.Delay(250, TestContext.Current.CancellationToken);
 
             Assert.Equal(path, raisedPath);
         }
