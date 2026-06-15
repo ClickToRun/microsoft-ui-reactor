@@ -6,7 +6,6 @@ using System.IO;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Reactor.VsExtension.Embed;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Reactor.VsExtension.Tests
 {

@@ -18,7 +18,7 @@ public sealed class PreviewCaptureServer_EmbedTests
     {
         using var h = ServerHarness.Start();
 
-        using var response = await h.Client.GetAsync("/status");
+        using var response = await h.Client.GetAsync("/status", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var json = await ReadJson(response);
@@ -35,7 +35,7 @@ public sealed class PreviewCaptureServer_EmbedTests
         using var h = ServerHarness.Start();
         using var client = new HttpClient { BaseAddress = h.Client.BaseAddress };
 
-        using var response = await client.GetAsync("/hwnd");
+        using var response = await client.GetAsync("/hwnd", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -48,7 +48,7 @@ public sealed class PreviewCaptureServer_EmbedTests
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token);
         request.Headers.Host = $"evil.com:{h.Server.Port}";
 
-        using var response = await h.Client.SendAsync(request);
+        using var response = await h.Client.SendAsync(request, TestContext.Current.CancellationToken);
 
         Assert.Equal((HttpStatusCode)421, response.StatusCode);
     }
@@ -58,7 +58,7 @@ public sealed class PreviewCaptureServer_EmbedTests
     {
         using var h = ServerHarness.Start();
 
-        using var response = await h.Client.GetAsync("/hwnd");
+        using var response = await h.Client.GetAsync("/hwnd", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var json = await ReadJson(response);
@@ -72,7 +72,7 @@ public sealed class PreviewCaptureServer_EmbedTests
         using var h = ServerHarness.Start();
         h.Server.GetHwnd = () => (IntPtr)0x12345;
 
-        using var response = await h.Client.GetAsync("/hwnd");
+        using var response = await h.Client.GetAsync("/hwnd", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var json = await ReadJson(response);
@@ -86,7 +86,7 @@ public sealed class PreviewCaptureServer_EmbedTests
         h.Server.GetHwnd = () => (IntPtr)0x12345;
         h.Server.Generation = 7;
 
-        using var response = await h.Client.GetAsync("/hwnd");
+        using var response = await h.Client.GetAsync("/hwnd", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var json = await ReadJson(response);
@@ -98,7 +98,7 @@ public sealed class PreviewCaptureServer_EmbedTests
     {
         using var h = ServerHarness.Start();
 
-        using var response = await h.Client.GetAsync("/embed/ack");
+        using var response = await h.Client.GetAsync("/embed/ack", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.MethodNotAllowed, response.StatusCode);
     }
@@ -108,7 +108,7 @@ public sealed class PreviewCaptureServer_EmbedTests
     {
         using var h = ServerHarness.Start();
 
-        using var response = await h.Client.PostAsync("/embed/ack", new StringContent("{}", Encoding.UTF8, "text/plain"));
+        using var response = await h.Client.PostAsync("/embed/ack", new StringContent("{}", Encoding.UTF8, "text/plain"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.UnsupportedMediaType, response.StatusCode);
     }
@@ -119,7 +119,7 @@ public sealed class PreviewCaptureServer_EmbedTests
         using var h = ServerHarness.Start();
         var body = new string('x', PreviewCaptureServer.EmbedMaxBodyBytes + 1);
 
-        using var response = await h.Client.PostAsync("/embed/ack", Json(body));
+        using var response = await h.Client.PostAsync("/embed/ack", Json(body), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
     }
@@ -129,7 +129,7 @@ public sealed class PreviewCaptureServer_EmbedTests
     {
         using var h = ServerHarness.Start();
 
-        using var response = await h.Client.PostAsync("/embed/ack", Json("{\"w\":100,\"h\":100,\"generation\":1}"));
+        using var response = await h.Client.PostAsync("/embed/ack", Json("{\"w\":100,\"h\":100,\"generation\":1}"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
@@ -141,7 +141,7 @@ public sealed class PreviewCaptureServer_EmbedTests
         h.Server.Generation = 3;
         h.Server.AckEmbed = (_, _, _, _) => EmbedAckResult.GenerationMismatch;
 
-        using var response = await h.Client.PostAsync("/embed/ack", Json("{\"parent\":\"0x123\",\"w\":100,\"h\":100,\"generation\":2}"));
+        using var response = await h.Client.PostAsync("/embed/ack", Json("{\"parent\":\"0x123\",\"w\":100,\"h\":100,\"generation\":2}"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         using var json = await ReadJson(response);
@@ -157,7 +157,7 @@ public sealed class PreviewCaptureServer_EmbedTests
         using var h = ServerHarness.Start();
         h.Server.AckEmbed = null;
 
-        using var response = await h.Client.PostAsync("/embed/ack", Json("{\"parent\":\"0x123\",\"w\":100,\"h\":100,\"generation\":1}"));
+        using var response = await h.Client.PostAsync("/embed/ack", Json("{\"parent\":\"0x123\",\"w\":100,\"h\":100,\"generation\":1}"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
         Assert.Equal(TimeSpan.FromSeconds(1), response.Headers.RetryAfter?.Delta);
@@ -172,7 +172,7 @@ public sealed class PreviewCaptureServer_EmbedTests
         using var h = ServerHarness.Start();
         h.Server.AckEmbed = (_, _, _, _) => EmbedAckResult.DpiMismatch;
 
-        using var response = await h.Client.PostAsync("/embed/ack", Json("{\"parent\":\"0x123\",\"w\":100,\"h\":100,\"generation\":1}"));
+        using var response = await h.Client.PostAsync("/embed/ack", Json("{\"parent\":\"0x123\",\"w\":100,\"h\":100,\"generation\":1}"), TestContext.Current.CancellationToken);
 
         Assert.Equal((HttpStatusCode)412, response.StatusCode);
         using var json = await ReadJson(response);
@@ -196,7 +196,7 @@ public sealed class PreviewCaptureServer_EmbedTests
             return EmbedAckResult.Success;
         };
 
-        using var response = await h.Client.PostAsync("/embed/ack", Json("{\"parent\":\"0x12345\",\"w\":100,\"h\":200,\"generation\":1}"));
+        using var response = await h.Client.PostAsync("/embed/ack", Json("{\"parent\":\"0x12345\",\"w\":100,\"h\":200,\"generation\":1}"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(1, calls);
@@ -214,7 +214,7 @@ public sealed class PreviewCaptureServer_EmbedTests
 
         for (int i = 0; i < 5; i++)
         {
-            using var response = await h.Client.PostAsync("/embed/resize", Json($"{{\"w\":{i},\"h\":{i + 10}}}"));
+            using var response = await h.Client.PostAsync("/embed/resize", Json($"{{\"w\":{i},\"h\":{i + 10}}}"), TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
 
@@ -227,7 +227,7 @@ public sealed class PreviewCaptureServer_EmbedTests
     {
         using var h = ServerHarness.Start();
 
-        using var childResponse = await h.Client.PostAsync("/embed/move", Json("{\"x\":1,\"y\":2}"));
+        using var childResponse = await h.Client.PostAsync("/embed/move", Json("{\"x\":1,\"y\":2}"), TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.BadRequest, childResponse.StatusCode);
 
         var calls = 0;
@@ -237,7 +237,7 @@ public sealed class PreviewCaptureServer_EmbedTests
             Assert.Equal(1, x);
             Assert.Equal(2, y);
         };
-        using var ownerResponse = await h.Client.PostAsync("/embed/move", Json("{\"x\":1,\"y\":2}"));
+        using var ownerResponse = await h.Client.PostAsync("/embed/move", Json("{\"x\":1,\"y\":2}"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, ownerResponse.StatusCode);
         Assert.Equal(1, calls);
@@ -250,7 +250,7 @@ public sealed class PreviewCaptureServer_EmbedTests
         var calls = 0;
         h.Server.ReleaseEmbed = () => calls++;
 
-        using var response = await h.Client.PostAsync("/embed/release", Json("{}"));
+        using var response = await h.Client.PostAsync("/embed/release", Json("{}"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(1, calls);
@@ -264,12 +264,12 @@ public sealed class PreviewCaptureServer_EmbedTests
         using var nonEmbed = ServerHarness.Start(embedMode: false);
         nonEmbed.Server.ReleaseEmbed = () => { };
 
-        using var rejected = await nonEmbed.Client.PostAsync("/embed/release", Json("{}"));
+        using var rejected = await nonEmbed.Client.PostAsync("/embed/release", Json("{}"), TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.NotFound, rejected.StatusCode);
 
         using var embed = ServerHarness.Start(embedMode: true);
         embed.Server.ReleaseEmbed = () => { };
-        using var routed = await embed.Client.PostAsync("/embed/release", Json("{}"));
+        using var routed = await embed.Client.PostAsync("/embed/release", Json("{}"), TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, routed.StatusCode);
     }
 
@@ -279,7 +279,7 @@ public sealed class PreviewCaptureServer_EmbedTests
     {
         using var h = ServerHarness.Start(embedMode: true);
 
-        using var response = await h.Client.GetAsync("/frame");
+        using var response = await h.Client.GetAsync("/frame", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.Equal(0, h.Server.ActiveReaders);
@@ -289,7 +289,7 @@ public sealed class PreviewCaptureServer_EmbedTests
 
     private static async Task<JsonDocument> ReadJson(HttpResponseMessage response)
     {
-        return JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
     private sealed class ServerHarness : IDisposable
