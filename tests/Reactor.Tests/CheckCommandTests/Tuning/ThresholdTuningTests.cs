@@ -17,7 +17,6 @@
 
 using Microsoft.UI.Reactor.Tests.CheckCommandTests.Tuning;
 using Xunit;
-using Xunit.Abstractions;
 using SystemText = System.Text;
 
 namespace Microsoft.UI.Reactor.Tests.CheckCommandTests.Tuning;

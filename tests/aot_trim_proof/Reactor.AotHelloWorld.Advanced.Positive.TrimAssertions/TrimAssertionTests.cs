@@ -15,15 +15,15 @@ public sealed class TrimAssertionTests
         "Win2DCanvasHandler",
     ];
 
-    [SkippableFact]
+    [Fact]
     public void PublishedBinary_Contains_UsedWin2DHandlerSymbols()
     {
         var publishDir = ResolvePublishDir("REACTOR_AOT_ADVANCED_POSITIVE_PUBLISH_DIR", "Reactor.AotHelloWorld.Advanced.Positive");
-        Skip.If(string.IsNullOrEmpty(publishDir),
+        Assert.SkipWhen(string.IsNullOrEmpty(publishDir),
             "AOT publish folder not found. Set REACTOR_AOT_ADVANCED_POSITIVE_PUBLISH_DIR or publish Reactor.AotHelloWorld.Advanced.Positive first.");
 
         var scannedFiles = AssembliesToScan(publishDir).ToArray();
-        Skip.If(scannedFiles.Length == 0, $"No Reactor*.dll/.exe found under {publishDir}.");
+        Assert.SkipWhen(scannedFiles.Length == 0, $"No Reactor*.dll/.exe found under {publishDir}.");
 
         var missing = ExpectedSymbols
             .Where(symbol => !scannedFiles.Any(file => BinaryContains(file, symbol)))

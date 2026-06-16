@@ -116,7 +116,7 @@ namespace TestApp
         {
             TestCode = source,
             CompilerDiagnostics = CompilerDiagnostics.None,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     // ── REACTOR1002 should NOT fire ────────────────────────────────────
@@ -152,7 +152,7 @@ namespace TestApp
         {
             TestCode = source,
             CompilerDiagnostics = CompilerDiagnostics.None,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     /// <summary>
@@ -186,7 +186,7 @@ namespace TestApp
         {
             TestCode = source,
             CompilerDiagnostics = CompilerDiagnostics.None,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]

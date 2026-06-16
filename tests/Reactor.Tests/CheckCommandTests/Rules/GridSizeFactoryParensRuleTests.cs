@@ -113,7 +113,7 @@ class Test { void M() { var x = GridSize.Auto(); } }";
             (lookalikeStub, "Stub.cs"),
             (source, "Test.cs"),
         });
-        var roslynDiag = c.GetDiagnostics().First(d => d.Id == "CS1955");
+        var roslynDiag = c.GetDiagnostics(TestContext.Current.CancellationToken).First(d => d.Id == "CS1955");
         var span = roslynDiag.Location.GetLineSpan();
         var diag = new CheckCommand.Diag(
             span.Path, span.StartLinePosition.Line + 1, span.StartLinePosition.Character + 1,
@@ -143,7 +143,7 @@ class Test { void M() { var s = GridSize.Auto(); } }";
             (ReactorStub, "Stub.cs"),
             (source, "Test.cs"),
         });
-        var realCs1955 = c.GetDiagnostics().First(d => d.Id == "CS1955");
+        var realCs1955 = c.GetDiagnostics(TestContext.Current.CancellationToken).First(d => d.Id == "CS1955");
         var span = realCs1955.Location.GetLineSpan();
         // Same location, deliberately wrong code:
         var diag = new CheckCommand.Diag(

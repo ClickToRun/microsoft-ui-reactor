@@ -157,7 +157,7 @@ public partial class NavigationStressTests
             {
                 for (int i = 0; i < 50; i++)
                     cache.Add(new Detail(taskId * 1000 + i), MakePage());
-            }));
+            }, TestContext.Current.CancellationToken));
         }
 
         // Reader tasks — try to get entries
@@ -168,7 +168,7 @@ public partial class NavigationStressTests
             {
                 for (int i = 0; i < 50; i++)
                     cache.TryGet(new Detail(taskId * 1000 + i), out _);
-            }));
+            }, TestContext.Current.CancellationToken));
         }
 
         // Remover tasks
@@ -179,7 +179,7 @@ public partial class NavigationStressTests
             {
                 for (int i = 0; i < 50; i++)
                     cache.Remove(new Detail(taskId * 1000 + i));
-            }));
+            }, TestContext.Current.CancellationToken));
         }
 
         await Task.WhenAll(tasks);
@@ -678,19 +678,19 @@ public partial class NavigationStressTests
         {
             for (int i = 0; i < 200; i++)
                 cache.Add(new Detail(i), MakePage());
-        }));
+        }, TestContext.Current.CancellationToken));
 
         tasks.Add(Task.Run(() =>
         {
             for (int i = 0; i < 20; i++)
                 cache.Clear();
-        }));
+        }, TestContext.Current.CancellationToken));
 
         tasks.Add(Task.Run(() =>
         {
             for (int i = 0; i < 200; i++)
                 cache.TryGet(new Detail(i), out _);
-        }));
+        }, TestContext.Current.CancellationToken));
 
         var ex = await Record.ExceptionAsync(() => Task.WhenAll(tasks));
         Assert.Null(ex);

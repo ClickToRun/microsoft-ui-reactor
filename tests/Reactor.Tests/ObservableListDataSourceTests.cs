@@ -95,12 +95,12 @@ public class ObservableListDataSourceTests
         };
         var source = new ObservableListDataSource<InpcItem>(collection, x => (RowKey)x.Id);
 
-        var page1 = await source.GetPageAsync(new DataRequest());
+        var page1 = await source.GetPageAsync(new DataRequest(), TestContext.Current.CancellationToken);
         Assert.Single(page1.Items);
 
         collection.Add(new InpcItem { Id = 2, Name = "Bob" });
 
-        var page2 = await source.GetPageAsync(new DataRequest());
+        var page2 = await source.GetPageAsync(new DataRequest(), TestContext.Current.CancellationToken);
         Assert.Equal(2, page2.Items.Count);
     }
 

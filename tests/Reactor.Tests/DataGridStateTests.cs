@@ -413,7 +413,7 @@ public class DataGridStateTests
     public async Task LoadDataAsync_Populates_Items()
     {
         var state = new DataGridState<TestItem>(CreateSource(50), CreateColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(50, state.ItemCount);
         Assert.Equal(50, state.TotalCount);
@@ -429,7 +429,7 @@ public class DataGridStateTests
         var state = new DataGridState<TestItem>(tracking, CreateColumns(), SelectionMode.None);
 
         // When we load data
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         // ItemCount and TotalCount both reflect the full dataset
         Assert.Equal(10_000, state.TotalCount);
@@ -447,7 +447,7 @@ public class DataGridStateTests
     {
         var state = new DataGridState<TestItem>(CreateSource(10), CreateColumns(), SelectionMode.None);
         state.ToggleSort("Name");
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         // Items should be sorted by Name ascending
         for (int i = 1; i < state.LoadedItems.Count; i++)
@@ -465,7 +465,7 @@ public class DataGridStateTests
         int changes = 0;
         state.StateChanged += () => changes++;
 
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         // At least twice: once for IsLoading=true, once for IsLoading=false.
         // In paged mode, BlockLoaded also fires StateChanged.
@@ -478,7 +478,7 @@ public class DataGridStateTests
     public async Task SetFocus_Sets_RowAndCol()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.SetFocus(3, 1);
 
@@ -491,7 +491,7 @@ public class DataGridStateTests
     public async Task SetFocus_Clamps_To_Bounds()
     {
         var state = new DataGridState<TestItem>(CreateSource(5), CreateColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.SetFocus(100, 100);
 
@@ -503,7 +503,7 @@ public class DataGridStateTests
     public async Task MoveFocus_Down()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.SetFocus(0, 0);
         state.MoveFocus(1, 0);
@@ -516,7 +516,7 @@ public class DataGridStateTests
     public async Task MoveFocus_Right()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.SetFocus(0, 0);
         state.MoveFocus(0, 1);
@@ -529,7 +529,7 @@ public class DataGridStateTests
     public async Task MoveFocus_Initializes_When_No_Focus()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.MoveFocus(1, 0); // no focus yet — should start at (0,0)
 
@@ -541,7 +541,7 @@ public class DataGridStateTests
     public async Task FocusHome_Goes_To_First_Column()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.SetFocus(2, 3);
         state.FocusHome();
@@ -554,7 +554,7 @@ public class DataGridStateTests
     public async Task FocusEnd_Goes_To_Last_Column()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.SetFocus(2, 0);
         state.FocusEnd();
@@ -567,7 +567,7 @@ public class DataGridStateTests
     public async Task FocusNextCell_Wraps_To_Next_Row()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.SetFocus(0, 3); // last column
         var moved = state.FocusNextCell();
@@ -581,7 +581,7 @@ public class DataGridStateTests
     public async Task FocusPrevCell_Wraps_To_Previous_Row()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.SetFocus(1, 0); // first column, second row
         var moved = state.FocusPrevCell();
@@ -595,7 +595,7 @@ public class DataGridStateTests
     public async Task FocusNextCell_Returns_False_At_End()
     {
         var state = new DataGridState<TestItem>(CreateSource(2), CreateColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.SetFocus(1, 3); // last cell
         var moved = state.FocusNextCell();
@@ -607,7 +607,7 @@ public class DataGridStateTests
     public async Task FocusPrevCell_Returns_False_At_Start()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.SetFocus(0, 0); // first cell
         var moved = state.FocusPrevCell();
@@ -619,7 +619,7 @@ public class DataGridStateTests
     public async Task SetFocus_Fires_StateChanged()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
         int changes = 0;
         state.StateChanged += () => changes++;
 
@@ -659,7 +659,7 @@ public class DataGridStateTests
     public async Task BeginEdit_On_ReadOnly_Column_Returns_False()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.SetFocus(0, 0); // Id column (read-only)
         var result = state.BeginEdit();
@@ -672,7 +672,7 @@ public class DataGridStateTests
     public async Task BeginEdit_On_Editable_Column_Starts_Editing()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.SetFocus(0, 1); // Name column (editable)
         var result = state.BeginEdit();
@@ -688,7 +688,7 @@ public class DataGridStateTests
     public async Task UpdateEditingValue_Changes_Pending_Value()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.SetFocus(0, 1);
         state.BeginEdit();
@@ -701,7 +701,7 @@ public class DataGridStateTests
     public async Task CommitEdit_Applies_Change_To_Loaded_Items()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.SetFocus(0, 1);
         state.BeginEdit();
@@ -719,7 +719,7 @@ public class DataGridStateTests
     public async Task CommitEdit_Returns_New_Record_For_Immutable()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         var originalItem = state.LoadedItems[0];
         state.SetFocus(0, 2); // Category column
@@ -740,7 +740,7 @@ public class DataGridStateTests
     public async Task CancelEdit_Discards_Changes()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         var originalName = state.LoadedItems[0].Name;
         state.SetFocus(0, 1);
@@ -756,7 +756,7 @@ public class DataGridStateTests
     public async Task CommitAndMoveNext_Commits_And_Advances_Focus()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.SetFocus(0, 1); // Name column
         state.BeginEdit();
@@ -774,7 +774,7 @@ public class DataGridStateTests
     public async Task BeginEdit_By_RowCol_Index()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         var result = state.BeginEdit(2, 1); // row 2, Name column
 
@@ -788,7 +788,7 @@ public class DataGridStateTests
     public async Task Editing_Fires_StateChanged()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
         int changes = 0;
         state.StateChanged += () => changes++;
 
@@ -809,7 +809,7 @@ public class DataGridStateTests
     public async Task GetRowIndex_Returns_Correct_Index()
     {
         var state = new DataGridState<TestItem>(CreateSource(10), CreateColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(5, state.GetRowIndex((RowKey)5));
         Assert.Equal(-1, state.GetRowIndex((RowKey)999));
@@ -853,7 +853,7 @@ public class DataGridStateTests
         var source = CreateSource(10);
         var state = new DataGridState<TestItem>(source, CreateColumns(), SelectionMode.None);
         state.ToggleSort("Name");
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         // Verify the source applied the sort (data comes back sorted by Name asc)
         for (int i = 1; i < state.LoadedItems.Count; i++)
@@ -879,7 +879,7 @@ public class DataGridStateTests
         var source = new NoServerSortSource(items, t => (RowKey)t.Id);
         var state = new DataGridState<TestItem>(source, CreateColumns(), SelectionMode.None);
         state.ToggleSort("Name");
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         // The source returns unsorted data, but DataGridState should sort client-side.
         Assert.Equal("Apple", state.LoadedItems[0].Name);
@@ -904,7 +904,7 @@ public class DataGridStateTests
         var state = new DataGridState<TestItem>(source, CreateColumns(), SelectionMode.None);
         state.ToggleSort("Name"); // Ascending
         state.ToggleSort("Name"); // Descending
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal("Mango", state.LoadedItems[0].Name);
         Assert.Equal("Banana", state.LoadedItems[1].Name);
@@ -990,7 +990,7 @@ public class DataGridStateTests
     {
         var state = new DataGridState<TestItem>(CreateSource(20), CreateColumns(), SelectionMode.None);
         state.SetFilter(new FilterDescriptor("Category", FilterOperator.Equals, "A"));
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         // ListDataSource supports ServerFilter, only Category="A" items returned
         Assert.True(state.LoadedItems.Count < 20);
@@ -1003,7 +1003,7 @@ public class DataGridStateTests
     public async Task BeginRowEdit_Activates_All_Editable_Cells()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         var result = state.BeginRowEdit(0);
 
@@ -1024,7 +1024,7 @@ public class DataGridStateTests
     public async Task BeginRowEdit_Returns_False_On_Invalid_Index()
     {
         var state = new DataGridState<TestItem>(CreateSource(5), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         Assert.False(state.BeginRowEdit(-1));
         Assert.False(state.BeginRowEdit(100));
@@ -1035,7 +1035,7 @@ public class DataGridStateTests
     public async Task UpdateRowEditValue_Changes_Pending_Value()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.BeginRowEdit(0);
         state.UpdateRowEditValue("Name", "New Name");
@@ -1049,7 +1049,7 @@ public class DataGridStateTests
     public async Task CommitRowEdit_Applies_All_Changes()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.BeginRowEdit(0);
         state.UpdateRowEditValue("Name", "Updated Name");
@@ -1073,7 +1073,7 @@ public class DataGridStateTests
     public async Task CancelRowEdit_Discards_All_Changes()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         var originalName = state.LoadedItems[0].Name;
         state.BeginRowEdit(0);
@@ -1089,7 +1089,7 @@ public class DataGridStateTests
     public async Task IsColumnInRowEdit_Identifies_Editable_Columns()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.BeginRowEdit(0);
         var rowKey = state.EditingRowKey!.Value;
@@ -1108,7 +1108,7 @@ public class DataGridStateTests
     public async Task RowEdit_Fires_StateChanged()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
         int changes = 0;
         state.StateChanged += () => changes++;
 
@@ -1127,7 +1127,7 @@ public class DataGridStateTests
     public async Task CancelEdit_Delegates_To_CancelRowEdit_When_In_Row_Mode()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.BeginRowEdit(0);
         Assert.True(state.IsRowEditing);
@@ -1171,7 +1171,7 @@ public class DataGridStateTests
     public async Task Cell_Validation_Creates_Context_On_BeginEdit()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateValidatedColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         Assert.Null(state.EditValidation);
         state.SetFocus(0, 1); // Name column (has validators)
@@ -1184,7 +1184,7 @@ public class DataGridStateTests
     public async Task Cell_Validation_Runs_On_UpdateEditingValue()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateValidatedColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.SetFocus(0, 1); // Name
         state.BeginEdit();
@@ -1199,7 +1199,7 @@ public class DataGridStateTests
     public async Task Cell_Validation_Clears_On_Valid_Value()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateValidatedColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.SetFocus(0, 1); // Name
         state.BeginEdit();
@@ -1216,7 +1216,7 @@ public class DataGridStateTests
     public async Task Cell_Validation_Blocks_Commit()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateValidatedColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.SetFocus(0, 1); // Name
         state.BeginEdit();
@@ -1231,7 +1231,7 @@ public class DataGridStateTests
     public async Task Cell_Validation_Allows_Commit_When_Valid()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateValidatedColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.SetFocus(0, 1); // Name
         state.BeginEdit();
@@ -1246,7 +1246,7 @@ public class DataGridStateTests
     public async Task Cell_Validation_Cleared_On_CancelEdit()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateValidatedColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.SetFocus(0, 1);
         state.BeginEdit();
@@ -1264,7 +1264,7 @@ public class DataGridStateTests
     public async Task Row_Validation_Creates_Context_For_All_Editable_Fields()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateValidatedColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.BeginRowEdit(0);
 
@@ -1280,7 +1280,7 @@ public class DataGridStateTests
     public async Task Row_Validation_Runs_On_UpdateRowEditValue()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateValidatedColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.BeginRowEdit(0);
         state.UpdateRowEditValue("Name", ""); // invalid
@@ -1292,7 +1292,7 @@ public class DataGridStateTests
     public async Task Row_Validation_Blocks_CommitRowEdit()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateValidatedColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.BeginRowEdit(0);
         state.UpdateRowEditValue("Name", ""); // invalid
@@ -1306,7 +1306,7 @@ public class DataGridStateTests
     public async Task Row_Validation_Multiple_Fields()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateValidatedColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.BeginRowEdit(0);
         state.UpdateRowEditValue("Name", ""); // invalid
@@ -1322,7 +1322,7 @@ public class DataGridStateTests
     public async Task Row_Validation_Allows_Commit_When_All_Valid()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateValidatedColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         state.BeginRowEdit(0);
         state.UpdateRowEditValue("Name", "Valid");
@@ -1338,7 +1338,7 @@ public class DataGridStateTests
     public async Task BeginAsyncCommit_Marks_Row_As_Committing()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         var original = state.LoadedItems[0];
         state.SetFocus(0, 1);
@@ -1357,7 +1357,7 @@ public class DataGridStateTests
     public async Task CompleteAsyncCommit_Clears_Committing_State()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         var original = state.LoadedItems[0];
         state.SetFocus(0, 1);
@@ -1379,7 +1379,7 @@ public class DataGridStateTests
     public async Task FailAsyncCommit_Reverts_Item_And_Stores_Error()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         var original = state.LoadedItems[0];
         var originalName = original.Name;
@@ -1401,7 +1401,7 @@ public class DataGridStateTests
     public async Task DismissCommitError_Clears_Error()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         var original = state.LoadedItems[0];
         state.SetFocus(0, 1);
@@ -1421,7 +1421,7 @@ public class DataGridStateTests
     public async Task AsyncCommit_Fires_StateChanged()
     {
         var state = new DataGridState<TestItem>(CreateSource(), CreateEditableColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         var original = state.LoadedItems[0];
         state.SetFocus(0, 1);
@@ -1510,11 +1510,11 @@ public class DataGridStateTests
     public async Task Search_Filters_Loaded_Items()
     {
         var state = new DataGridState<TestItem>(CreateSource(20), CreateColumns(), SelectionMode.None);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
         Assert.Equal(20, state.LoadedItems.Count);
 
         state.SetSearchQuery("Item 1");
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
 
         // ListDataSource supports ServerSearch, so "Item 1" matches "Item 1", "Item 10"-"Item 19"
         Assert.True(state.LoadedItems.Count >= 1);

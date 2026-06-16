@@ -91,7 +91,7 @@ namespace TestApp
         await new CSharpAnalyzerTest<OnLiveLayoutRoundTripAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -116,7 +116,7 @@ namespace TestApp
         await new CSharpAnalyzerTest<OnLiveLayoutRoundTripAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -140,7 +140,7 @@ namespace TestApp
         await new CSharpAnalyzerTest<OnLiveLayoutRoundTripAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -165,7 +165,7 @@ namespace TestApp
         await new CSharpAnalyzerTest<OnLiveLayoutRoundTripAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -187,7 +187,7 @@ namespace TestApp
         await new CSharpAnalyzerTest<OnLiveLayoutRoundTripAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     // ── Negative: observation-only ──────────────────────────────────────
@@ -215,7 +215,7 @@ namespace TestApp
         await new CSharpAnalyzerTest<OnLiveLayoutRoundTripAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -238,7 +238,7 @@ namespace TestApp
         await new CSharpAnalyzerTest<OnLiveLayoutRoundTripAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     // ── Negative: logging ───────────────────────────────────────────────
@@ -265,7 +265,7 @@ namespace TestApp
         await new CSharpAnalyzerTest<OnLiveLayoutRoundTripAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     // ── Negative: empty body ────────────────────────────────────────────
@@ -291,7 +291,7 @@ namespace TestApp
         await new CSharpAnalyzerTest<OnLiveLayoutRoundTripAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     // ── Negative: null handler ──────────────────────────────────────────
@@ -317,7 +317,7 @@ namespace TestApp
         await new CSharpAnalyzerTest<OnLiveLayoutRoundTripAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     // ── Negative: method group ──────────────────────────────────────────
@@ -345,7 +345,7 @@ namespace TestApp
         await new CSharpAnalyzerTest<OnLiveLayoutRoundTripAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     // ── Negative: multi-statement block ─────────────────────────────────
@@ -373,7 +373,7 @@ namespace TestApp
         await new CSharpAnalyzerTest<OnLiveLayoutRoundTripAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     // ── Negative: transformed parameter ─────────────────────────────────
@@ -402,7 +402,7 @@ namespace TestApp
         await new CSharpAnalyzerTest<OnLiveLayoutRoundTripAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     // ── Negative: extra arguments ───────────────────────────────────────
@@ -429,6 +429,6 @@ namespace TestApp
         await new CSharpAnalyzerTest<OnLiveLayoutRoundTripAnalyzer, DefaultVerifier>
         {
             TestCode = source,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 }

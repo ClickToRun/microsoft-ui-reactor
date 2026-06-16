@@ -104,7 +104,7 @@ public class LogCaptureBufferTests
 
         // sinceSeq=0, buffer has seq 1 & 2 → fast path, no blocking.
         // WaitAsync provides the outer budget; on the fast path it should be near-instant.
-        await buf.WaitForNewAsync(0, 5_000).WaitAsync(TimeSpan.FromSeconds(10));
+        await buf.WaitForNewAsync(0, 5_000, TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -116,14 +116,14 @@ public class LogCaptureBufferTests
         // the internal timeout?" ambiguity that a Task.WhenAny+Task.Delay race
         // can't disambiguate, especially on contended CI runners where the
         // post-signal continuation can be delayed past a tight outer race.
-        var wait = buf.WaitForNewAsync(1, timeoutMs: int.MaxValue);
+        var wait = buf.WaitForNewAsync(1, timeoutMs: int.MaxValue, ct: TestContext.Current.CancellationToken);
 
         Assert.False(wait.IsCompleted);
 
         buf.Append(LogSource.Stdout, null, "first");
         // 30s outer budget is generous for thread-pool starvation; if the wake
         // never propagates, WaitAsync throws TimeoutException with a clear stack.
-        await wait.WaitAsync(TimeSpan.FromSeconds(30));
+        await wait.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -132,7 +132,7 @@ public class LogCaptureBufferTests
         var buf = new LogCaptureBuffer();
         var sw = global::System.Diagnostics.Stopwatch.StartNew();
         // Wait for seq >= 1 on an empty buffer — exercises the timeout path.
-        await buf.WaitForNewAsync(1, 150);
+        await buf.WaitForNewAsync(1, 150, TestContext.Current.CancellationToken);
         sw.Stop();
         Assert.True(sw.ElapsedMilliseconds >= 100, $"WaitForNewAsync returned after only {sw.ElapsedMilliseconds}ms (expected ≥ ~150ms)");
         // Upper bound is a "didn't get stuck forever" sanity check — generous so

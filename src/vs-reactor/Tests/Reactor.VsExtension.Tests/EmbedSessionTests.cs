@@ -193,7 +193,7 @@ namespace Reactor.VsExtension.Tests
 
             await harness.Session.StopAsync(CancellationToken.None);
             staleLauncher.EmitSupervisorExited();
-            await Task.Delay(100);
+            await Task.Delay(100, TestContext.Current.CancellationToken);
 
             Assert.Single(harness.Launchers);
             Assert.Equal(ViewStatus.Idle, harness.ViewModel.CurrentStatus);

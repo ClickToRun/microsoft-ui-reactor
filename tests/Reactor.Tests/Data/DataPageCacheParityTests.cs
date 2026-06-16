@@ -93,10 +93,10 @@ public class DataPageCacheParityTests
         var legacy = new DataPageCache<int>(legacySource, blockSize: pageSize, maxBlocks: cap);
         for (int p = 0; p < 5; p++)
         {
-            var block = await legacy.GetBlockAsync(p);
+            var block = await legacy.GetBlockAsync(p, TestContext.Current.CancellationToken);
             Assert.Equal(BlockStatus.Loaded, block.Status);
         }
-        _ = await legacy.GetBlockAsync(2); // touch page 2
+        _ = await legacy.GetBlockAsync(2, TestContext.Current.CancellationToken); // touch page 2
         var legacyCached = new HashSet<int>();
         for (int p = 0; p < 5; p++)
             if (legacy.GetBlockStatus(p) == BlockStatus.Loaded) legacyCached.Add(p);
@@ -134,8 +134,8 @@ public class DataPageCacheParityTests
         // Legacy.
         var ls = new ControlledSource(total, pageSize);
         var legacy = new DataPageCache<int>(ls, blockSize: pageSize, maxBlocks: 20);
-        _ = await legacy.GetBlockAsync(0);
-        _ = await legacy.GetBlockAsync(2);
+        _ = await legacy.GetBlockAsync(0, TestContext.Current.CancellationToken);
+        _ = await legacy.GetBlockAsync(2, TestContext.Current.CancellationToken);
 
         // Hook.
         var hs = new ControlledSource(total, pageSize);
@@ -185,7 +185,7 @@ public class DataPageCacheParityTests
             var ls = new ControlledSource(total, pageSize);
             var legacy = new DataPageCache<int>(ls, blockSize: pageSize, maxBlocks: 20);
             for (int p = 0; p < prefixPages; p++)
-                _ = await legacy.GetBlockAsync(p);
+                _ = await legacy.GetBlockAsync(p, TestContext.Current.CancellationToken);
 
             // Hook: cursor-page forward prefixPages times (FetchNext loads page 0 implicitly
             // on render; one FetchNext per page after that).
@@ -263,7 +263,7 @@ public class DataPageCacheParityTests
         const int pageSize = 10;
         var ls = new ControlledSource(total: 50, pageSize);
         var legacy = new DataPageCache<int>(ls, blockSize: pageSize, maxBlocks: 20);
-        _ = await legacy.GetBlockAsync(0);
+        _ = await legacy.GetBlockAsync(0, TestContext.Current.CancellationToken);
         Assert.Equal(1, legacy.CachedBlockCount);
 
         legacy.SetState(new DataRequest { PageSize = pageSize, SearchQuery = "q" });
@@ -305,9 +305,9 @@ public class DataPageCacheParityTests
         var legacy = new DataPageCache<int>(ls, blockSize: pageSize);
         int legacyFires = 0;
         legacy.BlockLoaded += _ => Interlocked.Increment(ref legacyFires);
-        await legacy.GetBlockAsync(0);
-        await legacy.GetBlockAsync(1);
-        await legacy.GetBlockAsync(2);
+        await legacy.GetBlockAsync(0, TestContext.Current.CancellationToken);
+        await legacy.GetBlockAsync(1, TestContext.Current.CancellationToken);
+        await legacy.GetBlockAsync(2, TestContext.Current.CancellationToken);
         Assert.Equal(3, legacyFires);
 
         // Hook.
@@ -341,11 +341,11 @@ public class DataPageCacheParityTests
         var ls = new ControlledSource(total: 30, pageSize);
         var legacy = new DataPageCache<int>(ls, blockSize: pageSize);
         ls.FailOn.Add(1);
-        var b1 = await legacy.GetBlockAsync(1);
+        var b1 = await legacy.GetBlockAsync(1, TestContext.Current.CancellationToken);
         Assert.Equal(BlockStatus.Failed, b1.Status);
         ls.FailOn.Remove(1);
         legacy.Invalidate();
-        var b1Retry = await legacy.GetBlockAsync(1);
+        var b1Retry = await legacy.GetBlockAsync(1, TestContext.Current.CancellationToken);
         Assert.Equal(BlockStatus.Loaded, b1Retry.Status);
 
         // Hook — first page fetch fails; LoadState = Error; Retry() refetches.
@@ -378,10 +378,10 @@ public class DataPageCacheParityTests
         var ls = new ControlledSource(total: 30, pageSize);
         ls.ReturnedItemCount[1] = 0; // page 1 returns zero items
         var legacy = new DataPageCache<int>(ls, blockSize: pageSize);
-        var b1 = await legacy.GetBlockAsync(1);
+        var b1 = await legacy.GetBlockAsync(1, TestContext.Current.CancellationToken);
         Assert.Equal(BlockStatus.Loaded, b1.Status);
         Assert.Empty(b1.Items);
-        var b2 = await legacy.GetBlockAsync(2);
+        var b2 = await legacy.GetBlockAsync(2, TestContext.Current.CancellationToken);
         Assert.Equal(BlockStatus.Loaded, b2.Status);
         Assert.NotEmpty(b2.Items); // page 2 has items
 
@@ -436,8 +436,8 @@ public class DataPageCacheParityTests
         // Late completion of the pre-deps-change fetch. The hook-owned CTS was cancelled on
         // deps-change, so the continuation observes cancellation and the stale 999 never
         // lands in the resource.
-        await Task.Run(() => firstGate.SetResult(new DataPage<int>(new[] { 999 }, null, 1)));
-        await Task.Delay(50);
+        await Task.Run(() => firstGate.SetResult(new DataPage<int>(new[] { 999 }, null, 1)), TestContext.Current.CancellationToken);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
 
         // The post-deps-change resource observes its own (fresh, synchronous) data.
         Assert.Equal(0, r2.Items[0]);

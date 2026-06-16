@@ -48,7 +48,7 @@ class Foo { public void Bar() {} }
 class Test { void M() { var f = new Foo(); f.Brr(); } }
 ";
         var c = TestCompilation.Create(user);
-        var roslynDiag = c.GetDiagnostics().First(d => d.Id == "CS1061");
+        var roslynDiag = c.GetDiagnostics(TestContext.Current.CancellationToken).First(d => d.Id == "CS1061");
         var (line, col, file) = AsMSBuild(roslynDiag);
         var diag = new CheckCommand.Diag(file, line, col, "error", "CS1061", roslynDiag.GetMessage());
         var orch = new SuggesterOrchestrator();
@@ -69,7 +69,7 @@ class Test
     void M() { Button(""x"").OnClick(() => {}); }
 }";
         var c = TestCompilation.Create(usings + Stubs + user);
-        var roslynDiag = c.GetDiagnostics().First(d => d.Id == "CS1061");
+        var roslynDiag = c.GetDiagnostics(TestContext.Current.CancellationToken).First(d => d.Id == "CS1061");
         var (line, col, file) = AsMSBuild(roslynDiag);
         var diag = new CheckCommand.Diag(file, line, col, "error", "CS1061", roslynDiag.GetMessage());
         var orch = new SuggesterOrchestrator();
@@ -160,7 +160,7 @@ class Test { void M() { var b = new ButtonElement(); var x = b.Labl; } }
             (main, "Program.cs"),
         });
 
-        var roslynDiag = c.GetDiagnostics().First(d => d.Id == "CS1061");
+        var roslynDiag = c.GetDiagnostics(TestContext.Current.CancellationToken).First(d => d.Id == "CS1061");
         var span = roslynDiag.Location.GetLineSpan();
         // Diagnostic carries the bare filename only — this is the case the
         // pre-fix EndsWith logic mishandled.

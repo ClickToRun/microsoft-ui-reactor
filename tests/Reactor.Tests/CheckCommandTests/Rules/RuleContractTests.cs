@@ -21,10 +21,10 @@ public class RuleContractTests
     public void RuleContext_constructs_with_required_fields()
     {
         var compilation = (CSharpCompilation)CSharpCompilation.Create("X");
-        var tree = CSharpSyntaxTree.ParseText("class C {}");
+        var tree = CSharpSyntaxTree.ParseText("class C {}", cancellationToken: TestContext.Current.CancellationToken);
         compilation = compilation.AddSyntaxTrees(tree);
         var sm = compilation.GetSemanticModel(tree);
-        var node = tree.GetRoot().DescendantNodes().First();
+        var node = tree.GetRoot(TestContext.Current.CancellationToken).DescendantNodes().First();
         var diag = Diagnostic.Create(
             new DiagnosticDescriptor("CS1061", "t", "m", "c", DiagnosticSeverity.Error, true),
             Location.None);

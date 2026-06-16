@@ -99,7 +99,7 @@ class Test { void M() { var x = GridSize.Pixel(120); } }";
             (lookalikeStub, "Stub.cs"),
             (source, "Test.cs"),
         });
-        var roslynDiag = c.GetDiagnostics().First(d => d.Id == "CS0117");
+        var roslynDiag = c.GetDiagnostics(TestContext.Current.CancellationToken).First(d => d.Id == "CS0117");
         var span = roslynDiag.Location.GetLineSpan();
         var diag = new CheckCommand.Diag(
             span.Path, span.StartLinePosition.Line + 1, span.StartLinePosition.Character + 1,
@@ -127,7 +127,7 @@ class Test { void M() { var x = GridSize.Whatever(120); } }";
             (ReactorStub, "Stub.cs"),
             (source, "Test.cs"),
         });
-        var roslynDiag = c.GetDiagnostics().First(d => d.Id == "CS0117");
+        var roslynDiag = c.GetDiagnostics(TestContext.Current.CancellationToken).First(d => d.Id == "CS0117");
         var span = roslynDiag.Location.GetLineSpan();
         var diag = new CheckCommand.Diag(
             span.Path, span.StartLinePosition.Line + 1, span.StartLinePosition.Character + 1,

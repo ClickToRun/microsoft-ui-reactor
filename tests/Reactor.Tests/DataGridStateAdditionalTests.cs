@@ -65,7 +65,7 @@ public class DataGridStateAdditionalTests
     private async Task<DataGridState<TestItem>> CreateLoadedState(SelectionMode mode = SelectionMode.Multiple)
     {
         var state = CreateState(mode);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
         return state;
     }
 
@@ -794,7 +794,7 @@ public class DataGridStateAdditionalTests
     {
         var state = CreateState();
         Assert.Equal(0, state.ItemCount);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
         Assert.Equal(3, state.ItemCount);
     }
 
@@ -803,7 +803,7 @@ public class DataGridStateAdditionalTests
     {
         var state = CreateState();
         state.ToggleSort("Name"); // ascending
-        await state.LoadDataAsync(); // client-side sort (no ServerSort capability)
+        await state.LoadDataAsync(TestContext.Current.CancellationToken); // client-side sort (no ServerSort capability)
         Assert.Equal("Alice", state.GetItemAt(0)!.Name);
         Assert.Equal("Bob", state.GetItemAt(1)!.Name);
         Assert.Equal("Carol", state.GetItemAt(2)!.Name);
@@ -815,7 +815,7 @@ public class DataGridStateAdditionalTests
         var state = CreateState();
         state.ToggleSort("Name"); // asc
         state.ToggleSort("Name"); // desc
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
         Assert.Equal("Carol", state.GetItemAt(0)!.Name);
         Assert.Equal("Alice", state.GetItemAt(2)!.Name);
     }
@@ -825,7 +825,7 @@ public class DataGridStateAdditionalTests
     {
         var state = CreateState();
         state.SetFilter(new FilterDescriptor("Name", FilterOperator.Contains, "o"));
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
         Assert.Equal(2, state.ItemCount); // Bob and Carol
     }
 
@@ -834,7 +834,7 @@ public class DataGridStateAdditionalTests
     {
         var state = CreateState();
         state.SetFilter(new FilterDescriptor("Name", FilterOperator.Equals, "Bob"));
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
         Assert.Equal(1, state.ItemCount);
         Assert.Equal("Bob", state.GetItemAt(0)!.Name);
     }
@@ -844,7 +844,7 @@ public class DataGridStateAdditionalTests
     {
         var state = CreateState();
         state.SetFilter(new FilterDescriptor("Name", FilterOperator.NotEquals, "Bob"));
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
         Assert.Equal(2, state.ItemCount);
     }
 
@@ -853,7 +853,7 @@ public class DataGridStateAdditionalTests
     {
         var state = CreateState();
         state.SetFilter(new FilterDescriptor("Score", FilterOperator.GreaterThan, 90.0));
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
         Assert.Equal(2, state.ItemCount); // Alice(95) and Carol(92)
     }
 
@@ -862,7 +862,7 @@ public class DataGridStateAdditionalTests
     {
         var state = CreateState();
         state.SetFilter(new FilterDescriptor("Score", FilterOperator.LessThan, 90.0));
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
         Assert.Equal(1, state.ItemCount); // Bob(87)
     }
 
@@ -875,7 +875,7 @@ public class DataGridStateAdditionalTests
         );
         var state = new DataGridState<TestItem>(source, TestColumns, SelectionMode.Multiple);
         state.SetFilter(new FilterDescriptor("Name", FilterOperator.IsNull));
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
         Assert.Equal(0, state.ItemCount); // none are null
     }
 
@@ -884,7 +884,7 @@ public class DataGridStateAdditionalTests
     {
         var state = CreateState();
         state.SetFilter(new FilterDescriptor("Name", FilterOperator.IsNotNull));
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
         Assert.Equal(3, state.ItemCount); // all non-null
     }
 
@@ -899,7 +899,7 @@ public class DataGridStateAdditionalTests
         var state = new DataGridState<TestItem>(source, TestColumns, SelectionMode.Multiple);
         state.ToggleSort("Score"); // ascending
         state.ToggleSort("Name", additive: true); // then ascending name
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
         Assert.Equal("Carol", state.GetItemAt(0)!.Name); // 87
         Assert.Equal("Alice", state.GetItemAt(1)!.Name); // 95, A
         Assert.Equal("Bob", state.GetItemAt(2)!.Name);   // 95, B
@@ -970,7 +970,7 @@ public class DataGridStateAdditionalTests
             new TestItem(2, "Bob", 87)
         );
         var state = new DataGridState<TestItem>(source, TestColumns, SelectionMode.Multiple);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
         Assert.NotNull(state.PageCache);
         Assert.Equal(2, state.ItemCount);
     }
@@ -980,7 +980,7 @@ public class DataGridStateAdditionalTests
     {
         var source = new ServerSortSource(new TestItem(1, "Alice", 95));
         var state = new DataGridState<TestItem>(source, TestColumns, SelectionMode.Multiple);
-        await state.LoadDataAsync();
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
         Assert.Equal("Alice", state.GetItemAt(0)!.Name);
     }
 

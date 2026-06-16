@@ -138,7 +138,7 @@ public class DragDataTests
     public async Task WithText_LazySync_ResolvesAsync()
     {
         var data = new DragData().WithText(() => "world");
-        var text = await data.GetTextAsync();
+        var text = await data.GetTextAsync(TestContext.Current.CancellationToken);
         Assert.Equal("world", text);
     }
 
@@ -150,7 +150,7 @@ public class DragDataTests
             await Task.Delay(1, ct);
             return "async world";
         });
-        var text = await data.GetTextAsync();
+        var text = await data.GetTextAsync(TestContext.Current.CancellationToken);
         Assert.Equal("async world", text);
     }
 
@@ -174,7 +174,7 @@ public class DragDataTests
         var data = new DragData()
             .WithHtml(() => { htmlInvocations++; return "<html>"; });
 
-        var html1 = await data.GetHtmlAsync();
+        var html1 = await data.GetHtmlAsync(TestContext.Current.CancellationToken);
         // Sync provider is invoked every resolve — that's expected behavior. The
         // contract guarantee is "not invoked when target doesn't request the format".
         Assert.Equal("<html>", html1);
@@ -224,7 +224,7 @@ public class DragDataTests
     public async Task GetTextAsync_ReturnsNullWhenFormatMissing()
     {
         var data = new DragData();
-        var text = await data.GetTextAsync();
+        var text = await data.GetTextAsync(TestContext.Current.CancellationToken);
         Assert.Null(text);
     }
 
@@ -236,7 +236,7 @@ public class DragDataTests
             await Task.Yield();
             return (object)"resolved";
         });
-        var value = await data.GetCustomFormatAsync<string>("x");
+        var value = await data.GetCustomFormatAsync<string>("x", TestContext.Current.CancellationToken);
         Assert.Equal("resolved", value);
     }
 
@@ -244,7 +244,7 @@ public class DragDataTests
     public async Task GetCustomFormatAsync_TypeMismatch_ReturnsDefault()
     {
         var data = new DragData().WithCustomFormat("x", 42);
-        var value = await data.GetCustomFormatAsync<string>("x");
+        var value = await data.GetCustomFormatAsync<string>("x", TestContext.Current.CancellationToken);
         Assert.Null(value);
     }
 
@@ -311,11 +311,11 @@ public class DragDataTests
         int invocations = 0;
         var data = new DragData().WithUri(() => { invocations++; return new Uri("https://example.com/"); });
         Assert.Equal(0, invocations);
-        var got = await data.GetUriAsync();
+        var got = await data.GetUriAsync(TestContext.Current.CancellationToken);
         Assert.Equal(1, invocations);
         Assert.Equal(new Uri("https://example.com/"), got);
         // Second pull invokes the provider again (FormatEntry.SyncProvider is not memoized).
-        await data.GetUriAsync();
+        await data.GetUriAsync(TestContext.Current.CancellationToken);
         Assert.Equal(2, invocations);
     }
 
@@ -325,7 +325,7 @@ public class DragDataTests
         int invocations = 0;
         var data = new DragData().WithUri(async ct => { invocations++; await Task.Yield(); return new Uri("https://example.com/"); });
         Assert.Equal(0, invocations);
-        var got = await data.GetUriAsync();
+        var got = await data.GetUriAsync(TestContext.Current.CancellationToken);
         Assert.Equal(1, invocations);
         Assert.Equal(new Uri("https://example.com/"), got);
     }
@@ -351,7 +351,7 @@ public class DragDataTests
         var data = new DragData().WithUri(async ct => { await Task.Yield(); return new Uri("https://x/"); });
         Assert.False(data.TryGetUri(out _));
         // But the async path still works.
-        var got = await data.GetUriAsync();
+        var got = await data.GetUriAsync(TestContext.Current.CancellationToken);
         Assert.Equal(new Uri("https://x/"), got);
     }
 
@@ -361,7 +361,7 @@ public class DragDataTests
         int invocations = 0;
         var data = new DragData().WithRtf(() => { invocations++; return "{\\rtf1}"; });
         Assert.Equal(0, invocations);
-        var got = await data.GetRtfAsync();
+        var got = await data.GetRtfAsync(TestContext.Current.CancellationToken);
         Assert.Equal(1, invocations);
         Assert.Equal("{\\rtf1}", got);
     }
@@ -372,7 +372,7 @@ public class DragDataTests
         int invocations = 0;
         var data = new DragData().WithRtf(async ct => { invocations++; await Task.Yield(); return "{\\rtf1}"; });
         Assert.Equal(0, invocations);
-        var got = await data.GetRtfAsync();
+        var got = await data.GetRtfAsync(TestContext.Current.CancellationToken);
         Assert.Equal(1, invocations);
         Assert.Equal("{\\rtf1}", got);
     }
@@ -411,7 +411,7 @@ public class DragDataTests
         // TryGetCustomFormat is sync — async-only provider should return false.
         Assert.False(data.TryGetCustomFormat<int>("reactor.test/payload", out _));
         // GetCustomFormatAsync resolves the provider.
-        var got = await data.GetCustomFormatAsync<int>("reactor.test/payload");
+        var got = await data.GetCustomFormatAsync<int>("reactor.test/payload", TestContext.Current.CancellationToken);
         Assert.Equal(42, got);
         Assert.Equal(1, invocations);
     }
@@ -424,7 +424,7 @@ public class DragDataTests
         // is "absent → default, never throw" so callers can branch on
         // null/0/etc. without try/catch.
         var data = new DragData();
-        var got = await data.GetCustomFormatAsync<string>("absent");
+        var got = await data.GetCustomFormatAsync<string>("absent", TestContext.Current.CancellationToken);
         Assert.Null(got);
     }
 
@@ -435,7 +435,7 @@ public class DragDataTests
         // bubbling up an InvalidCastException — the spec says wrong type
         // is equivalent to absent.
         var data = new DragData().WithCustomFormat("k", 42);
-        var got = await data.GetCustomFormatAsync<string>("k");
+        var got = await data.GetCustomFormatAsync<string>("k", TestContext.Current.CancellationToken);
         Assert.Null(got);
     }
 
@@ -532,7 +532,7 @@ public class DragDataTests
             .WithUri(new Uri("https://fresh/"));
         Assert.True(data.TryGetUri(out var sync));
         Assert.Equal(new Uri("https://fresh/"), sync);
-        var async = await data.GetUriAsync();
+        var async = await data.GetUriAsync(TestContext.Current.CancellationToken);
         Assert.Equal(new Uri("https://fresh/"), async);
     }
 
@@ -627,7 +627,7 @@ public class DragDataFormatEntryTests
             SyncProvider = () => "sync",
             AsyncProvider = _ => Task.FromResult<object?>("async"),
         };
-        Assert.Equal("eager", await e.ResolveAsync(default));
+        Assert.Equal("eager", await e.ResolveAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -642,14 +642,14 @@ public class DragDataFormatEntryTests
             SyncProvider = () => "sync",
             AsyncProvider = _ => Task.FromResult<object?>("async"),
         };
-        Assert.Equal("async", await e.ResolveAsync(default));
+        Assert.Equal("async", await e.ResolveAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task ResolveAsync_NoValueAndNoProviders_ReturnsNull()
     {
         var e = new DragData.FormatEntry();
-        Assert.Null(await e.ResolveAsync(default));
+        Assert.Null(await e.ResolveAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
