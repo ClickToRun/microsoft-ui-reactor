@@ -275,6 +275,7 @@ events arrive in the same order as the user's actions.
 
 ```csharp
 // Don't:
+var (count, setCount) = UseState(0);
 UseEffect(() => {
     setCount(count + 1);   // no deps → runs every commit → infinite loop
 });

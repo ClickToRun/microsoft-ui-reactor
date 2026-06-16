@@ -478,8 +478,9 @@ DSL. Import `using static Microsoft.UI.Reactor.Charting.D3.D3Charts` for:
 ### Live-updating chart from a ticking source
 
 A streaming chart — a price feed, a sensor reading — drives a sliding
-window of points. Hold the window in `UseState`, append on tick, drop
-the head once `Count` exceeds the window size:
+window of points. Hold the window in `UseReducer` (each tick derives the
+next window from the previous one), append on tick, drop the head once
+`Count` exceeds the window size:
 
 ```csharp
 var (samples, updateSamples) = UseReducer<IReadOnlyList<Sample>>(Array.Empty<Sample>());
