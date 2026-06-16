@@ -482,14 +482,14 @@ window of points. Hold the window in `UseState`, append on tick, drop
 the head once `Count` exceeds the window size:
 
 ```csharp
-var (samples, setSamples) = UseState<IReadOnlyList<Sample>>(Array.Empty<Sample>());
+var (samples, updateSamples) = UseReducer<IReadOnlyList<Sample>>(Array.Empty<Sample>());
 
 UseEffect(() =>
 {
     using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(200));
     while (await timer.WaitForNextTickAsync(token))
     {
-        setSamples(prev =>
+        updateSamples(prev =>
         {
             var next = prev.Append(Sample.Now()).ToList();
             return next.Count > 60 ? next.Skip(next.Count - 60).ToList() : next;

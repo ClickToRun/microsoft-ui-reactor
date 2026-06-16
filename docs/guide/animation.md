@@ -735,7 +735,7 @@ value that changes every render (`DateTime.Now`, a freshly-allocated
 list, an inline lambda) restarts the animation on every reconcile —
 the element flickers as the keyframes constantly reset. Use a state
 counter that increments only when you mean to retrigger
-(`setCount(c => c + 1)`).
+(`var (count, updateCount) = UseReducer(0)`, then `updateCount(c => c + 1)`).
 
 ## Tips
 

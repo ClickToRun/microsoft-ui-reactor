@@ -174,6 +174,8 @@ own [`Observable.cs#observable-bridge`](#) bridge follows this shape;
 so does any timer, event subscription, or background task.
 
 ```csharp
+var (seconds, updateSeconds) = UseReducer(0);
+
 UseEffect(() =>
 {
     var cts = new CancellationTokenSource();
@@ -181,13 +183,13 @@ UseEffect(() =>
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
         while (await timer.WaitForNextTickAsync(cts.Token))
-            setSeconds(s => s + 1);
+            updateSeconds(s => s + 1);
     });
     return () => cts.Cancel();
 }, Array.Empty<object>());
 ```
 
-The setter `setSeconds` auto-marshals back to the UI thread (see
+The updater `updateSeconds` auto-marshals back to the UI thread (see
 [hooks](hooks.md) "Updating state from background work"). The cleanup
 cancels the token; the timer's `using` disposes when the
 `WaitForNextTickAsync` loop unblocks. No state leaks between mounts.
@@ -219,7 +221,7 @@ events arrive in the same order as the user's actions.
 ```csharp
 // Don't:
 UseEffect(() => {
-    setCount(c => c + 1);   // no deps → runs every commit → infinite loop
+    setCount(count + 1);   // no deps → runs every commit → infinite loop
 });
 ```
 

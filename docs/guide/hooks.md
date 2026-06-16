@@ -69,8 +69,11 @@ class StateDemo : Component
 ![UseState demo](images/hooks/usestate.png)
 
 Call `setColor("#FF0000")` and Reactor re-renders the component with the new
-value. The setter also accepts a function: `setSize(s => s + 1)` — this is
-safer when the update depends on the previous value.
+value. The setter is an `Action<T>` — it takes the **new value**, not a
+function of the previous one. When an update derives from the previous value
+(or you call the setter several times in one event), use
+[`UseReducer`](#usereducer-functional) instead — its updater receives the live
+previous value.
 
 ## UseReducer (Functional)
 
@@ -303,7 +306,7 @@ class CallbackDemo : Component
 
 ![UseCallback demo](images/hooks/usecallback.png)
 
-Without `UseCallback`, the lambda `() => setCount(c => c + 1)` would be a new
+Without `UseCallback`, the lambda `() => updateCount(c => c + 1)` would be a new
 object every render. `UseCallback` returns the same delegate instance as long
 as the dependencies haven't changed. This matters when passing callbacks to
 memoized [child components](components.md).
@@ -321,7 +324,7 @@ you'd write on the UI thread:
 ```csharp
 public override Element Render()
 {
-    var (seconds, setSeconds) = UseState(0);
+    var (seconds, updateSeconds) = UseReducer(0);
 
     UseEffect(() =>
     {
@@ -330,7 +333,7 @@ public override Element Render()
         {
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
             while (await timer.WaitForNextTickAsync(cts.Token))
-                setSeconds(s => s + 1);   // auto-marshals to the UI thread
+                updateSeconds(s => s + 1);   // auto-marshals to the UI thread
         });
         return () => cts.Cancel();
     });
@@ -525,31 +528,34 @@ UseEffect(() =>
 
 The effect's empty deps array means it captures `count` once at mount.
 The timer fires forever with the stale closure, so the counter sticks at
-1. The fix is the functional-setter pattern — `setCount(c => c + 1)` —
-which reads the live cell value instead of the captured variable. The
-`Func<T,T>` overload of `UseState` and the entire `UseReducer` API are
-built around this.
+1. The fix is `UseReducer`'s functional updater — declare
+`var (count, updateCount) = UseReducer(0)` and call `updateCount(c => c + 1)`,
+which reads the live cell value instead of the captured variable. (`UseState`'s
+setter is an `Action<T>`; it only takes a value, so it can't express a
+previous-value update.)
 
-### Setter chain that should be `set(prev => ...)`
+### Setter chain that should use `UseReducer`
 
 ```csharp
 // Don't:
+var (count, setCount) = UseState(0);
 Button("+3", () => { setCount(count + 1); setCount(count + 1); setCount(count + 1); });
 ```
 
 The three setter calls all read the same captured `count` and all write
-`count + 1` — the button advances by one, not three. Use the functional
-form so each call sees the previous setter's result:
+`count + 1` — the button advances by one, not three. Switch to `UseReducer`
+so each functional update sees the previous one's result:
 
 ```csharp
-Button("+3", () => { setCount(c => c + 1); setCount(c => c + 1); setCount(c => c + 1); });
+var (count, updateCount) = UseReducer(0);
+Button("+3", () => { updateCount(c => c + 1); updateCount(c => c + 1); updateCount(c => c + 1); });
 ```
 
 This is the same Reactor-wide rule as the [stale closure](#stale-closures)
-pattern: when an update derives from the previous value, the functional
-setter is the right shape. The auto-marshal path for cross-thread setters
-described above relies on the same overload — every queued write reads
-the latest committed value, not a snapshot.
+pattern: when an update derives from the previous value, `UseReducer`'s
+functional updater is the right shape. The auto-marshal path for cross-thread
+updaters described above relies on the same mechanism — every queued update
+reads the latest committed value, not a snapshot.
 
 ### Reading state right after calling its setter
 
@@ -591,8 +597,10 @@ because they run on a later render and observe the fresh value.
 
 ## Tips
 
-**Use the functional setter for derived updates.** `setCount(c => c + 1)` is
-safer than `setCount(count + 1)` when multiple updates might batch together.
+**Use `UseReducer` for derived updates.** `updateCount(c => c + 1)` is safer
+than `setCount(count + 1)` when an update depends on the previous value or
+several updates run in one event — the functional updater reads the live
+value, while `UseState`'s `Action<T>` setter only stores what you pass it.
 
 **Always return cleanup from effects that create resources.** Timers,
 subscriptions, and event handlers must be disposed. The cleanup function is
