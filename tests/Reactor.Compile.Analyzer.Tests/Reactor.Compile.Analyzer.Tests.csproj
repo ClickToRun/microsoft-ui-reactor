@@ -17,7 +17,7 @@
     <RootNamespace>Microsoft.UI.Reactor.Compile.Analyzer.Tests</RootNamespace>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <OutputType>Library</OutputType>
+    <OutputType>Exe</OutputType>
   </PropertyGroup>
 
   <ItemGroup>

@@ -27,7 +27,7 @@
     <Platforms>x64;ARM64</Platforms>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <OutputType>Library</OutputType>
+    <OutputType>Exe</OutputType>
     <!-- xUnit host loads WinUI types in-process; bundle the runtime. -->
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
   </PropertyGroup>
