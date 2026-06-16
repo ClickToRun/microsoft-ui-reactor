@@ -149,6 +149,14 @@ jobs:
           # Inside the repo so the root nuget.config (which maps local-nupkgs/)
           # is picked up by NuGet's parent-dir walk.
           New-Item -ItemType Directory -Path TestProjects | Out-Null
+          # The scaffolded TestApp lives under the repo, so NuGet's parent-dir
+          # walk would otherwise inherit the repo-root Directory.Packages.props
+          # and flip the app into Central Package Management — conflicting with
+          # the template's inline PackageReference versions (NU1008). Drop a
+          # nearer Directory.Packages.props that shadows the root one and turns
+          # CPM off, faithfully mimicking a real end-user scaffold (which has no
+          # central package props above it).
+          Set-Content -Path TestProjects/Directory.Packages.props -Value '<Project><PropertyGroup><ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally></PropertyGroup></Project>'
           Push-Location TestProjects
           try {
               # Bootstrap validates the local 0.0.0-local feed produced by
