@@ -183,7 +183,7 @@ public class TranslationProviderTests
             ],
         };
 
-        var result = await provider.TranslateAsync(batch);
+        var result = await provider.TranslateAsync(batch, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, result.Translations.Count);
         Assert.Equal("[fr-FR] Save", result.Translations["Save"]);
@@ -228,7 +228,7 @@ public class TranslationProviderTests
                     }).ToList(),
                 };
 
-                var result = await provider.TranslateAsync(batch);
+                var result = await provider.TranslateAsync(batch, TestContext.Current.CancellationToken);
 
                 // Write to .resw with pending-review markers
                 var doc = new XDocument(

@@ -212,7 +212,7 @@ public class RegTests
                 {
                     _ = Reg<ConcurrentElement, UIElement, ConcurrentHandler>.Done;
                 }
-            });
+            }, TestContext.Current.CancellationToken);
         }
 
         gate.Set();

@@ -184,7 +184,7 @@ public class RegDecoratorTests
                 {
                     _ = RegDecorator<ConcurrentElement, ConcurrentHandler>.Done;
                 }
-            });
+            }, TestContext.Current.CancellationToken);
         }
 
         gate.Set();

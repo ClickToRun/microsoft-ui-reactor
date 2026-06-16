@@ -64,7 +64,7 @@ public sealed class DevtoolsHost_EmbedTests
             SynchronizationContext.SetSynchronizationContext(previousContext);
         }
 
-        Assert.True(fired.Wait(TimeSpan.FromSeconds(5)), "Expected watchdog callback after host process exit.");
+        Assert.True(fired.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken), "Expected watchdog callback after host process exit.");
         if (!process.HasExited) process.Kill(entireProcessTree: true);
     }
 }

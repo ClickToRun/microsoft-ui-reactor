@@ -21,7 +21,7 @@ namespace Reactor.VsExtension.Tests
             var handler = new StubHandler(_ => JsonResponse(HttpStatusCode.OK, "{\"ok\":true}"));
             using (var client = new EmbedClient(4444, "tok", handler))
             {
-                Assert.True(await client.AckEmbedAsync(new IntPtr(0x1234), 640, 480, 7));
+                Assert.True(await client.AckEmbedAsync(new IntPtr(0x1234), 640, 480, 7, TestContext.Current.CancellationToken));
             }
 
             using (var doc = JsonDocument.Parse(handler.LastBody!))
@@ -39,7 +39,7 @@ namespace Reactor.VsExtension.Tests
             var handler = new StubHandler(_ => JsonResponse(HttpStatusCode.OK, "{\"ok\":true}"));
             using (var client = new EmbedClient(4444, "secret-token", handler))
             {
-                await client.AckEmbedAsync(IntPtr.Zero, 1, 2, 3);
+                await client.AckEmbedAsync(IntPtr.Zero, 1, 2, 3, TestContext.Current.CancellationToken);
             }
 
             Assert.Equal("Bearer", handler.LastRequest!.Headers.Authorization!.Scheme);
@@ -52,7 +52,7 @@ namespace Reactor.VsExtension.Tests
             var handler = new StubHandler(_ => JsonResponse(HttpStatusCode.OK, "{\"ok\":true}"));
             using (var client = new EmbedClient(5123, "tok", handler))
             {
-                await client.AckEmbedAsync(IntPtr.Zero, 1, 2, 3);
+                await client.AckEmbedAsync(IntPtr.Zero, 1, 2, 3, TestContext.Current.CancellationToken);
             }
 
             Assert.Equal("127.0.0.1:5123", handler.LastRequest!.Headers.Host);
@@ -67,7 +67,7 @@ namespace Reactor.VsExtension.Tests
             using (var client = new EmbedClient(4444, "tok", handler))
             {
                 client.GenerationMismatch += (_, args) => observed = args;
-                result = await client.AckEmbedAsync(IntPtr.Zero, 1, 2, 1);
+                result = await client.AckEmbedAsync(IntPtr.Zero, 1, 2, 1, TestContext.Current.CancellationToken);
             }
 
             Assert.False(result);
@@ -82,7 +82,7 @@ namespace Reactor.VsExtension.Tests
             var handler = new StubHandler(_ => JsonResponse(HttpStatusCode.PreconditionFailed, "{}"));
             using (var client = new EmbedClient(4444, "tok", handler))
             {
-                await Assert.ThrowsAsync<EmbedDpiMismatchException>(() => client.AckEmbedAsync(IntPtr.Zero, 1, 2, 3));
+                await Assert.ThrowsAsync<EmbedDpiMismatchException>(() => client.AckEmbedAsync(IntPtr.Zero, 1, 2, 3, TestContext.Current.CancellationToken));
             }
         }
 
@@ -95,7 +95,7 @@ namespace Reactor.VsExtension.Tests
             using (var client = new EmbedClient(4444, "tok", handler))
             {
                 client.GenerationMismatch += (_, __) => raised = true;
-                result = await client.AckEmbedAsync(IntPtr.Zero, 1, 2, 3);
+                result = await client.AckEmbedAsync(IntPtr.Zero, 1, 2, 3, TestContext.Current.CancellationToken);
             }
 
             Assert.False(result);
@@ -108,7 +108,7 @@ namespace Reactor.VsExtension.Tests
             var handler = new StubHandler(_ => JsonResponse(HttpStatusCode.OK, "{\"building\":false,\"fps\":10,\"port\":4444,\"generation\":1}"));
             using (var client = new EmbedClient(4444, "tok", handler))
             {
-                var ex = await Assert.ThrowsAsync<EmbedProtocolMismatchException>(() => client.StatusAsync());
+                var ex = await Assert.ThrowsAsync<EmbedProtocolMismatchException>(() => client.StatusAsync(TestContext.Current.CancellationToken));
                 Assert.Contains("expected protocol 'embed-v1'", ex.Message);
             }
         }
@@ -119,7 +119,7 @@ namespace Reactor.VsExtension.Tests
             var handler = new StubHandler(_ => JsonResponse(HttpStatusCode.OK, "{\"building\":false,\"fps\":10,\"port\":4444,\"protocol\":\"embed-v2\",\"generation\":1}"));
             using (var client = new EmbedClient(4444, "tok", handler))
             {
-                var ex = await Assert.ThrowsAsync<EmbedProtocolMismatchException>(() => client.StatusAsync());
+                var ex = await Assert.ThrowsAsync<EmbedProtocolMismatchException>(() => client.StatusAsync(TestContext.Current.CancellationToken));
                 Assert.Contains("got 'embed-v2'", ex.Message);
             }
         }
@@ -130,7 +130,7 @@ namespace Reactor.VsExtension.Tests
             var handler = new StubHandler(_ => JsonResponse(HttpStatusCode.OK, "{}"));
             using (var client = new EmbedClient(4444, "tok", handler))
             {
-                await client.ResizeAsync(800, 600);
+                await client.ResizeAsync(800, 600, TestContext.Current.CancellationToken);
             }
 
             using (var doc = JsonDocument.Parse(handler.LastBody!))
@@ -146,7 +146,7 @@ namespace Reactor.VsExtension.Tests
             var handler = new StubHandler(_ => JsonResponse(HttpStatusCode.OK, "{}"));
             using (var client = new EmbedClient(4444, "tok", handler))
             {
-                await client.MoveAsync(12, 34);
+                await client.MoveAsync(12, 34, TestContext.Current.CancellationToken);
             }
 
             using (var doc = JsonDocument.Parse(handler.LastBody!))
@@ -162,7 +162,7 @@ namespace Reactor.VsExtension.Tests
             var handler = new StubHandler(_ => JsonResponse(HttpStatusCode.OK, "{}"));
             using (var client = new EmbedClient(4444, "tok", handler))
             {
-                await client.ReleaseAsync();
+                await client.ReleaseAsync(TestContext.Current.CancellationToken);
             }
 
             Assert.Equal("{}", handler.LastBody);
@@ -174,7 +174,7 @@ namespace Reactor.VsExtension.Tests
             var handler = new StubHandler(_ => JsonResponse(HttpStatusCode.OK, "{}"));
             using (var client = new EmbedClient(4444, "tok", handler))
             {
-                Assert.True(await client.PreviewAsync("Counter"));
+                Assert.True(await client.PreviewAsync("Counter", TestContext.Current.CancellationToken));
             }
 
             using (var doc = JsonDocument.Parse(handler.LastBody!))
@@ -189,7 +189,7 @@ namespace Reactor.VsExtension.Tests
             var handler = new StubHandler(_ => JsonResponse(HttpStatusCode.OK, "{\"building\":true,\"fps\":30,\"port\":4444,\"protocol\":\"embed-v1\",\"generation\":9}"));
             using (var client = new EmbedClient(4444, "tok", handler))
             {
-                var status = await client.StatusAsync();
+                var status = await client.StatusAsync(TestContext.Current.CancellationToken);
                 Assert.True(status.Building);
                 Assert.Equal(30, status.Fps);
                 Assert.Equal(4444, status.Port);
@@ -205,7 +205,7 @@ namespace Reactor.VsExtension.Tests
             EmbedComponentsResponse response;
             using (var client = new EmbedClient(4444, "tok", handler))
             {
-                response = await client.GetComponentsAsync();
+                response = await client.GetComponentsAsync(TestContext.Current.CancellationToken);
             }
 
             Assert.Equal(new[] { "A", "B" }, response.Components.ToArray());
@@ -218,7 +218,7 @@ namespace Reactor.VsExtension.Tests
             var handler = new StubHandler(_ => JsonResponse(HttpStatusCode.OK, "{\"hwnd\":\"0x12345\",\"generation\":1}"));
             using (var client = new EmbedClient(4444, "tok", handler))
             {
-                var result = await client.GetHwndAsync();
+                var result = await client.GetHwndAsync(TestContext.Current.CancellationToken);
                 Assert.Equal(new IntPtr(0x12345), result.Hwnd);
                 Assert.Equal(1, result.Generation);
             }
@@ -242,8 +242,8 @@ namespace Reactor.VsExtension.Tests
             });
 
             var client = new EmbedClient(4444, "tok", handler);
-            var task = client.StatusAsync();
-            Assert.True(entered.Wait(TimeSpan.FromSeconds(1)));
+            var task = client.StatusAsync(TestContext.Current.CancellationToken);
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken));
 
             client.Dispose();
 

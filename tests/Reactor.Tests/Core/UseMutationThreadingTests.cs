@@ -180,7 +180,7 @@ public class UseMutationThreadingTests : IDisposable
         gate.SetResult(42);
         try { await run; } catch { /* OCE or task-canceled */ }
 
-        await Task.Delay(20);
+        await Task.Delay(20, TestContext.Current.CancellationToken);
         Assert.Equal(0, Volatile.Read(ref onSuccess));
         Assert.Equal(0, Volatile.Read(ref onError));
         AssertNoUnobserved();

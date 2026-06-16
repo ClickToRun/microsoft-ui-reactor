@@ -259,6 +259,6 @@ namespace TestApp
         {
             TestCode = source,
             CompilerDiagnostics = CompilerDiagnostics.None,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 }

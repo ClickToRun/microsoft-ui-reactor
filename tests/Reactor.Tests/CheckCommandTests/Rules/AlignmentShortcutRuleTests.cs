@@ -96,7 +96,7 @@ class Test { void M() { var w = new Acme.Widget(); var x = w.HorizontalAlignment
             (ReactorStub, "Stub.cs"),
             (source, "Test.cs"),
         });
-        var roslynDiag = c.GetDiagnostics().First(d => d.Id == "CS1061");
+        var roslynDiag = c.GetDiagnostics(TestContext.Current.CancellationToken).First(d => d.Id == "CS1061");
         var span = roslynDiag.Location.GetLineSpan();
         var diag = new CheckCommand.Diag(
             span.Path, span.StartLinePosition.Line + 1, span.StartLinePosition.Character + 1,

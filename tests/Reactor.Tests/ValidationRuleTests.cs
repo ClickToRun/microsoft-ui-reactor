@@ -126,7 +126,7 @@ public class ValidationRuleTests
             "Username taken",
             "username");
 
-        await rule.EvaluateAsync(ctx);
+        await rule.EvaluateAsync(ctx, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Single(ctx.GetMessages("username"));
     }
@@ -142,11 +142,11 @@ public class ValidationRuleTests
             "Username taken",
             "username");
 
-        await rule.EvaluateAsync(ctx);
+        await rule.EvaluateAsync(ctx, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Single(ctx.GetMessages("username"));
 
         shouldFail = false;
-        await rule.EvaluateAsync(ctx);
+        await rule.EvaluateAsync(ctx, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Empty(ctx.GetMessages("username"));
     }
 

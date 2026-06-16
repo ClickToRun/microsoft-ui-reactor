@@ -333,7 +333,7 @@ class Test
     {
         const string userCode = @"class Test { void M() { int x = 1 } }"; // CS1002 etc
         var compilation = TestCompilation.Create(ReactorStubs + "\n" + userCode);
-        var diag = compilation.GetDiagnostics().First();
+        var diag = compilation.GetDiagnostics(TestContext.Current.CancellationToken).First();
         var ctx = new SuggesterContext(compilation, diag, null, null, FactoryIndex.Empty);
         var r = new SymbolSuggester().Suggest(ctx);
         Assert.False(r.HasSuggestion);

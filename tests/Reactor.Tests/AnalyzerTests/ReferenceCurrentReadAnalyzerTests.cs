@@ -38,7 +38,7 @@ class MyControlHandler
             ExpectedDiagnostics = { expected },
         };
 
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -70,7 +70,7 @@ class MyControlDescriptor
             ExpectedDiagnostics = { expected },
         };
 
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -98,7 +98,7 @@ class MyControlHandler
             TestCode = test,
         };
 
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -126,7 +126,7 @@ class DescriptorBuilder
             TestCode = test,
         };
 
-        await analyzerTest.RunAsync();
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -161,7 +161,7 @@ class MyControlHandler
         await new CSharpAnalyzerTest<ReferenceCurrentReadAnalyzer, DefaultVerifier>
         {
             TestCode = test,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -196,7 +196,7 @@ class MyControlDescriptor
         await new CSharpAnalyzerTest<ReferenceCurrentReadAnalyzer, DefaultVerifier>
         {
             TestCode = test,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -229,7 +229,7 @@ class PopupDescriptor
         await new CSharpAnalyzerTest<ReferenceCurrentReadAnalyzer, DefaultVerifier>
         {
             TestCode = test,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -255,7 +255,7 @@ class FocusBinding
         await new CSharpAnalyzerTest<ReferenceCurrentReadAnalyzer, DefaultVerifier>
         {
             TestCode = test,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -280,7 +280,7 @@ class MyControlHandler
         await new CSharpAnalyzerTest<ReferenceCurrentReadAnalyzer, DefaultVerifier>
         {
             TestCode = test,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -303,6 +303,6 @@ class MyControlDescriptor
         await new CSharpAnalyzerTest<ReferenceCurrentReadAnalyzer, DefaultVerifier>
         {
             TestCode = test,
-        }.RunAsync();
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 }

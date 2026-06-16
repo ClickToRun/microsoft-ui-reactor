@@ -98,7 +98,7 @@ public class PersistedStateScopeTests
                     lru.Set(tid * 10_000 + i, i);
                     lru.TryGet(tid * 10_000 + (i / 2), out _);
                 }
-            }));
+            }, TestContext.Current.CancellationToken));
         }
         await Task.WhenAll(tasks);
         Assert.True(lru.Count <= 100);

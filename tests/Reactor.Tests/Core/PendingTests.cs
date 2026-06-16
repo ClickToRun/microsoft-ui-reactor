@@ -95,7 +95,7 @@ public class PendingTests
         tcs.SetResult(42);
         // The continuation runs via the InlineDispatcher.Post; allow any in-flight
         // Task.ContinueWith to settle before asserting.
-        for (int i = 0; i < 10 && scope.AnyLoading; i++) await Task.Delay(5);
+        for (int i = 0; i < 10 && scope.AnyLoading; i++) await Task.Delay(5, TestContext.Current.CancellationToken);
         Assert.False(scope.AnyLoading);
     }
 
@@ -190,11 +190,11 @@ public class PendingTests
 
         gateA.SetResult(1);
         // Even after A resolves, scope should still show loading because B hasn't.
-        await Task.Delay(20);
+        await Task.Delay(20, TestContext.Current.CancellationToken);
         Assert.True(scope.AnyLoading);
 
         gateB.SetResult(2);
-        for (int i = 0; i < 10 && scope.AnyLoading; i++) await Task.Delay(5);
+        for (int i = 0; i < 10 && scope.AnyLoading; i++) await Task.Delay(5, TestContext.Current.CancellationToken);
         Assert.False(scope.AnyLoading);
     }
 
@@ -240,7 +240,7 @@ public class PendingTests
         Assert.True(scope.AnyLoading);
 
         gate.SetResult(new Page<int, string>(new[] { 1, 2, 3 }, NextCursor: null, TotalCount: 3));
-        for (int i = 0; i < 10 && scope.AnyLoading; i++) await Task.Delay(5);
+        for (int i = 0; i < 10 && scope.AnyLoading; i++) await Task.Delay(5, TestContext.Current.CancellationToken);
         Assert.False(scope.AnyLoading);
     }
 

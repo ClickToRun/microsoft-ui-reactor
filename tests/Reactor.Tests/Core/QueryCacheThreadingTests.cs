@@ -46,7 +46,7 @@ public class QueryCacheThreadingTests
                 barrier.SignalAndWait();
                 while (!cts.IsCancellationRequested)
                     cache.Set("k", me * 1000, TimeSpan.Zero, TimeSpan.FromMinutes(5));
-            }));
+            }, TestContext.Current.CancellationToken));
         }
         for (int i = 0; i < 4; i++)
         {
@@ -63,11 +63,11 @@ public class QueryCacheThreadingTests
                             Interlocked.Increment(ref tornReads);
                     }
                 }
-            }));
+            }, TestContext.Current.CancellationToken));
         }
 
         cts.CancelAfter(TimeSpan.FromMilliseconds(250));
-        await Task.WhenAll(tasks).WaitAsync(DrainTimeout);
+        await Task.WhenAll(tasks).WaitAsync(DrainTimeout, TestContext.Current.CancellationToken);
         Assert.Equal(0, tornReads);
     }
 
@@ -100,9 +100,9 @@ public class QueryCacheThreadingTests
                     int after = cache.Unsubscribe("k");
                     if (after < 0) Interlocked.Increment(ref negativeCount);
                 }
-            });
+            }, TestContext.Current.CancellationToken);
         }
-        await Task.WhenAll(tasks).WaitAsync(DrainTimeout);
+        await Task.WhenAll(tasks).WaitAsync(DrainTimeout, TestContext.Current.CancellationToken);
         Assert.Equal(0, negativeCount);
 
         // Final count should be exactly zero.
@@ -125,12 +125,12 @@ public class QueryCacheThreadingTests
         {
             while (!cts.IsCancellationRequested)
                 cache.Set("k", 42, TimeSpan.Zero, TimeSpan.FromMinutes(5));
-        });
+        }, TestContext.Current.CancellationToken);
         var invalidator = Task.Run(() =>
         {
             while (!cts.IsCancellationRequested)
                 cache.Invalidate("k");
-        });
+        }, TestContext.Current.CancellationToken);
         var reader = Task.Run(() =>
         {
             while (!cts.IsCancellationRequested)
@@ -139,11 +139,11 @@ public class QueryCacheThreadingTests
                 if (cache.TryGet<int>("k", out var e) && e.Value != 42)
                     Interlocked.Increment(ref inconsistencies);
             }
-        });
+        }, TestContext.Current.CancellationToken);
 
-        await Task.Delay(250);
+        await Task.Delay(250, TestContext.Current.CancellationToken);
         cts.Cancel();
-        await Task.WhenAll(setter, invalidator, reader).WaitAsync(DrainTimeout);
+        await Task.WhenAll(setter, invalidator, reader).WaitAsync(DrainTimeout, TestContext.Current.CancellationToken);
         Assert.Equal(0, inconsistencies);
     }
 
@@ -173,13 +173,13 @@ public class QueryCacheThreadingTests
             {
                 barrier.SignalAndWait();
                 cache.Subscribe("k");
-            });
+            }, TestContext.Current.CancellationToken);
             Task evict = Task.Run(() =>
             {
                 barrier.SignalAndWait();
                 cache.EvictNow();
-            });
-            await Task.WhenAll(sub, evict).WaitAsync(DrainTimeout);
+            }, TestContext.Current.CancellationToken);
+            await Task.WhenAll(sub, evict).WaitAsync(DrainTimeout, TestContext.Current.CancellationToken);
 
             // At least one of two things must be true:
             // (a) EvictNow ran first and the entry was cleared; Subscribe created a fresh slot.
@@ -206,15 +206,15 @@ public class QueryCacheThreadingTests
             {
                 cache.Set($"user/{i++ % 100}", i, TimeSpan.Zero, TimeSpan.FromMinutes(5));
             }
-        });
+        }, TestContext.Current.CancellationToken);
         var invalidator = Task.Run(() =>
         {
             while (!cts.IsCancellationRequested)
                 cache.InvalidatePattern("user/");
-        });
+        }, TestContext.Current.CancellationToken);
 
         // The test passes iff neither task throws.
-        await Task.WhenAll(setter, invalidator).WaitAsync(DrainTimeout);
+        await Task.WhenAll(setter, invalidator).WaitAsync(DrainTimeout, TestContext.Current.CancellationToken);
         Assert.True(setter.IsCompletedSuccessfully);
         Assert.True(invalidator.IsCompletedSuccessfully);
     }
@@ -275,9 +275,9 @@ public class QueryCacheThreadingTests
                 {
                     Interlocked.Increment(ref exceptions);
                 }
-            }));
+            }, TestContext.Current.CancellationToken));
         }
-        await Task.WhenAll(tasks).WaitAsync(DrainTimeout);
+        await Task.WhenAll(tasks).WaitAsync(DrainTimeout, TestContext.Current.CancellationToken);
         Assert.Equal(0, exceptions);
     }
 }

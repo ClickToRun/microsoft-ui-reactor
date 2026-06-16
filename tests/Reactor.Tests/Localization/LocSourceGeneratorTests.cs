@@ -55,7 +55,7 @@ public class LocSourceGeneratorTests
 
         Assert.Empty(result.Diagnostics);
         var generated = result.GeneratedTrees.Single();
-        var source = generated.GetText().ToString();
+        var source = generated.GetText(TestContext.Current.CancellationToken).ToString();
 
         // Should have flat keys (no nested class)
         Assert.Contains("public static readonly MessageKey Save", source);
@@ -81,7 +81,7 @@ public class LocSourceGeneratorTests
 
         Assert.Empty(result.Diagnostics);
         var generated = result.GeneratedTrees.Single();
-        var source = generated.GetText().ToString();
+        var source = generated.GetText(TestContext.Current.CancellationToken).ToString();
 
         Assert.Contains("static class Common", source);
         Assert.Contains("static class Settings", source);
@@ -120,7 +120,7 @@ public class LocSourceGeneratorTests
 
         var result = RunGenerator(("Strings/en-US/Resources.resw", resw));
 
-        var source = result.GeneratedTrees.Single().GetText().ToString();
+        var source = result.GeneratedTrees.Single().GetText(TestContext.Current.CancellationToken).ToString();
         Assert.Contains("Welcome to Reactor!", source);
     }
 
@@ -142,15 +142,15 @@ public class LocSourceGeneratorTests
 
         var result = RunGenerator(("Strings/en-US/Resources.resw", resw));
 
-        var source = result.GeneratedTrees.Single().GetText().ToString();
+        var source = result.GeneratedTrees.Single().GetText(TestContext.Current.CancellationToken).ToString();
         // Compile generated code to ensure no injection produced invalid C#.
-        var tree = CSharpSyntaxTree.ParseText(source);
-        var diagnostics = tree.GetDiagnostics().ToList();
+        var tree = CSharpSyntaxTree.ParseText(source, cancellationToken: TestContext.Current.CancellationToken);
+        var diagnostics = tree.GetDiagnostics(TestContext.Current.CancellationToken).ToList();
         Assert.DoesNotContain(diagnostics, d => d.Severity == DiagnosticSeverity.Error);
         // Walk the syntax tree: hostile content must only appear inside string-literal
         // tokens, never as live syntax. If the hostile name had escaped, we'd see a
         // MemberAccess invoking File.Delete, not a benign string literal.
-        var root = tree.GetRoot();
+        var root = tree.GetRoot(TestContext.Current.CancellationToken);
         var invocations = root.DescendantNodes()
             .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.InvocationExpressionSyntax>()
             .Where(i => i.ToString().Contains("File.Delete"));
@@ -171,9 +171,9 @@ public class LocSourceGeneratorTests
         var result = RunGenerator(
             ("Strings/en-US/Common.resw", common),
             ("Strings/en-US/Settings.resw", settings));
-        var source = result.GeneratedTrees.Single().GetText().ToString();
-        var tree = CSharpSyntaxTree.ParseText(source);
-        Assert.DoesNotContain(tree.GetDiagnostics(), d => d.Severity == DiagnosticSeverity.Error);
+        var source = result.GeneratedTrees.Single().GetText(TestContext.Current.CancellationToken).ToString();
+        var tree = CSharpSyntaxTree.ParseText(source, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.DoesNotContain(tree.GetDiagnostics(TestContext.Current.CancellationToken), d => d.Severity == DiagnosticSeverity.Error);
     }
 
     [Fact]
@@ -206,13 +206,13 @@ public class LocSourceGeneratorTests
 </root>";
 
         var result = RunGenerator(("Strings/en-US/Resources.resw", resw));
-        var source = result.GeneratedTrees.Single().GetText().ToString();
+        var source = result.GeneratedTrees.Single().GetText(TestContext.Current.CancellationToken).ToString();
         // The C# parser will reject `public static readonly MessageKey class = ...`
         // unless the keyword is `@class`-escaped.
         Assert.Contains("@class", source);
         Assert.Contains("@void", source);
-        var tree = CSharpSyntaxTree.ParseText(source);
-        Assert.DoesNotContain(tree.GetDiagnostics(), d => d.Severity == DiagnosticSeverity.Error);
+        var tree = CSharpSyntaxTree.ParseText(source, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.DoesNotContain(tree.GetDiagnostics(TestContext.Current.CancellationToken), d => d.Severity == DiagnosticSeverity.Error);
     }
 
     [Fact]
@@ -228,9 +228,9 @@ public class LocSourceGeneratorTests
 </root>";
 
         var result = RunGenerator(("Strings/en-US/Resources.resw", resw));
-        var source = result.GeneratedTrees.Single().GetText().ToString();
-        var tree = CSharpSyntaxTree.ParseText(source);
-        Assert.DoesNotContain(tree.GetDiagnostics(), d => d.Severity == DiagnosticSeverity.Error);
+        var source = result.GeneratedTrees.Single().GetText(TestContext.Current.CancellationToken).ToString();
+        var tree = CSharpSyntaxTree.ParseText(source, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.DoesNotContain(tree.GetDiagnostics(TestContext.Current.CancellationToken), d => d.Severity == DiagnosticSeverity.Error);
         // Both keys should be present as MessageKey constructor calls.
         Assert.Contains("\"Foo-Bar\"", source);
         Assert.Contains("\"Foo_Bar\"", source);
@@ -245,7 +245,7 @@ public class LocSourceGeneratorTests
 
         var generator = new LocSourceGenerator();
         GeneratorDriver driver = CSharpGeneratorDriver.Create(generator);
-        driver = driver.RunGenerators(compilation);
+        driver = driver.RunGenerators(compilation, TestContext.Current.CancellationToken);
         var result = driver.GetRunResult();
 
         Assert.Empty(result.GeneratedTrees);

@@ -25,8 +25,8 @@ public class ThreadSafeHookTests
         Assert.Equal(0, value);
 
         // Set from a background thread
-        var t = Task.Run(() => set(42));
-        t.Wait();
+        var t = Task.Run(() => set(42), TestContext.Current.CancellationToken);
+        t.Wait(TestContext.Current.CancellationToken);
 
         // Re-render on "UI thread" — should see the update
         ctx.BeginRender(() => { });
@@ -42,8 +42,8 @@ public class ThreadSafeHookTests
         var (value, update) = ctx.UseReducer(0, threadSafe: true);
         Assert.Equal(0, value);
 
-        var t = Task.Run(() => update(prev => prev + 100));
-        t.Wait();
+        var t = Task.Run(() => update(prev => prev + 100), TestContext.Current.CancellationToken);
+        t.Wait(TestContext.Current.CancellationToken);
 
         ctx.BeginRender(() => { });
         var (value2, _) = ctx.UseReducer(0, threadSafe: true);
@@ -70,8 +70,8 @@ public class ThreadSafeHookTests
         {
             dispatch("add10");
             dispatch("double");
-        });
-        t.Wait();
+        }, TestContext.Current.CancellationToken);
+        t.Wait(TestContext.Current.CancellationToken);
 
         ctx.BeginRender(() => { });
         var (value2, _) = ctx.UseReducer<int, string>(reducer, 5, threadSafe: true);
@@ -111,7 +111,7 @@ public class ThreadSafeHookTests
             })
         ).ToArray();
 
-        Task.WaitAll(tasks);
+        Task.WaitAll(tasks, TestContext.Current.CancellationToken);
 
         // Verify: no exceptions, some rerenders happened, value is a valid written value
         Assert.True(rerenderCount > 0, "Expected at least one rerender request");
@@ -143,7 +143,7 @@ public class ThreadSafeHookTests
             })
         ).ToArray();
 
-        Task.WaitAll(tasks);
+        Task.WaitAll(tasks, TestContext.Current.CancellationToken);
 
         // The reducer is locked, so all increments must be serialized.
         // Final value must be exactly writerCount * incrementsPerThread.
@@ -175,7 +175,7 @@ public class ThreadSafeHookTests
             {
                 set($"value-{i++}");
             }
-        });
+        }, TestContext.Current.CancellationToken);
 
         // UI thread — repeatedly renders and reads
         for (int i = 0; i < iterations; i++)
@@ -188,7 +188,7 @@ public class ThreadSafeHookTests
         }
 
         cts.Cancel();
-        writer.Wait();
+        writer.Wait(TestContext.Current.CancellationToken);
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -209,12 +209,12 @@ public class ThreadSafeHookTests
         // Three threads, each writing to a different hook
         var tasks = new[]
         {
-            Task.Run(() => { for (int i = 0; i < writes; i++) setA(i + 1); }),
-            Task.Run(() => { for (int i = 0; i < writes; i++) setB((i + 1) * 10); }),
-            Task.Run(() => { for (int i = 0; i < writes; i++) setC((i + 1) * 100); }),
+            Task.Run(() => { for (int i = 0; i < writes; i++) setA(i + 1); }, TestContext.Current.CancellationToken),
+            Task.Run(() => { for (int i = 0; i < writes; i++) setB((i + 1) * 10); }, TestContext.Current.CancellationToken),
+            Task.Run(() => { for (int i = 0; i < writes; i++) setC((i + 1) * 100); }, TestContext.Current.CancellationToken),
         };
 
-        Task.WaitAll(tasks);
+        Task.WaitAll(tasks, TestContext.Current.CancellationToken);
 
         ctx.BeginRender(() => { });
         var (a, _) = ctx.UseState(0, threadSafe: true);
@@ -250,7 +250,7 @@ public class ThreadSafeHookTests
             })
         ).ToArray();
 
-        Task.WaitAll(tasks);
+        Task.WaitAll(tasks, TestContext.Current.CancellationToken);
 
         // Each distinct value change should have triggered a rerender callback.
         // Exact count depends on how many were same-value no-ops, but should be > 0.
@@ -276,7 +276,7 @@ public class ThreadSafeHookTests
             })
         ).ToArray();
 
-        Task.WaitAll(tasks);
+        Task.WaitAll(tasks, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, rerenderCount);
     }
@@ -313,7 +313,7 @@ public class ThreadSafeHookTests
             })
         ).ToArray();
 
-        Task.WaitAll(tasks);
+        Task.WaitAll(tasks, TestContext.Current.CancellationToken);
 
         ctx.BeginRender(() => { });
         var (list, _) = ctx.UseReducer<List<int>, int>(reducer, new List<int>(), threadSafe: true);
@@ -353,7 +353,7 @@ public class ThreadSafeHookTests
                     setCount(Interlocked.Increment(ref writeCount));
                     i++;
                 }
-            }),
+            }, TestContext.Current.CancellationToken),
             Task.Run(() =>
             {
                 started.Signal();
@@ -362,7 +362,7 @@ public class ThreadSafeHookTests
                 {
                     setLabel($"tick-{i++}");
                 }
-            }),
+            }, TestContext.Current.CancellationToken),
             Task.Run(() =>
             {
                 started.Signal();
@@ -377,11 +377,11 @@ public class ThreadSafeHookTests
                     });
                     i++;
                 }
-            }),
+            }, TestContext.Current.CancellationToken),
         };
 
         // Wait for all writers to start before rendering
-        started.Wait();
+        started.Wait(TestContext.Current.CancellationToken);
 
         // UI thread: rapid render cycles reading state
         for (int r = 0; r < renderCycles; r++)
@@ -398,7 +398,7 @@ public class ThreadSafeHookTests
         }
 
         cts.Cancel();
-        Task.WaitAll(writers);
+        Task.WaitAll(writers, TestContext.Current.CancellationToken);
 
         // Final render — all state must be valid
         ctx.BeginRender(() => { });
@@ -430,7 +430,7 @@ public class ThreadSafeHookTests
 
         var ex = Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
-            await Task.Run(() => set(42));
+            await Task.Run(() => set(42), TestContext.Current.CancellationToken);
         }).Result;
 
         Assert.Contains("threadSafe: true", ex.Message);
@@ -445,7 +445,7 @@ public class ThreadSafeHookTests
 
         var ex = Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
-            await Task.Run(() => update(prev => prev + 1));
+            await Task.Run(() => update(prev => prev + 1), TestContext.Current.CancellationToken);
         }).Result;
 
         Assert.Contains("threadSafe: true", ex.Message);
@@ -462,7 +462,7 @@ public class ThreadSafeHookTests
 
         var ex = Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
-            await Task.Run(() => dispatch("go"));
+            await Task.Run(() => dispatch("go"), TestContext.Current.CancellationToken);
         }).Result;
 
         Assert.Contains("threadSafe: true", ex.Message);
@@ -525,8 +525,8 @@ public class ThreadSafeHookTests
         {
             setShared(99);
             updateShared(prev => prev + 1);
-        });
-        t.Wait();
+        }, TestContext.Current.CancellationToken);
+        t.Wait(TestContext.Current.CancellationToken);
 
         // Re-render and verify all hooks
         ctx.BeginRender(() => { });

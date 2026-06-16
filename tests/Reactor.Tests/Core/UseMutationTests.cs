@@ -265,7 +265,7 @@ public class UseMutationTests
         gate.SetResult(99);
         try { await run; } catch { }
 
-        await Task.Delay(20);
+        await Task.Delay(20, TestContext.Current.CancellationToken);
         Assert.Equal(0, onSuccess);
         Assert.Equal(0, onError);
     }

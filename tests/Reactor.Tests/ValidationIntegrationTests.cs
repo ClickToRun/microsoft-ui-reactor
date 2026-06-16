@@ -258,7 +258,7 @@ public class ValidationIntegrationTests
             }, "Username is reserved")
         };
 
-        await ValidationReconciler.ValidateFieldAsync(ctx, "username", "admin", asyncValidators);
+        await ValidationReconciler.ValidateFieldAsync(ctx, "username", "admin", asyncValidators, TestContext.Current.CancellationToken);
 
         Assert.Single(ctx.GetMessages("username"));
         Assert.Equal("Username is reserved", ctx.GetMessages("username")[0].Text);

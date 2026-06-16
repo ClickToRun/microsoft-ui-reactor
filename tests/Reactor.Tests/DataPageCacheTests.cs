@@ -24,7 +24,7 @@ public class DataPageCacheTests
     {
         var cache = new DataPageCache<TestItem>(CreateSource(100), blockSize: 10, maxBlocks: 5);
 
-        var block = await cache.GetBlockAsync(0);
+        var block = await cache.GetBlockAsync(0, TestContext.Current.CancellationToken);
 
         Assert.Equal(BlockStatus.Loaded, block.Status);
         Assert.Equal(10, block.Items.Count);
@@ -37,7 +37,7 @@ public class DataPageCacheTests
     {
         var cache = new DataPageCache<TestItem>(CreateSource(100), blockSize: 10, maxBlocks: 5);
 
-        var block = await cache.GetBlockAsync(3);
+        var block = await cache.GetBlockAsync(3, TestContext.Current.CancellationToken);
 
         Assert.Equal(BlockStatus.Loaded, block.Status);
         Assert.Equal(10, block.Items.Count);
@@ -53,9 +53,9 @@ public class DataPageCacheTests
         var cache = new DataPageCache<TestItem>(source, blockSize: 10, maxBlocks: 5);
 
         // Fetch block 0
-        var first = await cache.GetBlockAsync(0);
+        var first = await cache.GetBlockAsync(0, TestContext.Current.CancellationToken);
         // Fetch again — should return the same data (from cache)
-        var second = await cache.GetBlockAsync(0);
+        var second = await cache.GetBlockAsync(0, TestContext.Current.CancellationToken);
 
         Assert.Equal(first.Items.Count, second.Items.Count);
         Assert.Same(first.Items, second.Items); // exact same reference
@@ -68,10 +68,10 @@ public class DataPageCacheTests
 
         Assert.Equal(0, cache.CachedBlockCount);
 
-        await cache.GetBlockAsync(0);
+        await cache.GetBlockAsync(0, TestContext.Current.CancellationToken);
         Assert.Equal(1, cache.CachedBlockCount);
 
-        await cache.GetBlockAsync(1);
+        await cache.GetBlockAsync(1, TestContext.Current.CancellationToken);
         Assert.Equal(2, cache.CachedBlockCount);
     }
 
@@ -94,7 +94,7 @@ public class DataPageCacheTests
         var cache = new DataPageCache<TestItem>(CreateSource(100), blockSize: 10, maxBlocks: 5);
 
         // First fetch via async
-        await cache.GetBlockAsync(0);
+        await cache.GetBlockAsync(0, TestContext.Current.CancellationToken);
 
         // Now sync access should return loaded block
         var block = cache.GetBlock(0);
@@ -110,13 +110,13 @@ public class DataPageCacheTests
         var cache = new DataPageCache<TestItem>(CreateSource(200), blockSize: 10, maxBlocks: 3);
 
         // Fill cache to capacity
-        await cache.GetBlockAsync(0);
-        await cache.GetBlockAsync(1);
-        await cache.GetBlockAsync(2);
+        await cache.GetBlockAsync(0, TestContext.Current.CancellationToken);
+        await cache.GetBlockAsync(1, TestContext.Current.CancellationToken);
+        await cache.GetBlockAsync(2, TestContext.Current.CancellationToken);
         Assert.Equal(3, cache.CachedBlockCount);
 
         // Adding block 3 should evict block 0 (LRU)
-        await cache.GetBlockAsync(3);
+        await cache.GetBlockAsync(3, TestContext.Current.CancellationToken);
         Assert.Equal(3, cache.CachedBlockCount);
 
         // Block 0 should have been evicted
@@ -132,15 +132,15 @@ public class DataPageCacheTests
         var cache = new DataPageCache<TestItem>(CreateSource(200), blockSize: 10, maxBlocks: 3);
 
         // Load blocks 0, 1, 2
-        await cache.GetBlockAsync(0);
-        await cache.GetBlockAsync(1);
-        await cache.GetBlockAsync(2);
+        await cache.GetBlockAsync(0, TestContext.Current.CancellationToken);
+        await cache.GetBlockAsync(1, TestContext.Current.CancellationToken);
+        await cache.GetBlockAsync(2, TestContext.Current.CancellationToken);
 
         // Touch block 0 (makes it MRU)
         cache.GetBlock(0);
 
         // Load block 3 — should evict block 1 (now LRU, since 0 was touched)
-        await cache.GetBlockAsync(3);
+        await cache.GetBlockAsync(3, TestContext.Current.CancellationToken);
 
         Assert.True(cache.IsLoaded(0));   // block 0 survived
         Assert.False(cache.IsLoaded(10)); // block 1 was evicted
@@ -155,8 +155,8 @@ public class DataPageCacheTests
     {
         var cache = new DataPageCache<TestItem>(CreateSource(100), blockSize: 10, maxBlocks: 5);
 
-        await cache.GetBlockAsync(0);
-        await cache.GetBlockAsync(1);
+        await cache.GetBlockAsync(0, TestContext.Current.CancellationToken);
+        await cache.GetBlockAsync(1, TestContext.Current.CancellationToken);
         Assert.Equal(2, cache.CachedBlockCount);
 
         // Change sort state
@@ -174,8 +174,8 @@ public class DataPageCacheTests
     {
         var cache = new DataPageCache<TestItem>(CreateSource(100), blockSize: 10, maxBlocks: 5);
 
-        await cache.GetBlockAsync(0);
-        await cache.GetBlockAsync(1);
+        await cache.GetBlockAsync(0, TestContext.Current.CancellationToken);
+        await cache.GetBlockAsync(1, TestContext.Current.CancellationToken);
 
         cache.Invalidate();
 
@@ -191,7 +191,7 @@ public class DataPageCacheTests
 
         Assert.Null(cache.TotalCount);
 
-        await cache.GetBlockAsync(0);
+        await cache.GetBlockAsync(0, TestContext.Current.CancellationToken);
 
         Assert.Equal(150, cache.TotalCount);
     }
@@ -203,7 +203,7 @@ public class DataPageCacheTests
     {
         var cache = new DataPageCache<TestItem>(CreateSource(100), blockSize: 10, maxBlocks: 5);
 
-        await cache.GetBlockAsync(0);
+        await cache.GetBlockAsync(0, TestContext.Current.CancellationToken);
         var item = cache.GetItem(5);
 
         Assert.NotNull(item);
@@ -229,7 +229,7 @@ public class DataPageCacheTests
         int? loadedBlockIndex = null;
         cache.BlockLoaded += idx => loadedBlockIndex = idx;
 
-        await cache.GetBlockAsync(2);
+        await cache.GetBlockAsync(2, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, loadedBlockIndex);
     }
@@ -247,7 +247,7 @@ public class DataPageCacheTests
             Sort = new[] { new SortDescriptor("Name", SortDirection.Ascending) }
         });
 
-        var block = await cache.GetBlockAsync(0);
+        var block = await cache.GetBlockAsync(0, TestContext.Current.CancellationToken);
 
         Assert.Equal(BlockStatus.Loaded, block.Status);
         Assert.Equal(10, block.Items.Count);
@@ -263,7 +263,7 @@ public class DataPageCacheTests
         var source = new FailingSource();
         var cache = new DataPageCache<TestItem>(source, blockSize: 10, maxBlocks: 5);
 
-        var block = await cache.GetBlockAsync(0);
+        var block = await cache.GetBlockAsync(0, TestContext.Current.CancellationToken);
 
         Assert.Equal(BlockStatus.Failed, block.Status);
         Assert.Empty(block.Items);
@@ -286,7 +286,7 @@ public class DataPageCacheTests
     {
         var cache = new DataPageCache<TestItem>(CreateSource(100), blockSize: 10, maxBlocks: 5);
 
-        await cache.GetBlockAsync(0);
+        await cache.GetBlockAsync(0, TestContext.Current.CancellationToken);
 
         Assert.True(cache.IsLoaded(0));
         Assert.True(cache.IsLoaded(9));
@@ -300,7 +300,7 @@ public class DataPageCacheTests
     {
         var cache = new DataPageCache<TestItem>(CreateSource(100), blockSize: 10, maxBlocks: 5);
 
-        await cache.GetBlockAsync(0);
+        await cache.GetBlockAsync(0, TestContext.Current.CancellationToken);
 
         Assert.Equal(BlockStatus.Loaded, cache.GetBlockStatus(0));
         Assert.Equal(BlockStatus.Loading, cache.GetBlockStatus(1)); // not yet accessed
@@ -313,7 +313,7 @@ public class DataPageCacheTests
     {
         var cache = new DataPageCache<TestItem>(CreateSource(25), blockSize: 10, maxBlocks: 5);
 
-        var block = await cache.GetBlockAsync(2); // items 20-24
+        var block = await cache.GetBlockAsync(2, TestContext.Current.CancellationToken); // items 20-24
 
         Assert.Equal(BlockStatus.Loaded, block.Status);
         Assert.Equal(5, block.Items.Count); // only 5 items in last block

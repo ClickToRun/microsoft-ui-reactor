@@ -401,7 +401,7 @@ public class ValidatorTests
             await Task.Yield();
             return s.Length > 3;
         }, "Too short");
-        Assert.Null(await v.ValidateAsync("hello", Field));
+        Assert.Null(await v.ValidateAsync("hello", Field, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -412,7 +412,7 @@ public class ValidatorTests
             await Task.Yield();
             return s.Length > 3;
         }, "Too short");
-        var result = await v.ValidateAsync("ab", Field);
+        var result = await v.ValidateAsync("ab", Field, TestContext.Current.CancellationToken);
         Assert.NotNull(result);
         Assert.Equal("Too short", result!.Text);
         Assert.Equal("MUST_ASYNC", result.Code);
