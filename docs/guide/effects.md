@@ -275,9 +275,11 @@ WinUI control's `RoutedEventHandler`. Subscribe in the body, return an
 unsubscribe in the cleanup:
 
 ```csharp
+var (tick, updateTick) = UseReducer(0);
+
 UseEffect(() =>
 {
-    void Handler(object? s, EventArgs e) => setTick(t => t + 1);
+    void Handler(object? s, EventArgs e) => updateTick(t => t + 1);
     Source.Changed += Handler;
     return () => Source.Changed -= Handler;
 }, Source); // re-attach if Source identity changes
@@ -326,13 +328,15 @@ stable across renders.
 
 ```csharp
 // Don't:
+var (tick, updateTick) = UseReducer(0);
+
 UseEffect(() =>
 {
     var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
     _ = Task.Run(async () =>
     {
         while (await timer.WaitForNextTickAsync())
-            setTick(t => t + 1);
+            updateTick(t => t + 1);
     });
 }, Array.Empty<object>()); // no cleanup → timer fires forever after unmount
 ```
@@ -343,6 +347,8 @@ silently leaks the closure tree the timer captured). Always return a
 cleanup that cancels the producer:
 
 ```csharp
+var (tick, updateTick) = UseReducer(0);
+
 UseEffect(() =>
 {
     var cts = new CancellationTokenSource();
@@ -350,7 +356,7 @@ UseEffect(() =>
     _ = Task.Run(async () =>
     {
         while (await timer.WaitForNextTickAsync(cts.Token))
-            setTick(t => t + 1);
+            updateTick(t => t + 1);
     });
     return () => { cts.Cancel(); timer.Dispose(); };
 }, Array.Empty<object>());

@@ -225,8 +225,10 @@ docs/_pipeline/apps/my-topic/
     <WindowsPackageType>None</WindowsPackageType>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK"
-                      Version="$(WindowsAppSDKVersion)" />
+    <!-- Version is centrally managed via the repo-root Directory.Packages.props
+         (WindowsAppSDKVersion). Do NOT add a Version attribute here — under
+         Central Package Management an inline Version fails restore (NU1008). -->
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\..\Reactor\Reactor.csproj" />

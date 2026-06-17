@@ -11,7 +11,7 @@
   </PropertyGroup>
   <!-- </snippet:unpackaged-shape> -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="$(WindowsAppSDKVersion)" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Reactor\Reactor.csproj" />

@@ -294,7 +294,7 @@ public class SelfTestBatch
 
     public static IEnumerable<object[]> AllFixtures => FixtureNames.Value.Select(n => new object[] { n });
 
-    [DataTestMethod]
+    [TestMethod]
     [DynamicData(nameof(AllFixtures))]
     public void Fixture(string name)
     {
