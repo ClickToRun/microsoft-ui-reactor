@@ -22,24 +22,24 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="$(WindowsAppSDKVersion)" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
     <!-- A handful of Windows Community Toolkit control packages, each turned into
          first-class Reactor elements by Reactor.Wrappers.Generator (see WctControls.cs). -->
-    <PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.3.260402-preview2" />
-    <PackageReference Include="CommunityToolkit.WinUI.Controls.RadialGauge" Version="8.3.260402-preview2" />
-    <PackageReference Include="CommunityToolkit.WinUI.Controls.Segmented" Version="8.3.260402-preview2" />
-    <PackageReference Include="CommunityToolkit.WinUI.Controls.CameraPreview" Version="8.3.260402-preview2" />
-    <PackageReference Include="CommunityToolkit.WinUI.Controls.ColorPicker" Version="8.3.260402-preview2" />
-    <PackageReference Include="CommunityToolkit.WinUI.Controls.ImageCropper" Version="8.3.260402-preview2" />
-    <PackageReference Include="CommunityToolkit.WinUI.Controls.Sizers" Version="8.3.260402-preview2" />
-    <PackageReference Include="CommunityToolkit.WinUI.Controls.TokenizingTextBox" Version="8.3.260402-preview2" />
-    <PackageReference Include="CommunityToolkit.WinUI.Controls.RangeSelector" Version="8.3.260402-preview2" />
-    <PackageReference Include="CommunityToolkit.WinUI.Controls.HeaderedControls" Version="8.3.260402-preview2" />
-    <PackageReference Include="CommunityToolkit.WinUI.Controls.LayoutTransformControl" Version="8.3.260402-preview2" />
-    <PackageReference Include="CommunityToolkit.WinUI.Controls.TabbedCommandBar" Version="8.3.260402-preview2" />
-    <PackageReference Include="CommunityToolkit.WinUI.Controls.MetadataControl" Version="8.3.260402-preview2" />
-    <PackageReference Include="CommunityToolkit.WinUI.Controls.RichSuggestBox" Version="8.3.260402-preview2" />
-    <PackageReference Include="CommunityToolkit.WinUI.Controls.Primitives" Version="8.3.260402-preview2" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.RadialGauge" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.Segmented" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.CameraPreview" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.ColorPicker" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.ImageCropper" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.Sizers" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.TokenizingTextBox" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.RangeSelector" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.HeaderedControls" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.LayoutTransformControl" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.TabbedCommandBar" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.MetadataControl" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.RichSuggestBox" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.Primitives" />
   </ItemGroup>
 
   <ItemGroup>
