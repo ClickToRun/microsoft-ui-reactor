@@ -1,0 +1,79 @@
+<Project>
+
+  <!--
+    Central Package Management (CPM) — single source of truth for every NuGet
+    package version used across the repo.
+    https://learn.microsoft.com/nuget/consume-packages/central-package-management
+
+    Projects declare <PackageReference Include="Foo" /> WITHOUT a Version; the
+    version is resolved from the matching <PackageVersion> below. A project may
+    pin a different version locally with VersionOverride="x.y.z" (used sparingly
+    for the two genuine conflicts called out inline).
+
+    The Windows App SDK / Win2D versions stay in Directory.Build.props
+    (WindowsAppSDKVersion / Win2DVersion) so the runtime-bootstrap logic and the
+    package version share one definition; they are referenced below.
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <!-- Surface a clear error if a project accidentally keeps an inline Version. -->
+    <CentralPackageVersionOverrideEnabled>true</CentralPackageVersionOverrideEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Windows App SDK / WinUI 3 (version sourced from Directory.Build.props) -->
+    <PackageVersion Include="Microsoft.WindowsAppSDK" Version="$(WindowsAppSDKVersion)" />
+    <PackageVersion Include="Microsoft.Graphics.Win2D" Version="$(Win2DVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Framework runtime dependencies -->
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.9" />
+    <PackageVersion Include="System.Drawing.Common" Version="10.0.9" />
+    <PackageVersion Include="System.Text.Json" Version="10.0.9" />
+    <PackageVersion Include="System.Formats.Asn1" Version="10.0.9" />
+    <PackageVersion Include="System.Reflection.DispatchProxy" Version="4.8.2" />
+    <PackageVersion Include="MessageFormat" Version="8.0.0" />
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.9" />
+    <PackageVersion Include="YamlDotNet" Version="18.0.0" />
+    <PackageVersion Include="GitHub.Copilot.SDK" Version="1.0.1" />
+    <PackageVersion Include="MessagePack" Version="2.5.301" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Roslyn (analyzers, source generators, CLI) -->
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.3.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.3.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="5.3.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Analyzer.Testing" Version="1.1.4" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.CodeFix.Testing" Version="1.1.4" />
+    <PackageVersion Include="Mono.Cecil" Version="0.11.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Test infrastructure -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.6.0" />
+    <PackageVersion Include="xunit.v3" Version="3.2.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageVersion Include="MSTest.TestAdapter" Version="4.2.3" />
+    <PackageVersion Include="MSTest.TestFramework" Version="4.2.3" />
+    <PackageVersion Include="Appium.WebDriver" Version="4.4.5" />
+    <PackageVersion Include="coverlet.collector" Version="10.0.1" />
+    <PackageVersion Include="SharpFuzz" Version="2.3.0" />
+    <PackageVersion Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.2.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Visual Studio extension SDK -->
+    <PackageVersion Include="Microsoft.VisualStudio.SDK" Version="17.14.40265" />
+    <PackageVersion Include="Microsoft.VisualStudio.Interop" Version="17.14.40260" />
+    <PackageVersion Include="Microsoft.VisualStudio.Shell.15.0" Version="17.14.40264" />
+    <PackageVersion Include="Microsoft.VisualStudio.Utilities" Version="17.14.40264" />
+    <PackageVersion Include="Microsoft.VisualStudio.Composition" Version="17.13.41" />
+    <PackageVersion Include="Microsoft.VisualStudio.Sdk.TestFramework.Xunit.v3" Version="17.11.66" />
+    <PackageVersion Include="Microsoft.VisualStudio.Threading.Analyzers" Version="17.14.15" />
+    <PackageVersion Include="Microsoft.VisualStudio.SDK.Analyzers" Version="17.7.113" />
+    <PackageVersion Include="Microsoft.VSSDK.BuildTools" Version="18.6.38345" />
+  </ItemGroup>
+
+</Project>
