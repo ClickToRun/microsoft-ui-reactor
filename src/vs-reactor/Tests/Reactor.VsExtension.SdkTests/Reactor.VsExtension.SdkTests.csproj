@@ -6,7 +6,8 @@
     <TargetFramework Condition="'$(TF_BUILD)' == 'true'">net10.0</TargetFramework>
     <EnableDefaultItems Condition="'$(TF_BUILD)' == 'true'">false</EnableDefaultItems>
     <EnableDefaultCompileItems Condition="'$(TF_BUILD)' == 'true'">false</EnableDefaultCompileItems>
-    <OutputType>Exe</OutputType>
+    <OutputType Condition="'$(TF_BUILD)' != 'true'">Exe</OutputType>
+    <OutputType Condition="'$(TF_BUILD)' == 'true'">Library</OutputType>
     <LangVersion>latest</LangVersion>
     <IsAotCompatible>false</IsAotCompatible>
     <IsPackable>false</IsPackable>
