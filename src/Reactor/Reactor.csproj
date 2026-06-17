@@ -129,15 +129,18 @@
        The ProjectReference above carries PrivateAssets="all" so NuGet adds no
        package dependency for it; this target instead copies the built DLL next
        to Reactor.dll so the package is self-contained (the wrapper-authoring
-       attributes resolve for any consumer). DependsOnTargets="ResolveReferences"
-       ensures @(ReferenceCopyLocalPaths) is populated before we filter it. -->
+       attributes resolve for any consumer). The DLL is a runtime reference, so
+       the build already copied it into $(TargetDir) — we read it from there
+       rather than resolving references, so this works under a NoBuild pack
+       (the CI `dotnet pack` step passes NoBuild) without invoking the Build
+       target on the analyzer project-references (which would error NETSDK1085). -->
   <PropertyGroup>
     <TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);_BundleWrappersAbstractions</TargetsForTfmSpecificBuildOutput>
   </PropertyGroup>
-  <Target Name="_BundleWrappersAbstractions" DependsOnTargets="ResolveReferences">
+  <Target Name="_BundleWrappersAbstractions">
     <ItemGroup>
-      <BuildOutputInPackage Include="@(ReferenceCopyLocalPaths)"
-                            Condition="'%(ReferenceCopyLocalPaths.Filename)' == 'Reactor.Wrappers.Abstractions' and '%(ReferenceCopyLocalPaths.Extension)' == '.dll'" />
+      <BuildOutputInPackage Include="$(TargetDir)Reactor.Wrappers.Abstractions.dll"
+                            Condition="Exists('$(TargetDir)Reactor.Wrappers.Abstractions.dll')" />
     </ItemGroup>
   </Target>
 
