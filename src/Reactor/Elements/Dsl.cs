@@ -56,7 +56,6 @@ public static partial class Factories
         // Spec 048 §7 — register TextBlockElement's handler into the global
         // ControlRegistry the first time any TextBlock-producing factory runs.
         // Post-§3.4 this is the live dispatch path (the eager registrar is gone).
-        _ = V1.Reg<TextBlockElement, WinUI.TextBlock, Desc.TextBlockDescriptorHandler>.Done;
         return new(content);
     }
 
@@ -73,7 +72,6 @@ public static partial class Factories
     /// </remarks>
     public static TextBlockElement Heading(string content)
     {
-        _ = V1.Reg<TextBlockElement, WinUI.TextBlock, Desc.TextBlockDescriptorHandler>.Done;
         return new(content) { FontSize = 28, Weight = new global::Windows.UI.Text.FontWeight(700),
             Modifiers = new Core.ElementModifiers
             {
@@ -93,7 +91,6 @@ public static partial class Factories
     /// </remarks>
     public static TextBlockElement SubHeading(string content)
     {
-        _ = V1.Reg<TextBlockElement, WinUI.TextBlock, Desc.TextBlockDescriptorHandler>.Done;
         return new(content) { FontSize = 20, Weight = new global::Windows.UI.Text.FontWeight(600),
             Modifiers = new Core.ElementModifiers
             {
@@ -112,7 +109,6 @@ public static partial class Factories
     /// </remarks>
     public static TextBlockElement Caption(string content)
     {
-        _ = V1.Reg<TextBlockElement, WinUI.TextBlock, Desc.TextBlockDescriptorHandler>.Done;
         return new(content) { FontSize = 12 };
     }
 
@@ -127,7 +123,6 @@ public static partial class Factories
     /// </remarks>
     public static RichTextBlockElement RichTextBlock(string text)
     {
-        _ = V1.Reg<RichTextBlockElement, WinUI.RichTextBlock, Desc.RichTextBlockDescriptorHandler>.Done;
         return new(text);
     }
 
@@ -148,7 +143,6 @@ public static partial class Factories
     /// </summary>
     public static RichEditBoxElement RichEditBox(Optional<string> text = default, Action<string>? onTextChanged = null)
     {
-        _ = V1.Reg<RichEditBoxElement, WinUI.RichEditBox, Desc.RichEditBoxDescriptorHandler>.Done;
         return new(text) { OnTextChanged = onTextChanged };
     }
 
@@ -158,13 +152,11 @@ public static partial class Factories
     {
         // Spec 048 §3.4 — per-factory `Reg<>` registration touch.
         // Live dispatch path post-§3.4 (the eager registrar is gone).
-        _ = V1.Reg<ButtonElement, WinUI.Button, Desc.ButtonDescriptorHandler>.Done;
         return new(label, onClick);
     }
 
     public static ButtonElement Button(Element content, Action? onClick = null)
     {
-        _ = V1.Reg<ButtonElement, WinUI.Button, Desc.ButtonDescriptorHandler>.Done;
         return new("", onClick) { ContentElement = content };
     }
 
@@ -177,7 +169,6 @@ public static partial class Factories
     /// </summary>
     public static ButtonElement Button(Core.Command command)
     {
-        _ = V1.Reg<ButtonElement, WinUI.Button, Desc.ButtonDescriptorHandler>.Done;
         return new ButtonElement(command.Label, () => Core.CommandBindings.Invoke(command))
         {
             IsEnabled = command.IsEnabled,
@@ -190,7 +181,6 @@ public static partial class Factories
         // Spec 048 §3.3 — register HyperlinkButtonElement's handler into the
         // global ControlRegistry on first HyperlinkButton-producing factory use.
         // Live dispatch path post-§3.4 (the eager registrar is gone).
-        _ = V1.Reg<HyperlinkButtonElement, WinUI.HyperlinkButton, Desc.HyperlinkButtonDescriptorHandler>.Done;
         return new(content, navigateUri, onClick);
     }
 
@@ -201,7 +191,6 @@ public static partial class Factories
     /// </summary>
     public static HyperlinkButtonElement HyperlinkButton(Core.Command command)
     {
-        _ = V1.Reg<HyperlinkButtonElement, WinUI.HyperlinkButton, Desc.HyperlinkButtonDescriptorHandler>.Done;
         return new HyperlinkButtonElement(command.Label, null, () => Core.CommandBindings.Invoke(command))
         {
             Setters = [b => Core.CommandBindings.ApplyButtonBaseCommon(b, command)],
@@ -210,14 +199,12 @@ public static partial class Factories
 
     public static RepeatButtonElement RepeatButton(string label, Action? onClick = null)
     {
-        _ = V1.Reg<RepeatButtonElement, WinPrim.RepeatButton, Desc.RepeatButtonDescriptorHandler>.Done;
         return new(label, onClick);
     }
 
     /// <summary>Creates a RepeatButton driven by a Command. Click auto-repeats while held.</summary>
     public static RepeatButtonElement RepeatButton(Core.Command command)
     {
-        _ = V1.Reg<RepeatButtonElement, WinPrim.RepeatButton, Desc.RepeatButtonDescriptorHandler>.Done;
         return new RepeatButtonElement(command.Label, () => Core.CommandBindings.Invoke(command))
         {
             Setters = [b => Core.CommandBindings.ApplyButtonBaseCommon(b, command)],
@@ -226,7 +213,6 @@ public static partial class Factories
 
     public static ToggleButtonElement ToggleButton(string label, bool isChecked = false, Action<bool>? onIsCheckedChanged = null)
     {
-        _ = V1.Reg<ToggleButtonElement, WinPrim.ToggleButton, Desc.ToggleButtonDescriptorHandler>.Done;
         return new(label, isChecked, onIsCheckedChanged);
     }
 
@@ -237,7 +223,6 @@ public static partial class Factories
     /// </summary>
     public static ToggleButtonElement ToggleButton(Core.Command command, bool isChecked = false)
     {
-        _ = V1.Reg<ToggleButtonElement, WinPrim.ToggleButton, Desc.ToggleButtonDescriptorHandler>.Done;
         return new ToggleButtonElement(command.Label, isChecked, _ => Core.CommandBindings.Invoke(command))
         {
             Setters = [b => Core.CommandBindings.ApplyButtonBaseCommon(b, command)],
@@ -250,19 +235,16 @@ public static partial class Factories
     /// </summary>
     public static ToggleButtonElement ThreeStateToggleButton(string label, bool? checkedState = null, Action<bool?>? onCheckedStateChanged = null)
     {
-        _ = V1.Reg<ToggleButtonElement, WinPrim.ToggleButton, Desc.ToggleButtonDescriptorHandler>.Done;
         return new(label, checkedState == true) { IsThreeState = true, CheckedState = checkedState, OnCheckedStateChanged = onCheckedStateChanged };
     }
 
     public static DropDownButtonElement DropDownButton(string label, Element? flyout = null)
     {
-        _ = V1.Reg<DropDownButtonElement, WinUI.DropDownButton, Desc.DropDownButtonDescriptorHandler>.Done;
         return new(label, flyout);
     }
 
     public static SplitButtonElement SplitButton(string label, Action? onClick = null, Element? flyout = null)
     {
-        _ = V1.Reg<SplitButtonElement, WinUI.SplitButton, Desc.SplitButtonDescriptorHandler>.Done;
         return new(label, onClick, flyout);
     }
 
@@ -272,7 +254,6 @@ public static partial class Factories
     /// </summary>
     public static SplitButtonElement SplitButton(Core.Command command, Element? flyout = null)
     {
-        _ = V1.Reg<SplitButtonElement, WinUI.SplitButton, Desc.SplitButtonDescriptorHandler>.Done;
         return new SplitButtonElement(command.Label, () => Core.CommandBindings.Invoke(command), flyout)
         {
             Setters = [b => Core.CommandBindings.ApplyButtonBaseCommon(b, command)],
@@ -287,14 +268,12 @@ public static partial class Factories
     /// </summary>
     public static ToggleSplitButtonElement ToggleSplitButton(string label, Optional<bool> isChecked = default, Action<bool>? onIsCheckedChanged = null, Element? flyout = null)
     {
-        _ = V1.Reg<ToggleSplitButtonElement, WinUI.ToggleSplitButton, Desc.ToggleSplitButtonDescriptorHandler>.Done;
         return new(label, isChecked, onIsCheckedChanged, flyout);
     }
 
     /// <summary>Creates a ToggleSplitButton driven by a Command (fires on each toggle).</summary>
     public static ToggleSplitButtonElement ToggleSplitButton(Core.Command command, Optional<bool> isChecked = default, Element? flyout = null)
     {
-        _ = V1.Reg<ToggleSplitButtonElement, WinUI.ToggleSplitButton, Desc.ToggleSplitButtonDescriptorHandler>.Done;
         return new ToggleSplitButtonElement(command.Label, isChecked, _ => Core.CommandBindings.Invoke(command), flyout)
         {
             Setters = [b => Core.CommandBindings.ApplyButtonBaseCommon(b, command)],
@@ -314,7 +293,6 @@ public static partial class Factories
     /// </summary>
     public static TextBoxElement TextBox(Optional<string> value = default, Action<string>? onChanged = null, string? placeholderText = null, string? header = null)
     {
-        _ = V1.Reg<TextBoxElement, WinUI.TextBox, Desc.TextBoxDescriptorHandler>.Done;
         return new(value, onChanged, placeholderText) { Header = header };
     }
 
@@ -324,7 +302,6 @@ public static partial class Factories
     /// </summary>
     public static PasswordBoxElement PasswordBox(Optional<string> password = default, Action<string>? onPasswordChanged = null, string? placeholderText = null)
     {
-        _ = V1.Reg<PasswordBoxElement, WinUI.PasswordBox, Desc.PasswordBoxDescriptorHandler>.Done;
         return new(password, onPasswordChanged, placeholderText);
     }
 
@@ -334,7 +311,6 @@ public static partial class Factories
     /// </summary>
     public static NumberBoxElement NumberBox(Optional<double> value = default, Action<double>? onValueChanged = null, string? header = null)
     {
-        _ = V1.Reg<NumberBoxElement, WinUI.NumberBox, Desc.NumberBoxDescriptorHandler>.Done;
         return new(value, onValueChanged, header);
     }
 
@@ -344,7 +320,6 @@ public static partial class Factories
     /// </summary>
     public static AutoSuggestBoxElement AutoSuggestBox(Optional<string> text = default, Action<string>? onTextChanged = null, Action<string>? onQuerySubmitted = null)
     {
-        _ = V1.Reg<AutoSuggestBoxElement, WinUI.AutoSuggestBox, Desc.AutoSuggestBoxDescriptorHandler>.Done;
         return new(text, onTextChanged, onQuerySubmitted);
     }
 
@@ -354,7 +329,6 @@ public static partial class Factories
     /// </summary>
     public static CheckBoxElement CheckBox(Optional<bool?> isChecked = default, Action<bool>? onIsCheckedChanged = null, string? label = null)
     {
-        _ = V1.Reg<CheckBoxElement, WinUI.CheckBox, Desc.CheckBoxDescriptorHandler>.Done;
         return new(isChecked, onIsCheckedChanged, label);
     }
 
@@ -364,7 +338,6 @@ public static partial class Factories
     /// </summary>
     public static CheckBoxElement ThreeStateCheckBox(Optional<bool?> checkedState = default, Action<bool?>? onCheckedStateChanged = null, string? label = null)
     {
-        _ = V1.Reg<CheckBoxElement, WinUI.CheckBox, Desc.CheckBoxDescriptorHandler>.Done;
         return new(checkedState, Label: label) { IsThreeState = true, CheckedState = checkedState.HasValue ? checkedState.Value : null, OnCheckedStateChanged = onCheckedStateChanged };
     }
 
@@ -374,7 +347,6 @@ public static partial class Factories
     /// </summary>
     public static RadioButtonElement RadioButton(string label, Optional<bool> isChecked = default, Action<bool>? onIsCheckedChanged = null, string? groupName = null)
     {
-        _ = V1.Reg<RadioButtonElement, WinUI.RadioButton, Desc.RadioButtonDescriptorHandler>.Done;
         return new(label, isChecked, onIsCheckedChanged, groupName);
     }
 
@@ -384,7 +356,6 @@ public static partial class Factories
     /// </summary>
     public static RadioButtonsElement RadioButtons(string[] items, Optional<int> selectedIndex = default, Action<int>? onSelectedIndexChanged = null)
     {
-        _ = V1.Reg<RadioButtonsElement, WinUI.RadioButtons, Desc.RadioButtonsDescriptorHandler>.Done;
         return new(items, selectedIndex, onSelectedIndexChanged);
     }
 
@@ -394,7 +365,6 @@ public static partial class Factories
     /// </summary>
     public static ComboBoxElement ComboBox(string[] items, Optional<int> selectedIndex = default, Action<int>? onSelectedIndexChanged = null)
     {
-        _ = V1.Reg<ComboBoxElement, WinUI.ComboBox, Desc.ComboBoxDescriptorHandler>.Done;
         return new(items, selectedIndex, onSelectedIndexChanged);
     }
 
@@ -408,7 +378,6 @@ public static partial class Factories
     /// </summary>
     public static ComboBoxElement ComboBox(Element[] itemElements, Optional<int> selectedIndex, Action<int>? onSelectedIndexChanged)
     {
-        _ = V1.Reg<ComboBoxElement, WinUI.ComboBox, Desc.ComboBoxDescriptorHandler>.Done;
         return new([], selectedIndex, onSelectedIndexChanged) { ItemElements = itemElements };
     }
 
@@ -418,7 +387,6 @@ public static partial class Factories
     /// </summary>
     public static SliderElement Slider(Optional<double> value = default, double min = 0, double max = 100, Action<double>? onValueChanged = null)
     {
-        _ = V1.Reg<SliderElement, WinUI.Slider, Desc.SliderDescriptorHandler>.Done;
         return new(value, min, max, onValueChanged);
     }
 
@@ -428,7 +396,6 @@ public static partial class Factories
     /// </summary>
     public static ToggleSwitchElement ToggleSwitch(Optional<bool> isOn = default, Action<bool>? onIsOnChanged = null, string? onContent = null, string? offContent = null, string? header = null)
     {
-        _ = V1.Reg<ToggleSwitchElement, WinUI.ToggleSwitch, Desc.ToggleSwitchDescriptorHandler>.Done;
         return new(isOn, onIsOnChanged, onContent, offContent) { Header = header };
     }
 
@@ -438,7 +405,6 @@ public static partial class Factories
     /// </summary>
     public static RatingControlElement RatingControl(Optional<double> value = default, Action<double>? onValueChanged = null)
     {
-        _ = V1.Reg<RatingControlElement, WinUI.RatingControl, Desc.RatingControlDescriptorHandler>.Done;
         return new(value, onValueChanged);
     }
 
@@ -448,7 +414,6 @@ public static partial class Factories
     /// </summary>
     public static ColorPickerElement ColorPicker(Optional<global::Windows.UI.Color> color = default, Action<global::Windows.UI.Color>? onColorChanged = null)
     {
-        _ = V1.Reg<ColorPickerElement, WinUI.ColorPicker, Desc.ColorPickerDescriptorHandler>.Done;
         return new(color, onColorChanged);
     }
 
@@ -461,7 +426,6 @@ public static partial class Factories
     /// </summary>
     public static CalendarDatePickerElement CalendarDatePicker(Optional<DateTimeOffset?> date = default, Action<DateTimeOffset?>? onDateChanged = null)
     {
-        _ = V1.Reg<CalendarDatePickerElement, WinUI.CalendarDatePicker, Desc.CalendarDatePickerDescriptorHandler>.Done;
         return new(date, onDateChanged);
     }
 
@@ -471,7 +435,6 @@ public static partial class Factories
     /// </summary>
     public static DatePickerElement DatePicker(Optional<DateTimeOffset> date = default, Action<DateTimeOffset>? onDateChanged = null)
     {
-        _ = V1.Reg<DatePickerElement, WinUI.DatePicker, Desc.DatePickerDescriptorHandler>.Done;
         return new(date, onDateChanged);
     }
 
@@ -481,7 +444,6 @@ public static partial class Factories
     /// </summary>
     public static TimePickerElement TimePicker(Optional<TimeSpan> time = default, Action<TimeSpan>? onTimeChanged = null)
     {
-        _ = V1.Reg<TimePickerElement, WinUI.TimePicker, Desc.TimePickerDescriptorHandler>.Done;
         return new(time, onTimeChanged);
     }
 
@@ -501,7 +463,6 @@ public static partial class Factories
     /// </remarks>
     public static ProgressElement Progress(double value)
     {
-        _ = V1.Reg<ProgressElement, WinUI.ProgressBar, Desc.ProgressBarDescriptorHandler>.Done;
         return new(value);
     }
 
@@ -515,7 +476,6 @@ public static partial class Factories
     /// </remarks>
     public static ProgressElement ProgressIndeterminate()
     {
-        _ = V1.Reg<ProgressElement, WinUI.ProgressBar, Desc.ProgressBarDescriptorHandler>.Done;
         return new(null);
     }
 
@@ -539,12 +499,10 @@ public static partial class Factories
 
     public static ProgressRingElement ProgressRing()
     {
-        _ = V1.Reg<ProgressRingElement, WinUI.ProgressRing, Desc.ProgressRingDescriptorHandler>.Done;
         return new(null);
     }
     public static ProgressRingElement ProgressRing(double value)
     {
-        _ = V1.Reg<ProgressRingElement, WinUI.ProgressRing, Desc.ProgressRingDescriptorHandler>.Done;
         return new(value);
     }
 
@@ -552,18 +510,15 @@ public static partial class Factories
 
     public static InfoBarElement InfoBar(string? title = null, string? message = null)
     {
-        _ = V1.Reg<InfoBarElement, WinUI.InfoBar, Desc.InfoBarDescriptorHandler>.Done;
         return new(title, message);
     }
 
     public static InfoBadgeElement InfoBadge()
     {
-        _ = V1.Reg<InfoBadgeElement, WinUI.InfoBadge, Desc.InfoBadgeDescriptorHandler>.Done;
         return new();
     }
     public static InfoBadgeElement InfoBadge(int value)
     {
-        _ = V1.Reg<InfoBadgeElement, WinUI.InfoBadge, Desc.InfoBadgeDescriptorHandler>.Done;
         return new() { Value = value };
     }
 
@@ -585,7 +540,6 @@ public static partial class Factories
     public static StackElement VStack(params Element?[] children)
     {
         // Spec 048 §3.4 — per-factory `Reg<>` registration touch (Containers group).
-        _ = V1.Reg<StackElement, WinUI.StackPanel, Desc.StackPanelDescriptorHandler>.Done;
         return new(Orientation.Vertical, FilterChildren(children));
     }
 
@@ -599,7 +553,6 @@ public static partial class Factories
     /// </remarks>
     public static StackElement VStack(double spacing, params Element?[] children)
     {
-        _ = V1.Reg<StackElement, WinUI.StackPanel, Desc.StackPanelDescriptorHandler>.Done;
         return new(Orientation.Vertical, FilterChildren(children)) { Spacing = spacing };
     }
 
@@ -614,7 +567,6 @@ public static partial class Factories
     /// </remarks>
     public static StackElement HStack(params Element?[] children)
     {
-        _ = V1.Reg<StackElement, WinUI.StackPanel, Desc.StackPanelDescriptorHandler>.Done;
         return new(Orientation.Horizontal, FilterChildren(children));
     }
 
@@ -628,19 +580,16 @@ public static partial class Factories
     /// </remarks>
     public static StackElement HStack(double spacing, params Element?[] children)
     {
-        _ = V1.Reg<StackElement, WinUI.StackPanel, Desc.StackPanelDescriptorHandler>.Done;
         return new(Orientation.Horizontal, FilterChildren(children)) { Spacing = spacing };
     }
 
     public static WrapGridElement WrapGrid(params Element?[] children)
     {
-        _ = V1.Reg<WrapGridElement, WinUI.VariableSizedWrapGrid, Desc.WrapGridDescriptorHandler>.Done;
         return new(FilterChildren(children));
     }
 
     public static WrapGridElement WrapGrid(int maxRowsOrColumns, params Element?[] children)
     {
-        _ = V1.Reg<WrapGridElement, WinUI.VariableSizedWrapGrid, Desc.WrapGridDescriptorHandler>.Done;
         return new(FilterChildren(children)) { MaximumRowsOrColumns = maxRowsOrColumns };
     }
 
@@ -669,7 +618,6 @@ public static partial class Factories
     /// </remarks>
     public static ScrollViewerElement ScrollViewer(Element child)
     {
-        _ = V1.Reg<ScrollViewerElement, WinUI.ScrollViewer, Desc.ScrollViewerDescriptorHandler>.Done;
         return new(child);
     }
 
@@ -687,14 +635,12 @@ public static partial class Factories
     /// </remarks>
     public static ScrollViewElement ScrollView(Element child)
     {
-        _ = V1.Reg<ScrollViewElement, WinUI.ScrollView, Desc.ScrollViewDescriptorHandler>.Done;
         return new(child);
     }
 
     public static BorderElement Border(Element? child)
     {
         // Hand-coded handler (not descriptor-backed) — touch its Reg<> directly.
-        _ = V1.Reg<BorderElement, WinUI.Border, V1.Handlers.BorderHandler>.Done;
         return new(child!);
     }
 
@@ -712,19 +658,19 @@ public static partial class Factories
 
     public static SplitViewElement SplitView(Element? pane = null, Element? content = null)
     {
-        _ = V1.Reg<SplitViewElement, WinUI.SplitView, Desc.SplitViewDescriptorHandler>.Done;
         return new(pane, content);
     }
 
     public static ViewboxElement Viewbox(Element child)
     {
-        _ = V1.Reg<ViewboxElement, WinUI.Viewbox, Desc.ViewboxDescriptorHandler>.Done;
+        // Descriptor-only migration (spec 058 §15 / P5.3): the generated
+        // descriptor self-registers via ViewboxElement's Pattern-A static cctor,
+        // which fires on this `new`. No explicit Reg<> touch needed.
         return new(child);
     }
 
     public static CanvasElement Canvas(params Element?[] children)
     {
-        _ = V1.Reg<CanvasElement, WinUI.Canvas, Desc.CanvasDescriptorHandler>.Done;
         return new(FilterChildren(children));
     }
 
@@ -745,7 +691,6 @@ public static partial class Factories
     /// </remarks>
     public static FlexElement Flex(params Element?[] children)
     {
-        _ = V1.Reg<FlexElement, Microsoft.UI.Reactor.Layout.FlexPanel, Desc.FlexPanelDescriptorHandler>.Done;
         return new(FilterChildren(children));
     }
 
@@ -757,7 +702,6 @@ public static partial class Factories
     /// </remarks>
     public static FlexElement Flex(Microsoft.UI.Reactor.Layout.FlexDirection direction, params Element?[] children)
     {
-        _ = V1.Reg<FlexElement, Microsoft.UI.Reactor.Layout.FlexPanel, Desc.FlexPanelDescriptorHandler>.Done;
         return new(FilterChildren(children)) { Direction = direction };
     }
 
@@ -771,7 +715,6 @@ public static partial class Factories
     /// </remarks>
     public static FlexElement FlexRow(params Element?[] children)
     {
-        _ = V1.Reg<FlexElement, Microsoft.UI.Reactor.Layout.FlexPanel, Desc.FlexPanelDescriptorHandler>.Done;
         return new(FilterChildren(children)) { Direction = Microsoft.UI.Reactor.Layout.FlexDirection.Row };
     }
 
@@ -785,7 +728,6 @@ public static partial class Factories
     /// </remarks>
     public static FlexElement FlexColumn(params Element?[] children)
     {
-        _ = V1.Reg<FlexElement, Microsoft.UI.Reactor.Layout.FlexPanel, Desc.FlexPanelDescriptorHandler>.Done;
         return new(FilterChildren(children)) { Direction = Microsoft.UI.Reactor.Layout.FlexDirection.Column };
     }
 
@@ -807,7 +749,6 @@ public static partial class Factories
     {
         if (columns is null) throw new ArgumentNullException(nameof(columns));
         if (rows is null) throw new ArgumentNullException(nameof(rows));
-        _ = V1.Reg<GridElement, WinUI.Grid, Desc.GridDescriptorHandler>.Done;
         return new(new GridDefinition(columns, rows), FilterChildren(children));
     }
 
@@ -823,7 +764,6 @@ public static partial class Factories
         string[] columns, string[] rows,
         params Element?[] children)
     {
-        _ = V1.Reg<GridElement, WinUI.Grid, Desc.GridDescriptorHandler>.Done;
         return new(new GridDefinition(columns, rows), FilterChildren(children));
     }
 
@@ -929,7 +869,6 @@ public static partial class Factories
 
     public static NavigationViewElement NavigationView(NavigationViewItemData[] menuItems, Element? content = null)
     {
-        _ = V1.Reg<NavigationViewElement, WinUI.NavigationView, Desc.NavigationViewDescriptorHandler>.Done;
         return new(menuItems, content);
     }
 
@@ -941,13 +880,11 @@ public static partial class Factories
 
     public static TitleBarElement TitleBar(string title)
     {
-        _ = V1.Reg<TitleBarElement, WinUI.TitleBar, Desc.TitleBarDescriptorHandler>.Done;
         return new(title);
     }
 
     public static TabViewElement TabView(params TabViewItemData[] tabs)
     {
-        _ = V1.Reg<TabViewElement, WinUI.TabView, Desc.TabViewDescriptorHandler>.Done;
         return new(tabs);
     }
 
@@ -956,7 +893,6 @@ public static partial class Factories
     /// </summary>
     public static TabViewElement TabView(int? selectedIndex, Action<int>? onSelectedIndexChanged = null, params TabViewItemData[] tabs)
     {
-        _ = V1.Reg<TabViewElement, WinUI.TabView, Desc.TabViewDescriptorHandler>.Done;
         return new(tabs) { SelectedIndex = ToOptionalSelectedIndex(selectedIndex), OnSelectedIndexChanged = onSelectedIndexChanged };
     }
 
@@ -965,7 +901,6 @@ public static partial class Factories
     /// </summary>
     public static TabViewElement TabView(Optional<int> selectedIndex, Action<int>? onSelectedIndexChanged = null, params TabViewItemData[] tabs)
     {
-        _ = V1.Reg<TabViewElement, WinUI.TabView, Desc.TabViewDescriptorHandler>.Done;
         return new(tabs) { SelectedIndex = selectedIndex, OnSelectedIndexChanged = onSelectedIndexChanged };
     }
 
@@ -973,7 +908,6 @@ public static partial class Factories
 
     public static BreadcrumbBarElement BreadcrumbBar(BreadcrumbBarItemData[] items, Action<BreadcrumbBarItemData>? onItemClicked = null)
     {
-        _ = V1.Reg<BreadcrumbBarElement, WinUI.BreadcrumbBar, Desc.BreadcrumbBarDescriptorHandler>.Done;
         return new(items, onItemClicked);
     }
 
@@ -981,7 +915,6 @@ public static partial class Factories
 
     public static PivotElement Pivot(params PivotItemData[] items)
     {
-        _ = V1.Reg<PivotElement, WinUI.Pivot, Desc.PivotDescriptorHandler>.Done;
         return new(items);
     }
 
@@ -990,7 +923,6 @@ public static partial class Factories
     /// </summary>
     public static PivotElement Pivot(int? selectedIndex, Action<int>? onSelectedIndexChanged = null, params PivotItemData[] items)
     {
-        _ = V1.Reg<PivotElement, WinUI.Pivot, Desc.PivotDescriptorHandler>.Done;
         return new(items) { SelectedIndex = ToOptionalSelectedIndex(selectedIndex), OnSelectedIndexChanged = onSelectedIndexChanged };
     }
 
@@ -999,7 +931,6 @@ public static partial class Factories
     /// </summary>
     public static PivotElement Pivot(Optional<int> selectedIndex, Action<int>? onSelectedIndexChanged = null, params PivotItemData[] items)
     {
-        _ = V1.Reg<PivotElement, WinUI.Pivot, Desc.PivotDescriptorHandler>.Done;
         return new(items) { SelectedIndex = selectedIndex, OnSelectedIndexChanged = onSelectedIndexChanged };
     }
 
@@ -1057,7 +988,6 @@ public static partial class Factories
 
     public static TreeViewElement TreeView(params TreeViewNodeData[] nodes)
     {
-        _ = V1.Reg<TreeViewElement, WinUI.TreeView, Desc.TreeViewDescriptorHandler>.Done;
         return new(nodes);
     }
 
@@ -1107,7 +1037,6 @@ public static partial class Factories
 
     public static FlipViewElement FlipView(params Element[] items)
     {
-        _ = V1.Reg<FlipViewElement, WinUI.FlipView, Desc.FlipViewDescriptorHandler>.Done;
         return new(items);
     }
 
@@ -1116,7 +1045,6 @@ public static partial class Factories
     /// </summary>
     public static FlipViewElement FlipView(int? selectedIndex, Action<int>? onSelectedIndexChanged = null, params Element[] items)
     {
-        _ = V1.Reg<FlipViewElement, WinUI.FlipView, Desc.FlipViewDescriptorHandler>.Done;
         return new(items) { SelectedIndex = ToOptionalSelectedIndex(selectedIndex), OnSelectedIndexChanged = onSelectedIndexChanged };
     }
 
@@ -1125,7 +1053,6 @@ public static partial class Factories
     /// </summary>
     public static FlipViewElement FlipView(Optional<int> selectedIndex, Action<int>? onSelectedIndexChanged = null, params Element[] items)
     {
-        _ = V1.Reg<FlipViewElement, WinUI.FlipView, Desc.FlipViewDescriptorHandler>.Done;
         return new(items) { SelectedIndex = selectedIndex, OnSelectedIndexChanged = onSelectedIndexChanged };
     }
 
@@ -1149,7 +1076,6 @@ public static partial class Factories
         string? subtitle = null,
         Microsoft.UI.Reactor.Input.ElementRef? target = null)
     {
-        _ = V1.Reg<TeachingTipElement, WinUI.TeachingTip, Desc.TeachingTipDescriptorHandler>.Done;
         return new(title, subtitle) { Target = target };
     }
 
@@ -1247,19 +1173,16 @@ public static partial class Factories
 
     public static ImageElement Image(string source)
     {
-        _ = V1.Reg<ImageElement, WinUI.Image, Desc.ImageDescriptorHandler>.Done;
         return new(source);
     }
 
     public static PersonPictureElement PersonPicture()
     {
-        _ = V1.Reg<PersonPictureElement, WinUI.PersonPicture, Desc.PersonPictureDescriptorHandler>.Done;
         return new();
     }
 
     public static WebView2Element WebView2(Uri? source = null)
     {
-        _ = V1.Reg<WebView2Element, WinUI.WebView2, Desc.WebView2DescriptorHandler>.Done;
         return new(source);
     }
 
@@ -1649,19 +1572,16 @@ public static partial class Factories
 
     public static RectangleElement Rectangle()
     {
-        _ = V1.Reg<RectangleElement, WinShapes.Rectangle, Desc.RectangleDescriptorHandler>.Done;
         return new();
     }
 
     public static EllipseElement Ellipse()
     {
-        _ = V1.Reg<EllipseElement, WinShapes.Ellipse, Desc.EllipseDescriptorHandler>.Done;
         return new();
     }
 
     public static LineElement Line(double x1, double y1, double x2, double y2)
     {
-        _ = V1.Reg<LineElement, WinShapes.Line, Desc.LineDescriptorHandler>.Done;
         return new() { X1 = x1, Y1 = y1, X2 = x2, Y2 = y2 };
     }
 
@@ -1671,7 +1591,6 @@ public static partial class Factories
     // vector-geometry primitive — collision-free and familiar from JS/SVG.
     public static PathElement Path2D()
     {
-        _ = V1.Reg<PathElement, WinShapes.Path, Desc.PathDescriptorHandler>.Done;
         return new();
     }
 
@@ -1679,7 +1598,6 @@ public static partial class Factories
 
     public static RelativePanelElement RelativePanel(params Element?[] children)
     {
-        _ = V1.Reg<RelativePanelElement, WinUI.RelativePanel, Desc.RelativePanelDescriptorHandler>.Done;
         return new(FilterChildren(children));
     }
 
@@ -1687,13 +1605,11 @@ public static partial class Factories
 
     public static MediaPlayerElementElement MediaPlayerElement(string? source = null)
     {
-        _ = V1.Reg<MediaPlayerElementElement, WinUI.MediaPlayerElement, Desc.MediaPlayerElementDescriptorHandler>.Done;
         return new(source);
     }
 
     public static AnimatedVisualPlayerElement AnimatedVisualPlayer()
     {
-        _ = V1.Reg<AnimatedVisualPlayerElement, WinUI.AnimatedVisualPlayer, Desc.AnimatedVisualPlayerDescriptorHandler>.Done;
         return new();
     }
 
@@ -1701,7 +1617,6 @@ public static partial class Factories
 
     public static SemanticZoomElement SemanticZoom(Element zoomedInView, Element zoomedOutView)
     {
-        _ = V1.Reg<SemanticZoomElement, WinUI.SemanticZoom, Desc.SemanticZoomDescriptorHandler>.Done;
         return new(zoomedInView, zoomedOutView);
     }
 
@@ -1711,7 +1626,6 @@ public static partial class Factories
     /// </summary>
     public static ListBoxElement ListBox(string[] items, Optional<int> selectedIndex = default, Action<int>? onSelectedIndexChanged = null)
     {
-        _ = V1.Reg<ListBoxElement, WinUI.ListBox, Desc.ListBoxDescriptorHandler>.Done;
         return new(items) { SelectedIndex = selectedIndex, OnSelectedIndexChanged = onSelectedIndexChanged };
     }
 
@@ -1723,7 +1637,6 @@ public static partial class Factories
     /// </summary>
     public static SelectorBarElement SelectorBar(SelectorBarItemData[] items, Optional<int> selectedIndex = default, Action<int>? onSelectedIndexChanged = null)
     {
-        _ = V1.Reg<SelectorBarElement, WinUI.SelectorBar, Desc.SelectorBarDescriptorHandler>.Done;
         return new(items) { SelectedIndex = selectedIndex, OnSelectedIndexChanged = onSelectedIndexChanged };
     }
 
@@ -1735,13 +1648,11 @@ public static partial class Factories
     /// </summary>
     public static PipsPagerElement PipsPager(int numberOfPages, Optional<int> selectedPageIndex = default, Action<int>? onSelectedPageIndexChanged = null)
     {
-        _ = V1.Reg<PipsPagerElement, WinUI.PipsPager, Desc.PipsPagerDescriptorHandler>.Done;
         return new(numberOfPages) { SelectedPageIndex = selectedPageIndex, OnSelectedPageIndexChanged = onSelectedPageIndexChanged };
     }
 
     public static AnnotatedScrollBarElement AnnotatedScrollBar()
     {
-        _ = V1.Reg<AnnotatedScrollBarElement, WinUI.AnnotatedScrollBar, Desc.AnnotatedScrollBarDescriptorHandler>.Done;
         return new();
     }
 
@@ -1755,7 +1666,6 @@ public static partial class Factories
 
     public static RefreshContainerElement RefreshContainer(Element content, Action? onRefreshRequested = null)
     {
-        _ = V1.Reg<RefreshContainerElement, WinUI.RefreshContainer, Desc.RefreshContainerDescriptorHandler>.Done;
         return new(content) { OnRefreshRequested = onRefreshRequested };
     }
 
@@ -1769,7 +1679,6 @@ public static partial class Factories
 
     public static CalendarViewElement CalendarView()
     {
-        _ = V1.Reg<CalendarViewElement, WinUI.CalendarView, Desc.CalendarViewDescriptorHandler>.Done;
         return new();
     }
 
@@ -1778,7 +1687,6 @@ public static partial class Factories
     public static SwipeControlElement SwipeControl(Element content,
         SwipeItemData[]? leftItems = null, SwipeItemData[]? rightItems = null)
     {
-        _ = V1.Reg<SwipeControlElement, WinUI.SwipeControl, Desc.SwipeControlDescriptorHandler>.Done;
         return new(content) { LeftItems = leftItems, RightItems = rightItems };
     }
 
@@ -1786,7 +1694,6 @@ public static partial class Factories
 
     public static AnimatedIconElement AnimatedIcon(object? source = null, IconSource? fallbackIconSource = null)
     {
-        _ = V1.Reg<AnimatedIconElement, WinUI.AnimatedIcon, Desc.AnimatedIconDescriptorHandler>.Done;
         return new() { Source = source, FallbackIconSource = fallbackIconSource };
     }
 
@@ -1794,7 +1701,6 @@ public static partial class Factories
 
     public static ParallaxViewElement ParallaxView(Element child, double verticalShift = 0, double horizontalShift = 0)
     {
-        _ = V1.Reg<ParallaxViewElement, WinUI.ParallaxView, Desc.ParallaxViewDescriptorHandler>.Done;
         return new(child) { VerticalShift = verticalShift, HorizontalShift = horizontalShift };
     }
 
@@ -1802,7 +1708,6 @@ public static partial class Factories
 
     public static MapControlElement MapControl(string? mapServiceToken = null, double zoomLevel = 1)
     {
-        _ = V1.Reg<MapControlElement, WinUI.MapControl, Desc.MapControlDescriptorHandler>.Done;
         return new() { MapServiceToken = mapServiceToken, ZoomLevel = zoomLevel };
     }
 
@@ -1810,7 +1715,6 @@ public static partial class Factories
 
     public static FrameElement Frame(Type? sourcePageType = null, object? navigationParameter = null)
     {
-        _ = V1.Reg<FrameElement, WinUI.Frame, Desc.FrameDescriptorHandler>.Done;
         return new() { SourcePageType = sourcePageType, NavigationParameter = navigationParameter };
     }
 
@@ -1824,7 +1728,6 @@ public static partial class Factories
     /// </summary>
     public static ItemContainerElement ItemContainer(Element? child)
     {
-        _ = V1.Reg<ItemContainerElement, WinUI.ItemContainer, Desc.ItemContainerDescriptorHandler>.Done;
         return new(child);
     }
 
@@ -1853,7 +1756,6 @@ public static partial class Factories
     /// </remarks>
     public static RichTextBlockElement RichTextBlock(RichTextParagraph[] paragraphs)
     {
-        _ = V1.Reg<RichTextBlockElement, WinUI.RichTextBlock, Desc.RichTextBlockDescriptorHandler>.Done;
         return new("") { Paragraphs = paragraphs };
     }
 
@@ -1942,57 +1844,17 @@ public static partial class Factories
 
     public static ImageIconData ImageIcon(global::System.Uri source) => new(source);
 
-    /// <summary>
-    /// Spec 048 §3.4 — one-shot registration latch for the Icon decorator
-    /// family. The handler is a private nested singleton
-    /// (<c>Desc.IconDescriptor.Handler</c>) and therefore cannot satisfy
-    /// the <c>new()</c> constraint that
-    /// <see cref="V1.RegDecorator{TElement, THandler}"/> requires, so this
-    /// shim hand-rolls the same closed-generic cctor pattern: every Icon
-    /// factory overload touches <see cref="Done"/>, but only the first
-    /// touch per process incurs the
-    /// <see cref="V1.ControlRegistry.RegisterDecorator{TElement}"/> call
-    /// (with its <c>adapterFactory</c> closure allocation and
-    /// <c>TryAdd</c> insertion). Steady-state cost is one indirect load
-    /// matching the <see cref="V1.Reg{TElement, TControl, THandler}.Done"/>
-    /// cost model.
-    /// </summary>
-    private static class IconRegistration
-    {
-        // Explicit (empty) static constructor — disables `beforefieldinit`
-        // so Init() runs precisely on the first read of Done (the factory
-        // touch), not earlier. Matches the Reg<>/RegDecorator<> shape.
-        static IconRegistration() { }
-
-        internal static readonly byte Done = Init();
-
-        private static byte Init()
-        {
-            V1.ControlRegistry.RegisterDecorator<Core.IconElement>(static () => Desc.IconDescriptor.Handler);
-            return 1;
-        }
-    }
-
     /// <summary>Creates a standalone icon element from an <see cref="IconData"/> instance.</summary>
-    public static Core.IconElement Icon(IconData data)
-    {
-        _ = IconRegistration.Done;
-        return new(data);
-    }
+    // IconElement migrated to a generated polymorphic descriptor (spec 058 §15 / P5.27):
+    // its Pattern-A static cctor (emitted by [WrapPolymorphic]) registers the decorator
+    // on first instantiation, so `new(...)` self-registers — no IconRegistration shim.
+    public static Core.IconElement Icon(IconData data) => new(data);
 
     /// <summary>Creates a standalone symbol icon element from a <see cref="Symbol"/> enum value.</summary>
-    public static Core.IconElement Icon(Symbol symbol)
-    {
-        _ = IconRegistration.Done;
-        return new(new SymbolIconData(symbol.ToString()));
-    }
+    public static Core.IconElement Icon(Symbol symbol) => new(new SymbolIconData(symbol.ToString()));
 
     /// <summary>Creates a standalone symbol icon element (e.g. <c>Icon("Home")</c>).</summary>
-    public static Core.IconElement Icon(string symbol)
-    {
-        _ = IconRegistration.Done;
-        return new(new SymbolIconData(symbol));
-    }
+    public static Core.IconElement Icon(string symbol) => new(new SymbolIconData(symbol));
 
     // ── Keyboard Accelerators ───────────────────────────────────────
 

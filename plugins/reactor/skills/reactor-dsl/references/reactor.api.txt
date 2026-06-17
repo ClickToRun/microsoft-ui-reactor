@@ -663,6 +663,8 @@ T.OnRightTapped<T>(Action<object, RightTappedRoutedEventArgs> handler) → T
 T.OnRotate<T>(Action<RotateGesture> onChanged, Action<RotateGesture> onEnded = null, Action<RotateGesture> onBegan = null, Action<RotateGesture> onCancelled = null, bool withInertia = false) → T
 T.OnSizeChanged<T>(Action<object, SizeChangedEventArgs> handler) → T
 T.OnTapped<T>(Action<object, TappedRoutedEventArgs> handler) → T
+T.OnUnmount<T>(Action<FrameworkElement> action) → T
+T.OnUnmountAdd<T>(Action<FrameworkElement> action) → T
 T.OnWarning<T>(Func<T, T> configure) → T
 T.Opacity<T>(double opacity) → T
 T.OpacityTransition<T>(TimeSpan? duration = null) → T
@@ -1952,7 +1954,7 @@ double Value { get; init; }
 ### class ControlDescriptor<TElement, TControl>
 new()
 AfterChildrenMountCallback<TElement, TControl> AfterChildrenMount { get; init; }
-ChildrenStrategy<TElement, TControl> Children { get; init; }
+ChildrenStrategy<TElement, TControl> Children { get; set; }
 Func<TControl> Factory { get; init; }
 Func<TElement, Action<TControl>[]> GetSetters { get; init; }
 IReadOnlyList<PropEntry<TElement, TControl>> Properties { get; }
@@ -2881,6 +2883,7 @@ RecycleElement(ElementFactoryRecycleArgs args) → void
 new()
 AccessibilityModifiers Accessibility { get; init; }
 Action<FrameworkElement> OnMountAction { get; init; }
+Action<FrameworkElement> OnUnmountAction { get; init; }
 Action<UIElement, AccessKeyDisplayRequestedEventArgs> OnAccessKeyDisplayRequested { get; init; }
 Action<UIElement, CharacterReceivedRoutedEventArgs> OnCharacterReceived { get; init; }
 Action<object, DoubleTappedRoutedEventArgs> OnDoubleTapped { get; init; }
@@ -2993,13 +2996,16 @@ ToString() → string
 
 ### record EllipseElement
 new()
+Action<Ellipse>[] Setters { get; init; }
 Brush Fill { get; init; }
 Brush Stroke { get; init; }
-double StrokeThickness { get; init; }
+double? StrokeThickness { get; init; }
+Ellipse(Brush fill = null, Brush stroke = null, double? strokeThickness = null) → EllipseElement
 Equals(Element other) → bool
 Equals(EllipseElement other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
+Set(Action<Ellipse> configure) → EllipseElement
 ToString() → string
 
 ### record EmbedRequest
@@ -5597,15 +5603,18 @@ UpdateDefaultAutomationName(FrameworkElement fe, string oldCaption, string newCa
 
 ### record RectangleElement
 new()
+Action<Rectangle>[] Setters { get; init; }
 Brush Fill { get; init; }
 Brush Stroke { get; init; }
-double RadiusX { get; init; }
-double RadiusY { get; init; }
-double StrokeThickness { get; init; }
+double? RadiusX { get; init; }
+double? RadiusY { get; init; }
+double? StrokeThickness { get; init; }
 Equals(Element other) → bool
 Equals(RectangleElement other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
+Rectangle(Brush fill = null, double? radiusX = null, double? radiusY = null, Brush stroke = null, double? strokeThickness = null) → RectangleElement
+Set(Action<Rectangle> configure) → RectangleElement
 ToString() → string
 
 ### class Ref<T>

@@ -22,6 +22,15 @@
     <!-- Bundled into Microsoft.UI.Reactor.nupkg — does not ship as its own
          package. See docs/specs/022-packaging-and-distribution.md §5. -->
     <IsPackable>false</IsPackable>
+
+    <!-- RS1038: analyzers and their code-fix providers are intentionally
+         co-located in this single assembly, which is shipped as one DLL under
+         analyzers/dotnet/cs (see Reactor.csproj packing block). The code fixes
+         require Microsoft.CodeAnalysis.Workspaces; splitting them into a
+         separate assembly would mean shipping/packing a second analyzer DLL for
+         no functional gain since consumers always build with the full SDK
+         (where Workspaces is present). Suppressed deliberately. -->
+    <NoWarn>$(NoWarn);RS1038</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

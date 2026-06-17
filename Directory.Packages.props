@@ -76,4 +76,23 @@
     <PackageVersion Include="Microsoft.VSSDK.BuildTools" Version="18.6.38345" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Windows Community Toolkit controls (wct-controls sample) -->
+    <PackageVersion Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.3.260402-preview2" />
+    <PackageVersion Include="CommunityToolkit.WinUI.Controls.RadialGauge" Version="8.3.260402-preview2" />
+    <PackageVersion Include="CommunityToolkit.WinUI.Controls.Segmented" Version="8.3.260402-preview2" />
+    <PackageVersion Include="CommunityToolkit.WinUI.Controls.CameraPreview" Version="8.3.260402-preview2" />
+    <PackageVersion Include="CommunityToolkit.WinUI.Controls.ColorPicker" Version="8.3.260402-preview2" />
+    <PackageVersion Include="CommunityToolkit.WinUI.Controls.ImageCropper" Version="8.3.260402-preview2" />
+    <PackageVersion Include="CommunityToolkit.WinUI.Controls.Sizers" Version="8.3.260402-preview2" />
+    <PackageVersion Include="CommunityToolkit.WinUI.Controls.TokenizingTextBox" Version="8.3.260402-preview2" />
+    <PackageVersion Include="CommunityToolkit.WinUI.Controls.RangeSelector" Version="8.3.260402-preview2" />
+    <PackageVersion Include="CommunityToolkit.WinUI.Controls.HeaderedControls" Version="8.3.260402-preview2" />
+    <PackageVersion Include="CommunityToolkit.WinUI.Controls.LayoutTransformControl" Version="8.3.260402-preview2" />
+    <PackageVersion Include="CommunityToolkit.WinUI.Controls.TabbedCommandBar" Version="8.3.260402-preview2" />
+    <PackageVersion Include="CommunityToolkit.WinUI.Controls.MetadataControl" Version="8.3.260402-preview2" />
+    <PackageVersion Include="CommunityToolkit.WinUI.Controls.RichSuggestBox" Version="8.3.260402-preview2" />
+    <PackageVersion Include="CommunityToolkit.WinUI.Controls.Primitives" Version="8.3.260402-preview2" />
+  </ItemGroup>
+
 </Project>

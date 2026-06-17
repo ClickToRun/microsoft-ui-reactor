@@ -565,6 +565,10 @@ internal static class SelfTestFixtureRegistry
         "CoreCov2_FrameAnimatedIconUpdate",
         "CoreCov2_ParallaxViewMount",
         "CoreCov2_XamlHostMount",
+        // Mount/unmount/lifecycle torture tests (real WinUI controls)
+        "LT_OnMountUnmountBalanced",
+        "LT_EffectCleanupBalanced",
+        "LT_NavSwapNoLeak",
         "CoreCov2_ComponentTypedProps",
         "CoreCov2_ColorSchemeHookExercise",
         "CoreCov2_ContextScopeExercise",
@@ -1290,6 +1294,14 @@ internal static class SelfTestFixtureRegistry
         "Spec047ExternalProof_Marquee_PoolRent",
         "Spec047ExternalProof_Marquee_PoolResetContract",
 
+        // Spec 058 §14 — source-generated wrapper parity smoke test.
+        "ToggleSwitchWrapper_Parity",
+        "SliderWrapper_Parity",
+        "RadioButtonWrapper_Parity",
+        "StackPanelWrapper_Parity",
+        "ListBoxWrapper_Parity",
+        "ProgressBarValue",
+
         // Spec 047 §4.3 — EventHandlerState split (§9.2) contract fixtures.
         // Validate the ModifierEventHandlerState / per-control
         // ControlEventStateBox split landed in commit 691048bd (issue #114).
@@ -1922,6 +1934,9 @@ internal static class SelfTestFixtureRegistry
         "CoreCov2_FrameAnimatedIconUpdate" => new CoreCoverageFixtures2.FrameAnimatedIconUpdate(harness),
         "CoreCov2_ParallaxViewMount" => new CoreCoverageFixtures2.ParallaxViewMount(harness),
         "CoreCov2_XamlHostMount" => new CoreCoverageFixtures2.XamlHostMount(harness),
+        "LT_OnMountUnmountBalanced" => new LT_OnMountUnmountBalanced(harness),
+        "LT_EffectCleanupBalanced" => new LT_EffectCleanupBalanced(harness),
+        "LT_NavSwapNoLeak" => new LT_NavSwapNoLeak(harness),
         "CoreCov2_ComponentTypedProps" => new CoreCoverageFixtures2.ComponentTypedProps(harness),
         "CoreCov2_ColorSchemeHookExercise" => new CoreCoverageFixtures2.ColorSchemeHookExercise(harness),
         "CoreCov2_ContextScopeExercise" => new CoreCoverageFixtures2.ContextScopeExercise(harness),
@@ -2636,6 +2651,14 @@ internal static class SelfTestFixtureRegistry
         "Spec047ExternalProof_Marquee_SetterChain" => new Spec047ExternalProofFixtures.MarqueeSetterChain(harness),
         "Spec047ExternalProof_Marquee_PoolRent" => new Spec047ExternalProofFixtures.MarqueePoolRentReturn(harness),
         "Spec047ExternalProof_Marquee_PoolResetContract" => new Spec047ExternalProofFixtures.MarqueePoolResetContract(harness),
+
+        // Spec 058 §14 — source-generated wrapper parity smoke test.
+        "ToggleSwitchWrapper_Parity" => new ToggleSwitchWrapperParityFixture.Execution(harness),
+        "SliderWrapper_Parity" => new SliderWrapperParityFixture.Execution(harness),
+        "RadioButtonWrapper_Parity" => new RadioButtonWrapperParityFixture.Execution(harness),
+        "StackPanelWrapper_Parity" => new StackPanelWrapperParityFixture.Execution(harness),
+        "ListBoxWrapper_Parity" => new ListBoxWrapperParityFixture.Execution(harness),
+        "ProgressBarValue" => new ProgressBarValueFixture.Execution(harness),
 
         // Spec 047 §4.3 — EventHandlerState split (§9.2) contract fixtures.
         "EventStateSplit_NoDuplicateSubscriptionAcrossPoolReuse" => new Spec047EventStateSplitFixtures.NoDuplicateSubscriptionAcrossPoolReuse(harness),

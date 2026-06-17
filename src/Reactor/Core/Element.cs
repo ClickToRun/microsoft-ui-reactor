@@ -1245,7 +1245,51 @@ public record SemanticDescription(
 /// semantics to screen readers. This solves the problem where Reactor components
 /// can't override OnCreateAutomationPeer().
 /// </summary>
-public record SemanticElement(Element Child, SemanticDescription Semantics) : Element;
+// Spec 058 §15 (P5.24) — SemanticPanel accessibility wrapper. Both props are bespoke: Child is a
+// Children-backed SingleContent (Clear + Add, not a Content prop → overwrite d.Children), and the
+// 6 control props are projected from the nested Semantics (SemanticDescription) record. Replaces
+// the hand-written SemanticDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(global::Microsoft.UI.Reactor.Accessibility.SemanticPanel))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Child")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Semantics")]
+public partial record SemanticElement(Element Child, SemanticDescription Semantics) : Element
+{
+    internal Action<global::Microsoft.UI.Reactor.Accessibility.SemanticPanel>[] Setters { get; init; } = [];
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<SemanticElement, global::Microsoft.UI.Reactor.Accessibility.SemanticPanel> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<SemanticElement, global::Microsoft.UI.Reactor.Accessibility.SemanticPanel> d)
+    {
+        d.Children = new global::Microsoft.UI.Reactor.Core.V1Protocol.SingleContent<SemanticElement, global::Microsoft.UI.Reactor.Accessibility.SemanticPanel>(
+            GetChild: static e => e.Child,
+            SetChild: static (panel, ui) =>
+            {
+                panel.Children.Clear();
+                if (ui is not null) panel.Children.Add(ui);
+            })
+        {
+            GetCurrentChild = static panel => panel.Children.Count > 0 ? panel.Children[0] : null,
+        };
+        return d
+            .OneWay(
+                get: static e => e.Semantics.Role,
+                set: static (c, v) => c.SemanticRole = v)
+            .OneWay(
+                get: static e => e.Semantics.Value,
+                set: static (c, v) => c.SemanticValue = v)
+            .OneWay(
+                get: static e => e.Semantics.RangeMin ?? 0.0,
+                set: static (c, v) => c.RangeMinimum = v)
+            .OneWay(
+                get: static e => e.Semantics.RangeMax ?? 0.0,
+                set: static (c, v) => c.RangeMaximum = v)
+            .OneWay(
+                get: static e => e.Semantics.RangeValue ?? 0.0,
+                set: static (c, v) => c.RangeValue = v)
+            .OneWay(
+                get: static e => e.Semantics.IsReadOnly,
+                set: static (c, v) => c.IsReadOnly = v);
+    }
+}
 
 /// <summary>
 /// Cross-cutting "extras" bucket for <see cref="Element"/> (spec 047 §4.4).
@@ -1536,6 +1580,7 @@ public record ElementModifiers
     public string? AutomationId { get; init; }
     public ElementSoundMode? ElementSoundMode { get; init; }
     public Action<FrameworkElement>? OnMountAction { get; init; }
+    public Action<FrameworkElement>? OnUnmountAction { get; init; }
 
     // ── Typography (applies to any Control or TextBlock) ────────────
     public FontFamily? FontFamily { get; init; }
@@ -1673,6 +1718,7 @@ public record ElementModifiers
             AutomationId = other.AutomationId ?? AutomationId,
             ElementSoundMode = other.ElementSoundMode ?? ElementSoundMode,
             OnMountAction = other.OnMountAction ?? OnMountAction,
+            OnUnmountAction = other.OnUnmountAction ?? OnUnmountAction,
             FontFamily = other.FontFamily ?? FontFamily,
             FontSize = other.FontSize ?? FontSize,
             FontWeight = other.FontWeight ?? FontWeight,
@@ -2180,7 +2226,7 @@ public record ImageIconData(global::System.Uri Source) : IconData;
 /// Wraps an <see cref="IconData"/> and mounts to the corresponding
 /// native <see cref="WinUI.IconElement"/> subtype.
 /// </summary>
-public record IconElement(IconData Data) : Element
+public partial record IconElement(IconData Data) : Element
 {
     internal Action<WinUI.IconElement>[] Setters { get; init; } = [];
 }
@@ -2210,7 +2256,10 @@ public record CommandHostElement(Command[] Commands, Element Child) : Element;
 //  Text elements
 // ════════════════════════════════════════════════════════════════════════
 
-public record TextBlockElement(string Content) : Element
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.TextBlock), ClearValueOnUnset = true)]  // spec 058 §15 (P5.7); nullable styling props use the dp ClearValue channel (issue #522 recycle reset)
+[global::Microsoft.UI.Reactor.Wrappers.WrapAlias("Content", "Text")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapAlias("Weight", "FontWeight")]
+public partial record TextBlockElement(string Content) : Element
 {
     public double? FontSize { get; init; }
     public FontWeight? Weight { get; init; }
@@ -2279,7 +2328,13 @@ internal enum TextPropChanged : ushort
     TextDecorations     = 1 << 14,
 }
 
-public record RichTextBlockElement(string Text) : Element
+// Spec 058 §15 (P5.8) — most styling props auto-map (nullable → dp ClearValue channel
+// via ClearValueOnUnset). Text/Paragraphs are a bespoke block-list build/diff
+// (ImperativeBridged) and Padding (a base Element modifier) are wired in Customize.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.RichTextBlock), ClearValueOnUnset = true)]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Text")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Paragraphs")]
+public partial record RichTextBlockElement(string Text) : Element
 {
     public double? FontSize { get; init; }
     public Microsoft.UI.Xaml.Media.FontFamily? FontFamily { get; init; }
@@ -2312,6 +2367,19 @@ public record RichTextBlockElement(string Text) : Element
     public OpticalMarginAlignment? OpticalMarginAlignment { get; init; }
     public Microsoft.UI.Xaml.Media.SolidColorBrush? SelectionHighlightColor { get; init; }
     internal Action<WinUI.RichTextBlock>[] Setters { get; init; } = [];
+
+    // Text/Paragraphs: incremental block-list build/diff (preserves Route A inline
+    // UI children across renders — issue #480). Padding: the standard Element.Padding
+    // modifier mapped to RichTextBlock.Padding via the dp ClearValue channel.
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<RichTextBlockElement, WinUI.RichTextBlock> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<RichTextBlockElement, WinUI.RichTextBlock> d)
+        => d.ImperativeBridged(
+                mount:  static (ctx, c, e) => ctx.Reconciler.RebuildRichTextBlocks(e, c, ctx.RequestRerender),
+                update: static (ctx, c, prev, next) => ctx.Reconciler.UpdateRichTextBlocks(c, prev, next, ctx.RequestRerender))
+            .OneWay(
+                get: static e => e.Padding.HasValue ? e.Padding.Value : global::Microsoft.UI.Reactor.Optional<Thickness>.Unset,
+                set: static (c, v) => c.Padding = v,
+                dp:  WinUI.RichTextBlock.PaddingProperty);
 }
 
 // Rich text inline content types
@@ -2434,7 +2502,16 @@ public record RichTextInlineUIContainer : RichTextInline
 //  Button elements
 // ════════════════════════════════════════════════════════════════════════
 
-public record ButtonElement(string Label, Action? OnClick = null) : Element
+// Spec 058 §15 (P5.22) — fully bespoke (everything in Customize). Polymorphic content: a guarded
+// SingleContent over ContentElement (overwrites the auto unguarded one so a Label string isn't
+// clobbered) + Label OneWayConditional gated on ContentElement is null. IsEnabled gated on
+// !IsDisabledFocusable; IsDisabledFocusable coerces IsEnabled=true + Opacity. Click suppresses when
+// IsDisabledFocusable (Excluded so it isn't auto-surfaced). Replaces ButtonDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.Button), Exclude = new[] { "Click" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Label")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("IsEnabled")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("IsDisabledFocusable")]
+public partial record ButtonElement(string Label, Action? OnClick = null) : Element
 {
     public bool IsEnabled { get; init; } = true;
     /// <summary>
@@ -2452,15 +2529,70 @@ public record ButtonElement(string Label, Action? OnClick = null) : Element
     public Element? ContentElement { get; init; }
     internal Action<WinUI.Button>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnClick is not null;
+
+    private static readonly global::Microsoft.UI.Xaml.RoutedEventHandler __ClickTrampoline = (s, _) =>
+    {
+        if (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag((WinUI.Button)s!) is ButtonElement live)
+        {
+            if (live.IsDisabledFocusable) return;
+            live.OnClick?.Invoke();
+        }
+    };
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<ButtonElement, WinUI.Button> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<ButtonElement, WinUI.Button> d)
+    {
+        // Guarded polymorphic content: SetChild only writes a non-null mounted child, so the
+        // string Label written by the gated OneWayConditional below is never clobbered.
+        d.Children = new global::Microsoft.UI.Reactor.Core.V1Protocol.SingleContent<ButtonElement, WinUI.Button>(
+            GetChild: static e => e.ContentElement,
+            SetChild: static (c, ui) => { if (ui is not null) c.Content = ui; })
+        {
+            GetCurrentChild = static c => c.Content as global::Microsoft.UI.Xaml.UIElement,
+        };
+        return d
+            .OneWayConditional(
+                get:         static e => e.Label,
+                set:         static (c, v) => c.Content = v,
+                shouldWrite: static e => e.ContentElement is null)
+            .OneWayConditional(
+                get:         static e => e.IsEnabled,
+                set:         static (c, v) => c.IsEnabled = v,
+                shouldWrite: static e => !e.IsDisabledFocusable)
+            .OneWay<bool>(
+                get: static e => e.IsDisabledFocusable,
+                set: static (c, v) =>
+                {
+                    if (v)
+                    {
+                        c.IsEnabled = true;
+                        c.Opacity = 0.4;
+                    }
+                    else
+                    {
+                        c.ClearValue(global::Microsoft.UI.Xaml.UIElement.OpacityProperty);
+                    }
+                })
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.ButtonEventPayload, global::Microsoft.UI.Xaml.RoutedEventHandler>(
+                subscribe:        static (c, h) => c.Click += h,
+                callbackPresent:  static e => e.OnClick,
+                trampoline:       __ClickTrampoline,
+                slotIsNull:       static p => p.ClickTrampoline is null,
+                setSlot:          static (p, h) => p.ClickTrampoline = h);
+    }
 }
 
-public record HyperlinkButtonElement(string Content, Uri? NavigateUri = null, Action? OnClick = null) : Element
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.HyperlinkButton))]  // spec 058 §15 (P5.4)
+[global::Microsoft.UI.Reactor.Wrappers.WrapAlias("Content", "Content")]  // Content as value (not child slot)
+public partial record HyperlinkButtonElement(string Content, Uri? NavigateUri = null, Action? OnClick = null) : Element
 {
     internal Action<WinUI.HyperlinkButton>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnClick is not null;
 }
 
-public record RepeatButtonElement(string Label, Action? OnClick = null) : Element
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinPrim.RepeatButton))]  // spec 058 §15 (P5.4)
+[global::Microsoft.UI.Reactor.Wrappers.WrapAlias("Label", "Content")]
+public partial record RepeatButtonElement(string Label, Action? OnClick = null) : Element
 {
     public int Delay { get; init; } = 250;
     public int Interval { get; init; } = 50;
@@ -2468,7 +2600,16 @@ public record RepeatButtonElement(string Label, Action? OnClick = null) : Elemen
     internal override bool HasCallbacks => OnClick is not null;
 }
 
-public record ToggleButtonElement(string Label, bool IsChecked = false, Action<bool>? OnIsCheckedChanged = null) : Element
+// Spec 058 §15 (P5.22) — Label→Content ([WrapAlias]). IsThreeState/IsChecked/CheckedState +
+// Click are bespoke in Customize: IsThreeState is written BEFORE IsChecked (ordering invariant),
+// IsChecked's source is CheckedState in 3-state mode else IsChecked, and Click reads back the
+// control value firing both callbacks. No event auto-surfaces (no OnClick). Replaces ToggleButtonDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinPrim.ToggleButton))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapAlias("Label", "Content")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("IsThreeState")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("IsChecked")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("CheckedState")]
+public partial record ToggleButtonElement(string Label, bool IsChecked = false, Action<bool>? OnIsCheckedChanged = null) : Element
 {
     /// <summary>
     /// Enable the three-state cycle (true → false → null → true). Pair with
@@ -2483,24 +2624,105 @@ public record ToggleButtonElement(string Label, bool IsChecked = false, Action<b
     public Action<bool?>? OnCheckedStateChanged { get; init; }
     internal Action<WinPrim.ToggleButton>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnIsCheckedChanged is not null || OnCheckedStateChanged is not null;
+
+    private static readonly global::Microsoft.UI.Xaml.RoutedEventHandler __ClickTrampoline = (s, _) =>
+    {
+        var t = (WinPrim.ToggleButton)s!;
+        if (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(t) is not ToggleButtonElement live) return;
+        live.OnIsCheckedChanged?.Invoke(t.IsChecked ?? false);
+        live.OnCheckedStateChanged?.Invoke(t.IsChecked);
+    };
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<ToggleButtonElement, WinPrim.ToggleButton> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<ToggleButtonElement, WinPrim.ToggleButton> d)
+        => d.OneWay(
+                get: static e => e.IsThreeState,
+                set: static (c, v) => c.IsThreeState = v)
+            .OneWay<bool?>(
+                get: static e => e.IsThreeState ? e.CheckedState : e.IsChecked,
+                set: static (c, v) => c.IsChecked = v)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.ToggleButtonEventPayload, global::Microsoft.UI.Xaml.RoutedEventHandler>(
+                subscribe:        static (c, h) => c.Click += h,
+                callbackPresent:  static e => (Delegate?)e.OnIsCheckedChanged ?? e.OnCheckedStateChanged,
+                trampoline:       __ClickTrampoline,
+                slotIsNull:       static p => p.ClickTrampoline is null,
+                setSlot:          static (p, h) => p.ClickTrampoline = h);
 }
 
-public record DropDownButtonElement(string Label, Element? Flyout = null) : Element
+// Spec 058 §15 (P5.22) — Label→Content ([WrapAlias], which also suppresses the auto content slot
+// so Flyout isn't mis-mapped to Content). Flyout is a [WrapManual] OneWayBridged (CreateFlyoutForDescriptor
+// + reference-identity comparer). Children stay None. Replaces DropDownButtonDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.DropDownButton))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapAlias("Label", "Content")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Flyout")]
+public partial record DropDownButtonElement(string Label, Element? Flyout = null) : Element
 {
     internal Action<WinUI.DropDownButton>[] Setters { get; init; } = [];
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<DropDownButtonElement, WinUI.DropDownButton> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<DropDownButtonElement, WinUI.DropDownButton> d)
+        => d.OneWayBridged<Element?>(
+            get:         static e => e.Flyout,
+            set:         static (c, v, rec, rr) => c.Flyout = rec.CreateFlyoutForDescriptor(v, rr),
+            shouldWrite: static e => e.Flyout is not null,
+            comparer:    global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.Descriptors.ElementReferenceComparer.Instance);
 }
 
-public record SplitButtonElement(string Label, Action? OnClick = null, Element? Flyout = null) : Element
+// Spec 058 §15 (P5.22) — Label→Content ([WrapAlias], suppresses the auto content slot). Click
+// (HandCodedEvent, Excluded so it isn't auto-surfaced) + Flyout (OneWayBridged) in Customize.
+// Children stay None. Replaces SplitButtonDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.SplitButton), Exclude = new[] { "Click" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapAlias("Label", "Content")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Flyout")]
+public partial record SplitButtonElement(string Label, Action? OnClick = null, Element? Flyout = null) : Element
 {
     internal Action<WinUI.SplitButton>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnClick is not null;
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.SplitButton, WinUI.SplitButtonClickEventArgs> __ClickTrampoline =
+        (s, _) => (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(s) as SplitButtonElement)?.OnClick?.Invoke();
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<SplitButtonElement, WinUI.SplitButton> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<SplitButtonElement, WinUI.SplitButton> d)
+        => d.HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.SplitButtonEventPayload, global::Windows.Foundation.TypedEventHandler<WinUI.SplitButton, WinUI.SplitButtonClickEventArgs>>(
+                subscribe:        static (c, h) => c.Click += h,
+                callbackPresent:  static e => e.OnClick,
+                trampoline:       __ClickTrampoline,
+                slotIsNull:       static p => p.ClickTrampoline is null,
+                setSlot:          static (p, h) => p.ClickTrampoline = h)
+            .OneWayBridged<Element?>(
+                get:         static e => e.Flyout,
+                set:         static (c, v, rec, rr) => c.Flyout = rec.CreateFlyoutForDescriptor(v, rr),
+                shouldWrite: static e => e.Flyout is not null,
+                comparer:    global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.Descriptors.ElementReferenceComparer.Instance);
 }
 
-/// <summary>Toggle split button element. <c>IsChecked</c> defaults to <see cref="Optional{T}.Unset"/> so the control owns its initial checked state until explicitly set.</summary>
-public record ToggleSplitButtonElement(string Label, Optional<bool> IsChecked = default, Action<bool>? OnIsCheckedChanged = null, Element? Flyout = null) : Element
+// Spec 058 §15 (P5.22) — Label→Content ([WrapAlias], suppresses the auto content slot). IsChecked
+// (controlled via IsCheckedChanged — Excluded + handled in Customize) + Flyout (OneWayBridged).
+// Children stay None. Replaces ToggleSplitButtonDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.ToggleSplitButton), Exclude = new[] { "IsCheckedChanged" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapAlias("Label", "Content")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("IsChecked")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Flyout")]
+public partial record ToggleSplitButtonElement(string Label, Optional<bool> IsChecked = default, Action<bool>? OnIsCheckedChanged = null, Element? Flyout = null) : Element
 {
     internal Action<WinUI.ToggleSplitButton>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnIsCheckedChanged is not null;
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<ToggleSplitButtonElement, WinUI.ToggleSplitButton> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<ToggleSplitButtonElement, WinUI.ToggleSplitButton> d)
+        => d.Controlled<bool, WinUI.ToggleSplitButtonIsCheckedChangedEventArgs>(
+                get:         static e => e.IsChecked,
+                set:         static (c, v) => c.IsChecked = v,
+                subscribe:   static (fe, h) => ((WinUI.ToggleSplitButton)fe).IsCheckedChanged += (s, e) => h(s, e),
+                unsubscribe: static (fe, h) => { /* trampoline lives for control lifetime — see CWT gate in PropEntry */ },
+                callback:    static e => e.OnIsCheckedChanged,
+                readBack:    static c => c.IsChecked)
+            .OneWayBridged<Element?>(
+                get:         static e => e.Flyout,
+                set:         static (c, v, rec, rr) => c.Flyout = rec.CreateFlyoutForDescriptor(v, rr),
+                shouldWrite: static e => e.Flyout is not null,
+                comparer:    global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.Descriptors.ElementReferenceComparer.Instance);
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -2508,7 +2730,15 @@ public record ToggleSplitButtonElement(string Label, Optional<bool> IsChecked = 
 // ════════════════════════════════════════════════════════════════════════
 
 /// <summary>Text box element. <c>Value</c> defaults to <see cref="Optional{T}.Unset"/> so user text is not overwritten unless a value is explicitly provided.</summary>
-public record TextBoxElement(
+// Spec 058 §15 (P5.13) — Value→Text is a deferred controlled value (suppress-counter
+// echo); AcceptsReturn/TextWrapping must precede the Text write (single-line \r\n strip);
+// SelectionChanged is a 3-arg state-reading event. All four are handled in Customize
+// (Customize entries are emitted first, preserving the order). The rest auto-map.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.TextBox), Exclude = new[] { "SelectionChanged" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Value")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("AcceptsReturn")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("TextWrapping")]
+public partial record TextBoxElement(
     Optional<string> Value = default,
     Action<string>? OnChanged = null,
     string? PlaceholderText = null
@@ -2536,10 +2766,58 @@ public record TextBoxElement(
     public string? Description { get; init; }
     internal Action<WinUI.TextBox>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnChanged is not null || OnSelectionChanged is not null;
+
+    private static readonly WinUI.TextChangedEventHandler __TextChangedTrampoline = (s, _) =>
+    {
+        var tb = (WinUI.TextBox)s!;
+        if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(tb)) return;
+        (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(tb) as TextBoxElement)?.OnChanged?.Invoke(tb.Text);
+    };
+
+    private static readonly global::Microsoft.UI.Xaml.RoutedEventHandler __SelectionChangedTrampoline = (s, _) =>
+    {
+        var tb = (WinUI.TextBox)s!;
+        (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(tb) as TextBoxElement)
+            ?.OnSelectionChanged?.Invoke(tb.SelectedText, tb.SelectionStart, tb.SelectionLength);
+    };
+
+    // AcceptsReturn/TextWrapping BEFORE Text (single-line strips embedded \r\n on the
+    // Text assignment); Value→Text deferred HandCodedControlled; SelectionChanged
+    // fire-only HandCodedEvent reading control selection state. Reused verbatim from the
+    // hand-written descriptor (one shared TextBoxEventPayload across both events).
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<TextBoxElement, WinUI.TextBox> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<TextBoxElement, WinUI.TextBox> d)
+        => d.OneWayConditional(
+                get:         static e => e.AcceptsReturn,
+                set:         static (c, v) => c.AcceptsReturn = v!.Value,
+                shouldWrite: static e => e.AcceptsReturn.HasValue)
+            .OneWayConditional(
+                get:         static e => e.TextWrapping,
+                set:         static (c, v) => c.TextWrapping = v!.Value,
+                shouldWrite: static e => e.TextWrapping.HasValue)
+            .HandCodedControlled<global::Microsoft.UI.Reactor.Core.V1Protocol.TextBoxEventPayload, string, WinUI.TextChangedEventHandler>(
+                get:         static e => e.Value,
+                set:         static (c, v) => c.Text = v,
+                readBack:    static c => c.Text,
+                subscribe:   static (c, h) => c.TextChanged += h,
+                callback:    static e => e.OnChanged,
+                trampoline:  __TextChangedTrampoline,
+                slotIsNull:  static p => p.TextChangedTrampoline is null,
+                setSlot:     static (p, h) => p.TextChangedTrampoline = h)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.TextBoxEventPayload, global::Microsoft.UI.Xaml.RoutedEventHandler>(
+                subscribe:        static (c, h) => c.SelectionChanged += h,
+                callbackPresent:  static e => e.OnSelectionChanged,
+                trampoline:       __SelectionChangedTrampoline,
+                slotIsNull:       static p => p.SelectionChangedTrampoline is null,
+                setSlot:          static (p, h) => p.SelectionChangedTrampoline = h);
 }
 
 /// <summary>Password box element. <c>Password</c> defaults to <see cref="Optional{T}.Unset"/> so user input is not overwritten unless a value is explicitly provided.</summary>
-public record PasswordBoxElement(
+// Spec 058 §15 (P5.12) — Password uses the deferred / suppress-counter echo channel
+// (HandCodedControlled) via [WrapControlled(Deferred=true)]; the rest auto-map.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.PasswordBox))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapControlled("Password", Deferred = true)]
+public partial record PasswordBoxElement(
     Optional<string> Password = default,
     Action<string>? OnPasswordChanged = null,
     string? PlaceholderText = null
@@ -2558,7 +2836,21 @@ public record PasswordBoxElement(
 }
 
 /// <summary>Number box element. <c>Value</c> defaults to <see cref="Optional{T}.Unset"/> so the control owns its value until explicitly set.</summary>
-public record NumberBoxElement(
+/// <summary>NumberBox element. <c>Value</c> defaults to <see cref="Optional{T}.Unset"/>.</summary>
+// Spec 058 §15 (P5.14) — Value is bespoke: deferred suppress-counter HandCodedControlled
+// echo (ValueChanged) PLUS a per-keystroke .Immediate observation (TextProperty + Loaded →
+// inner TextBox). Minimum/Maximum use CoercingOneWay (drop coercion-driven ValueChanged
+// echoes). All three + the Immediate live in Customize (Min/Max BEFORE Value — coercion
+// ordering invariant). SpinButtonPlacement→SpinButtonPlacementMode via [WrapAlias]; the
+// other 9 props auto-map (incl. NumberFormatter — an INumberFormatter2 interface value).
+// ValueChanged is Excluded (handled bespokely, would otherwise auto-surface as a
+// fire-forget event and collide).
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.NumberBox), Exclude = new[] { "ValueChanged" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapAlias("SpinButtonPlacement", "SpinButtonPlacementMode")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Value")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Minimum")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Maximum")]
+public partial record NumberBoxElement(
     Optional<double> Value = default,
     Action<double>? OnValueChanged = null,
     string? Header = null
@@ -2580,10 +2872,58 @@ public record NumberBoxElement(
     public string? Description { get; init; }
     internal Action<WinUI.NumberBox>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnValueChanged is not null;
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.NumberBox, WinUI.NumberBoxValueChangedEventArgs>
+        __ValueChangedTrampoline = (s, _) =>
+        {
+            var box = (WinUI.NumberBox)s!;
+            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(box)) return;
+            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(box) as NumberBoxElement)?.OnValueChanged?.Invoke(box.Value);
+        };
+
+    // Min/Max BEFORE Value (Customize entries emit first) so a fresh in-range Value isn't
+    // coerced by a stale range — the hand-coded arm's ordering invariant. CoercingOneWay
+    // drops coercion-driven ValueChanged echoes; HandCodedControlled is the deferred
+    // suppress-counter Value channel; .Immediate adds per-keystroke observation.
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<NumberBoxElement, WinUI.NumberBox> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<NumberBoxElement, WinUI.NumberBox> d)
+        => d.CoercingOneWay(
+                get:               static e => e.Minimum,
+                set:               static (c, v) => c.Minimum = v,
+                coercesController: static (c, newMin) => c.Value < newMin)
+            .CoercingOneWay(
+                get:               static e => e.Maximum,
+                set:               static (c, v) => c.Maximum = v,
+                coercesController: static (c, newMax) => c.Value > newMax)
+            .HandCodedControlled<global::Microsoft.UI.Reactor.Core.V1Protocol.NumberBoxEventPayload, double,
+                global::Windows.Foundation.TypedEventHandler<WinUI.NumberBox, WinUI.NumberBoxValueChangedEventArgs>>(
+                get:         static e => e.Value,
+                set:         static (c, v) => c.Value = v,
+                readBack:    static c => c.Value,
+                subscribe:   static (c, h) => c.ValueChanged += h,
+                callback:    static e => e.OnValueChanged,
+                trampoline:  __ValueChangedTrampoline,
+                slotIsNull:  static p => p.ValueChangedTrampoline is null,
+                setSlot:     static (p, h) => p.ValueChangedTrampoline = h)
+            .Immediate<global::Microsoft.UI.Reactor.Core.V1Protocol.NumberBoxEventPayload>(
+                callbackGate:       static e => e.OnValueChanged,
+                observeProperty:    WinUI.NumberBox.TextProperty,
+                observeCallback:    global::Microsoft.UI.Reactor.Core.Reconciler.NumberBoxImmediateTextChanged,
+                observeSlotIsNull:  static p => p.ImmediateTextChangedCallback is null,
+                setObserveSlot:     static (p, h) => p.ImmediateTextChangedCallback = h,
+                loadedHook:         global::Microsoft.UI.Reactor.Core.Reconciler.NumberBoxLoadedEnsureImmediateTextBox);
 }
 
 /// <summary>Auto-suggest box element. <c>Text</c> defaults to <see cref="Optional{T}.Unset"/> so typed text is not overwritten unless explicitly set.</summary>
-public record AutoSuggestBoxElement(
+// Spec 058 §15 (P5.13) — Text/QuerySubmitted/SuggestionChosen are bespoke (UserInput-
+// filtered deferred Text echo, typed-arg projections, ToString coercion) sharing one
+// AutoSuggestBoxEventPayload; Suggestions→ItemsSource and QueryIcon→IconResolver are
+// bespoke too — all handled in Customize. PlaceholderText/Header/IsSuggestionListOpen auto-map.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.AutoSuggestBox), Exclude = new[] { "TextChanged", "QuerySubmitted", "SuggestionChosen" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Text")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Suggestions")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("QueryIcon")]
+public partial record AutoSuggestBoxElement(
     Optional<string> Text = default,
     Action<string>? OnTextChanged = null,
     Action<string>? OnQuerySubmitted = null,
@@ -2600,10 +2940,72 @@ public record AutoSuggestBoxElement(
     public bool IsSuggestionListOpen { get; init; }
     internal Action<WinUI.AutoSuggestBox>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnTextChanged is not null || OnQuerySubmitted is not null || OnSuggestionChosen is not null;
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.AutoSuggestBox, WinUI.AutoSuggestBoxTextChangedEventArgs>
+        __TextChangedTrampoline = (s, args) =>
+        {
+            if (args.Reason != WinUI.AutoSuggestionBoxTextChangeReason.UserInput) return;
+            var asb = (WinUI.AutoSuggestBox)s!;
+            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(asb)) return;
+            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(asb) as AutoSuggestBoxElement)?.OnTextChanged?.Invoke(asb.Text);
+        };
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.AutoSuggestBox, WinUI.AutoSuggestBoxQuerySubmittedEventArgs>
+        __QuerySubmittedTrampoline = (s, args) =>
+            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag((WinUI.AutoSuggestBox)s!) as AutoSuggestBoxElement)?.OnQuerySubmitted?.Invoke(args.QueryText);
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.AutoSuggestBox, WinUI.AutoSuggestBoxSuggestionChosenEventArgs>
+        __SuggestionChosenTrampoline = (s, args) =>
+            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag((WinUI.AutoSuggestBox)s!) as AutoSuggestBoxElement)?.OnSuggestionChosen?.Invoke(args.SelectedItem?.ToString() ?? "");
+
+    // Suggestions BEFORE Text (items in place before any controlled Text echo); all
+    // reused verbatim from the hand-written descriptor (shared AutoSuggestBoxEventPayload).
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<AutoSuggestBoxElement, WinUI.AutoSuggestBox> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<AutoSuggestBoxElement, WinUI.AutoSuggestBox> d)
+        => d.OneWayConditional(
+                get:         static e => e.Suggestions,
+                set:         static (c, v) => c.ItemsSource = v,
+                shouldWrite: static e => e.Suggestions.Length > 0)
+            .HandCodedControlled<global::Microsoft.UI.Reactor.Core.V1Protocol.AutoSuggestBoxEventPayload, string,
+                global::Windows.Foundation.TypedEventHandler<WinUI.AutoSuggestBox, WinUI.AutoSuggestBoxTextChangedEventArgs>>(
+                get:         static e => e.Text,
+                set:         static (c, v) => c.Text = v,
+                readBack:    static c => c.Text,
+                subscribe:   static (c, h) => c.TextChanged += h,
+                callback:    static e => e.OnTextChanged,
+                trampoline:  __TextChangedTrampoline,
+                slotIsNull:  static p => p.TextChangedTrampoline is null,
+                setSlot:     static (p, h) => p.TextChangedTrampoline = h)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.AutoSuggestBoxEventPayload,
+                global::Windows.Foundation.TypedEventHandler<WinUI.AutoSuggestBox, WinUI.AutoSuggestBoxQuerySubmittedEventArgs>>(
+                subscribe:        static (c, h) => c.QuerySubmitted += h,
+                callbackPresent:  static e => e.OnQuerySubmitted,
+                trampoline:       __QuerySubmittedTrampoline,
+                slotIsNull:       static p => p.QuerySubmittedTrampoline is null,
+                setSlot:          static (p, h) => p.QuerySubmittedTrampoline = h)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.AutoSuggestBoxEventPayload,
+                global::Windows.Foundation.TypedEventHandler<WinUI.AutoSuggestBox, WinUI.AutoSuggestBoxSuggestionChosenEventArgs>>(
+                subscribe:        static (c, h) => c.SuggestionChosen += h,
+                callbackPresent:  static e => e.OnSuggestionChosen,
+                trampoline:       __SuggestionChosenTrampoline,
+                slotIsNull:       static p => p.SuggestionChosenTrampoline is null,
+                setSlot:          static (p, h) => p.SuggestionChosenTrampoline = h)
+            .OneWayConditional(
+                get:         static e => e.QueryIcon,
+                set:         static (c, v) => c.QueryIcon = global::Microsoft.UI.Reactor.Core.V1Protocol.IconResolver.ResolveIconForDescriptor(v),
+                shouldWrite: static e => e.QueryIcon is not null);
 }
 
 /// <summary>Check box element. <c>IsChecked</c> defaults to <see cref="Optional{T}.Unset"/> so the control owns its checked state until explicitly set.</summary>
-public record CheckBoxElement(
+// Spec 058 §15 (P5.22) — Label→Content ([WrapAlias]), IsThreeState auto. IsChecked is the
+// multi-event controlled value (Checked/Unchecked/Indeterminate) with a dual callback
+// (OnCheckedStateChanged bool? OR OnIsCheckedChanged bool when HasValue); CheckedState folds
+// into that callback. Both bespoke → Customize (RadioButton precedent). Replaces CheckBoxDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.CheckBox))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapAlias("Label", "Content")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("IsChecked")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("CheckedState")]
+public partial record CheckBoxElement(
     Optional<bool?> IsChecked = default,
     Action<bool>? OnIsCheckedChanged = null,
     string? Label = null
@@ -2614,10 +3016,42 @@ public record CheckBoxElement(
     public Action<bool?>? OnCheckedStateChanged { get; init; }
     internal Action<WinUI.CheckBox>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnIsCheckedChanged is not null || OnCheckedStateChanged is not null;
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<CheckBoxElement, WinUI.CheckBox> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<CheckBoxElement, WinUI.CheckBox> d)
+        => d.Controlled<bool?, global::Microsoft.UI.Xaml.RoutedEventArgs>(
+            get:         static e => e.IsChecked,
+            set:         static (c, v) => c.IsChecked = v,
+            subscribe:   static (fe, h) =>
+            {
+                var cb = (WinUI.CheckBox)fe;
+                cb.Checked       += (s, e) => h(s, e);
+                cb.Unchecked     += (s, e) => h(s, e);
+                cb.Indeterminate += (s, e) => h(s, e);
+            },
+            unsubscribe: static (fe, h) => { /* trampolines live for control lifetime — see CWT gate in PropEntry */ },
+            callback:    static e => GetCheckedCallback(e),
+            readBack:    static c => c.IsChecked);
+
+    private static Action<bool?>? GetCheckedCallback(CheckBoxElement element)
+    {
+        if (element.OnCheckedStateChanged is not null)
+            return element.OnCheckedStateChanged;
+        if (element.OnIsCheckedChanged is null)
+            return null;
+        return value =>
+        {
+            if (value.HasValue)
+                element.OnIsCheckedChanged(value.Value);
+        };
+    }
 }
 
 /// <summary>Radio button element. <c>IsChecked</c> defaults to <see cref="Optional{T}.Unset"/> so the control owns its checked state until explicitly set.</summary>
-public record RadioButtonElement(
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.RadioButton))]  // spec 058 §15 (P5.4)
+[global::Microsoft.UI.Reactor.Wrappers.WrapAlias("Label", "Content")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("IsChecked")]  // record bool vs control bool? — needs readBack ?? false
+public partial record RadioButtonElement(
     string Label,
     Optional<bool> IsChecked = default,
     Action<bool>? OnIsCheckedChanged = null,
@@ -2625,11 +3059,30 @@ public record RadioButtonElement(
 ) : Element
 {
     internal Action<WinUI.RadioButton>[] Setters { get; init; } = [];
+
+    // IsChecked is controlled via Checked + Unchecked; the record models it as a
+    // non-nullable bool, the control as bool? — so readBack bridges null → false.
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<RadioButtonElement, WinUI.RadioButton> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<RadioButtonElement, WinUI.RadioButton> d)
+        => d.Controlled<bool, global::Microsoft.UI.Xaml.RoutedEventArgs>(
+            get:         static e => e.IsChecked,
+            set:         static (c, v) => c.IsChecked = v,
+            subscribe:   static (fe, h) =>
+            {
+                var rb = (WinUI.RadioButton)fe;
+                rb.Checked   += (s, e) => h(s, e);
+                rb.Unchecked += (s, e) => h(s, e);
+            },
+            unsubscribe: static (fe, h) => { },
+            callback:    static e => e.OnIsCheckedChanged,
+            readBack:    static c => c.IsChecked ?? false);
     internal override bool HasCallbacks => OnIsCheckedChanged is not null;
 }
 
 /// <summary>RadioButtons element. <c>SelectedIndex</c> defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional.Of(-1)</c> to force no selection.</summary>
-public record RadioButtonsElement(
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.RadioButtons))]  // spec 058 §15 (P5.4)
+[global::Microsoft.UI.Reactor.Wrappers.WrapControlled("SelectedIndex", Events = new[] { "SelectionChanged" })]
+public partial record RadioButtonsElement(
     string[] Items,
     Optional<int> SelectedIndex = default,
     Action<int>? OnSelectedIndexChanged = null
@@ -2641,7 +3094,16 @@ public record RadioButtonsElement(
 }
 
 /// <summary>ComboBox element. <c>SelectedIndex</c> defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional.Of(-1)</c> to force no selection.</summary>
-public record ComboBoxElement(
+// Spec 058 §15 (P5.21) — items control. Header/IsEditable/Description auto-map. The bespoke
+// parts (all in Customize): the dual-source ItemsHost (ItemElements Element[] takes precedence
+// over Items string[] — overwrites the auto single-source strategy), the value-diff SelectedIndex
+// echo, the 2 DropDown events, PlaceholderText (?? "" clear-on-null), and MaxDropDownHeight (NaN
+// sentinel). The 3 control events are Excluded. Replaces the hand-written ComboBoxDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.ComboBox), Exclude = new[] { "SelectionChanged", "DropDownOpened", "DropDownClosed" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("SelectedIndex")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("PlaceholderText")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("MaxDropDownHeight")]
+public partial record ComboBoxElement(
     string[] Items,
     Optional<int> SelectedIndex = default,
     Action<int>? OnSelectedIndexChanged = null
@@ -2664,16 +3126,90 @@ public record ComboBoxElement(
         OnSelectedIndexChanged is not null
         || OnDropDownOpened is not null
         || OnDropDownClosed is not null;
+
+    private static readonly WinUI.SelectionChangedEventHandler __SelectionChangedTrampoline = (s, _) =>
+    {
+        var cb = (WinUI.ComboBox)s!;
+        if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppressEcho(cb, cb.SelectedIndex)) return;
+        (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(cb) as ComboBoxElement)
+            ?.OnSelectedIndexChanged?.Invoke(cb.SelectedIndex);
+    };
+
+    private static readonly global::System.EventHandler<object> __DropDownOpenedTrampoline = (s, _) =>
+        (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag((WinUI.ComboBox)s!) as ComboBoxElement)?.OnDropDownOpened?.Invoke();
+
+    private static readonly global::System.EventHandler<object> __DropDownClosedTrampoline = (s, _) =>
+        (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag((WinUI.ComboBox)s!) as ComboBoxElement)?.OnDropDownClosed?.Invoke();
+
+    // Dual-source items (ItemElements precedence — overwrites the generator's auto single-source
+    // ItemsHost), value-diff SelectedIndex echo, 2 DropDown events, plus the ?? "" and NaN-sentinel
+    // value props. Reproduced verbatim from the deleted descriptor.
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<ComboBoxElement, WinUI.ComboBox> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<ComboBoxElement, WinUI.ComboBox> d)
+    {
+        d.Children = new global::Microsoft.UI.Reactor.Core.V1Protocol.ItemsHost<ComboBoxElement, WinUI.ComboBox>(
+            GetItems: static e => e.ItemElements is not null
+                ? (global::System.Collections.Generic.IReadOnlyList<object>)e.ItemElements
+                : (global::System.Collections.Generic.IReadOnlyList<object>)e.Items,
+            GetCollection: static c => c.Items);
+        return d
+            .HandCodedControlled<global::Microsoft.UI.Reactor.Core.V1Protocol.ComboBoxEventPayload, int, WinUI.SelectionChangedEventHandler>(
+                get:         static e => e.SelectedIndex,
+                set:         static (c, v) => c.SelectedIndex = v,
+                readBack:    static c => c.SelectedIndex,
+                subscribe:   static (c, h) => c.SelectionChanged += h,
+                callback:    static e => e.OnSelectedIndexChanged,
+                trampoline:  __SelectionChangedTrampoline,
+                slotIsNull:  static p => p.SelectionChangedTrampoline is null,
+                setSlot:     static (p, h) => p.SelectionChangedTrampoline = h,
+                valueDiffEcho: true)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.ComboBoxEventPayload, global::System.EventHandler<object>>(
+                subscribe:        static (c, h) => c.DropDownOpened += h,
+                callbackPresent:  static e => e.OnDropDownOpened,
+                trampoline:       __DropDownOpenedTrampoline,
+                slotIsNull:       static p => p.DropDownOpenedTrampoline is null,
+                setSlot:          static (p, h) => p.DropDownOpenedTrampoline = h)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.ComboBoxEventPayload, global::System.EventHandler<object>>(
+                subscribe:        static (c, h) => c.DropDownClosed += h,
+                callbackPresent:  static e => e.OnDropDownClosed,
+                trampoline:       __DropDownClosedTrampoline,
+                slotIsNull:       static p => p.DropDownClosedTrampoline is null,
+                setSlot:          static (p, h) => p.DropDownClosedTrampoline = h)
+            .OneWay(
+                get: static e => e.PlaceholderText ?? "",
+                set: static (c, v) => c.PlaceholderText = v)
+            .OneWayConditional(
+                get:         static e => e.MaxDropDownHeight,
+                set:         static (c, v) => c.MaxDropDownHeight = v,
+                shouldWrite: static e => !double.IsNaN(e.MaxDropDownHeight));
+    }
 }
 
 /// <summary>Slider element. <c>Value</c> defaults to <see cref="Optional{T}.Unset"/> so the control owns its value until explicitly set.</summary>
-public record SliderElement(
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.Slider))]  // spec 058 §15 (P5.4)
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Min")]   // CoercingOneWay → Minimum
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Max")]   // CoercingOneWay → Maximum
+public partial record SliderElement(
     Optional<double> Value = default,
     double Min = 0,
     double Max = 100,
     Action<double>? OnValueChanged = null
 ) : Element
 {
+    // Min/Max coerce: written BEFORE Value (Customize entries come first), so the
+    // initial Value lands against the correct range. Value auto-pairs (controlled
+    // via ValueChanged) in the generated auto entries.
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<SliderElement, WinUI.Slider> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<SliderElement, WinUI.Slider> d)
+        => d.CoercingOneWay(
+                get:                static e => e.Min,
+                set:                static (c, v) => c.Minimum = v,
+                coercesController:  static (c, newMin) => c.Value < newMin)
+            .CoercingOneWay(
+                get:                static e => e.Max,
+                set:                static (c, v) => c.Maximum = v,
+                coercesController:  static (c, newMax) => c.Value > newMax);
+
     public double StepFrequency { get; init; } = 1;
     public string? Header { get; init; }
     /// <summary>Slider orientation. Defaults to <c>Orientation.Horizontal</c>.</summary>
@@ -2691,7 +3227,7 @@ public record SliderElement(
 }
 
 /// <summary>Toggle switch element. <c>IsOn</c> defaults to <see cref="Optional{T}.Unset"/> so the control owns its state until explicitly set.</summary>
-public record ToggleSwitchElement(
+public partial record ToggleSwitchElement(
     Optional<bool> IsOn = default,
     Action<bool>? OnIsOnChanged = null,
     string? OnContent = null,
@@ -2703,8 +3239,16 @@ public record ToggleSwitchElement(
     internal override bool HasCallbacks => OnIsOnChanged is not null;
 }
 
+// Spec 058 §15 (P5.4) — descriptor-only migration. IsOn is controlled via the
+// non-conventional Toggled event (no IsOnChanged); OnContent/OffContent/Header
+// are one-way.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.ToggleSwitch))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapControlled("IsOn", ChangedEvent = "Toggled")]
+public partial record ToggleSwitchElement;
+
 /// <summary>Rating control element. <c>Value</c> defaults to <see cref="Optional{T}.Unset"/> so the control owns its rating until explicitly set.</summary>
-public record RatingControlElement(
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.RatingControl))]  // spec 058 §15 (P5.4)
+public partial record RatingControlElement(
     Optional<double> Value = default,
     Action<double>? OnValueChanged = null
 ) : Element
@@ -2721,7 +3265,8 @@ public record RatingControlElement(
 }
 
 /// <summary>Color picker element. <c>Color</c> defaults to <see cref="Optional{T}.Unset"/> so the control owns its color until explicitly set.</summary>
-public record ColorPickerElement(
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.ColorPicker))]  // spec 058 §15 (P5.4)
+public partial record ColorPickerElement(
     Optional<global::Windows.UI.Color> Color = default,
     Action<global::Windows.UI.Color>? OnColorChanged = null
 ) : Element
@@ -2755,7 +3300,8 @@ public record ColorPickerElement(
 // ════════════════════════════════════════════════════════════════════════
 
 /// <summary>Calendar date picker element. <c>Date</c> defaults to <see cref="Optional{T}.Unset"/>; use an explicit <c>null</c> value to assert no date.</summary>
-public record CalendarDatePickerElement(
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.CalendarDatePicker))]  // spec 058 §15 (P5.4)
+public partial record CalendarDatePickerElement(
     Optional<DateTimeOffset?> Date = default,
     Action<DateTimeOffset?>? OnDateChanged = null
 ) : Element
@@ -2777,7 +3323,8 @@ public record CalendarDatePickerElement(
 }
 
 /// <summary>Date picker element. <c>Date</c> defaults to <see cref="Optional{T}.Unset"/> so the control owns its date until explicitly set.</summary>
-public record DatePickerElement(
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.DatePicker))]  // spec 058 §15 (P5.4)
+public partial record DatePickerElement(
     Optional<DateTimeOffset> Date = default,
     Action<DateTimeOffset>? OnDateChanged = null
 ) : Element
@@ -2801,7 +3348,8 @@ public record DatePickerElement(
 }
 
 /// <summary>Time picker element. <c>Time</c> defaults to <see cref="Optional{T}.Unset"/> so the control owns its time until explicitly set.</summary>
-public record TimePickerElement(
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.TimePicker), Exclude = new[] { "ClockIdentifier" })]  // spec 058 §15 (P5.4); ClockIdentifier (int on record vs string on control) is intentionally unmapped by the hand-written descriptor
+public partial record TimePickerElement(
     Optional<TimeSpan> Time = default,
     Action<TimeSpan>? OnTimeChanged = null
 ) : Element
@@ -2817,7 +3365,7 @@ public record TimePickerElement(
 //  Progress elements
 // ════════════════════════════════════════════════════════════════════════
 
-public record ProgressElement(double? Value = null) : Element  // null = indeterminate
+public partial record ProgressElement(double? Value = null) : Element  // null = indeterminate
 {
     public bool IsIndeterminate => Value is null;
     public double Minimum { get; init; } = 0;
@@ -2827,7 +3375,11 @@ public record ProgressElement(double? Value = null) : Element  // null = indeter
     internal Action<WinUI.ProgressBar>[] Setters { get; init; } = [];
 }
 
-public record ProgressRingElement(double? Value = null) : Element
+// Spec 058 §15 (P5.4) — descriptor-only migration (replaces ProgressBarDescriptor).
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.ProgressBar))]
+public partial record ProgressElement;
+
+public partial record ProgressRingElement(double? Value = null) : Element
 {
     public bool IsIndeterminate => Value is null;
     public double Minimum { get; init; } = 0;
@@ -2836,11 +3388,26 @@ public record ProgressRingElement(double? Value = null) : Element
     internal Action<WinUI.ProgressRing>[] Setters { get; init; } = [];
 }
 
+// Spec 058 §15 (P5.4) — descriptor-only migration. The hand-written
+// ProgressRingDescriptor was deleted; the generator emits the descriptor from
+// this record (non-nullable IsActive/Minimum/Maximum/IsIndeterminate → unconditional
+// OneWay; nullable Value → OneWayConditional).
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.ProgressRing))]
+public partial record ProgressRingElement;
+
 // ════════════════════════════════════════════════════════════════════════
 //  Media elements
 // ════════════════════════════════════════════════════════════════════════
 
-public record ImageElement(string Source) : Element
+// Spec 058 §15 (P5.6) — Source needs bespoke string→Uri→BitmapImage/SvgImageSource
+// parsing ([WrapManual]); ImageFailed is a typed event projecting ErrorMessage to
+// Action<string> ([WrapEvent]). Stretch is string on the record vs Stretch enum on
+// the control (unmapped by the legacy descriptor → Exclude). Width/Height/NineGrid +
+// the parameterless ImageOpened auto-map.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.Image), Exclude = new[] { "Stretch" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Source")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapEvent("ImageFailed", Arg = "ErrorMessage")]
+public partial record ImageElement(string Source) : Element
 {
     public double? Width { get; init; }
     public double? Height { get; init; }
@@ -2853,9 +3420,30 @@ public record ImageElement(string Source) : Element
     public Thickness? NineGrid { get; init; }
     internal Action<WinUI.Image>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnImageOpened is not null || OnImageFailed is not null;
+
+    // Source is a string parsed to a Uri then to BitmapImage (or SvgImageSource for
+    // .svg); malformed URIs are swallowed (leave Source empty) — legacy parity.
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<ImageElement, WinUI.Image> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<ImageElement, WinUI.Image> d)
+        => d.OneWay(
+            get: static e => e.Source,
+            set: static (c, v) =>
+            {
+                try
+                {
+                    var uri = new Uri(v, UriKind.RelativeOrAbsolute);
+                    c.Source = v.EndsWith(".svg", StringComparison.OrdinalIgnoreCase)
+                        ? new global::Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(uri)
+                        : new global::Microsoft.UI.Xaml.Media.Imaging.BitmapImage(uri);
+                }
+                catch (UriFormatException)
+                {
+                    // Mirror legacy: leave source empty rather than crashing.
+                }
+            });
 }
 
-public record PersonPictureElement() : Element
+public partial record PersonPictureElement() : Element
 {
     public string? DisplayName { get; init; }
     public string? Initials { get; init; }
@@ -2865,7 +3453,30 @@ public record PersonPictureElement() : Element
     internal Action<WinUI.PersonPicture>[] Setters { get; init; } = [];
 }
 
-public record WebView2Element(Uri? Source = null) : Element
+// Spec 058 §15 (P5.4) — descriptor-only migration. ProfilePicture needs a bespoke
+// string→BitmapImage(Uri) conversion the generator can't infer, so it is handled
+// via [WrapManual] + the Customize hook; the rest auto-map.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.PersonPicture))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("ProfilePicture")]
+public partial record PersonPictureElement
+{
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<PersonPictureElement, WinUI.PersonPicture> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<PersonPictureElement, WinUI.PersonPicture> d)
+        => d.OneWayConditional<string>(
+            static e => e.ProfilePicture!,
+            static (c, v) => c.ProfilePicture = new global::Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new global::System.Uri(v, global::System.UriKind.RelativeOrAbsolute)),
+            static e => e.ProfilePicture is not null);
+}
+
+// Spec 058 §15 (P5.16) — Source auto-maps but all 4 events are bespoke typed-arg
+// trampolines (Uri parse, read control.Source, try/catch payload, parameterless), so
+// they live in Customize as HandCodedEvents on the shared WebView2EventPayload. The 4
+// control events are Excluded (would otherwise auto-surface as fire-forget and mismatch
+// the Action<Uri>/Action<string>/Action callback shapes). Source is [WrapManual] only to
+// trigger the Customize hook (it is the sole value prop).
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.WebView2), Exclude = new[] { "NavigationStarting", "NavigationCompleted", "WebMessageReceived", "CoreWebView2Initialized" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Source")]
+public partial record WebView2Element(Uri? Source = null) : Element
 {
     public Action<Uri>? OnNavigationStarting { get; init; }
     public Action<Uri>? OnNavigationCompleted { get; init; }
@@ -2894,6 +3505,66 @@ public record WebView2Element(Uri? Source = null) : Element
         || OnNavigationCompleted is not null
         || OnWebMessageReceived is not null
         || OnCoreWebView2Initialized is not null;
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.WebView2, global::Microsoft.Web.WebView2.Core.CoreWebView2NavigationStartingEventArgs>
+        __NavigationStartingTrampoline = (s, args) =>
+        {
+            if (global::System.Uri.TryCreate(args.Uri, global::System.UriKind.RelativeOrAbsolute, out var uri))
+                (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(s) as WebView2Element)?.OnNavigationStarting?.Invoke(uri);
+        };
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.WebView2, global::Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs>
+        __NavigationCompletedTrampoline = (s, _) =>
+            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(s) as WebView2Element)?.OnNavigationCompleted?.Invoke(s.Source);
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.WebView2, global::Microsoft.Web.WebView2.Core.CoreWebView2WebMessageReceivedEventArgs>
+        __WebMessageReceivedTrampoline = (s, args) =>
+        {
+            if (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(s) is not WebView2Element { OnWebMessageReceived: { } handler }) return;
+            string payload;
+            try { payload = args.TryGetWebMessageAsString(); }
+            catch { payload = args.WebMessageAsJson; }
+            handler(payload);
+        };
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.WebView2, WinUI.CoreWebView2InitializedEventArgs>
+        __CoreInitializedTrampoline = (s, _) =>
+            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(s) as WebView2Element)?.OnCoreWebView2Initialized?.Invoke();
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<WebView2Element, WinUI.WebView2> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<WebView2Element, WinUI.WebView2> d)
+        => d.HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.WebView2EventPayload,
+                global::Windows.Foundation.TypedEventHandler<WinUI.WebView2, global::Microsoft.Web.WebView2.Core.CoreWebView2NavigationStartingEventArgs>>(
+                subscribe:        static (c, h) => c.NavigationStarting += h,
+                callbackPresent:  static e => e.OnNavigationStarting,
+                trampoline:       __NavigationStartingTrampoline,
+                slotIsNull:       static p => p.NavigationStartingTrampoline is null,
+                setSlot:          static (p, h) => p.NavigationStartingTrampoline = h)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.WebView2EventPayload,
+                global::Windows.Foundation.TypedEventHandler<WinUI.WebView2, global::Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs>>(
+                subscribe:        static (c, h) => c.NavigationCompleted += h,
+                callbackPresent:  static e => e.OnNavigationCompleted,
+                trampoline:       __NavigationCompletedTrampoline,
+                slotIsNull:       static p => p.NavigationCompletedTrampoline is null,
+                setSlot:          static (p, h) => p.NavigationCompletedTrampoline = h)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.WebView2EventPayload,
+                global::Windows.Foundation.TypedEventHandler<WinUI.WebView2, global::Microsoft.Web.WebView2.Core.CoreWebView2WebMessageReceivedEventArgs>>(
+                subscribe:        static (c, h) => c.WebMessageReceived += h,
+                callbackPresent:  static e => e.OnWebMessageReceived,
+                trampoline:       __WebMessageReceivedTrampoline,
+                slotIsNull:       static p => p.WebMessageReceivedTrampoline is null,
+                setSlot:          static (p, h) => p.WebMessageReceivedTrampoline = h)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.WebView2EventPayload,
+                global::Windows.Foundation.TypedEventHandler<WinUI.WebView2, WinUI.CoreWebView2InitializedEventArgs>>(
+                subscribe:        static (c, h) => c.CoreWebView2Initialized += h,
+                callbackPresent:  static e => e.OnCoreWebView2Initialized,
+                trampoline:       __CoreInitializedTrampoline,
+                slotIsNull:       static p => p.CoreInitializedTrampoline is null,
+                setSlot:          static (p, h) => p.CoreInitializedTrampoline = h)
+            .OneWayConditional(
+                get:         static e => e.Source,
+                set:         static (c, v) => c.Source = v!,
+                shouldWrite: static e => e.Source is not null);
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -2901,7 +3572,12 @@ public record WebView2Element(Uri? Source = null) : Element
 // ════════════════════════════════════════════════════════════════════════
 
 /// <summary>Rich edit box element. <c>Text</c> defaults to <see cref="Optional{T}.Unset"/> so user text is not overwritten unless explicitly set.</summary>
-public record RichEditBoxElement(
+// Spec 058 §15 (P5.13) — Text is a bespoke document-backed deferred controlled value
+// (Document.SetText/GetText + suppress-counter echo) handled via [WrapManual] + Customize;
+// the remaining props auto-map.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.RichEditBox), Exclude = new[] { "TextChanged" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Text")]
+public partial record RichEditBoxElement(
     Optional<string> Text = default
 ) : Element
 {
@@ -2921,14 +3597,60 @@ public record RichEditBoxElement(
     public Microsoft.UI.Xaml.Media.SolidColorBrush? SelectionHighlightColor { get; init; }
     internal Action<WinUI.RichEditBox>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnTextChanged is not null;
+
+    // Text round-trips through the RichEditBox document (not a Text DP): the set
+    // writes Document.SetText (guarded on non-empty, manual BeginSuppress because
+    // SetText fires TextChanged asynchronously), readBack/trampoline read
+    // Document.GetText trimming a trailing \r. Reused verbatim from the hand-written
+    // descriptor so the deferred suppress-counter echo behaviour is identical.
+    private static readonly global::Microsoft.UI.Xaml.RoutedEventHandler __TextChangedTrampoline = (s, _) =>
+    {
+        var r = (WinUI.RichEditBox)s!;
+        if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(r)) return;
+        r.Document.GetText(global::Microsoft.UI.Text.TextGetOptions.None, out var text);
+        (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(r) as RichEditBoxElement)
+            ?.OnTextChanged?.Invoke(text?.TrimEnd('\r') ?? "");
+    };
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<RichEditBoxElement, WinUI.RichEditBox> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<RichEditBoxElement, WinUI.RichEditBox> d)
+        => d.HandCodedControlled<global::Microsoft.UI.Reactor.Core.V1Protocol.RichEditBoxEventPayload, string, global::Microsoft.UI.Xaml.RoutedEventHandler>(
+            get:         static e => e.Text,
+            set:         static (c, v) =>
+            {
+                if (!string.IsNullOrEmpty(v))
+                {
+                    global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.BeginSuppress(c);
+                    c.Document.SetText(global::Microsoft.UI.Text.TextSetOptions.None, v);
+                }
+            },
+            readBack:    static c =>
+            {
+                c.Document.GetText(global::Microsoft.UI.Text.TextGetOptions.None, out var text);
+                return text?.TrimEnd('\r') ?? "";
+            },
+            subscribe:   static (c, h) => c.TextChanged += h,
+            callback:    static e => e.OnTextChanged,
+            trampoline:  __TextChangedTrampoline,
+            slotIsNull:  static p => p.TextChangedTrampoline is null,
+            setSlot:     static (p, h) => p.TextChangedTrampoline = h);
 }
 
 // ════════════════════════════════════════════════════════════════════════
 //  Layout / Container elements
 // ════════════════════════════════════════════════════════════════════════
 
-public record WrapGridElement(
-    Element[] Children
+// Spec 058 §15 (P5.19) — attached-property panel: Orientation auto-maps; the per-child
+// VariableSizedWrapGrid.SetRowSpan/SetColumnSpan strategy ([WrapPanelChildren]) and the three
+// sentinel-guarded props (MaximumRowsOrColumns ≥ 0, ItemWidth/ItemHeight non-NaN, [WrapManual])
+// live in PanelAttachedHooks.cs. Replaces the hand-written WrapGridDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.VariableSizedWrapGrid))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapPanelChildren(PerChild = "ApplyWrapGridAttached")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("MaximumRowsOrColumns")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("ItemWidth")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("ItemHeight")]
+public partial record WrapGridElement(
+Element[] Children
 ) : Element
 {
     public int MaximumRowsOrColumns { get; init; } = -1;
@@ -2938,7 +3660,8 @@ public record WrapGridElement(
     internal Action<WinUI.VariableSizedWrapGrid>[] Setters { get; init; } = [];
 }
 
-public record StackElement(
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.StackPanel))]  // spec 058 §15 (P5.4)
+public partial record StackElement(
     Orientation Orientation,
     Element[] Children
 ) : Element
@@ -2960,9 +3683,15 @@ public record StackElement(
     internal Action<WinUI.StackPanel>[] Setters { get; init; } = [];
 }
 
-public record GridElement(
-    GridDefinition Definition,
-    Element[] Children
+// Spec 058 §15 (P5.19) — attached-property panel: RowSpacing/ColumnSpacing auto-map; the
+// per-child Grid.SetRow/SetColumn strategy ([WrapPanelChildren]) and the Definition rebuild
+// ([WrapManual]) live in PanelAttachedHooks.cs. Replaces the hand-written GridDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.Grid))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapPanelChildren(PerChild = "ApplyGridAttached")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Definition")]
+public partial record GridElement(
+GridDefinition Definition,
+Element[] Children
 ) : Element
 {
     public double RowSpacing { get; init; }
@@ -2970,7 +3699,13 @@ public record GridElement(
     internal Action<WinUI.Grid>[] Setters { get; init; } = [];
 }
 
-public record FlexElement(Element[] Children) : Element
+// Spec 058 §15 (P5.25) — FlexPanel. The 7 flex enum/gap props auto-map; per-child flex attached
+// props use [WrapPanelChildren] (the capability built in P5.19). FlexPadding (non-nullable Thickness)
+// is [WrapManual]. Replaces FlexPanelDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(Layout.FlexPanel))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapPanelChildren(PerChild = "ApplyFlexChildAttached")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("FlexPadding")]
+public partial record FlexElement(Element[] Children) : Element
 {
     public Layout.FlexDirection Direction { get; init; } = Layout.FlexDirection.Row;
     public Layout.FlexJustify JustifyContent { get; init; } = Layout.FlexJustify.FlexStart;
@@ -2981,9 +3716,47 @@ public record FlexElement(Element[] Children) : Element
     public double RowGap { get; init; }
     public Thickness FlexPadding { get; init; }
     internal Action<Layout.FlexPanel>[] Setters { get; init; } = [];
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<FlexElement, Layout.FlexPanel> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<FlexElement, Layout.FlexPanel> d)
+        => d.OneWay(
+            get: static e => e.FlexPadding,
+            set: static (c, v) => c.FlexPadding = v);
+
+    private static void ApplyFlexChildAttached(Layout.FlexPanel panel, Microsoft.UI.Xaml.UIElement ctrl, Element child)
+    {
+        var fa = child.GetAttached<FlexAttached>();
+        // Always apply — reset to defaults when no FlexAttached so stale values from pool-rented
+        // or reconciler-reused controls are cleared.
+        Layout.FlexPanel.SetGrow(ctrl, fa?.Grow ?? 0);
+        Layout.FlexPanel.SetShrink(ctrl, fa?.Shrink ?? 1);
+        if (fa is { Basis: { } basis }) Layout.FlexPanel.SetBasis(ctrl, basis);
+        else ctrl.ClearValue(Layout.FlexPanel.BasisProperty);
+        if (fa is { MinWidth: { } minWidth }) Layout.FlexPanel.SetMinWidth(ctrl, minWidth);
+        else ctrl.ClearValue(Layout.FlexPanel.FlexMinWidthProperty);
+        if (fa is { MinHeight: { } minHeight }) Layout.FlexPanel.SetMinHeight(ctrl, minHeight);
+        else ctrl.ClearValue(Layout.FlexPanel.FlexMinHeightProperty);
+        if (fa is { AlignSelf: { } alignSelf }) Layout.FlexPanel.SetAlignSelf(ctrl, alignSelf);
+        else ctrl.ClearValue(Layout.FlexPanel.AlignSelfProperty);
+        Layout.FlexPanel.SetPosition(ctrl, fa?.Position ?? Layout.FlexPositionType.Relative);
+        if (fa is { Left: { } left }) Layout.FlexPanel.SetLeft(ctrl, left);
+        else ctrl.ClearValue(Layout.FlexPanel.LeftProperty);
+        if (fa is { Top: { } top }) Layout.FlexPanel.SetTop(ctrl, top);
+        else ctrl.ClearValue(Layout.FlexPanel.TopProperty);
+        if (fa is { Right: { } right }) Layout.FlexPanel.SetRight(ctrl, right);
+        else ctrl.ClearValue(Layout.FlexPanel.RightProperty);
+        if (fa is { Bottom: { } bottom }) Layout.FlexPanel.SetBottom(ctrl, bottom);
+        else ctrl.ClearValue(Layout.FlexPanel.BottomProperty);
+    }
 }
 
-public record ScrollViewerElement(Element Child) : Element
+// Spec 058 §15 (P5.9) — Child→Content (content-from-record), 5 non-nullable enum
+// scroll props auto-map, ViewChanged is a typed whole-args event ([WrapEvent]).
+// Orientation is a bespoke convenience with no ScrollViewer control property — the
+// hand-written descriptor never mapped it, so it stays unmapped (Exclude).
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.ScrollViewer), Exclude = new[] { "Orientation" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapEvent("ViewChanged")]
+public partial record ScrollViewerElement(Element Child) : Element
 {
     public Orientation Orientation { get; init; } = Orientation.Vertical;
     public ScrollBarVisibility HorizontalScrollBarVisibility { get; init; } = ScrollBarVisibility.Auto;
@@ -3014,7 +3787,8 @@ public record ScrollViewerElement(Element Child) : Element
 /// <c>ContentOrientation</c>, <c>HorizontalAnchorRatio</c> /
 /// <c>VerticalAnchorRatio</c>, and the <c>Scrolling*</c> enum surface.
 /// </summary>
-public record ScrollViewElement(Element Child) : Element
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.ScrollView))]  // spec 058 §15 (P5.4)
+public partial record ScrollViewElement(Element Child) : Element
 {
     public WinUI.ScrollingContentOrientation ContentOrientation { get; init; } = WinUI.ScrollingContentOrientation.Vertical;
     public WinUI.ScrollingScrollBarVisibility HorizontalScrollBarVisibility { get; init; } = WinUI.ScrollingScrollBarVisibility.Auto;
@@ -3039,7 +3813,16 @@ public record ScrollViewElement(Element Child) : Element
     internal override bool HasCallbacks => OnViewChanged is not null;
 }
 
-public record BorderElement(Element? Child) : Element
+/// <summary>Border element — a single-child container with brush/corner/thickness chrome.</summary>
+// Spec 058 §15 (P5.18) — Child is the single-content slot ([WrapContent]); CornerRadius and
+// BorderThickness are ergonomic double scalars converted to the WinUI structs ([WrapConvert]);
+// Background/BorderBrush auto-map (Brush is a supported reference). No events. Replaces the
+// hand-coded BorderHandler + the parallel hand-written BorderDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.Border))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapContent("Child")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapConvert("CornerRadius")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapConvert("BorderThickness")]
+public partial record BorderElement(Element? Child) : Element
 {
     public double? CornerRadius { get; init; }
     public Brush? Background { get; init; }
@@ -3049,7 +3832,17 @@ public record BorderElement(Element? Child) : Element
 }
 
 /// <summary>Expander element. <c>IsExpanded</c> defaults to <see cref="Optional{T}.Unset"/> so the control owns its expansion state until explicitly set.</summary>
-public record ExpanderElement(
+// Spec 058 §15 (P5.23) — ExpandDirection auto. Content + HeaderTemplate are both Element-typed so
+// auto content-slot detection is ambiguous → overwrite d.Children with SingleContent(Content) in
+// Customize. HeaderTemplate (ImperativeBridged, Element header wins), gated string Header, IsExpanded
+// (counter-echo HandCodedControlled over Expanding + Collapsed event) are bespoke. ContentTransitions
+// (TransitionCollection) is Excluded (legacy gap — escape-hatched via setter). Replaces ExpanderDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.Expander), Exclude = new[] { "ContentTransitions" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Content")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Header")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("HeaderTemplate")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("IsExpanded")]
+public partial record ExpanderElement(
     string Header,
     Element Content,
     Optional<bool> IsExpanded = default,
@@ -3063,9 +3856,80 @@ public record ExpanderElement(
     public Microsoft.UI.Xaml.Media.Animation.TransitionCollection? ContentTransitions { get; init; }
     internal Action<WinUI.Expander>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnIsExpandedChanged is not null;
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.Expander, WinUI.ExpanderExpandingEventArgs>
+        __ExpandingTrampoline = (s, _) =>
+        {
+            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(s)) return;
+            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(s) as ExpanderElement)?.OnIsExpandedChanged?.Invoke(true);
+        };
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.Expander, WinUI.ExpanderCollapsedEventArgs>
+        __CollapsedTrampoline = (s, _) =>
+        {
+            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(s)) return;
+            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(s) as ExpanderElement)?.OnIsExpandedChanged?.Invoke(false);
+        };
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<ExpanderElement, WinUI.Expander> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<ExpanderElement, WinUI.Expander> d)
+    {
+        d.Children = new global::Microsoft.UI.Reactor.Core.V1Protocol.SingleContent<ExpanderElement, WinUI.Expander>(
+            GetChild: static el => el.Content,
+            SetChild: static (ctrl, ui) => ctrl.Content = ui)
+        {
+            GetCurrentChild = static ctrl => ctrl.Content as global::Microsoft.UI.Xaml.UIElement,
+        };
+        return d
+            .ImperativeBridged(
+                mount: static (ctx, c, e) =>
+                {
+                    if (e.HeaderTemplate is null) return;
+                    var mounted = ctx.MountChild(e.HeaderTemplate);
+                    if (mounted is not null) c.Header = mounted;
+                },
+                update: static (ctx, c, oldEl, newEl) =>
+                {
+                    if (oldEl.HeaderTemplate is null && newEl.HeaderTemplate is null) return;
+                    var existing = c.Header as global::Microsoft.UI.Xaml.UIElement;
+                    var next = ctx.Reconciler.ReconcileV1Child(
+                        oldEl.HeaderTemplate, newEl.HeaderTemplate, existing, ctx.RequestRerender);
+                    if (!ReferenceEquals(existing, next))
+                        c.Header = next;
+                })
+            .OneWayConditional(
+                get:         static e => e.Header ?? string.Empty,
+                set:         static (c, v) => c.Header = v,
+                shouldWrite: static e => e.HeaderTemplate is null)
+            .HandCodedControlled<global::Microsoft.UI.Reactor.Core.V1Protocol.ExpanderEventPayload, bool,
+                global::Windows.Foundation.TypedEventHandler<WinUI.Expander, WinUI.ExpanderExpandingEventArgs>>(
+                get:         static e => e.IsExpanded,
+                set:         static (c, v) => c.IsExpanded = v,
+                readBack:    static c => c.IsExpanded,
+                subscribe:   static (c, h) => c.Expanding += h,
+                callback:    static e => e.OnIsExpandedChanged,
+                trampoline:  __ExpandingTrampoline,
+                slotIsNull:  static p => p.ExpandingTrampoline is null,
+                setSlot:     static (p, h) => p.ExpandingTrampoline = h)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.ExpanderEventPayload,
+                global::Windows.Foundation.TypedEventHandler<WinUI.Expander, WinUI.ExpanderCollapsedEventArgs>>(
+                subscribe:        static (c, h) => c.Collapsed += h,
+                callbackPresent:  static e => e.OnIsExpandedChanged,
+                trampoline:       __CollapsedTrampoline,
+                slotIsNull:       static p => p.CollapsedTrampoline is null,
+                setSlot:          static (p, h) => p.CollapsedTrampoline = h);
+    }
 }
 
-public record SplitViewElement(
+// Spec 058 §15 (P5.23) — IsPaneOpen/OpenPaneLength/CompactPaneLength/DisplayMode/
+// LightDismissOverlayMode auto-map. Pane+Content are both Element-typed (ambiguous auto content) →
+// overwrite d.Children with NamedSlots. PaneBackground (reference-comparer) + the twin
+// PaneOpening/PaneClosing events (OnPaneOpenChanged) are bespoke. Replaces SplitViewDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.SplitView))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Pane")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Content")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("PaneBackground")]
+public partial record SplitViewElement(
     Element? Pane = null,
     Element? Content = null
 ) : Element
@@ -3081,21 +3945,96 @@ public record SplitViewElement(
     public LightDismissOverlayMode LightDismissOverlayMode { get; init; } = LightDismissOverlayMode.Auto;
     internal Action<WinUI.SplitView>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnPaneOpenChanged is not null;
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.SplitView, object>
+        __PaneOpeningTrampoline = (s, _) =>
+            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(s) as SplitViewElement)?.OnPaneOpenChanged?.Invoke(true);
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.SplitView, WinUI.SplitViewPaneClosingEventArgs>
+        __PaneClosingTrampoline = (s, _) =>
+            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(s) as SplitViewElement)?.OnPaneOpenChanged?.Invoke(false);
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<SplitViewElement, WinUI.SplitView> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<SplitViewElement, WinUI.SplitView> d)
+    {
+        d.Children = new global::Microsoft.UI.Reactor.Core.V1Protocol.NamedSlots<SplitViewElement, WinUI.SplitView>(new[]
+        {
+            new global::Microsoft.UI.Reactor.Core.V1Protocol.NamedSlot<SplitViewElement, WinUI.SplitView>(
+                Name: "Pane",
+                GetChild: static e => e.Pane,
+                SetChild: static (c, ui) => c.Pane = ui)
+            {
+                GetCurrentChild = static c => c.Pane as global::Microsoft.UI.Xaml.UIElement,
+            },
+            new global::Microsoft.UI.Reactor.Core.V1Protocol.NamedSlot<SplitViewElement, WinUI.SplitView>(
+                Name: "Content",
+                GetChild: static e => e.Content,
+                SetChild: static (c, ui) => c.Content = ui as global::Microsoft.UI.Xaml.UIElement)
+            {
+                GetCurrentChild = static c => c.Content as global::Microsoft.UI.Xaml.UIElement,
+            },
+        });
+        return d
+            .OneWayConditional(
+                get:         static e => e.PaneBackground,
+                set:         static (c, v) => c.PaneBackground = v!,
+                shouldWrite: static e => e.PaneBackground is not null,
+                comparer:    SplitViewBrushReferenceComparer.Instance)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.SplitViewEventPayload,
+                global::Windows.Foundation.TypedEventHandler<WinUI.SplitView, object>>(
+                subscribe:        static (c, h) => c.PaneOpening += h,
+                callbackPresent:  static e => e.OnPaneOpenChanged,
+                trampoline:       __PaneOpeningTrampoline,
+                slotIsNull:       static p => p.PaneOpeningTrampoline is null,
+                setSlot:          static (p, h) => p.PaneOpeningTrampoline = h)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.SplitViewEventPayload,
+                global::Windows.Foundation.TypedEventHandler<WinUI.SplitView, WinUI.SplitViewPaneClosingEventArgs>>(
+                subscribe:        static (c, h) => c.PaneClosing += h,
+                callbackPresent:  static e => e.OnPaneOpenChanged,
+                trampoline:       __PaneClosingTrampoline,
+                slotIsNull:       static p => p.PaneClosingTrampoline is null,
+                setSlot:          static (p, h) => p.PaneClosingTrampoline = h);
+    }
+
+    private sealed class SplitViewBrushReferenceComparer : global::System.Collections.Generic.IEqualityComparer<Brush?>
+    {
+        public static readonly SplitViewBrushReferenceComparer Instance = new();
+        public bool Equals(Brush? x, Brush? y) => ReferenceEquals(x, y);
+        public int GetHashCode(Brush obj) => global::System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
+    }
 }
 
-public record ViewboxElement(Element Child) : Element
+public partial record ViewboxElement(Element Child) : Element
 {
     public Stretch? Stretch { get; init; }
     public StretchDirection? StretchDirection { get; init; }
     internal Action<WinUI.Viewbox>[] Setters { get; init; } = [];
 }
 
-public record CanvasElement(Element[] Children) : Element
+// Spec 058 §15 (P5.3) — descriptor-only migration. The hand-written
+// ViewboxDescriptor/ViewboxDescriptorHandler were deleted; the generator now
+// emits the ControlDescriptor + Pattern-A registration from this record.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.Viewbox))]
+public partial record ViewboxElement;
+
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.Canvas))]  // spec 058 §15 (P5.4)
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Children")]  // bespoke per-child Canvas.Left/Top + anchor recompute strategy
+public partial record CanvasElement(Element[] Children) : Element
 {
     public double? Width { get; init; }
     public double? Height { get; init; }
     public Brush? Background { get; init; }
     internal Action<WinUI.Canvas>[] Setters { get; init; } = [];
+
+    // Children carries bespoke per-child attached-position machinery (Canvas.Left/Top
+    // + AnchorX/AnchorY post-layout recompute); the auto panel strategy can't express
+    // it, so we swap in the hand-written strategy holder. Value props auto-map.
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<CanvasElement, WinUI.Canvas> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<CanvasElement, WinUI.Canvas> d)
+    {
+        d.Children = global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.Descriptors.CanvasChildrenStrategy.Strategy;
+        return d;
+    }
 
     /// <summary>
     /// When this Canvas was created by a chart element, carries the chart's
@@ -3158,7 +4097,23 @@ public record NavigationHostElement(
     public int CacheSize { get; init; } = 10;
 }
 
-public record NavigationViewElement(
+// Spec 058 §15 (P5.23) — IsPaneOpen/PaneDisplayMode/IsBackEnabled/IsSettingsVisible/PaneTitle
+// auto-map. The 5 NamedSlots (Header/AutoSuggestBox/PaneFooter/PaneCustomContent/Content), the
+// MenuItems+SelectedTag menu reconciler (.Imperative), the 3 NaN-sentinel pane widths, and the
+// SelectionChanged/BackRequested events are bespoke — in Element.NavigationView.cs. BackRequested
+// is Excluded (auto-surfaces). Replaces NavigationViewDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.NavigationView), Exclude = new[] { "BackRequested" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("MenuItems")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("SelectedTag")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Header")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("AutoSuggestBox")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("PaneFooter")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("PaneCustomContent")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Content")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("OpenPaneLength")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("CompactModeThresholdWidth")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("ExpandedModeThresholdWidth")]
+public partial record NavigationViewElement(
     NavigationViewItemData[] MenuItems,
     Element? Content = null
 ) : Element
@@ -3188,7 +4143,16 @@ public record NavigationViewElement(
     internal override bool HasCallbacks => OnSelectedTagChanged is not null || OnBackRequested is not null;
 }
 
-public record TitleBarElement(
+// Spec 058 §15 (P5.23) — Title/Subtitle/IsBackButtonVisible/IsBackButtonEnabled/
+// IsPaneToggleButtonVisible auto-map. Content+RightHeader (NamedSlots → overwrite d.Children),
+// Icon (Icon→IconSource via IconResolver transform), the window.SetTitleBar registration
+// (.Imperative) and the BackRequested/PaneToggleRequested events (Excluded) are bespoke.
+// Replaces TitleBarDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.TitleBar), Exclude = new[] { "BackRequested", "PaneToggleRequested" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Content")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("RightHeader")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Icon")]
+public partial record TitleBarElement(
     string Title
 ) : Element
 {
@@ -3211,9 +4175,85 @@ public record TitleBarElement(
     public IconData? Icon { get; init; }
     internal Action<WinUI.TitleBar>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnBackRequested is not null || OnPaneToggleRequested is not null;
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.TitleBar, object>
+        __BackRequestedTrampoline = (s, _) =>
+            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(s) as TitleBarElement)?.OnBackRequested?.Invoke();
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.TitleBar, object>
+        __PaneToggleRequestedTrampoline = (s, _) =>
+            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(s) as TitleBarElement)?.OnPaneToggleRequested?.Invoke();
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<TitleBarElement, WinUI.TitleBar> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<TitleBarElement, WinUI.TitleBar> d)
+    {
+        d.Children = new global::Microsoft.UI.Reactor.Core.V1Protocol.NamedSlots<TitleBarElement, WinUI.TitleBar>(new[]
+        {
+            new global::Microsoft.UI.Reactor.Core.V1Protocol.NamedSlot<TitleBarElement, WinUI.TitleBar>(
+                Name: "Content",
+                GetChild: static e => e.Content,
+                SetChild: static (c, ui) => c.Content = ui)
+            {
+                GetCurrentChild = static c => c.Content as global::Microsoft.UI.Xaml.UIElement,
+            },
+            new global::Microsoft.UI.Reactor.Core.V1Protocol.NamedSlot<TitleBarElement, WinUI.TitleBar>(
+                Name: "RightHeader",
+                GetChild: static e => e.RightHeader,
+                SetChild: static (c, ui) => c.RightHeader = ui)
+            {
+                GetCurrentChild = static c => c.RightHeader as global::Microsoft.UI.Xaml.UIElement,
+            },
+        });
+        return d
+            .OneWay(
+                get: static e => e.Icon,
+                set: static (c, v) => c.IconSource = global::Microsoft.UI.Reactor.Core.V1Protocol.IconResolver.ResolveIconSource(v))
+            .Imperative(
+                mount: static (c, _) => RegisterWindowTitleBar(c),
+                update: static (_, _, _) => { })
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.TitleBarEventPayload,
+                global::Windows.Foundation.TypedEventHandler<WinUI.TitleBar, object>>(
+                subscribe:        static (c, h) => c.BackRequested += h,
+                callbackPresent:  static e => e.OnBackRequested,
+                trampoline:       __BackRequestedTrampoline,
+                slotIsNull:       static p => p.BackRequestedTrampoline is null,
+                setSlot:          static (p, h) => p.BackRequestedTrampoline = h)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.TitleBarEventPayload,
+                global::Windows.Foundation.TypedEventHandler<WinUI.TitleBar, object>>(
+                subscribe:        static (c, h) => c.PaneToggleRequested += h,
+                callbackPresent:  static e => e.OnPaneToggleRequested,
+                trampoline:       __PaneToggleRequestedTrampoline,
+                slotIsNull:       static p => p.PaneToggleRequestedTrampoline is null,
+                setSlot:          static (p, h) => p.PaneToggleRequestedTrampoline = h);
+    }
+
+    // Issue #511 / PR #455 regression: ExtendsContentIntoTitleBar must flip BEFORE the WinUI
+    // TitleBar's own Loaded handler runs UpdatePaddingsForCaptionButtons(); apply synchronously
+    // in the Imperative mount (mirrors the legacy MountTitleBar path).
+    private static void RegisterWindowTitleBar(WinUI.TitleBar titleBar)
+    {
+        if (global::Microsoft.UI.Reactor.ReactorApp.ActiveHostInternal is { } host)
+        {
+            var explicitValue = host.OwningWindow?.Spec.ExtendsContentIntoTitleBar;
+            if (explicitValue == false) return;
+            if (explicitValue is null)
+                host.Window.ExtendsContentIntoTitleBar = true;
+            host.Window.SetTitleBar(titleBar);
+        }
+    }
 }
 
-public record TabViewElement(
+// Spec 058 §15 (P5.25) — IsAddTabButtonVisible/TabWidthMode/CloseButtonOverlayMode/CanDragTabs/
+// CanReorderTabs/AllowDropTabs auto-map. Tabs (TabItemsHost), SelectedIndex (value-diff),
+// TabStripHeader/Footer (ImperativeBridged), and the 4 drag/close/add events are bespoke — in
+// Element.TabView.cs. SelectionChanged does NOT auto-surface (callback OnSelectedIndexChanged).
+// Replaces TabViewDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.TabView), Exclude = new[] { "TabCloseRequested", "AddTabButtonClick", "TabDragStarting", "TabDragCompleted" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Tabs")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("SelectedIndex")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("TabStripHeader")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("TabStripFooter")]
+public partial record TabViewElement(
     TabViewItemData[] Tabs
 ) : Element
 {
@@ -3257,25 +4297,95 @@ public record TabViewElement(
         || OnTabDragCompleted is not null;
 }
 
-public record BreadcrumbBarElement(
+// Spec 058 §15 (P5.25) — BreadcrumbBar. Items (projected to ItemsSource as a label list) and the
+// ItemClicked event (reads el.Items[Index]) are bespoke → [WrapManual] + Customize. ItemClicked is
+// Excluded (auto-surfaces). Replaces BreadcrumbBarDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.BreadcrumbBar), Exclude = new[] { "ItemClicked" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Items")]
+public partial record BreadcrumbBarElement(
     BreadcrumbBarItemData[] Items,
     Action<BreadcrumbBarItemData>? OnItemClicked = null
 ) : Element
 {
     internal Action<WinUI.BreadcrumbBar>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnItemClicked is not null;
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.BreadcrumbBar, WinUI.BreadcrumbBarItemClickedEventArgs>
+        __ItemClickedTrampoline = (s, args) =>
+        {
+            var bar = (WinUI.BreadcrumbBar)s!;
+            if (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(bar) is not BreadcrumbBarElement el) return;
+            if (args.Index >= 0 && args.Index < el.Items.Length)
+                el.OnItemClicked?.Invoke(el.Items[args.Index]);
+        };
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<BreadcrumbBarElement, WinUI.BreadcrumbBar> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<BreadcrumbBarElement, WinUI.BreadcrumbBar> d)
+        => d.OneWay<BreadcrumbBarItemData[]>(
+                get: static e => e.Items,
+                set: static (c, items) => c.ItemsSource = global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Select(items, static i => i.Label)))
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.BreadcrumbBarEventPayload,
+                global::Windows.Foundation.TypedEventHandler<WinUI.BreadcrumbBar, WinUI.BreadcrumbBarItemClickedEventArgs>>(
+                subscribe:        static (c, h) => c.ItemClicked += h,
+                callbackPresent:  static e => e.OnItemClicked,
+                trampoline:       __ItemClickedTrampoline,
+                slotIsNull:       static p => p.ItemClickedTrampoline is null,
+                setSlot:          static (p, h) => p.ItemClickedTrampoline = h);
 }
 
-public record PivotElement(
-    PivotItemData[] Items
+// Spec 058 §15 (P5.21) — items control. Title auto-maps (OneWayConditional). The TabItemsHost
+// (each PivotItemData → a PivotItem container; overwrites the auto single-source ItemsHost) and
+// the value-diff SelectedIndex echo are bespoke in Customize. SelectionChanged is Excluded.
+// Reuses FlipViewEventPayload. Replaces the hand-written PivotDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.Pivot), Exclude = new[] { "SelectionChanged" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("SelectedIndex")]
+public partial record PivotElement(
+PivotItemData[] Items
 ) : Element
 {
-    /// <summary>Selected pivot item index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional.Of(-1)</c> to force no selection.</summary>
-    public Optional<int> SelectedIndex { get; init; } = default;
-    public Action<int>? OnSelectedIndexChanged { get; init; }
-    public string? Title { get; init; }
-    internal Action<WinUI.Pivot>[] Setters { get; init; } = [];
-    internal override bool HasCallbacks => OnSelectedIndexChanged is not null;
+/// <summary>Selected pivot item index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional.Of(-1)</c> to force no selection.</summary>
+public Optional<int> SelectedIndex { get; init; } = default;
+public Action<int>? OnSelectedIndexChanged { get; init; }
+public string? Title { get; init; }
+internal Action<WinUI.Pivot>[] Setters { get; init; } = [];
+internal override bool HasCallbacks => OnSelectedIndexChanged is not null;
+
+private static readonly WinUI.SelectionChangedEventHandler __SelectionChangedTrampoline = (s, _) =>
+{
+    var p = (WinUI.Pivot)s!;
+    if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppressEcho(p, p.SelectedIndex)) return;
+    (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(p) as PivotElement)?.OnSelectedIndexChanged?.Invoke(p.SelectedIndex);
+};
+
+private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<PivotElement, WinUI.Pivot> Customize(
+    global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<PivotElement, WinUI.Pivot> d)
+{
+    d.Children = new global::Microsoft.UI.Reactor.Core.V1Protocol.TabItemsHost<PivotElement, WinUI.Pivot, PivotItemData>(
+        GetItems:        static e => e.Items,
+        GetCollection:   static c => c.Items,
+        GetContent:      static item => item.Content,
+        CreateContainer: static (item, mounted) => new WinUI.PivotItem
+        {
+            Header = item.Header,
+            Content = mounted,
+        },
+        UpdateContainer: static (oldItem, newItem, container) =>
+        {
+            if (container is WinUI.PivotItem pi && pi.Header as string != newItem.Header)
+                pi.Header = newItem.Header;
+        });
+    return d
+        .HandCodedControlled<global::Microsoft.UI.Reactor.Core.V1Protocol.FlipViewEventPayload, int, WinUI.SelectionChangedEventHandler>(
+            get:         static e => e.SelectedIndex,
+            set:         static (c, v) => c.SelectedIndex = v,
+            readBack:    static c => c.SelectedIndex,
+            subscribe:   static (c, h) => c.SelectionChanged += h,
+            callback:    static e => e.OnSelectedIndexChanged,
+            trampoline:  __SelectionChangedTrampoline,
+            slotIsNull:  static p => p.SelectionChangedTrampoline is null,
+            setSlot:     static (p, h) => p.SelectionChangedTrampoline = h,
+            valueDiffEcho: true);
+}
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -3335,7 +4445,13 @@ public record GridViewElement(
         || OnSelectionChanged is not null;
 }
 
-public record TreeViewElement(
+// Spec 058 §15 (P5.25) — TreeView. SelectionMode/CanDragItems/CanReorderItems auto-map. Nodes
+// (hierarchical TreeChildren strategy → overwrite d.Children), AllowDrop (base UIElement prop), and
+// the ItemInvoked/Expanding events (Excluded) are bespoke. Replaces TreeViewDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.TreeView), Exclude = new[] { "ItemInvoked", "Expanding" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Nodes")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("AllowDrop")]
+public partial record TreeViewElement(
     TreeViewNodeData[] Nodes
 ) : Element
 {
@@ -3347,9 +4463,51 @@ public record TreeViewElement(
     public bool CanReorderItems { get; init; }
     internal Action<WinUI.TreeView>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnItemInvoked is not null || OnExpanding is not null;
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.TreeView, WinUI.TreeViewItemInvokedEventArgs>
+        __ItemInvokedTrampoline = (s, args) =>
+        {
+            var t = (WinUI.TreeView)s!;
+            if (args.InvokedItem is WinUI.TreeViewNode tvn && tvn.Content is TreeViewNodeData nodeData)
+                (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(t) as TreeViewElement)?.OnItemInvoked?.Invoke(nodeData);
+        };
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.TreeView, WinUI.TreeViewExpandingEventArgs>
+        __ExpandingTrampoline = (s, args) =>
+        {
+            var t = (WinUI.TreeView)s!;
+            if (args.Node.Content is TreeViewNodeData nodeData)
+                (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(t) as TreeViewElement)?.OnExpanding?.Invoke(nodeData);
+        };
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<TreeViewElement, WinUI.TreeView> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<TreeViewElement, WinUI.TreeView> d)
+    {
+        d.Children = new global::Microsoft.UI.Reactor.Core.V1Protocol.TreeChildren<TreeViewElement, WinUI.TreeView>(static e => e.Nodes);
+        return d
+            .OneWay(
+                get: static e => e.AllowDrop,
+                set: static (c, v) => c.AllowDrop = v)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.TreeViewEventPayload,
+                global::Windows.Foundation.TypedEventHandler<WinUI.TreeView, WinUI.TreeViewItemInvokedEventArgs>>(
+                subscribe:        static (c, h) => c.ItemInvoked += h,
+                callbackPresent:  static e => e.OnItemInvoked,
+                trampoline:       __ItemInvokedTrampoline,
+                slotIsNull:       static p => p.ItemInvokedTrampoline is null,
+                setSlot:          static (p, h) => p.ItemInvokedTrampoline = h)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.TreeViewEventPayload,
+                global::Windows.Foundation.TypedEventHandler<WinUI.TreeView, WinUI.TreeViewExpandingEventArgs>>(
+                subscribe:        static (c, h) => c.Expanding += h,
+                callbackPresent:  static e => e.OnExpanding,
+                trampoline:       __ExpandingTrampoline,
+                slotIsNull:       static p => p.ExpandingTrampoline is null,
+                setSlot:          static (p, h) => p.ExpandingTrampoline = h);
+    }
 }
 
-public record FlipViewElement(
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.FlipView))]  // spec 058 §15 (P5.4)
+[global::Microsoft.UI.Reactor.Wrappers.WrapControlled("SelectedIndex", Events = new[] { "SelectionChanged" })]
+public partial record FlipViewElement(
     Element[] Items
 ) : Element
 {
@@ -3430,7 +4588,19 @@ public record MenuFlyoutContentElement(MenuFlyoutItemBase[] Items) : Element
     public FlyoutPlacementMode Placement { get; init; } = FlyoutPlacementMode.Auto;
 }
 
-public record TeachingTipElement(
+// Spec 058 §15 (P5.23) — Title/IsOpen/PreferredPlacement/ActionButtonContent/CloseButtonContent
+// (string→object) auto-map. Content+HeroContent are both Element-typed → overwrite d.Children with
+// NamedSlots. Subtitle (?? "" clear-on-null), Target (.Reference ElementRef→FrameworkElement),
+// IconSource (reference comparer), PlacementMargin (non-nullable Thickness) are bespoke. The
+// ActionButtonClick + Closed events are Excluded. Replaces TeachingTipDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.TeachingTip), Exclude = new[] { "ActionButtonClick", "Closed" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Content")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("HeroContent")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Subtitle")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Target")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("IconSource")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("PlacementMargin")]
+public partial record TeachingTipElement(
     string Title,
     string? Subtitle = null
 ) : Element
@@ -3455,13 +4625,89 @@ public record TeachingTipElement(
     public TeachingTipPlacementMode PreferredPlacement { get; init; } = TeachingTipPlacementMode.Auto;
     internal Action<WinUI.TeachingTip>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnActionButtonClick is not null || OnClosed is not null;
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.TeachingTip, object>
+        __ActionButtonClickTrampoline = (s, _) =>
+            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(s) as TeachingTipElement)?.OnActionButtonClick?.Invoke();
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.TeachingTip, WinUI.TeachingTipClosedEventArgs>
+        __ClosedTrampoline = (s, _) =>
+            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(s) as TeachingTipElement)?.OnClosed?.Invoke();
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<TeachingTipElement, WinUI.TeachingTip> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<TeachingTipElement, WinUI.TeachingTip> d)
+    {
+        d.Children = new global::Microsoft.UI.Reactor.Core.V1Protocol.NamedSlots<TeachingTipElement, WinUI.TeachingTip>(new[]
+        {
+            new global::Microsoft.UI.Reactor.Core.V1Protocol.NamedSlot<TeachingTipElement, WinUI.TeachingTip>(
+                Name: "Content",
+                GetChild: static e => e.Content,
+                SetChild: static (c, ui) => c.Content = ui)
+            {
+                GetCurrentChild = static c => c.Content as global::Microsoft.UI.Xaml.UIElement,
+            },
+            new global::Microsoft.UI.Reactor.Core.V1Protocol.NamedSlot<TeachingTipElement, WinUI.TeachingTip>(
+                Name: "HeroContent",
+                GetChild: static e => e.HeroContent,
+                SetChild: static (c, ui) => c.HeroContent = ui)
+            {
+                GetCurrentChild = static c => c.HeroContent as global::Microsoft.UI.Xaml.UIElement,
+            },
+        });
+        return d
+            .OneWay(
+                get: static e => e.Subtitle ?? string.Empty,
+                set: static (c, v) => c.Subtitle = v)
+            .OneWay(
+                get: static e => e.PlacementMargin,
+                set: static (c, v) => c.PlacementMargin = v)
+            .Reference(
+                get: static e => e.Target,
+                set: static (c, fe) => c.Target = fe)
+            .OneWayConditional(
+                get:         static e => e.IconSource,
+                set:         static (c, v) => c.IconSource = global::Microsoft.UI.Reactor.Core.V1Protocol.IconResolver.ResolveIconSource(v),
+                shouldWrite: static e => e.IconSource is not null,
+                comparer:    TeachingTipIconReferenceComparer.Instance)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.TeachingTipEventPayload,
+                global::Windows.Foundation.TypedEventHandler<WinUI.TeachingTip, object>>(
+                subscribe:        static (c, h) => c.ActionButtonClick += h,
+                callbackPresent:  static e => e.OnActionButtonClick,
+                trampoline:       __ActionButtonClickTrampoline,
+                slotIsNull:       static p => p.ActionButtonClickTrampoline is null,
+                setSlot:          static (p, h) => p.ActionButtonClickTrampoline = h)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.TeachingTipEventPayload,
+                global::Windows.Foundation.TypedEventHandler<WinUI.TeachingTip, WinUI.TeachingTipClosedEventArgs>>(
+                subscribe:        static (c, h) => c.Closed += h,
+                callbackPresent:  static e => e.OnClosed,
+                trampoline:       __ClosedTrampoline,
+                slotIsNull:       static p => p.ClosedTrampoline is null,
+                setSlot:          static (p, h) => p.ClosedTrampoline = h);
+    }
+
+    private sealed class TeachingTipIconReferenceComparer : global::System.Collections.Generic.IEqualityComparer<IconData?>
+    {
+        public static readonly TeachingTipIconReferenceComparer Instance = new();
+        public bool Equals(IconData? x, IconData? y) => ReferenceEquals(x, y);
+        public int GetHashCode(IconData obj) => global::System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════
 //  Status / Info elements
 // ════════════════════════════════════════════════════════════════════════
 
-public record InfoBarElement(
+// Spec 058 §15 (P5.20) — Severity/IsOpen/IsClosable + the Content slot auto-map; Title/Message
+// stay Manual to preserve the `?? ""` clear-on-null OneWay (an OneWayConditional would leave a
+// stale title on pooled reuse); IconSource (IconResolver + reference comparer), ActionButtonContent
+// (dynamic Button + Click) and the Closed event are bespoke. Closed is Excluded (OnClosed would
+// otherwise auto-surface it). Replaces the hand-written InfoBarDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.InfoBar), Exclude = new[] { "Closed" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Title")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Message")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("IconSource")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("ActionButtonContent")]
+public partial record InfoBarElement(
     string? Title = null,
     string? Message = null
 ) : Element
@@ -3478,9 +4724,63 @@ public record InfoBarElement(
     public Element? Content { get; init; }
     internal override bool HasCallbacks => OnActionButtonClick is not null || OnClosed is not null;
     internal Action<WinUI.InfoBar>[] Setters { get; init; } = [];
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.InfoBar, WinUI.InfoBarClosedEventArgs>
+        __ClosedTrampoline = (s, _) =>
+            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(s) as InfoBarElement)?.OnClosed?.Invoke();
+
+    // Title/Message preserve the clear-on-null OneWay; IconSource resolves via IconResolver
+    // (reference-compared); ActionButtonContent builds an inner Button wiring Click through the
+    // live element tag; Closed is the dismissal event. Verbatim from the deleted descriptor.
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<InfoBarElement, WinUI.InfoBar> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<InfoBarElement, WinUI.InfoBar> d)
+        => d.OneWay(
+                get: static e => e.Title ?? string.Empty,
+                set: static (c, v) => c.Title = v)
+            .OneWay(
+                get: static e => e.Message ?? string.Empty,
+                set: static (c, v) => c.Message = v)
+            .OneWayConditional(
+                get:         static e => e.IconSource,
+                set:         static (c, v) => c.IconSource = global::Microsoft.UI.Reactor.Core.V1Protocol.IconResolver.ResolveIconSource(v),
+                shouldWrite: static e => e.IconSource is not null,
+                comparer:    InfoBarIconReferenceComparer.Instance)
+            .OneWayBridged<string?>(
+                get:         static e => e.ActionButtonContent,
+                set:         static (c, v, _, _) =>
+                {
+                    if (v is null)
+                    {
+                        c.ActionButton = null;
+                        return;
+                    }
+                    var btn = new WinUI.Button { Content = v };
+                    var infoBar = c;
+                    btn.Click += (_, _) =>
+                        (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(infoBar) as InfoBarElement)
+                            ?.OnActionButtonClick?.Invoke();
+                    c.ActionButton = btn;
+                },
+                shouldWrite: static e => e.ActionButtonContent is not null)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.InfoBarEventPayload,
+                global::Windows.Foundation.TypedEventHandler<WinUI.InfoBar, WinUI.InfoBarClosedEventArgs>>(
+                subscribe:        static (c, h) => c.Closed += h,
+                callbackPresent:  static e => e.OnClosed,
+                trampoline:       __ClosedTrampoline,
+                slotIsNull:       static p => p.ClosedTrampoline is null,
+                setSlot:          static (p, h) => p.ClosedTrampoline = h);
+
+    private sealed class InfoBarIconReferenceComparer : global::System.Collections.Generic.IEqualityComparer<IconData?>
+    {
+        public static readonly InfoBarIconReferenceComparer Instance = new();
+        public bool Equals(IconData? x, IconData? y) => ReferenceEquals(x, y);
+        public int GetHashCode(IconData obj)
+            => global::System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
+    }
 }
 
-public record InfoBadgeElement() : Element
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.InfoBadge), Exclude = new[] { "Icon" })]  // spec 058 §15 (P5.4); Icon is string on the record vs IconElement on the control — intentionally unmapped (legacy parity)
+public partial record InfoBadgeElement() : Element
 {
     public int? Value { get; init; }
     public string? Icon { get; init; }
@@ -4129,25 +5429,22 @@ public record ItemsRepeaterElement<T>(
 //  Shape elements
 // ════════════════════════════════════════════════════════════════════════
 
-public record RectangleElement() : Element
-{
-    public Brush? Fill { get; init; }
-    public Brush? Stroke { get; init; }
-    public double StrokeThickness { get; init; }
-    public double RadiusX { get; init; }
-    public double RadiusY { get; init; }
-    internal Action<WinShapes.Rectangle>[] Setters { get; init; } = [];
-}
+// Spec 058 §15 (P5.4) — FULL wrapper generation: the record body (props + Setters),
+// the descriptor, the registration cctor, and a static factory are all generated.
+// RegisterAssembly = false because WinUI's built-in control assembly has no
+// IXamlMetadataProvider (the call throws in the headless test host).
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorWrapper(typeof(WinShapes.Rectangle),
+    AutoDiscover = false, RegisterAssembly = false,
+    Include = new[] { "Fill", "Stroke", "StrokeThickness", "RadiusX", "RadiusY" })]
+public partial record RectangleElement;
 
-public record EllipseElement() : Element
-{
-    public Brush? Fill { get; init; }
-    public Brush? Stroke { get; init; }
-    public double StrokeThickness { get; init; }
-    internal Action<WinShapes.Ellipse>[] Setters { get; init; } = [];
-}
+// Spec 058 §15 (P5.4) — FULL wrapper generation (see RectangleElement above).
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorWrapper(typeof(WinShapes.Ellipse),
+    AutoDiscover = false, RegisterAssembly = false,
+    Include = new[] { "Fill", "Stroke", "StrokeThickness" })]
+public partial record EllipseElement;
 
-public record LineElement() : Element
+public partial record LineElement() : Element
 {
     public double X1 { get; init; }
     public double Y1 { get; init; }
@@ -4158,7 +5455,20 @@ public record LineElement() : Element
     internal Action<WinShapes.Line>[] Setters { get; init; } = [];
 }
 
-public record PathElement() : Element
+// Spec 058 §15 (P5.4) — descriptor-only migration.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinShapes.Line))]
+public partial record LineElement;
+
+// Spec 058 §15 (P5.23) — Shape leaf. Fill/Stroke/StrokeThickness/RenderTransform/line caps/join/
+// miter/offset auto-map. Bespoke in Customize: Data (3-strategy .Imperative: XamlReader → pre-built
+// Geometry → PathDataParser; PathDataString + Data), FillRule (propagated onto the inner
+// PathGeometry), StrokeDashArray (DoubleCollection — unsupported value type). Replaces PathDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinShapes.Path))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Data")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("PathDataString")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("FillRule")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("StrokeDashArray")]
+public partial record PathElement() : Element
 {
     /// <summary>
     /// Pre-parsed WinUI Geometry. When null, the reconciler resolves from <see cref="PathDataString"/>.
@@ -4191,13 +5501,106 @@ public record PathElement() : Element
     /// <summary>How interior regions are determined for fills. Defaults to <c>EvenOdd</c>.</summary>
     public FillRule FillRule { get; init; } = FillRule.EvenOdd;
     internal Action<WinShapes.Path>[] Setters { get; init; } = [];
+
+    // Data has two source surfaces (pre-built Geometry vs SVG string) + 3-way branching that the
+    // value-comparer fast path can't express; FillRule writes onto the inner PathGeometry (gated on
+    // the LIVE control's Data); StrokeDashArray is a DoubleCollection. Verbatim from the descriptor.
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<PathElement, WinShapes.Path> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<PathElement, WinShapes.Path> d)
+        => d.Imperative(
+                mount: static (c, e) => WriteData(c, e),
+                update: static (c, oldEl, newEl) =>
+                {
+                    bool pathChanged = newEl.PathDataString is null
+                        ? newEl.Data is not null
+                        : !string.Equals(newEl.PathDataString, oldEl.PathDataString, global::System.StringComparison.Ordinal);
+                    if (!pathChanged) return;
+                    WriteData(c, newEl);
+                })
+            .OneWay(
+                get: static e => e.FillRule,
+                set: static (c, v) =>
+                {
+                    if (c.Data is global::Microsoft.UI.Xaml.Media.PathGeometry pg && pg.FillRule != v) pg.FillRule = v;
+                })
+            .OneWayConditional(
+                get:         static e => e.StrokeDashArray,
+                set:         static (c, v) => c.StrokeDashArray = v,
+                shouldWrite: static e => e.StrokeDashArray is not null);
+
+    private static void WriteData(WinShapes.Path c, PathElement e)
+    {
+        global::System.Exception? xamlReaderError = null;
+        string? attemptedXaml = null;
+
+        if (e.PathDataString is { Length: > 0 } pds)
+        {
+            try
+            {
+                var safe = global::System.Net.WebUtility.HtmlEncode(pds);
+                attemptedXaml =
+                    "<Path xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Data=\""
+                    + safe + "\" />";
+                if (global::Microsoft.UI.Xaml.Markup.XamlReader.Load(attemptedXaml) is WinShapes.Path loaded
+                    && loaded.Data is not null)
+                {
+                    c.Data = loaded.Data;
+                    return;
+                }
+            }
+            catch (global::System.Exception ex)
+            {
+                xamlReaderError = ex;
+            }
+        }
+
+        if (e.Data is not null)
+        {
+            try { c.Data = e.Data; }
+            catch (global::System.Exception ex)
+            {
+                var xamlNote = xamlReaderError is not null
+                    ? $" XamlReader.Load also failed: {xamlReaderError.GetType().Name}: {xamlReaderError.Message}. Attempted XAML: {attemptedXaml}"
+                    : " (XamlReader.Load returned non-Path or wasn't attempted)";
+                throw new global::System.ArgumentException(
+                    $"Path.Data rejected by WinUI. PathDataString={e.PathDataString ?? "(null)"}; "
+                    + $"DataType={e.Data.GetType().Name}; inner={ex.Message}.{xamlNote}", ex);
+            }
+            return;
+        }
+
+        if (e.PathDataString is { Length: > 0 } pdsFallback)
+        {
+            global::System.Exception? parserError = null;
+            try { c.Data = global::Microsoft.UI.Reactor.Charting.PathDataParser.Parse(pdsFallback); }
+            catch (global::System.Exception ex) { parserError = ex; }
+
+            if (parserError is not null)
+            {
+                var xamlNote = xamlReaderError is not null
+                    ? $"XamlReader.Load failed: {xamlReaderError.GetType().Name}: {xamlReaderError.Message}. Attempted XAML: {attemptedXaml}. "
+                    : "XamlReader.Load returned non-Path. ";
+                throw new global::System.ArgumentException(
+                    $"Could not mount PathElement from PathDataString='{pdsFallback}'. "
+                    + xamlNote
+                    + $"PathDataParser.Parse also failed: {parserError.GetType().Name}: {parserError.Message}.",
+                    parserError);
+            }
+        }
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════
 //  Additional layout elements
 // ════════════════════════════════════════════════════════════════════════
 
-public record RelativePanelElement(Element[] Children) : Element
+// Spec 058 §15 (P5.19) — attached-property panel with NO value props: the entire control is
+// the two-pass sibling-name attached-DP strategy ([WrapPanelChildren(AfterAll=...)] →
+// PanelAttachedHooks.cs). No [WrapManual]/Customize needed. Replaces the hand-written
+// RelativePanelDescriptor — a full descriptor reduced to one attribute + the bespoke hook.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.RelativePanel))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapPanelChildren(AfterAll = "ApplyRelativePanelAttachedProps")]
+public partial record RelativePanelElement(Element[] Children) : Element
 {
     internal Action<WinUI.RelativePanel>[] Setters { get; init; } = [];
 }
@@ -4206,7 +5609,15 @@ public record RelativePanelElement(Element[] Children) : Element
 //  Additional media elements
 // ════════════════════════════════════════════════════════════════════════
 
-public record MediaPlayerElementElement(string? Source = null) : Element
+// Spec 058 §15 (P5.18) — AreTransportControlsEnabled/AutoPlay auto-map; Source is a
+// mount-only .Initial (string → MediaSource.CreateFromUri) and the MediaPlayer event
+// subscription (MediaOpened/MediaEnded/MediaFailed on the inner MediaPlayer, marshalled to
+// the UI thread) is a mount-only .Imperative — both bespoke, so handled in Customize. The
+// events live on the inner MediaPlayer (not the control) so the generator never auto-surfaces
+// them. Replaces the hand-written MediaPlayerElementDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.MediaPlayerElement))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Source")]
+public partial record MediaPlayerElementElement(string? Source = null) : Element
 {
     public bool AreTransportControlsEnabled { get; init; } = true;
     public bool AutoPlay { get; init; }
@@ -4232,24 +5643,106 @@ public record MediaPlayerElementElement(string? Source = null) : Element
     public Action<string>? OnMediaFailed { get; init; }
 
     internal Action<WinUI.MediaPlayerElement>[] Setters { get; init; } = [];
+
+    // Source (mount-only MediaSource conversion) + the inner-MediaPlayer event wiring are
+    // bespoke; reproduced verbatim from the deleted MediaPlayerElementDescriptor.
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<MediaPlayerElementElement, WinUI.MediaPlayerElement> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<MediaPlayerElementElement, WinUI.MediaPlayerElement> d)
+        => d.Imperative(
+                mount:  static (c, _) => SubscribeMediaPlayerEvents(c),
+                update: static (_, _, _) => { })
+            .Initial(
+                get: static e => e.Source,
+                set: static (c, v) =>
+                {
+                    if (v is not null && global::System.Uri.TryCreate(v, global::System.UriKind.RelativeOrAbsolute, out var uri))
+                        c.Source = global::Windows.Media.Core.MediaSource.CreateFromUri(uri);
+                });
+
+    private static void SubscribeMediaPlayerEvents(WinUI.MediaPlayerElement control)
+    {
+        var player = control.MediaPlayer;
+        if (player is null) return;
+        player.MediaOpened += (_, _) => DispatchToElement(control, static el => el.OnMediaOpened?.Invoke());
+        player.MediaEnded += (_, _) => DispatchToElement(control, static el => el.OnMediaEnded?.Invoke());
+        player.MediaFailed += (_, args) =>
+        {
+            var message = args.ErrorMessage ?? args.Error.ToString();
+            DispatchToElement(control, el => el.OnMediaFailed?.Invoke(message));
+        };
+    }
+
+    private static void DispatchToElement(global::Microsoft.UI.Xaml.FrameworkElement control, global::System.Action<MediaPlayerElementElement> body)
+    {
+        var dispatcher = control.DispatcherQueue;
+        if (dispatcher is null) return;
+        dispatcher.TryEnqueue(() =>
+        {
+            if (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(control) is MediaPlayerElementElement element) body(element);
+        });
+    }
 }
 
-public record AnimatedVisualPlayerElement() : Element
+public partial record AnimatedVisualPlayerElement() : Element
 {
     public bool AutoPlay { get; init; }
     internal Action<WinUI.AnimatedVisualPlayer>[] Setters { get; init; } = [];
 }
 
+// Spec 058 §15 (P5.4) — descriptor-only migration.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.AnimatedVisualPlayer))]
+public partial record AnimatedVisualPlayerElement;
+
 // ════════════════════════════════════════════════════════════════════════
 //  Additional collection elements
 // ════════════════════════════════════════════════════════════════════════
 
-public record SemanticZoomElement(Element ZoomedInView, Element ZoomedOutView) : Element
+// Spec 058 §15 (P5.25) — SemanticZoom. The 2 named view slots (ZoomedInView/ZoomedOutView, both
+// Element so auto content-detection is ambiguous) are bespoke NamedSlots casting to
+// ISemanticZoomInformation → [WrapManual] both + overwrite d.Children. Replaces SemanticZoomDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.SemanticZoom))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("ZoomedInView")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("ZoomedOutView")]
+public partial record SemanticZoomElement(Element ZoomedInView, Element ZoomedOutView) : Element
 {
     internal Action<WinUI.SemanticZoom>[] Setters { get; init; } = [];
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<SemanticZoomElement, WinUI.SemanticZoom> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<SemanticZoomElement, WinUI.SemanticZoom> d)
+    {
+        d.Children = new global::Microsoft.UI.Reactor.Core.V1Protocol.NamedSlots<SemanticZoomElement, WinUI.SemanticZoom>(new[]
+        {
+            new global::Microsoft.UI.Reactor.Core.V1Protocol.NamedSlot<SemanticZoomElement, WinUI.SemanticZoom>(
+                Name: "ZoomedInView",
+                GetChild: static e => e.ZoomedInView,
+                SetChild: static (c, ui) =>
+                {
+                    if (ui is WinUI.ISemanticZoomInformation info) c.ZoomedInView = info;
+                })
+            {
+                GetCurrentChild = static c => c.ZoomedInView as global::Microsoft.UI.Xaml.UIElement,
+            },
+            new global::Microsoft.UI.Reactor.Core.V1Protocol.NamedSlot<SemanticZoomElement, WinUI.SemanticZoom>(
+                Name: "ZoomedOutView",
+                GetChild: static e => e.ZoomedOutView,
+                SetChild: static (c, ui) =>
+                {
+                    if (ui is WinUI.ISemanticZoomInformation info) c.ZoomedOutView = info;
+                })
+            {
+                GetCurrentChild = static c => c.ZoomedOutView as global::Microsoft.UI.Xaml.UIElement,
+            },
+        });
+        return d;
+    }
 }
 
-public record ListBoxElement(string[] Items) : Element
+// Spec 058 §15 (P5.21) — items control. Items (string[]) auto-maps to the ItemsHost. SelectedIndex
+// is bespoke: counter-echo HandCodedControlled whose trampoline twin-invokes OnSelectedIndexChanged
+// + the multi-select OnSelectionChanged snapshot. SelectionChanged is Excluded. Replaces ListBoxDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.ListBox), Exclude = new[] { "SelectionChanged" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("SelectedIndex")]
+public partial record ListBoxElement(string[] Items) : Element
 {
     /// <summary>Selected item index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional.Of(-1)</c> to force no selection.</summary>
     public Optional<int> SelectedIndex { get; init; } = default;
@@ -4261,24 +5754,131 @@ public record ListBoxElement(string[] Items) : Element
     public Action<IReadOnlyList<int>>? OnSelectionChanged { get; init; }
     internal Action<WinUI.ListBox>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnSelectedIndexChanged is not null || OnSelectionChanged is not null;
+
+    private static readonly Action<int> __NoOpSelectedIndexChanged = static _ => { };
+
+    private static readonly WinUI.SelectionChangedEventHandler __SelectionChangedTrampoline = (s, _) =>
+    {
+        var lb = (WinUI.ListBox)s!;
+        if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(lb)) return;
+        if (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(lb) is not ListBoxElement el) return;
+        el.OnSelectedIndexChanged?.Invoke(lb.SelectedIndex);
+        if (el.OnSelectionChanged is { } h)
+        {
+            var snapshot = new List<int>(lb.SelectedItems.Count);
+            for (int i = 0; i < lb.SelectedItems.Count; i++)
+            {
+                var idx = lb.Items.IndexOf(lb.SelectedItems[i]);
+                if (idx >= 0) snapshot.Add(idx);
+            }
+            h(snapshot);
+        }
+    };
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<ListBoxElement, WinUI.ListBox> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<ListBoxElement, WinUI.ListBox> d)
+        => d.HandCodedControlled<global::Microsoft.UI.Reactor.Core.V1Protocol.ListBoxEventPayload, int, WinUI.SelectionChangedEventHandler>(
+            get:         static e => e.SelectedIndex,
+            set:         static (c, v) => c.SelectedIndex = v,
+            readBack:    static c => c.SelectedIndex,
+            subscribe:   static (c, h) => c.SelectionChanged += h,
+            callback:    static e =>
+                e.OnSelectedIndexChanged is not null
+                    ? e.OnSelectedIndexChanged
+                    : (e.OnSelectionChanged is not null ? __NoOpSelectedIndexChanged : null),
+            trampoline:  __SelectionChangedTrampoline,
+            slotIsNull:  static p => p.SelectionChangedTrampoline is null,
+            setSlot:     static (p, h) => p.SelectionChangedTrampoline = h);
 }
 
 // ════════════════════════════════════════════════════════════════════════
 //  Additional navigation elements
 // ════════════════════════════════════════════════════════════════════════
 
-public record SelectorBarElement(SelectorBarItemData[] Items) : Element
+// Spec 058 §15 (P5.25) — SelectorBar. Items (builds SelectorBarItems with a structural comparer)
+// and SelectedIndex (value-diff HandCodedControlled, with the Optional.Of(-1) force-clear sentinel)
+// are bespoke → [WrapManual] + Customize. SelectionChanged does NOT auto-surface (callback is
+// OnSelectedIndexChanged). Replaces SelectorBarDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.SelectorBar))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Items")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("SelectedIndex")]
+public partial record SelectorBarElement(SelectorBarItemData[] Items) : Element
 {
     /// <summary>Selected item index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional.Of(-1)</c> to force no selection.</summary>
     public Optional<int> SelectedIndex { get; init; } = default;
     public Action<int>? OnSelectedIndexChanged { get; init; }
     internal Action<WinUI.SelectorBar>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnSelectedIndexChanged is not null;
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.SelectorBar, WinUI.SelectorBarSelectionChangedEventArgs>
+        __SelectionChangedTrampoline = (s, _) =>
+        {
+            var bar = (WinUI.SelectorBar)s!;
+            var idx = bar.Items.IndexOf(bar.SelectedItem);
+            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppressEcho(bar, idx)) return;
+            if (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(bar) is not SelectorBarElement el) return;
+            el.OnSelectedIndexChanged?.Invoke(idx);
+        };
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<SelectorBarElement, WinUI.SelectorBar> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<SelectorBarElement, WinUI.SelectorBar> d)
+        => d.OneWay<SelectorBarItemData[]>(
+                get: static e => e.Items,
+                set: static (c, items) =>
+                {
+                    c.Items.Clear();
+                    foreach (var item in items)
+                    {
+                        var sbi = new WinUI.SelectorBarItem { Text = item.Text };
+                        if (item.Icon is not null)
+                            sbi.Icon = global::Microsoft.UI.Reactor.Core.V1Protocol.IconResolver.ResolveIconForDescriptor(new SymbolIconData(item.Icon));
+                        c.Items.Add(sbi);
+                    }
+                },
+                comparer: SelectorBarItemsComparer.Instance)
+            .HandCodedControlled<global::Microsoft.UI.Reactor.Core.V1Protocol.SelectorBarEventPayload, int,
+                global::Windows.Foundation.TypedEventHandler<WinUI.SelectorBar, WinUI.SelectorBarSelectionChangedEventArgs>>(
+                get:         static e => e.SelectedIndex,
+                set:         static (c, v) =>
+                {
+                    if (v < 0)
+                    {
+                        if (c.SelectedItem is not null) c.SelectedItem = null;
+                    }
+                    else if (v < c.Items.Count)
+                    {
+                        var desired = c.Items[v];
+                        if (!ReferenceEquals(c.SelectedItem, desired)) c.SelectedItem = desired;
+                    }
+                },
+                readBack:    static c => c.Items.IndexOf(c.SelectedItem),
+                subscribe:   static (c, h) => c.SelectionChanged += h,
+                callback:    static e => e.OnSelectedIndexChanged,
+                trampoline:  __SelectionChangedTrampoline,
+                slotIsNull:  static p => p.SelectionChangedTrampoline is null,
+                setSlot:     static (p, h) => p.SelectionChangedTrampoline = h,
+                valueDiffEcho: true);
+
+    private sealed class SelectorBarItemsComparer : global::System.Collections.Generic.IEqualityComparer<SelectorBarItemData[]>
+    {
+        public static readonly SelectorBarItemsComparer Instance = new();
+        public bool Equals(SelectorBarItemData[]? a, SelectorBarItemData[]? b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a is null || b is null || a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++)
+                if (!a[i].Equals(b[i])) return false;
+            return true;
+        }
+        public int GetHashCode(SelectorBarItemData[] obj) => obj.Length;
+    }
 }
 
 public record SelectorBarItemData(string Text, string? Icon = null);
 
-public record PipsPagerElement(int NumberOfPages) : Element
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.PipsPager))]  // spec 058 §15 (P5.4)
+[global::Microsoft.UI.Reactor.Wrappers.WrapControlled("SelectedPageIndex", ChangedEvent = "SelectedIndexChanged")]
+public partial record PipsPagerElement(int NumberOfPages) : Element
 {
     /// <summary>Selected page index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional.Of(-1)</c> to force no page selection.</summary>
     public Optional<int> SelectedPageIndex { get; init; } = default;
@@ -4295,10 +5895,14 @@ public record PipsPagerElement(int NumberOfPages) : Element
     internal override bool HasCallbacks => OnSelectedPageIndexChanged is not null;
 }
 
-public record AnnotatedScrollBarElement() : Element
+public partial record AnnotatedScrollBarElement() : Element
 {
     internal Action<WinUI.AnnotatedScrollBar>[] Setters { get; init; } = [];
 }
+
+// Spec 058 §15 (P5.4) — descriptor-only migration.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.AnnotatedScrollBar))]
+public partial record AnnotatedScrollBarElement;
 
 // ════════════════════════════════════════════════════════════════════════
 //  Additional overlay / container elements
@@ -4315,7 +5919,8 @@ public record PopupElement(Element Child) : Element
     internal Action<WinPrim.Popup>[] Setters { get; init; } = [];
 }
 
-public record RefreshContainerElement(Element Content) : Element
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.RefreshContainer))]  // spec 058 §15 (P5.4)
+public partial record RefreshContainerElement(Element Content) : Element
 {
     public Action? OnRefreshRequested { get; init; }
     /// <summary>Direction the user pulls to trigger refresh. Defaults to <c>TopToBottom</c>.</summary>
@@ -4338,7 +5943,18 @@ public record CommandBarFlyoutElement(
 //  Additional date/time elements
 // ════════════════════════════════════════════════════════════════════════
 
-public record CalendarViewElement() : Element
+// Spec 058 §15 (P5.23) — SelectionMode/IsGroupLabelVisible/IsOutOfScopeEnabled/CalendarIdentifier/
+// NumberOfWeeksInView/DisplayMode auto-map. Bespoke in Customize: Language (IsWellFormed gate +
+// base FrameworkElement prop), MinDate/MaxDate/FirstDayOfWeek (nullable → non-nullable .Value),
+// SelectedDates (CollectionDiffControlled keyed by UtcTicks). SelectedDatesChanged Excluded.
+// Replaces CalendarViewDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.CalendarView), Exclude = new[] { "SelectedDatesChanged" })]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Language")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("MinDate")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("MaxDate")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("FirstDayOfWeek")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("SelectedDates")]
+public partial record CalendarViewElement() : Element
 {
     public CalendarViewSelectionMode SelectionMode { get; init; } = CalendarViewSelectionMode.Single;
     public bool IsGroupLabelVisible { get; init; } = true;
@@ -4373,6 +5989,48 @@ public record CalendarViewElement() : Element
     public Action<IReadOnlyList<DateTimeOffset>>? OnSelectedDatesChanged { get; init; }
 
     internal Action<WinUI.CalendarView>[] Setters { get; init; } = [];
+
+    private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.CalendarView, WinUI.CalendarViewSelectedDatesChangedEventArgs>
+        __SelectedDatesChangedTrampoline = static (s, _) =>
+        {
+            var c = (WinUI.CalendarView)s!;
+            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(c)) return;
+            if (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(c) is CalendarViewElement el && el.OnSelectedDatesChanged is { } h)
+                h(global::System.Linq.Enumerable.ToArray(c.SelectedDates));
+        };
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<CalendarViewElement, WinUI.CalendarView> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<CalendarViewElement, WinUI.CalendarView> d)
+        => d.OneWayConditional(
+                get:         static e => e.Language,
+                set:         static (c, v) => c.Language = v!,
+                shouldWrite: static e => e.Language is not null
+                                         && global::Windows.Globalization.Language.IsWellFormed(e.Language))
+            .OneWayConditional(
+                get:         static e => e.MinDate,
+                set:         static (c, v) => c.MinDate = v!.Value,
+                shouldWrite: static e => e.MinDate.HasValue)
+            .OneWayConditional(
+                get:         static e => e.MaxDate,
+                set:         static (c, v) => c.MaxDate = v!.Value,
+                shouldWrite: static e => e.MaxDate.HasValue)
+            .OneWayConditional(
+                get:         static e => e.FirstDayOfWeek,
+                set:         static (c, v) => c.FirstDayOfWeek = v!.Value,
+                shouldWrite: static e => e.FirstDayOfWeek.HasValue)
+            .CollectionDiffControlled<
+                global::Microsoft.UI.Reactor.Core.V1Protocol.CalendarViewEventPayload,
+                DateTimeOffset,
+                long,
+                global::Windows.Foundation.TypedEventHandler<WinUI.CalendarView, WinUI.CalendarViewSelectedDatesChangedEventArgs>>(
+                get:             static e => e.SelectedDates ?? global::System.Array.Empty<DateTimeOffset>(),
+                getVector:       static c => c.SelectedDates,
+                key:             static dt => dt.UtcTicks,
+                subscribe:       static (c, h) => c.SelectedDatesChanged += h,
+                callbackPresent: static e => e.OnSelectedDatesChanged,
+                trampoline:      __SelectedDatesChangedTrampoline,
+                slotIsNull:      static p => p.SelectedDatesChangedTrampoline is null,
+                setSlot:         static (p, h) => p.SelectedDatesChangedTrampoline = h);
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -4387,31 +6045,92 @@ public record SwipeItemData(
     Microsoft.UI.Xaml.Media.Brush? Foreground = null,
     Microsoft.UI.Xaml.Controls.SwipeBehaviorOnInvoked BehaviorOnInvoked = Microsoft.UI.Xaml.Controls.SwipeBehaviorOnInvoked.Auto);
 
-public record SwipeControlElement(Element Content) : Element
+// Spec 058 §15 (P5.25) — SwipeControl. Content auto-maps (SingleContent). LeftItems/RightItems +
+// their modes build SwipeItems collections via a bespoke .Imperative → [WrapManual] + Customize.
+// Replaces SwipeControlDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.SwipeControl))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("LeftItems")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("RightItems")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("LeftItemsMode")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("RightItemsMode")]
+public partial record SwipeControlElement(Element Content) : Element
 {
     public SwipeItemData[]? LeftItems { get; init; }
     public SwipeItemData[]? RightItems { get; init; }
     public Microsoft.UI.Xaml.Controls.SwipeMode LeftItemsMode { get; init; } = Microsoft.UI.Xaml.Controls.SwipeMode.Reveal;
     public Microsoft.UI.Xaml.Controls.SwipeMode RightItemsMode { get; init; } = Microsoft.UI.Xaml.Controls.SwipeMode.Reveal;
     internal Action<WinUI.SwipeControl>[] Setters { get; init; } = [];
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<SwipeControlElement, WinUI.SwipeControl> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<SwipeControlElement, WinUI.SwipeControl> d)
+        => d.Imperative(
+            mount: static (c, e) => ApplySwipeItems(c, e, force: true),
+            update: static (c, o, n) => ApplySwipeItems(c, n,
+                force: !ReferenceEquals(o.LeftItems, n.LeftItems)
+                    || !ReferenceEquals(o.RightItems, n.RightItems)
+                    || o.LeftItemsMode != n.LeftItemsMode
+                    || o.RightItemsMode != n.RightItemsMode));
+
+    private static void ApplySwipeItems(WinUI.SwipeControl control, SwipeControlElement element, bool force)
+    {
+        if (!force) return;
+        control.LeftItems = CreateSwipeItems(element.LeftItems, element.LeftItemsMode);
+        control.RightItems = CreateSwipeItems(element.RightItems, element.RightItemsMode);
+    }
+
+    private static WinUI.SwipeItems? CreateSwipeItems(SwipeItemData[]? data, WinUI.SwipeMode mode)
+    {
+        if (data is not { Length: > 0 }) return null;
+        var items = new WinUI.SwipeItems { Mode = mode };
+        foreach (var entry in data) items.Add(CreateSwipeItem(entry));
+        return items;
+    }
+
+    private static WinUI.SwipeItem CreateSwipeItem(SwipeItemData data)
+    {
+        var item = new WinUI.SwipeItem
+        {
+            Text = data.Text,
+            BehaviorOnInvoked = data.BehaviorOnInvoked,
+        };
+        if (data.IconSource is not null) item.IconSource = data.IconSource;
+        if (data.Background is not null) item.Background = data.Background;
+        if (data.Foreground is not null) item.Foreground = data.Foreground;
+        if (data.OnInvoked is not null) item.Invoked += (_, _) => data.OnInvoked();
+        return item;
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════
 //  AnimatedIcon
 // ════════════════════════════════════════════════════════════════════════
 
-public record AnimatedIconElement() : Element
+// Spec 058 §15 (P5.6) — Source is object on the record, cast to IAnimatedVisualSource2
+// (silent no-op otherwise) — bespoke set, handled via [WrapManual]. FallbackIconSource auto-maps.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.AnimatedIcon))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Source")]
+public partial record AnimatedIconElement() : Element
 {
     public object? Source { get; init; }
     public IconSource? FallbackIconSource { get; init; }
     internal Action<WinUI.AnimatedIcon>[] Setters { get; init; } = [];
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<AnimatedIconElement, WinUI.AnimatedIcon> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<AnimatedIconElement, WinUI.AnimatedIcon> d)
+        => d.OneWayConditional(
+            get:         static e => e.Source,
+            set:         static (c, v) => { if (v is WinUI.IAnimatedVisualSource2 src) c.Source = src; },
+            shouldWrite: static e => e.Source is not null);
 }
 
 // ════════════════════════════════════════════════════════════════════════
 //  ParallaxView
 // ════════════════════════════════════════════════════════════════════════
 
-public record ParallaxViewElement(Element Child) : Element
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.ParallaxView))]  // spec 058 §15 (P5.6)
+[global::Microsoft.UI.Reactor.Wrappers.WrapContent("Child")]  // ParallaxView displays Child, not the inherited ContentControl.Content
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Source")]  // Source is UIElement (unsupported value type) — mapped explicitly (reference-equality gate)
+public partial record ParallaxViewElement(Element Child) : Element
 {
     public double VerticalShift { get; init; }
     public double HorizontalShift { get; init; }
@@ -4422,13 +6141,21 @@ public record ParallaxViewElement(Element Child) : Element
     /// <summary>Vertical-axis source offset (in pixels) at which parallax ends. Defaults to 0 (auto).</summary>
     public double VerticalSourceEndOffset { get; init; }
     internal Action<WinUI.ParallaxView>[] Setters { get; init; } = [];
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<ParallaxViewElement, WinUI.ParallaxView> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<ParallaxViewElement, WinUI.ParallaxView> d)
+        => d.OneWayConditional(
+            get:         static e => e.Source,
+            set:         static (c, v) => c.Source = v!,
+            shouldWrite: static e => e.Source is not null);
 }
 
 // ════════════════════════════════════════════════════════════════════════
 //  MapControl
 // ════════════════════════════════════════════════════════════════════════
 
-public record MapControlElement() : Element
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.MapControl))]  // spec 058 §15 (P5.4)
+public partial record MapControlElement() : Element
 {
     public string? MapServiceToken { get; init; }
     public double ZoomLevel { get; init; } = 1;
@@ -4439,7 +6166,16 @@ public record MapControlElement() : Element
 //  Frame
 // ════════════════════════════════════════════════════════════════════════
 
-public record FrameElement() : Element
+// Spec 058 §15 (P5.6) — navigation is mount-only (Navigate once), modeled via a
+// [WrapManual] Customize `.Initial` projecting SourcePageType + NavigationParameter.
+// The three navigation events use [WrapEvent] typed projections; NavigationFailed
+// is a MULTI-arg projection (SourcePageType + Exception).
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.Frame))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("SourcePageType")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapEvent("Navigated", Arg = "SourcePageType")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapEvent("Navigating", Arg = "SourcePageType")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapEvent("NavigationFailed", Args = new[] { "SourcePageType", "Exception" })]
+public partial record FrameElement() : Element
 {
     public Type? SourcePageType { get; init; }
     public object? NavigationParameter { get; init; }
@@ -4454,6 +6190,18 @@ public record FrameElement() : Element
     public Action<Type, Exception>? OnNavigationFailed { get; init; }
 
     internal Action<WinUI.Frame>[] Setters { get; init; } = [];
+
+    // Mount-only navigation: re-running on Update would re-navigate on every
+    // record-with. A single .Initial entry projects both SourcePageType +
+    // NavigationParameter so the set lambda has both pieces.
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<FrameElement, WinUI.Frame> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<FrameElement, WinUI.Frame> d)
+        => d.Initial<(Type? pageType, object? param)>(
+            get: static e => (e.SourcePageType, e.NavigationParameter),
+            set: static (c, v) =>
+            {
+                if (v.pageType is not null) c.Navigate(v.pageType, v.param);
+            });
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -4468,7 +6216,9 @@ public record FrameElement() : Element
 //  WinUI would otherwise hit.
 // ════════════════════════════════════════════════════════════════════════
 
-public record ItemContainerElement(Element? Child) : Element
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.ItemContainer))]  // spec 058 §15 (P5.6)
+[global::Microsoft.UI.Reactor.Wrappers.WrapContent("Child")]  // ItemContainer's content slot is Child
+public partial record ItemContainerElement(Element? Child) : Element
 {
     /// <summary>Selection state as exposed by <c>ItemContainer.IsSelected</c>.</summary>
     public bool IsSelected { get; init; }

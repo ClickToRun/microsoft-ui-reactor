@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="PublishTrimmed">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <PublishTrimmed>false</PublishTrimmed>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <AssemblyName>Reactor.Wrappers.Generator</AssemblyName>
+    <RootNamespace>Microsoft.UI.Reactor.Wrappers.Generator</RootNamespace>
+
+    <!-- Roslyn loads generators into the in-process csc compiler, so the DLL
+         must be architecture-neutral regardless of the consuming project's
+         $(Platform). Mirrors Reactor.Analyzers. -->
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <AppendPlatformToOutputPath>false</AppendPlatformToOutputPath>
+
+    <!-- Experimental tooling — not shipped as its own package. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!-- RS2008: analyzer release tracking is not relevant for this experimental
+         in-repo generator (it doesn't ship as its own analyzer package). -->
+    <NoWarn>$(NoWarn);RS2008</NoWarn>
+  </PropertyGroup>
+
+</Project>

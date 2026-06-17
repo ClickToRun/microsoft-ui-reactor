@@ -26,11 +26,10 @@ public sealed class AnnounceHandle
 
     internal AnnounceHandle()
     {
-        // Spec 048 §3.3 — AnnounceRegion has no public Factories entry; it's
-        // constructed here in the UseAnnounce hook. Touch the Reg<> registrar
-        // at the same construction site so the global path knows about the
-        // descriptor-backed handler.
-        _ = V1.Reg<AnnounceRegionElement, WinUI.TextBlock, Desc.AnnounceRegionDescriptorHandler>.Done;
+        // Spec 058 §15 (P5.23) — AnnounceRegion is a generated descriptor (the bespoke live-region
+        // setup + AnnounceHandle wiring is its Customize .Imperative). Fire the Pattern-A static
+        // cctor so the global path registers it.
+        global::System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(AnnounceRegionElement).TypeHandle);
         Region = new AnnounceRegionElement(this);
     }
 
@@ -78,7 +77,31 @@ public sealed class AnnounceHandle
 /// <summary>
 /// Internal Reactor element that mounts a hidden TextBlock with LiveSetting for announcements.
 /// </summary>
-internal record AnnounceRegionElement(AnnounceHandle Handle) : Element;
+// Spec 058 §15 (P5.23) — generated descriptor. The whole control is one bespoke .Imperative
+// mount (hidden zero-size live region + AnnounceHandle wiring); Handle is [WrapManual]. Replaces
+// the hand-written AnnounceRegionDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.TextBlock))]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Handle")]
+internal partial record AnnounceRegionElement(AnnounceHandle Handle) : Element
+{
+    internal Action<WinUI.TextBlock>[] Setters { get; init; } = [];
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<AnnounceRegionElement, WinUI.TextBlock> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<AnnounceRegionElement, WinUI.TextBlock> d)
+        => d.Imperative(
+            mount: static (tb, ann) =>
+            {
+                tb.Width = 0;
+                tb.Height = 0;
+                tb.Opacity = 0;
+                tb.IsHitTestVisible = false;
+                tb.IsTabStop = false;
+                global::Microsoft.UI.Xaml.Automation.AutomationProperties.SetLiveSetting(tb, global::Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
+                global::Microsoft.UI.Xaml.Automation.AutomationProperties.SetAccessibilityView(tb, global::Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw);
+                ann.Handle.SetTextBlock(tb);
+            },
+            update: static (tb, oldAnn, newAnn) => { });
+}
 
 /// <summary>
 /// Extension methods for the UseAnnounce hook.

@@ -267,6 +267,27 @@ public static class ReactorApp
         RegisterControlAssembly(provider);
     }
 
+    /// <summary>
+    /// Tolerant variant of <see cref="RegisterControlAssembly(global::System.Reflection.Assembly)"/>:
+    /// registers the assembly's XAML metadata provider if it has one, and silently
+    /// does nothing (returning <c>false</c>) if it does not. A pure-code control
+    /// library — e.g. code-only panels with no XAML files (and therefore no
+    /// compiler-generated provider) — has nothing to register and needs nothing.
+    /// Used by generated control registrations, which cannot know in advance
+    /// whether a wrapped control's assembly ships XAML.
+    /// </summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "See RegisterControlAssembly(Assembly).")]
+    [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = "See RegisterControlAssembly(Assembly).")]
+    [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "See RegisterControlAssembly(Assembly).")]
+    public static bool TryRegisterControlAssembly(global::System.Reflection.Assembly assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        var provider = FindXamlMetadataProviderInAssembly(assembly);
+        if (provider is null) return false;
+        RegisterControlAssembly(provider);
+        return true;
+    }
+
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "See RegisterControlAssembly(Assembly).")]
     [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = "See RegisterControlAssembly(Assembly).")]
     [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "See RegisterControlAssembly(Assembly).")]

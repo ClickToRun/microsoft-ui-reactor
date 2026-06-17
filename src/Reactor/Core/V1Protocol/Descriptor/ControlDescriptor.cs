@@ -71,7 +71,7 @@ public sealed class ControlDescriptor<TElement, TControl>
     /// <see cref="V1HandlerAdapter{TElement,TControl}"/> after each Mount /
     /// Update body returns. Defaults to <c>null</c> (treated as
     /// <see cref="None{TElement,TControl}"/> by the adapter).</summary>
-    public ChildrenStrategy<TElement, TControl>? Children { get; init; }
+    public ChildrenStrategy<TElement, TControl>? Children { get; set; }
 
     /// <summary>Spec 047 §14 Phase 3 prelude (Engine A1) — optional post-children
     /// mount hook. The interpreter (<see cref="DescriptorHandler{TElement,TControl}"/>)

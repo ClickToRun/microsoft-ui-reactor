@@ -83,6 +83,13 @@
     <ProjectReference Include="..\Reactor.Localization.Generator\Reactor.Localization.Generator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
+    <!-- Spec 058 §15 (P5.3): the wrapper generator is wired in so built-in
+         element descriptors can be generated from [GenerateReactorDescriptor]
+         annotations (e.g. ViewboxElement). Build-time analyzer only — not packed
+         into the nupkg. -->
+    <ProjectReference Include="..\Reactor.Wrappers.Generator\Reactor.Wrappers.Generator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\Reactor.Analyzers\Reactor.Analyzers.csproj"
                       ReferenceOutputAssembly="false" />
     <!-- Reactor.Analyzers (the customer-facing analyzer bundle) is NOT
