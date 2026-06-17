@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>Microsoft.UI.Reactor.Wrappers</RootNamespace>
+    <AssemblyName>Reactor.Wrappers.Abstractions</AssemblyName>
+    <IsAotCompatible>true</IsAotCompatible>
+
+    <!-- Authoring attributes for Reactor.Wrappers.Generator. Kept in their own
+         assembly (rather than emitted into every consuming compilation by the
+         generator, which collided via Reactor's InternalsVisibleTo — CS0436)
+         so there is exactly one definition the generator binds by metadata name.
+         The DLL is bundled into the Microsoft.UI.Reactor package (see
+         Reactor.csproj); it is not published as its own package. -->
+    <IsPackable>false</IsPackable>
+
+    <!-- Match Reactor's explicit platforms so the ProjectReference handshake
+         resolves a matching build under Release|x64 / Release|ARM64 (mirrors
+         Reactor.Advanced). The attributes are platform-neutral; this only keeps
+         the per-platform output paths aligned. -->
+    <Platforms>AnyCPU;x64;ARM64</Platforms>
+  </PropertyGroup>
+
+</Project>

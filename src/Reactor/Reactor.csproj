@@ -90,6 +90,23 @@
     <ProjectReference Include="..\Reactor.Wrappers.Generator\Reactor.Wrappers.Generator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
+    <!-- The wrapper generator's authoring attributes ([GenerateReactorWrapper],
+         [WrapControlled], …). Hosting them in their own assembly rather than
+         generating them into every compilation avoids the CS0436 collision that
+         occurred when the generated internal copy leaked via InternalsVisibleTo
+         (see the project's WrapperAttributes.cs and spec 058 §15.7).
+
+         PrivateAssets="all" stops NuGet from emitting a package *dependency* on
+         this IsPackable=false project (a normal reference does — verified: pack
+         otherwise writes a phantom <dependency id="Reactor.Wrappers.Abstractions">
+         that never ships). Instead _BundleWrappersAbstractions below copies the
+         DLL straight into this package's lib/ (the same "bundle the helper DLL
+         into the Reactor package" pattern used for the analyzers further down).
+         Because PrivateAssets blocks transitive flow, the in-repo consumers that
+         author/run the generator (AppTests.Host, WctControls, Reactor.Tests)
+         reference this project directly. -->
+    <ProjectReference Include="..\Reactor.Wrappers.Abstractions\Reactor.Wrappers.Abstractions.csproj"
+                      PrivateAssets="all" />
     <ProjectReference Include="..\Reactor.Analyzers\Reactor.Analyzers.csproj"
                       ReferenceOutputAssembly="false" />
     <!-- Reactor.Analyzers (the customer-facing analyzer bundle) is NOT
@@ -107,6 +124,23 @@
          nupkg — these rules have no purpose on consumer code and used to
          leak there when bundled into Reactor.Analyzers.dll. -->
   </ItemGroup>
+
+  <!-- Bundle Reactor.Wrappers.Abstractions.dll into this package's lib/ folder.
+       The ProjectReference above carries PrivateAssets="all" so NuGet adds no
+       package dependency for it; this target instead copies the built DLL next
+       to Reactor.dll so the package is self-contained (the wrapper-authoring
+       attributes resolve for any consumer). DependsOnTargets="ResolveReferences"
+       ensures @(ReferenceCopyLocalPaths) is populated before we filter it. -->
+  <PropertyGroup>
+    <TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);_BundleWrappersAbstractions</TargetsForTfmSpecificBuildOutput>
+  </PropertyGroup>
+  <Target Name="_BundleWrappersAbstractions" DependsOnTargets="ResolveReferences">
+    <ItemGroup>
+      <BuildOutputInPackage Include="@(ReferenceCopyLocalPaths)"
+                            Condition="'%(ReferenceCopyLocalPaths.Filename)' == 'Reactor.Wrappers.Abstractions' and '%(ReferenceCopyLocalPaths.Extension)' == '.dll'" />
+    </ItemGroup>
+  </Target>
+
 
   <!-- Bundle the analyzer + source-generator DLLs into the framework package
        so consumers get them automatically. See spec 022 §5. The analyzer

@@ -44,6 +44,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\Reactor\Reactor.csproj" />
+    <!-- Authoring attributes; referenced directly (Reactor's reference is
+         PrivateAssets="all", so it does not flow transitively — verified: without
+         this line WctControls.cs fails with CS0246 on [GenerateReactorWrapper]). -->
+    <ProjectReference Include="..\..\..\src\Reactor.Wrappers.Abstractions\Reactor.Wrappers.Abstractions.csproj" />
     <ProjectReference Include="..\..\..\src\Reactor.Wrappers.Generator\Reactor.Wrappers.Generator.csproj"
                       OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>

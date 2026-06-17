@@ -19,7 +19,7 @@ namespace Microsoft.UI.Reactor.AppTests.Host.SelfTest.Fixtures;
 // The 1:1 string property avoids the scalar→struct conversion that P5.2 adds.
 
 /// <summary>Isolated control for the descriptor-only compile proof.</summary>
-public sealed class DescriptorOnlyProofControl : FrameworkElement
+public sealed partial class DescriptorOnlyProofControl : FrameworkElement
 {
     public string? Label { get; set; }
     public CornerRadius Corner { get; set; }
