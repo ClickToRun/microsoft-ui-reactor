@@ -79,7 +79,11 @@
          identically to the hand-written ToggleSwitchDescriptor. -->
     <ProjectReference Include="..\..\src\Reactor.Wrappers.Generator\Reactor.Wrappers.Generator.csproj"
                       OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-    <!-- spec 045 §2.19: the XAML wrapper assembly was unhooked from the
+    <!-- The wrapper generator's authoring attributes. Referenced directly because
+         Reactor references this assembly with PrivateAssets="all", so it does not
+         flow transitively through the Reactor ProjectReference above. -->
+    <ProjectReference Include="..\..\src\Reactor.Wrappers.Abstractions\Reactor.Wrappers.Abstractions.csproj" />
+    <!-- Spec 045 §2.19: the XAML wrapper assembly was unhooked from the
          solution at the §2.29 review gate. The Phase-1 DockingSmokeFixtures
          have been retired; the Phase-2 NativeDockingSmokeFixtures cover the
          same surface against the native renderer. -->

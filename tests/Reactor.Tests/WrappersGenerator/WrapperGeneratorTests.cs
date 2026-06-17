@@ -1634,4 +1634,32 @@ public partial record FakeControlElement;
         Assert.Contains("Setters = [.. Setters, configure]", src);
         Assert.Empty(result.Diagnostics);
     }
+
+    [Fact]
+    public void Generator_DoesNotEmit_TheAuthoringAttribute()
+    {
+        // Regression guard (CS0436): the wrapper-authoring attributes are hosted in
+        // Reactor.Wrappers.Abstractions, so the generator must NOT also emit its own
+        // copy via RegisterPostInitializationOutput. When it did, the internal copy
+        // leaked from Reactor.dll through InternalsVisibleTo into friend assemblies
+        // that ALSO run the generator (e.g. Reactor.AppTests.Host), where the locally
+        // generated copy collided with the imported one — failing Release builds under
+        // TreatWarningsAsErrors. (The attribute resolves here from the referenced
+        // abstractions assembly, which is on the in-memory compilation's TPA refs.)
+        var result = Run(Stubs + @"
+[Microsoft.UI.Reactor.Wrappers.GenerateReactorWrapper(typeof(App.FakeControl))]
+public partial record FakeControlElement;
+");
+
+        Assert.DoesNotContain(
+            result.GeneratedTrees,
+            t => Path.GetFileName(t.FilePath)
+                .Contains("GenerateReactorWrapperAttribute", StringComparison.Ordinal));
+
+        // …and the generator still ran: the attribute bound from the referenced
+        // abstractions assembly, so the wrapper was produced.
+        Assert.Contains(
+            result.GeneratedTrees,
+            t => t.FilePath.EndsWith("FakeControlElement.Wrapper.g.cs", StringComparison.Ordinal));
+    }
 }

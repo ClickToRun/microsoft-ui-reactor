@@ -39,6 +39,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Reactor\Reactor.csproj" />
+    <!-- Authoring attributes; referenced directly (Reactor's reference is
+         PrivateAssets="all", so it does not flow transitively). Also puts the
+         DLL on this project's output so the in-memory generator tests resolve
+         the attributes from TPA. -->
+    <ProjectReference Include="..\..\src\Reactor.Wrappers.Abstractions\Reactor.Wrappers.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\Reactor.Localization.Generator\Reactor.Localization.Generator.csproj" />
     <ProjectReference Include="..\..\src\Reactor.Cli\Reactor.Cli.csproj" />
     <ProjectReference Include="..\..\src\Reactor.Analyzers\Reactor.Analyzers.csproj" />
