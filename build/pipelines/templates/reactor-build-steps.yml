@@ -281,6 +281,7 @@ steps:
     # post-analysis validates the members and breaks the build if any are unsigned.
     # Authored assemblies that ship inside Microsoft.UI.Reactor.nupkg:
     #   lib/<tfm>/Reactor.dll (+ Reactor.resources.dll satellite)
+    #   lib/<tfm>/Reactor.Wrappers.Abstractions.dll
     #   analyzers/dotnet/cs/Reactor.Analyzers.dll
     #   analyzers/dotnet/cs/Reactor.Localization.Generator.dll
     # And inside Microsoft.UI.Reactor.Advanced.nupkg:
@@ -294,7 +295,7 @@ steps:
         inputs:
           command: 'sign'
           signing_profile: external_distribution
-          files_to_sign: 'Reactor\bin\**\Reactor.dll;Reactor\bin\**\Reactor.resources.dll;Reactor.Advanced\bin\**\Reactor.Advanced.dll;Reactor.Devtools\bin\**\Microsoft.UI.Reactor.Devtools.dll;Reactor.Analyzers\bin\**\Reactor.Analyzers.dll;Reactor.Localization.Generator\bin\**\Reactor.Localization.Generator.dll'
+          files_to_sign: 'Reactor\bin\**\Reactor.dll;Reactor\bin\**\Reactor.resources.dll;Reactor.Wrappers.Abstractions\bin\**\Reactor.Wrappers.Abstractions.dll;Reactor.Advanced\bin\**\Reactor.Advanced.dll;Reactor.Devtools\bin\**\Microsoft.UI.Reactor.Devtools.dll;Reactor.Analyzers\bin\**\Reactor.Analyzers.dll;Reactor.Localization.Generator\bin\**\Reactor.Localization.Generator.dll'
           search_root: '$(Build.SourcesDirectory)\src'
 
     - pwsh: |
