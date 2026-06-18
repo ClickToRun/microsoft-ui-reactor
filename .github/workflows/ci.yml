@@ -249,20 +249,23 @@ jobs:
           # block (`The given project `Name` has …`). Only High/Critical rows
           # belonging to a non-excluded (shipped) project gate the build.
           $bad = [System.Collections.Generic.List[string]]::new()
-          $skipped = [System.Collections.Generic.List[string]]::new()
+          $skipped = [System.Collections.Generic.HashSet[string]]::new()
           $current = $null
           $currentExcluded = $false
           foreach ($line in ($output -split "`r?`n")) {
             if ($line -match '^The given project `([^`]+)` has') {
               $current = $Matches[1]
               $currentExcluded = $excluded.Contains($current)
-              if ($currentExcluded -and $line -match 'has the following vulnerable packages') {
-                [void]$skipped.Add($current)
-              }
               continue
             }
             if ($line -match '^\s*>\s+\S+' -and $line -match '\b(High|Critical)\b') {
-              if ($currentExcluded) { continue }
+              # Only count a project as "skipped" when it actually owns a
+              # High/Critical row, so the log below never claims advisories
+              # that don't exist (e.g. an excluded project with only Moderate).
+              if ($currentExcluded) {
+                [void]$skipped.Add($current)
+                continue
+              }
               [void]$bad.Add(("[{0}] {1}" -f $current, $line.Trim()))
             }
           }
