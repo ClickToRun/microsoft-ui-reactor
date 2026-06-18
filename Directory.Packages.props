@@ -34,7 +34,7 @@
     <PackageVersion Include="System.Formats.Asn1" Version="10.0.9" />
     <PackageVersion Include="System.Reflection.DispatchProxy" Version="4.8.2" />
     <PackageVersion Include="MessageFormat" Version="8.0.0" />
-    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.9" />
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="11.0.0-preview.5.26302.115" />
     <PackageVersion Include="YamlDotNet" Version="18.0.0" />
     <PackageVersion Include="GitHub.Copilot.SDK" Version="1.0.1" />
     <PackageVersion Include="MessagePack" Version="2.5.301" />
