@@ -10,9 +10,10 @@ the Azure Artifacts feed used by the OneBranch build. The nightly pipeline is
 builds `main`, and publishes versions shaped like
 `0.2.0-nightly.<yyyyMMdd>.<counter>` to the internal feed.
 
-To consume the nightly channel internally, add the feed source from
-`build/pipelines/nuget.internal.config` to your `nuget.config` and float the
-package version on the nightly label, for example:
+To consume the nightly channel internally, add this feed source to your
+`nuget.config` and float the package version on the nightly label, for example:
+
+`https://pkgs.dev.azure.com/github-private/microsoft/_packaging/microsoft-ui-reactor-internal/nuget/v3/index.json`
 
 ```xml
 <PackageReference Include="Microsoft.UI.Reactor" Version="0.*-nightly*" />

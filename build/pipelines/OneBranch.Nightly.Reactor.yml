@@ -34,7 +34,7 @@ variables:
   BuildSolution: $(Build.SourcesDirectory)\Reactor.slnx
   BuildConfiguration: Release
   NuGetConfig: $(Build.SourcesDirectory)\build\pipelines\nuget.internal.config
-  InternalNuGetFeed: 'https://pkgs.dev.azure.com/github-private/microsoft/_packaging/microsoft-ui-reactor/nuget/v3/index.json'
+  InternalNuGetFeed: 'https://pkgs.dev.azure.com/github-private/microsoft/_packaging/microsoft-ui-reactor-internal/nuget/v3/index.json'
 
   WindowsContainerImage: 'onebranch.azurecr.io/windows/ltsc2022/vse2022:latest'
 
