@@ -209,9 +209,31 @@ jobs:
       # findings (the table is text output), so we parse the severity column
       # ourselves. Matches `> Package … High` / `Critical` rows; Moderate/Low
       # surface as warnings only.
+      #
+      # Advisories owned by projects under `samples/` or `tests/` do NOT gate
+      # the build (issue #607): those are demonstration / test code, not shipped
+      # artifacts, so a transitive advisory pulled in by a sample or test must
+      # not red-X unrelated PRs. We still scan the whole solution in one pass,
+      # then drop findings whose owning project is a sample/test. The excluded
+      # set is derived from Reactor.slnx so it stays correct as projects move.
       - name: Check for vulnerable packages
         shell: pwsh
         run: |
+          # Project names (the .csproj file stems) under samples/ or tests/.
+          # `dotnet list package` headers each block with this name, so we use
+          # it to attribute findings back to their owning project.
+          [xml]$sln = Get-Content -Raw Reactor.slnx
+          $excluded = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+          foreach ($p in $sln.SelectNodes('//Project')) {
+            $path = $p.GetAttribute('Path')
+            if ([string]::IsNullOrWhiteSpace($path)) { continue }
+            $norm = $path -replace '\\', '/'
+            if ($norm -match '^(samples|tests)/') {
+              [void]$excluded.Add([System.IO.Path]::GetFileNameWithoutExtension($norm))
+            }
+          }
+          Write-Host "Excluding $($excluded.Count) sample/test project(s) from the vulnerability gate."
+
           $output = (dotnet list Reactor.slnx package --vulnerable --include-transitive 2>&1 | Out-String)
           $listExit = $LASTEXITCODE
           Write-Host $output
@@ -222,14 +244,40 @@ jobs:
             Write-Error "dotnet list package --vulnerable failed (exit $listExit). Cannot verify vulnerability status."
             exit $listExit
           }
-          $bad = $output -split "`n" | Where-Object {
-            $_ -match '^\s*>\s+\S+' -and $_ -match '\b(High|Critical)\b'
+
+          # Walk the output line by line, tracking the project that owns each
+          # block (`The given project `Name` has …`). Only High/Critical rows
+          # belonging to a non-excluded (shipped) project gate the build.
+          $bad = [System.Collections.Generic.List[string]]::new()
+          $skipped = [System.Collections.Generic.HashSet[string]]::new()
+          $current = $null
+          $currentExcluded = $false
+          foreach ($line in ($output -split "`r?`n")) {
+            if ($line -match '^The given project `([^`]+)` has') {
+              $current = $Matches[1]
+              $currentExcluded = $excluded.Contains($current)
+              continue
+            }
+            if ($line -match '^\s*>\s+\S+' -and $line -match '\b(High|Critical)\b') {
+              # Only count a project as "skipped" when it actually owns a
+              # High/Critical row, so the log below never claims advisories
+              # that don't exist (e.g. an excluded project with only Moderate).
+              if ($currentExcluded) {
+                [void]$skipped.Add($current)
+                continue
+              }
+              [void]$bad.Add(("[{0}] {1}" -f $current, $line.Trim()))
+            }
           }
-          if ($bad) {
-            Write-Error "High or Critical vulnerable package(s) detected:`n$($bad -join "`n")"
+
+          if ($skipped.Count -gt 0) {
+            Write-Host "Ignored High/Critical advisories in non-shipped sample/test project(s): $($skipped -join ', ')"
+          }
+          if ($bad.Count -gt 0) {
+            Write-Error "High or Critical vulnerable package(s) detected in shipped projects:`n$($bad -join "`n")"
             exit 1
           }
-          Write-Host "No High/Critical vulnerable packages."
+          Write-Host "No High/Critical vulnerable packages in shipped projects."
 
   aot-selftests:
     name: AOT Selftests
