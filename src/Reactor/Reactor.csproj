@@ -85,8 +85,12 @@
                       ReferenceOutputAssembly="false" />
     <!-- Spec 058 §15 (P5.3): the wrapper generator is wired in so built-in
          element descriptors can be generated from [GenerateReactorDescriptor]
-         annotations (e.g. ViewboxElement). Build-time analyzer only — not packed
-         into the nupkg. -->
+         annotations (e.g. ViewboxElement). It is ALSO packed into the nupkg
+         (analyzers/dotnet/cs, in the <None> block below) so consumers can run it
+         against their own [GenerateReactorWrapper] annotations — spec 058 §6's
+         per-consumer generation model. The bundled Reactor.Wrappers.Abstractions.dll
+         (lib/, above) carries the authoring attributes; without the generator
+         shipping beside it those attributes would resolve but be inert. -->
     <ProjectReference Include="..\Reactor.Wrappers.Generator\Reactor.Wrappers.Generator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
@@ -165,6 +169,12 @@
           Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
     <None Include="..\Reactor.Localization.Generator\$(_ReactorAnalyzerBinDir)\Reactor.Localization.Generator.dll"
           Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <!-- The wrapper source generator (spec 058). Shipped so consumers' own
+         [GenerateReactorWrapper] / [GenerateReactorDescriptor] annotations are
+         processed; the authoring attributes ship in lib/ via
+         Reactor.Wrappers.Abstractions.dll. -->
+    <None Include="..\Reactor.Wrappers.Generator\$(_ReactorAnalyzerBinDir)\Reactor.Wrappers.Generator.dll"
+          Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
     <None Include="..\..\LICENSE" Pack="true" PackagePath="" Visible="false" />
     <None Include="..\..\assets\Icon.png" Pack="true" PackagePath="" Visible="false" />
     <None Include="README.md" Pack="true" PackagePath="" Visible="false" />
@@ -224,6 +234,8 @@
           Pack="true" PackagePath="agentkit/plugins/reactor/skills/reactor-recipes/" Visible="false" />
     <None Include="..\..\plugins\reactor\skills\reactor-recipes\references\*"
           Pack="true" PackagePath="agentkit/plugins/reactor/skills/reactor-recipes/references/" Visible="false" />
+    <None Include="..\..\plugins\reactor\skills\reactor-wrapping\*.md"
+          Pack="true" PackagePath="agentkit/plugins/reactor/skills/reactor-wrapping/" Visible="false" />
   </ItemGroup>
 
   <!-- ═══════════════════════════════════════════════════════════════════

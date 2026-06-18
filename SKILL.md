@@ -112,6 +112,25 @@ for the intent → recipe map. Available today: list-add-delete, sidebar-nav,
 form-with-validation, async-fetch-list, themed-card, canvas-positioning,
 named-styles, calendar-multiselect.
 
+## Wrapping native / third-party controls (source generator)
+
+Need a control Reactor has no built-in factory for (a vendor control or your own
+custom `Control`)? Annotate an empty partial record and the
+`[GenerateReactorWrapper]` source generator emits the element, descriptor,
+registration, and a factory named after the control — no hand-written wrapper:
+
+```csharp
+using Microsoft.UI.Reactor.Wrappers;
+[GenerateReactorWrapper(typeof(Acme.Controls.RatingDial))]
+public partial record RatingDialElement;   // → using static …RatingDialElement; RatingDial(value: …, onValueChanged: …)
+```
+
+Full guidance — auto-inference, the `[Wrap*]` annotation cheat-sheet, imperative
+lifecycle, diagnostics, and a gallery of worked examples — is in the
+`reactor-wrapping` skill (`plugins/reactor/skills/reactor-wrapping/`, or
+`agentkit/plugins/reactor/skills/reactor-wrapping/` in the nupkg). Spec:
+`docs/specs/058-control-wrapper-generator.md`.
+
 ## `mur check` — fast feedback with skill pointers
 
 **`mur check` is the build, not a separate check step.** It runs `dotnet build`
