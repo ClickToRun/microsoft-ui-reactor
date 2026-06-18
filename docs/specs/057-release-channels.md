@@ -66,9 +66,10 @@ constraints.
   publish.** A tag push auto-builds and signs; the irreversible nuget.org push
   waits behind a one-click approval gate so a fat-fingered tag never reaches the
   public.
-- Reuse the existing `publishNuGet` / `nuGetFeed` / `nuGetApiKeyVariable`
-  parameters (added to `reactor-build-steps.yml`) rather than inventing new
-  publish plumbing.
+- Reuse the existing `publishNuGet` / `nuGetFeed` parameters in
+  `reactor-build-steps.yml` rather than inventing new publish plumbing.
+  Internal nightly pushes should flow through `NuGetAuthenticate` + the build
+  identity rather than a separate API key secret.
 - Every channel build remains uniquely and monotonically versioned (no
   collisions on any feed).
 
@@ -171,8 +172,9 @@ delimiter, which is safe.
 ## 7. Pipeline Design
 
 The build seams already exist. `reactor-build-steps.yml` exposes `publishNuGet`
-(bool), `nuGetFeed` (push destination), and `nuGetApiKeyVariable` (secret name).
-The **internal nightly** push reuses this build-job plumbing directly. The
+(bool) and `nuGetFeed` (push destination). The **internal nightly** push
+reuses this build-job plumbing directly through `NuGetAuthenticate` / feed
+identity. The
 **public nuget.org** push is different: on the governed OneBranch pipeline,
 publishing to a public, non-Azure feed is its own _release_ pathway and must run
 in a dedicated release stage, not from the build job (§8.3). A channel switch
@@ -500,6 +502,14 @@ through the release stage.
    `publishNuGet: true`, `nuGetFeed: <internal ADO feed>`.
 3. Document the internal-feed `nuget.config` + `0.*-nightly*` consumption for
    insiders.
+
+Implemented shape:
+
+- `build/pipelines/OneBranch.Nightly.Reactor.yml` schedules the nightly run on
+  `main` and passes `channel: nightly` + `publishNuGet: true` into the shared
+  build template.
+- The shared publish step uses `NuGetAuthenticate` / feed identity and pushes to
+  the internal Azure Artifacts feed with `dotnet nuget push --api-key az`.
 
 ### Phase C — (deferred) Public nightly
 

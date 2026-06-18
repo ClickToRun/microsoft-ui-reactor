@@ -1,0 +1,88 @@
+#################################################################################
+#                               OneBranch Pipelines                             #
+# Internal nightly pipeline for Microsoft.UI.Reactor.                           #
+# Builds, signs, packs, and publishes signed nightly NuGet packages to the      #
+# internal Azure Artifacts feed on a daily schedule.                            #
+#################################################################################
+
+trigger: none
+pr: none
+
+schedules:
+- cron: '0 9 * * *'
+  displayName: 'Nightly build main'
+  branches:
+    include:
+      - main
+  always: true
+
+parameters:
+- name: 'debug'
+  displayName: 'Enable debug output'
+  type: boolean
+  default: false
+- name: 'publishNuGet'
+  displayName: 'Publish packages to the internal Azure Artifacts feed.'
+  type: boolean
+  default: true
+
+variables:
+  CDP_DEFINITION_BUILD_COUNT: $[counter('', 0)]
+  system.debug: ${{ parameters.debug }}
+  CI: true
+  CopilotSkipCliDownload: true
+  BuildSolution: $(Build.SourcesDirectory)\Reactor.slnx
+  BuildConfiguration: Release
+  NuGetConfig: $(Build.SourcesDirectory)\build\pipelines\nuget.internal.config
+  InternalNuGetFeed: 'https://pkgs.dev.azure.com/github-private/microsoft/_packaging/microsoft-ui-reactor/nuget/v3/index.json'
+
+  WindowsContainerImage: 'onebranch.azurecr.io/windows/ltsc2022/vse2022:latest'
+
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: OneBranch.Pipelines/GovernedTemplates
+      ref: refs/heads/main
+
+extends:
+  template: v2/OneBranch.Official.CrossPlat.yml@templates
+  parameters:
+    cloudvault:
+      enabled: false
+    globalSdl:
+      tsa:
+        enabled: true
+      policheck:
+        break: true
+
+    stages:
+    - stage: build
+      jobs:
+      - job: main
+        pool:
+          type: windows
+          hostVersion:
+            Version: 2022
+
+        variables:
+          ob_outputDirectory: '$(Build.SourcesDirectory)\out'
+          ob_git_fetchDepth: -1
+          ob_sdl_binskim_enabled: true
+          ob_sdl_binskim_break: true
+          ${{ if eq(variables['Build.SourceBranch'], 'refs/heads/main') }}:
+            ob_symbolsPublishing_enabled: true
+
+        steps:
+          - template: /build/pipelines/templates/reactor-build-steps.yml@self
+            parameters:
+              outputDirectory: '$(Build.SourcesDirectory)\out'
+              solution: '$(BuildSolution)'
+              configuration: '$(BuildConfiguration)'
+              nugetConfig: '$(NuGetConfig)'
+              channel: nightly
+              runTests: true
+              pack: true
+              sign: true
+              publishNuGet: ${{ parameters.publishNuGet }}
+              nuGetFeed: '$(InternalNuGetFeed)'

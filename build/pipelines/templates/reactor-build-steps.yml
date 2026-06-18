@@ -32,6 +32,10 @@ parameters:
     displayName: 'Explicit version; "auto" or blank => MinVer.'
     type: string
     default: 'auto'
+  - name: channel
+    displayName: 'Package channel; nightly appends a nightly prerelease suffix, auto preserves existing tag/PR behavior.'
+    type: string
+    default: 'auto'
   - name: runTests
     displayName: 'Run headless unit tests (tests/Reactor.Tests).'
     type: boolean
@@ -45,13 +49,9 @@ parameters:
     type: boolean
     default: false
   - name: publishNuGet
-    displayName: 'Push the packed .nupkg files to a feed from the BUILD job. Reserved for the internal nightly channel; the public nuget.org release uses the gated release stage, NOT this. Requires the NuGetApiKey secret variable.'
+    displayName: 'Push the packed .nupkg files to a feed from the BUILD job. Reserved for the internal nightly channel; the public nuget.org release uses the gated release stage, NOT this.'
     type: boolean
     default: false
-  - name: nuGetApiKeyVariable
-    displayName: 'Name of the SECRET pipeline variable holding the target-feed API key.'
-    type: string
-    default: 'NuGetApiKey'
   - name: nuGetFeed
     displayName: 'Target NuGet feed (push destination). Default is nuget.org, but the build-job push is intended for the internal nightly feed.'
     type: string
@@ -129,6 +129,7 @@ steps:
 
     - pwsh: |
         $manualVersion = '${{ parameters.version }}'
+        $channel = '${{ parameters.channel }}'.Trim().ToLowerInvariant()
 
         if (-not [string]::IsNullOrWhiteSpace($manualVersion) -and $manualVersion.Trim() -ne 'auto') {
           # Explicit override always wins, verbatim.
@@ -153,12 +154,34 @@ steps:
           }
         }
 
+        if ([string]::IsNullOrWhiteSpace($channel) -or $channel -eq 'auto') {
+          if ($env:BUILD_SOURCEBRANCH -like 'refs/tags/v*') {
+            $channel = if ($version.Contains('-preview.')) { 'preview' } else { 'stable' }
+          } elseif ($env:BUILD_REASON -eq 'PullRequest') {
+            $channel = 'pr'
+          } else {
+            $channel = 'default'
+          }
+        }
+
+        if ($channel -eq 'nightly') {
+          $counter = $env:CDP_DEFINITION_BUILD_COUNT
+          if ([string]::IsNullOrWhiteSpace($counter)) {
+            throw 'CDP_DEFINITION_BUILD_COUNT is required for nightly versioning.'
+          }
+
+          $base = $version.Split('-')[0]  # nightly versions hang off the next reachable base version
+          $date = (Get-Date).ToUniversalTime().ToString('yyyyMMdd')
+          $version = "$base-nightly.$date.$counter"
+        }
+
         if (-not $version) { throw 'Could not resolve version' }
 
         $isPrerelease = $version.Contains('-')
         Write-Host "##vso[task.setvariable variable=PackageVersion]$version"
+        Write-Host "##vso[task.setvariable variable=PackageChannel]$channel"
         Write-Host "##vso[task.setvariable variable=IsPrerelease]$($isPrerelease.ToString().ToLower())"
-        Write-Host "Version: $version (isPrerelease=$isPrerelease)"
+        Write-Host "Version: $version (channel=$channel isPrerelease=$isPrerelease)"
       displayName: 'Resolve version'
 
   - pwsh: |
@@ -500,20 +523,15 @@ steps:
     # the internal feed, never nuget.org.
     #
     # Gated behind a parameter so a normal Official build only PRODUCES the signed packages
-    # (uploaded as artifacts). The API key comes from a SECRET pipeline variable (default name:
-    # NuGetApiKey) -- never committed. Secrets are NOT auto-exposed to script env, so it is
-    # mapped explicitly via `env:`; `--skip-duplicate` makes re-runs idempotent (a version
-    # already on the feed is immutable and would otherwise 409). `dotnet nuget push` also
-    # auto-pushes the adjacent *.snupkg symbol package for each *.nupkg when the target feed
-    # supports symbols, so symbols travel with the package without a separate glob.
+    # (uploaded as artifacts). Nightly/internal pushes authenticate through the existing
+    # NuGetAuthenticate@1 step + feed identity; Azure Artifacts accepts `--api-key az` as the
+    # credential-provider handshake token, so no separate API key secret is required here.
+    # `--skip-duplicate` makes re-runs idempotent (a version already on the feed is immutable
+    # and would otherwise 409). `dotnet nuget push` also auto-pushes the adjacent *.snupkg
+    # symbol package for each *.nupkg when the target feed supports symbols, so symbols travel
+    # with the package without a separate glob.
     - ${{ if eq(parameters.publishNuGet, true) }}:
       - pwsh: |
-          $key = $env:NUGET_API_KEY
-          if ([string]::IsNullOrWhiteSpace($key)) {
-            throw "publishNuGet=true but the secret variable '${{ parameters.nuGetApiKeyVariable }}' is empty or not set. " +
-                  "Add it as a SECRET pipeline variable before queueing a publish run."
-          }
-
           $packages = Get-ChildItem "${{ parameters.outputDirectory }}\nupkg" -Filter *.nupkg -File
           if ($packages.Count -eq 0) { throw "No .nupkg files found to publish." }
 
@@ -524,10 +542,6 @@ steps:
 
           dotnet nuget push "${{ parameters.outputDirectory }}\nupkg\*.nupkg" `
             --source "${{ parameters.nuGetFeed }}" `
-            --api-key $key `
+            --api-key az `
             --skip-duplicate
         displayName: 'Publish NuGet packages (internal nightly feed)'
-        env:
-          # Map the secret pipeline variable into the script environment; secrets are not
-          # injected automatically. The variable NAME is templated; its VALUE stays secret.
-          NUGET_API_KEY: $(${{ parameters.nuGetApiKeyVariable }})
