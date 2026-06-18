@@ -338,6 +338,36 @@ public sealed class WrapperGenerator : IIncrementalGenerator
         var hasManual = manual.Count > 0;
         if (hasManual) exclude = exclude.Union(manual);
 
+        // [WrapElementSlot("Prop", ControlProperty="...")] — a SECONDARY single-element
+        // slot: an Element? property mounted/reconciled into a UIElement-typed (or object)
+        // control property, alongside the primary content/children slot. The generator
+        // surfaces the Element? init prop (+ factory param, full-wrapper) and emits the
+        // mount/reconcile wiring otherwise hand-written as an .ImperativeBridged entry in
+        // Customize (spec 058 §15 — e.g. TabView.TabStripHeader/Footer, SettingsCard.HeaderIcon).
+        var elementSlots = new List<ElementSlotInfo>();
+        var slotSymbol = compilation.GetTypeByMetadataName("Microsoft.UI.Reactor.Wrappers.WrapElementSlotAttribute");
+        if (slotSymbol is not null)
+        {
+            foreach (var a in element.GetAttributes())
+            {
+                if (!SymbolEqualityComparer.Default.Equals(a.AttributeClass, slotSymbol)) continue;
+                if (a.ConstructorArguments.Length < 1 || a.ConstructorArguments[0].Value is not string sp) continue;
+                var controlProp = sp;
+                foreach (var na in a.NamedArguments)
+                    if (na.Key == "ControlProperty" && na.Value.Value is string cp) controlProp = cp;
+                var slotTypeFqn = FindContentProperty(control, controlProp) is { } sps
+                    ? sps.Type.WithNullableAnnotation(NullableAnnotation.NotAnnotated)
+                            .ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                    : null;
+                elementSlots.Add(new ElementSlotInfo(sp, controlProp, slotTypeFqn));
+            }
+        }
+        // Keep both the element-facing name and the target control property out of value-prop
+        // discovery — the slot owns the write, and an object-typed control prop (TabStripHeader)
+        // would otherwise also surface as an `object?` value prop in full-wrapper mode.
+        if (elementSlots.Count > 0)
+            exclude = exclude.Union(elementSlots.SelectMany(s => new[] { s.Name, s.ControlProp }));
+
         // [WrapPanelChildren(PerChild=..., AfterAll=...)] — attached-property panel:
         // wire the generated Panel children strategy's per-child / two-pass attached hook.
         string? panelPerChild = null, panelAfterAll = null;
@@ -502,7 +532,7 @@ public sealed class WrapperGenerator : IIncrementalGenerator
             props, contentProp, panelChildren, items, events,
             descriptorOnly, hasManual, contentElementName, registerAssembly,
             panelPerChild, panelAfterAll, lifecycleMount, lifecycleUnmount,
-            contentPropTypeFqn);
+            contentPropTypeFqn, elementSlots);
 
         var hint = descriptorOnly ? $"{elementName}.Descriptor.g.cs" : $"{elementName}.Wrapper.g.cs";
 
@@ -1338,7 +1368,8 @@ public sealed class WrapperGenerator : IIncrementalGenerator
         string? panelAfterAll = null,
         string? lifecycleMount = null,
         string? lifecycleUnmount = null,
-        string? contentPropTypeFqn = null)
+        string? contentPropTypeFqn = null,
+        IReadOnlyList<ElementSlotInfo>? elementSlots = null)
     {
         const string Element = "global::Microsoft.UI.Reactor.Core.Element";
         const string Action = "global::System.Action";
@@ -1394,6 +1425,12 @@ public sealed class WrapperGenerator : IIncrementalGenerator
             sb.AppendLine($"    /// <summary>Single content child (maps <c>{controlName}.{contentProp}</c>).</summary>");
             sb.AppendLine($"    public {Element}? Content {{ get; init; }}");
         }
+        if (elementSlots is not null)
+            foreach (var slot in elementSlots)
+            {
+                sb.AppendLine($"    /// <summary>Secondary element slot (mounts to <c>{controlName}.{slot.ControlProp}</c>).</summary>");
+                sb.AppendLine($"    public {Element}? {slot.Name} {{ get; init; }}");
+            }
         if (panelChildren)
         {
             sb.AppendLine($"    /// <summary>Child elements appended to <c>{controlName}.Children</c>.</summary>");
@@ -1611,6 +1648,34 @@ public sealed class WrapperGenerator : IIncrementalGenerator
             sb.AppendLine($"            slotIsNull: static p => p.{e.Name}Slot is null,");
             sb.Append($"            setSlot: static (p, h) => p.{e.Name}Slot = h)");
         }
+        // [WrapElementSlot] — secondary single-element slots. Each emits an
+        // .ImperativeBridged entry: mount via the public ctx.MountChild, update via the
+        // public ctx.ReconcileChild (state-preserving reconcile). The mounted UIElement is
+        // down-cast to the control property's type only when it is narrower than UIElement
+        // (object/UIElement assign directly). These write DEDICATED control properties, so
+        // their position in the post-Customize auto chain is order-independent.
+        if (elementSlots is not null)
+            foreach (var slot in elementSlots)
+            {
+                var narrow = slot.ControlPropTypeFqn is not (null or "object"
+                    or "global::System.Object" or UIElement);
+                // Narrow control prop (e.g. IconElement): down-cast the mounted UIElement
+                // and null-forgive (the `as` widens to nullable; the control property is
+                // non-null-annotated, and on removal the null is the intended "no child").
+                var mountExpr = narrow
+                    ? $"(ctx.MountChild(e.{slot.Name}) as {slot.ControlPropTypeFqn})!"
+                    : $"ctx.MountChild(e.{slot.Name})";
+                var nextExpr = narrow ? $"(__next as {slot.ControlPropTypeFqn})!" : "__next";
+                sb.AppendLine();
+                sb.AppendLine("        .ImperativeBridged(");
+                sb.AppendLine($"            mount: static (ctx, c, e) => {{ if (e.{slot.Name} is not null) c.{slot.ControlProp} = {mountExpr}; }},");
+                sb.AppendLine("            update: static (ctx, c, __o, __n) =>");
+                sb.AppendLine("            {");
+                sb.AppendLine($"                if (__o.{slot.Name} is null && __n.{slot.Name} is null) return;");
+                sb.AppendLine($"                var __existing = c.{slot.ControlProp} as {UIElement};");
+                sb.AppendLine($"                var __next = ctx.ReconcileChild(__o.{slot.Name}, __n.{slot.Name}, __existing);");
+                sb.Append($"                if (!ReferenceEquals(__existing, __next)) c.{slot.ControlProp} = {nextExpr};\n            }})");
+            }
         sb.AppendLine(";");
         sb.AppendLine();
 
@@ -1671,6 +1736,13 @@ public sealed class WrapperGenerator : IIncrementalGenerator
             factoryParams.Add($"{Element}? content = null");
             assigns.Add("Content = content");
         }
+        if (elementSlots is not null)
+            foreach (var slot in elementSlots)
+            {
+                var arg = CamelEscaped(slot.Name);
+                factoryParams.Add($"{Element}? {arg} = null");
+                assigns.Add($"{slot.Name} = {arg}");
+            }
         foreach (var e in events)
         {
             var arg = "on" + e.Name;
@@ -1768,6 +1840,11 @@ public sealed class WrapperGenerator : IIncrementalGenerator
         string? ControlledDelegate = null);
 
     private sealed record EventInfo(string Name, string DelegateType, bool Typed = false, ImmutableArray<string> ArgProperties = default, ImmutableArray<string> ArgTypes = default);
+
+    // A [WrapElementSlot] secondary element slot: the element-facing Element? property
+    // name, the control property the mounted element is assigned to, and that control
+    // property's type FQN (used to decide whether a down-cast from UIElement is needed).
+    private sealed record ElementSlotInfo(string Name, string ControlProp, string? ControlPropTypeFqn);
 
     private sealed record WrapperModel(string? HintName, string? Source, Diagnostic? Diagnostic)
     {

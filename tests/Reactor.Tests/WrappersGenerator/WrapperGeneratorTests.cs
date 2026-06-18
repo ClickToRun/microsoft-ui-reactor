@@ -1662,4 +1662,121 @@ public partial record FakeControlElement;
             result.GeneratedTrees,
             t => t.FilePath.EndsWith("FakeControlElement.Wrapper.g.cs", StringComparison.Ordinal));
     }
+
+    // A control with a secondary element slot (UIElement-derived HeaderIcon +
+    // object-typed Banner), used by the [WrapElementSlot] tests below.
+    private const string SlotStubs = @"
+namespace Microsoft.UI.Xaml.Controls
+{
+    public class IconElement : Microsoft.UI.Xaml.FrameworkElement {}
+}
+namespace App
+{
+    public class SlotControl : Microsoft.UI.Xaml.Controls.Control
+    {
+        public object Content { get; set; }
+        public Microsoft.UI.Xaml.Controls.IconElement HeaderIcon { get; set; }
+        public object Banner { get; set; }
+    }
+}
+";
+
+    [Fact]
+    public void WrapElementSlot_FullWrapper_Emits_InitProp_Factory_And_CastBridge()
+    {
+        // [WrapElementSlot("HeaderIcon")] on a full wrapper surfaces an Element?
+        // init prop + factory param, and emits a state-preserving ImperativeBridged
+        // entry (mount via ctx.MountChild, update via ctx.ReconcileChild). Because
+        // HeaderIcon's control type is narrower than UIElement, the mounted child is
+        // down-cast to that type.
+        var result = Run(Stubs + SlotStubs + @"
+[Microsoft.UI.Reactor.Wrappers.GenerateReactorWrapper(typeof(App.SlotControl))]
+[Microsoft.UI.Reactor.Wrappers.WrapElementSlot(""HeaderIcon"")]
+public partial record SlotControlElement;
+");
+        var src = WrapperFor(result, "SlotControlElement");
+
+        // Element-facing init prop + factory param.
+        Assert.Contains("public global::Microsoft.UI.Reactor.Core.Element? HeaderIcon { get; init; }", src);
+        Assert.Contains("global::Microsoft.UI.Reactor.Core.Element? headerIcon = null", src);
+        Assert.Contains("HeaderIcon = headerIcon", src);
+
+        // ImperativeBridged mount/reconcile with a down-cast to the narrow control type.
+        Assert.Contains(".ImperativeBridged(", src);
+        Assert.Contains("if (e.HeaderIcon is not null) c.HeaderIcon = (ctx.MountChild(e.HeaderIcon) as global::Microsoft.UI.Xaml.Controls.IconElement)!;", src);
+        Assert.Contains("var __next = ctx.ReconcileChild(__o.HeaderIcon, __n.HeaderIcon, __existing);", src);
+        Assert.Contains("if (!ReferenceEquals(__existing, __next)) c.HeaderIcon = (__next as global::Microsoft.UI.Xaml.Controls.IconElement)!;", src);
+
+        // The slot's control property is NOT also surfaced as a value prop.
+        Assert.DoesNotContain("c.HeaderIcon = v", src);
+
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void WrapElementSlot_ObjectTypedSlot_Emits_NoCast()
+    {
+        // An object-typed control property (Banner) takes the mounted UIElement
+        // directly — no down-cast.
+        var result = Run(Stubs + SlotStubs + @"
+[Microsoft.UI.Reactor.Wrappers.GenerateReactorWrapper(typeof(App.SlotControl))]
+[Microsoft.UI.Reactor.Wrappers.WrapElementSlot(""Banner"")]
+public partial record SlotControlElement;
+");
+        var src = WrapperFor(result, "SlotControlElement");
+
+        Assert.Contains("if (e.Banner is not null) c.Banner = ctx.MountChild(e.Banner);", src);
+        Assert.Contains("if (!ReferenceEquals(__existing, __next)) c.Banner = __next;", src);
+        // No value-prop write and no object? value prop leaked for the slot.
+        Assert.DoesNotContain("c.Banner = v", src);
+
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void WrapElementSlot_ControlPropertyMapping_Writes_TargetProperty()
+    {
+        // ControlProperty renames the element-facing slot relative to the control
+        // property it writes: element prop `Glyph` -> control `HeaderIcon`.
+        var result = Run(Stubs + SlotStubs + @"
+[Microsoft.UI.Reactor.Wrappers.GenerateReactorWrapper(typeof(App.SlotControl))]
+[Microsoft.UI.Reactor.Wrappers.WrapElementSlot(""Glyph"", ControlProperty = ""HeaderIcon"")]
+public partial record SlotControlElement;
+");
+        var src = WrapperFor(result, "SlotControlElement");
+
+        Assert.Contains("public global::Microsoft.UI.Reactor.Core.Element? Glyph { get; init; }", src);
+        Assert.Contains("if (e.Glyph is not null) c.HeaderIcon = (ctx.MountChild(e.Glyph) as global::Microsoft.UI.Xaml.Controls.IconElement)!;", src);
+        Assert.Contains("var __next = ctx.ReconcileChild(__o.Glyph, __n.Glyph, __existing);", src);
+
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void WrapElementSlot_DescriptorOnly_Emits_Bridge_Without_InitProp_Or_Factory()
+    {
+        // Descriptor-only mode: the author-written record declares the Element?
+        // slot prop itself, so the generator emits ONLY the ImperativeBridged chain
+        // entry — no init prop, no factory.
+        var result = Run(Stubs + SlotStubs + @"
+namespace Microsoft.UI.Reactor.Core { public abstract record Element; }
+[Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(App.SlotControl))]
+public partial record SlotControlElement : Microsoft.UI.Reactor.Core.Element
+{
+    public Microsoft.UI.Reactor.Core.Element? Content { get; init; }
+    public Microsoft.UI.Reactor.Core.Element? HeaderIcon { get; init; }
+}
+[Microsoft.UI.Reactor.Wrappers.WrapElementSlot(""HeaderIcon"")]
+public partial record SlotControlElement;
+");
+        var src = DescriptorFor(result, "SlotControlElement");
+
+        Assert.Contains(".ImperativeBridged(", src);
+        Assert.Contains("var __next = ctx.ReconcileChild(__o.HeaderIcon, __n.HeaderIcon, __existing);", src);
+        // Descriptor-only: no init-prop declarations, no factory.
+        Assert.DoesNotContain("{ get; init; }", src);
+        Assert.DoesNotContain("public static SlotControlElement SlotControl(", src);
+
+        Assert.Empty(result.Diagnostics);
+    }
 }
