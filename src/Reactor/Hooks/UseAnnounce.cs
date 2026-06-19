@@ -1,3 +1,4 @@
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation.Peers;
@@ -17,6 +18,7 @@ namespace Microsoft.UI.Reactor.Hooks;
 public sealed class AnnounceHandle
 {
     private TextBlock? _textBlock;
+    private DispatcherQueue? _dispatcherQueue;
 
     /// <summary>
     /// A zero-size, invisible Reactor element that acts as the live-region anchor.
@@ -33,7 +35,13 @@ public sealed class AnnounceHandle
         Region = new AnnounceRegionElement(this);
     }
 
-    internal void SetTextBlock(TextBlock tb) => _textBlock = tb;
+    internal void SetTextBlock(TextBlock tb)
+    {
+        _textBlock = tb;
+        // Captured on the UI thread (reconciler mount) so Announce can marshal
+        // back here when called from a background thread.
+        _dispatcherQueue = tb.DispatcherQueue;
+    }
 
     /// <summary>
     /// Announces a message to screen readers (polite — queued after current speech).
@@ -50,6 +58,22 @@ public sealed class AnnounceHandle
     /// </param>
     // <snippet:announce-live-region>
     public void Announce(string message, bool assertive)
+    {
+        if (_textBlock is null) return;
+
+        // WinUI XAML APIs throw RPC_E_WRONG_THREAD (0x8001010E) off the UI thread.
+        // Marshal back to the captured DispatcherQueue when called cross-thread; the
+        // UI-thread fast path is a single HasThreadAccess bool check.
+        if (_dispatcherQueue is { } dq && !dq.HasThreadAccess)
+        {
+            dq.TryEnqueue(() => AnnounceCore(message, assertive));
+            return;
+        }
+
+        AnnounceCore(message, assertive);
+    }
+
+    private void AnnounceCore(string message, bool assertive)
     {
         if (_textBlock is null) return;
 

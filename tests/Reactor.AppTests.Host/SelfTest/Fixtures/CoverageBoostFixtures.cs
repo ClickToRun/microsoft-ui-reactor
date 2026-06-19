@@ -1,5 +1,6 @@
 using Microsoft.UI.Reactor;
 using Microsoft.UI.Reactor.Core;
+using Microsoft.UI.Reactor.Hooks;
 using Microsoft.UI.Reactor.Hosting;
 using Microsoft.UI.Reactor.AppTests.Host.SelfTest;
 using Microsoft.UI.Xaml;
@@ -537,6 +538,59 @@ internal static class CoverageBoostFixtures
             H.ClickButton("DoAnnounce");
             await Harness.Render();
             H.Check("Announce_AfterCall", H.FindText("Announced:1") is not null);
+        }
+    }
+
+    // Issue #130 — Announce must marshal to the UI thread automatically.
+    // Calling Announce off the UI thread previously threw RPC_E_WRONG_THREAD
+    // (0x8001010E) synchronously on the background thread, silently eating the
+    // caller's Task. This component captures the handle so the fixture can call
+    // Announce from a Task.Run continuation.
+    private sealed class BackgroundAnnounceComponent : Component
+    {
+        public AnnounceHandle? Captured;
+
+        public override Element Render()
+        {
+            var announce = UseAnnounce();
+            Captured = announce;
+            return VStack(
+                announce.Region,
+                TextBlock("BackgroundAnnounceReady"));
+        }
+    }
+
+    internal class UseAnnounceCrossThread(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            var component = new BackgroundAnnounceComponent();
+            host.Mount(component);
+            await Harness.Render();
+
+            H.Check("CrossThreadAnnounce_Mounted", H.FindText("BackgroundAnnounceReady") is not null);
+            H.Check("CrossThreadAnnounce_HandleCaptured", component.Captured is not null);
+
+            // Call Announce from a background thread. Before the fix this threw
+            // synchronously; after the fix it marshals via TryEnqueue and returns.
+            Exception? caught = null;
+            await Task.Run(() =>
+            {
+                try
+                {
+                    component.Captured!.Announce("from background thread", assertive: false);
+                }
+                catch (Exception ex)
+                {
+                    caught = ex;
+                }
+            });
+
+            // Flush the marshalled work onto the UI thread.
+            await Harness.Render();
+
+            H.Check("CrossThreadAnnounce_NoThrow", caught is null);
         }
     }
 
