@@ -2,6 +2,26 @@
 
 This runbook describes how to prepare and trigger a public Microsoft.UI.Reactor preview release.
 
+## Internal nightly channel
+
+Reactor also has an internal nightly channel for signed pre-release packages on
+the Azure Artifacts feed used by the OneBranch build. The nightly pipeline is
+`build/pipelines/OneBranch.Nightly.Reactor.yml`; it runs on a daily schedule,
+builds `main`, and publishes versions shaped like
+`0.2.0-nightly.<yyyyMMdd>.<counter>` to the internal feed.
+
+To consume the nightly channel internally, add this feed source to your
+`nuget.config` and float the package version on the nightly label, for example:
+
+`https://pkgs.dev.azure.com/github-private/microsoft/_packaging/microsoft-ui-reactor-internal/nuget/v3/index.json`
+
+```xml
+<PackageReference Include="Microsoft.UI.Reactor" Version="0.*-nightly*" />
+```
+
+Nightly packages are internal-only and auto-published; they do not go through
+the public NuGet.org approval gate below.
+
 ## Release model
 
 Reactor versions are tag-driven. A tag named `v0.1.0-preview.3` makes MinVer resolve package version `0.1.0-preview.3` for that exact commit. The tag push starts the GitHub packaging workflow and the OneBranch official pipeline; the OneBranch NuGet publish stage is approval-gated.
