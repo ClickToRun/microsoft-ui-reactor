@@ -857,7 +857,8 @@ cref through three lookup stages:
 1. **Cref → member.** Roslyn already does this; `mur docs compile`
    reuses the same resolution against the `.xml` doc files (which are
    keyed by the canonical cref form `M:Namespace.Type.Method`). An
-   unresolvable cref is a build error (`REACTOR_DOC_002`).
+   unresolvable cref is flagged by the built-in `CS1574` warning
+   (severity configured in `src/Reactor/.editorconfig`).
 2. **Member → reference-page URL.** The post-processor knows the
    output path of every generated page (determined by §10.4 category
    routing), so it can emit a relative MD link from the current

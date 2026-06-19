@@ -312,7 +312,7 @@ Full coverage on [Theming Tokens](theming-tokens.md).
 | Lightweight styling, not implicit resources | `REACTOR_THEME_002` | [Styling](styling.md) |
 | `RequestedTheme` is a render input, not a setter | `REACTOR_THEME_003` | [Styling](styling.md) |
 | XML docs on public APIs | `REACTOR_DOC_001` | (framework code) |
-| `<see cref="..."/>` resolves | `REACTOR_DOC_002` | (framework code) |
+| `<see cref="..."/>` resolves | `CS1574` | (framework code) |
 | Accessible name on interactive elements | `REACTOR_A11Y_001..003` | [Accessibility](accessibility.md) |
 
 ## Tips

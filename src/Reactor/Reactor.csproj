@@ -48,12 +48,13 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <!-- Suppress missing-XML-doc warnings on public API. The .xml doc file
          still ships whatever comments do exist; we just don't gate the
-         build on documenting every public member. REACTOR_DOC_001 / _002
-         are the Reactor-specific equivalents (spec 041 §10.4) — same
-         policy applies. The analyzer is still wired in via the
-         Reactor.Analyzers.Internal ProjectReference below so any project
-         that wants stricter doc enforcement can re-enable per-rule. -->
-    <NoWarn>$(NoWarn);CS1591;REACTOR_DOC_001;REACTOR_DOC_002</NoWarn>
+         build on documenting every public member. REACTOR_DOC_001 is the
+         Reactor-specific equivalent (spec 041 §10.4) — same policy applies.
+         The analyzer is still wired in via the Reactor.Analyzers.Internal
+         ProjectReference below so any project that wants stricter doc
+         enforcement can re-enable per-rule. Unresolved crefs are covered by
+         the built-in CS1574 (severity configured in src/Reactor/.editorconfig). -->
+    <NoWarn>$(NoWarn);CS1591;REACTOR_DOC_001</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

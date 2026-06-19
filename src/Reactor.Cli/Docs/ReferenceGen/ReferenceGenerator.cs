@@ -141,8 +141,8 @@ internal sealed class ReferenceGenerator
                 // In Phase 1B only the Hooks category emits pages, so most
                 // cross-namespace crefs (Core, Input, System) are
                 // legitimately outside the routed set. Downgrade to a
-                // warning so the prototype completes; the canonical Roslyn
-                // cref check is REACTOR_DOC_002 (analyzer task 1.8). Crefs
+                // warning so the prototype completes; the canonical cref
+                // check is the built-in CS1574. Crefs
                 // pointing into other Reactor namespaces become resolvable
                 // when later phases bring those categories online.
                 findings.Add(new RefGenFinding(
