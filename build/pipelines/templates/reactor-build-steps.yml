@@ -532,16 +532,26 @@ steps:
     # with the package without a separate glob.
     - ${{ if eq(parameters.publishNuGet, true) }}:
       - pwsh: |
+          $feed = '${{ parameters.nuGetFeed }}'
+          if ([string]::IsNullOrWhiteSpace($feed)) {
+            throw 'publishNuGet=true but nuGetFeed is empty.'
+          }
+
+          # Build-job publishing is reserved for internal Azure Artifacts feeds.
+          if ($feed -notlike 'https://pkgs.dev.azure.com/github-private/microsoft/_packaging/*/nuget/v3/index.json') {
+            throw "publishNuGet=true requires an internal Azure Artifacts feed under github-private/microsoft. Refusing feed: $feed"
+          }
+
           $packages = Get-ChildItem "${{ parameters.outputDirectory }}\nupkg" -Filter *.nupkg -File
           if ($packages.Count -eq 0) { throw "No .nupkg files found to publish." }
 
-          Write-Host "Publishing $($packages.Count) package(s) to ${{ parameters.nuGetFeed }}"
+          Write-Host "Publishing $($packages.Count) package(s) to $feed"
           foreach ($pkg in $packages) {
             Write-Host "  -> $($pkg.Name)"
           }
 
           dotnet nuget push "${{ parameters.outputDirectory }}\nupkg\*.nupkg" `
-            --source "${{ parameters.nuGetFeed }}" `
+            --source "$feed" `
             --api-key az `
             --skip-duplicate
         displayName: 'Publish NuGet packages (internal nightly feed)'
