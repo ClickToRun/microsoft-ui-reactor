@@ -1,8 +1,5 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.UI.Reactor.AppTests.Infrastructure;
-using OpenQA.Selenium;
-using OpenQA.Selenium.Appium;
-using OpenQA.Selenium.Interactions;
 
 namespace Microsoft.UI.Reactor.AppTests.Tests;
 
@@ -10,6 +7,10 @@ namespace Microsoft.UI.Reactor.AppTests.Tests;
 /// E2E tests for spec 027 Tier 3 gesture modifiers. Drives real user input
 /// (mouse drag, right-click, double-click, mouse hold) against the host
 /// fixtures declared in <c>GestureE2EFixtures.cs</c>.
+///
+/// winapp ui has no drag and no press-hold, so the pan + long-press gestures
+/// use the Win32 <see cref="InputInjector"/> fallback; double/right click use
+/// winapp's native click verbs.
 /// </summary>
 [TestClass]
 public class GestureTests : AppTestBase
@@ -31,13 +32,11 @@ public class GestureTests : AppTestBase
 
         WaitForText("PanPhase", "phase=idle");
 
-        var target = FindById("PanTarget");
-        new Actions(Session)
-            .MoveToElement(target)
-            .ClickAndHold()
-            .MoveByOffset(60, 40)
-            .Release()
-            .Perform();
+        var r = FindById("PanTarget").Rect;
+        InputInjector.Foreground(HostHwnd);
+        InputInjector.Drag(InputInjector.DragPath(
+            r.X + r.Width / 2, r.Y + r.Height / 2,
+            r.X + r.Width / 2 + 60, r.Y + r.Height / 2 + 40));
 
         // Either Ended (best case) or Changed (if WinUI swallowed the last frame) is acceptable;
         // the important part is that the reconciler wired the manipulation events correctly.
@@ -62,9 +61,8 @@ public class GestureTests : AppTestBase
 
         WaitForText("DoubleTapCount", "Doubletap count: 0");
 
-        new Actions(Session)
-            .DoubleClick(FindById("DoubleTapTarget"))
-            .Perform();
+        InputInjector.Foreground(HostHwnd);
+        App.Click("DoubleTapTarget", doubleClick: true);
 
         WaitForText("DoubleTapCount", "Doubletap count: 1");
     }
@@ -79,9 +77,8 @@ public class GestureTests : AppTestBase
 
         WaitForText("RightTapCount", "Righttap count: 0");
 
-        new Actions(Session)
-            .ContextClick(FindById("RightTapTarget"))
-            .Perform();
+        InputInjector.Foreground(HostHwnd);
+        App.Click("RightTapTarget", rightClick: true);
 
         WaitForText("RightTapCount", "Righttap count: 1");
     }
@@ -97,14 +94,11 @@ public class GestureTests : AppTestBase
 
         WaitForText("LongPressCount", "Longpress count: 0");
 
-        var target = FindById("LongPressTarget");
-        new Actions(Session)
-            .MoveToElement(target)
-            .ClickAndHold()
-            .Perform();
-        Thread.Sleep(TimeSpan.FromMilliseconds(600));
-        new Actions(Session).Release().Perform();
+        var r = FindById("LongPressTarget").Rect;
+        InputInjector.Foreground(HostHwnd);
+        InputInjector.PressHoldRelease(r.X + r.Width / 2, r.Y + r.Height / 2, holdMs: 600);
 
         WaitForText("LongPressCount", "Longpress count: 1", timeoutMs: 6000);
     }
 }
+

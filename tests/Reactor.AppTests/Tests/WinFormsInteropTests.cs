@@ -1,6 +1,4 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using OpenQA.Selenium;
-using OpenQA.Selenium.Appium;
 using Microsoft.UI.Reactor.AppTests.Infrastructure;
 
 namespace Microsoft.UI.Reactor.AppTests.Tests;
@@ -9,7 +7,7 @@ namespace Microsoft.UI.Reactor.AppTests.Tests;
 /// End-to-end tests for WinForms ↔ XAML Island interop.
 ///
 /// These tests launch a real WinForms app with a XAML Island (Reactor.WinFormsTests.Host)
-/// and drive it through Appium/WinAppDriver to validate:
+///   and drive it through winapp ui (UIA) to validate:
 ///   - Tab navigation across the WinForms ↔ WinUI boundary
 ///   - Rendering of Reactor/WinUI controls inside the island
 ///   - Accessibility properties exposed through the UIA pipeline

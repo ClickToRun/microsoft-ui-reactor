@@ -1,15 +1,14 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.UI.Reactor.AppTests.Infrastructure;
-using OpenQA.Selenium;
-using OpenQA.Selenium.Appium;
-using OpenQA.Selenium.Appium.Windows;
 
 namespace Microsoft.UI.Reactor.AppTests.Tests;
 
 /// <summary>
-/// E2E tests for DataGrid inline editing using Appium/WinAppDriver.
-/// Exercises click-to-edit, real keyboard input, cross-row commit, and
-/// same-row cell switching through the full WinUI accessibility pipeline.
+/// E2E tests for DataGrid inline editing. Exercises click-to-edit, real keyboard input,
+/// cross-row commit, and same-row cell switching through the full WinUI accessibility
+/// pipeline. Cells are located + clicked via winapp ui; the inline editor TextBox has no
+/// stable AutomationId, so text is typed into the focused control with the Win32
+/// <see cref="InputInjector"/> fallback (winapp ui has no keyboard typing).
 /// </summary>
 [TestClass]
 public class DataGridTests : AppTestBase
@@ -24,7 +23,7 @@ public class DataGridTests : AppTestBase
     /// Click a cell to enter edit mode, type a new value, click a different
     /// row to commit, then click the second column to edit it, type, and
     /// press Enter to commit. Verifies the full editing pipeline through
-    /// real mouse and keyboard input via WinAppDriver.
+    /// real mouse and keyboard input.
     /// </summary>
     [TestMethod]
     public void Interactive_DataGrid_ClickEditTabCommit()
@@ -38,12 +37,9 @@ public class DataGridTests : AppTestBase
 
         // 2. Click "Alice" to start editing FirstName in row 1
         FindByName("Alice").Click();
-        var editor1 = WaitForEditor("editor after clicking Alice");
-        Assert.IsNotNull(editor1, "TextBox editor should appear after clicking cell");
 
-        // 3. Clear and type new value
-        editor1.Clear();
-        editor1.SendKeys("Alicia");
+        // 3. Clear and type new value into the now-focused inline editor
+        TypeIntoFocusedEditor("Alicia");
 
         // 4. Click "Bob" (different row) to commit the FirstName edit
         Assert.IsNotNull(FindByName("Bob"), "'Bob' should be visible while editing");
@@ -56,15 +52,9 @@ public class DataGridTests : AppTestBase
         // 6. Click "Smith" to edit LastName in row 1
         Assert.IsNotNull(WaitForName("Smith"), "'Smith' should be visible");
         FindByName("Smith").Click();
-        var editor2 = WaitForEditor("editor after clicking Smith");
-        Assert.IsNotNull(editor2, "TextBox editor should appear for LastName");
 
-        // 7. Clear and type
-        editor2.Clear();
-        editor2.SendKeys("Johnson");
-
-        // 8. Press Enter to commit
-        editor2.SendKeys(Keys.Enter);
+        // 7. Clear and type, 8. press Enter to commit
+        TypeIntoFocusedEditor("Johnson", commitWithEnter: true);
 
         // 9. Verify second edit committed
         WaitForText("EditStatus", "Last edit: 1:Alicia,Johnson");
@@ -72,42 +62,34 @@ public class DataGridTests : AppTestBase
         Assert.IsNotNull(WaitForName("Johnson"), "'Johnson' should be visible after commit");
     }
 
-    private WindowsElement? WaitForEditor(string context, int timeoutMs = 5000)
+    /// <summary>
+    /// Replace the contents of the inline editor that received focus when its cell was clicked.
+    /// The editor has no AutomationId, so we clear + type into whatever control currently holds
+    /// keyboard focus (the cell click puts the editor in focus).
+    /// </summary>
+    private void TypeIntoFocusedEditor(string value, bool commitWithEnter = false)
+    {
+        Thread.Sleep(300); // let the editor mount + take focus after the cell click
+        InputInjector.Foreground(HostHwnd);
+        InputInjector.ClearViaKeyboard();
+        InputInjector.TypeKeys(value);
+        if (commitWithEnter)
+            InputInjector.TypeKeys(Keys.Enter);
+    }
+
+    private UiElement? WaitForName(string name, int timeoutMs = 5000)
     {
         var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
         while (DateTime.UtcNow < deadline)
         {
-            var found = FindAnyEditor();
-            if (found is not null) return found;
+            var matches = App.Search(name);
+            var exact = matches.FirstOrDefault(m => m.Name == name) ?? matches.FirstOrDefault();
+            if (exact is not null)
+            {
+                var selector = !string.IsNullOrEmpty(exact.AutomationId) ? exact.AutomationId! : exact.Selector;
+                return Element(selector, exact.AutomationId);
+            }
             Thread.Sleep(100);
-        }
-        return null;
-    }
-
-    private WindowsElement? FindAnyEditor()
-    {
-        try
-        {
-            var eds = Session.FindElements(MobileBy.ClassName("TextBox"));
-            if (eds.Count > 0) return eds[^1];
-        }
-        catch (WebDriverException) { }
-        try
-        {
-            var eds = Session.FindElements(By.XPath("//Edit"));
-            if (eds.Count > 0) return eds[^1];
-        }
-        catch (WebDriverException) { }
-        return null;
-    }
-
-    private WindowsElement? WaitForName(string name, int timeoutMs = 5000)
-    {
-        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
-        while (DateTime.UtcNow < deadline)
-        {
-            try { return Session.FindElement(MobileBy.Name(name)); }
-            catch (WebDriverException) { Thread.Sleep(100); }
         }
         return null;
     }

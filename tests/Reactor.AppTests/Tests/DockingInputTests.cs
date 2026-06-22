@@ -1,8 +1,6 @@
+using System.Drawing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.UI.Reactor.AppTests.Infrastructure;
-using OpenQA.Selenium;
-using OpenQA.Selenium.Appium;
-using OpenQA.Selenium.Interactions;
 
 namespace Microsoft.UI.Reactor.AppTests.Tests;
 
@@ -17,6 +15,9 @@ namespace Microsoft.UI.Reactor.AppTests.Tests;
 /// another." The fix lives in
 /// <c>Reconciler.Update.UpdateTabView</c> +
 /// <c>Reconciler.Mount.TryUpdatePinHeaderInPlace</c>.
+///
+/// Keyboard input + tab-header drags are synthesized via the Win32
+/// <see cref="InputInjector"/> fallback (winapp ui has no typing or drag verb).
 /// </summary>
 [TestClass]
 public class DockingInputTests : AppTestBase
@@ -26,6 +27,21 @@ public class DockingInputTests : AppTestBase
 
     [ClassCleanup]
     public static void StopAppSession() => TestSession.AssemblyCleanup();
+
+    private static (int X, int Y) Center(Rectangle r) => (r.X + r.Width / 2, r.Y + r.Height / 2);
+
+    /// <summary>Drag one tab header onto another to merge the panes into one tab group.</summary>
+    private void DragTabOnto(string fromName, string toName)
+    {
+        var f = Center(FindByName(fromName).Rect);
+        var t = Center(FindByName(toName).Rect);
+        InputInjector.Foreground(HostHwnd);
+        InputInjector.Drag(new[]
+        {
+            f, (f.X - 8, f.Y), (f.X - 16, f.Y), (f.X - 36, f.Y),
+            ((f.X + t.X) / 2, (f.Y + t.Y) / 2), t,
+        });
+    }
 
     /// <summary>
     /// Type a multi-character string into the left pane's TextBox,
@@ -47,9 +63,7 @@ public class DockingInputTests : AppTestBase
 
         // Click into the left TextBox and type. The Thread.Sleep
         // gives WinUI time to settle focus into the inner Edit
-        // control before SendKeys delivers the first character — a
-        // brief grace window that matches the WinFormsInteropTests
-        // convention and isn't a real-user-perceived latency.
+        // control before SendKeys delivers the first character.
         var leftField = FindById("DockEditor_Left");
         leftField.Click();
         Thread.Sleep(250);
@@ -129,37 +143,17 @@ public class DockingInputTests : AppTestBase
 
         // Drag the right tab's header onto the left tab's header. The
         // mid-travel offsets force WinUI to observe continuous pointer
-        // motion (matches the DragDrop test convention — a single
-        // MoveToElement is too abrupt for WinUI's drag-detection
-        // threshold under synthesized Appium events).
-        //
-        // We locate the tab headers by Name (the tab caption maps to
-        // UIA Name on the TabViewItem header). If WinAppDriver can't
-        // resolve them by Name, fall back to a tab-strip walk by
-        // class — but in practice the Name lookup is reliable.
-        var rightTab = Session.FindElement(MobileBy.Name("Right"));
-        var leftTab = Session.FindElement(MobileBy.Name("Left"));
-
-        new Actions(Session)
-            .MoveToElement(rightTab)
-            .ClickAndHold()
-            .MoveByOffset(-20, 0).MoveByOffset(-20, 0)
-            .MoveToElement(leftTab)
-            .Release()
-            .Perform();
+        // motion (matches the DragDrop test convention).
+        DragTabOnto("Right", "Left");
 
         // After the drag, both panes are tabs in the same group.
-        // Verify that typing into the post-merge active tab still
-        // works — that's the headline focus / input contract.
-        var active = Session.SwitchTo().ActiveElement();
-        active.SendKeys("X");
+        // Verify that typing into the post-merge active tab still works.
+        InputInjector.Foreground(HostHwnd);
+        InputInjector.TypeKeys("X");
         Thread.Sleep(250);
 
         // One of the two state TextBlocks must end in "X" (whichever
-        // pane is active after the merge). This pins the
-        // typing-post-drag contract; state-preservation across the
-        // drag is asserted separately below so the two failure modes
-        // stay distinguishable.
+        // pane is active after the merge).
         var leftAfter = FindById("DockEditor_Left_State").Text ?? "";
         var rightAfter = FindById("DockEditor_Right_State").Text ?? "";
         Assert.IsTrue(
@@ -171,11 +165,7 @@ public class DockingInputTests : AppTestBase
     /// <summary>
     /// Companion to <see cref="DockingInput_DragToTab_PreservesFocusAndState"/>:
     /// after dragging the right pane's tab into the left pane's group,
-    /// both pre-drag state values ("alpha" / "beta") must survive. This
-    /// validates the §2.30 contract that the shape-only override
-    /// resolves Content back from the app-supplied <c>manager.Layout</c>
-    /// by Key, so the controlled-input state held in the pane's Memo /
-    /// UseState slot survives the layout mutation.
+    /// both pre-drag state values ("alpha" / "beta") must survive.
     /// </summary>
     [TestMethod]
     public void DockingInput_DragToTab_PreservesPreDragState()
@@ -193,19 +183,10 @@ public class DockingInputTests : AppTestBase
         rightField.SendKeys("beta");
         WaitForText("DockEditor_Right_State", "Right state: beta");
 
-        var rightTab = Session.FindElement(MobileBy.Name("Right"));
-        var leftTab = Session.FindElement(MobileBy.Name("Left"));
-        new Actions(Session)
-            .MoveToElement(rightTab)
-            .ClickAndHold()
-            .MoveByOffset(-20, 0).MoveByOffset(-20, 0)
-            .MoveToElement(leftTab)
-            .Release()
-            .Perform();
+        DragTabOnto("Right", "Left");
         Thread.Sleep(500);
 
         WaitForText("DockEditor_Left_State", "Left state: alpha", timeoutMs: 5000);
         WaitForText("DockEditor_Right_State", "Right state: beta", timeoutMs: 5000);
     }
-
 }

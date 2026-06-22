@@ -1,6 +1,4 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using OpenQA.Selenium;
-using OpenQA.Selenium.Appium;
 using Microsoft.UI.Reactor.AppTests.Infrastructure;
 
 namespace Microsoft.UI.Reactor.AppTests.Tests;
@@ -55,20 +53,20 @@ public class AccessibilityInteractionTests : AppTestBase
 
         // Tab through fields — each Tab should move to the next TabIndex
         field1.SendKeys(Keys.Tab);
-        var active2 = Session.FindElement(MobileBy.AccessibilityId("A11yNav_Field2"));
+        var active2 = FindById("A11yNav_Field2");
         Assert.IsNotNull(active2, "Tab from field 1 should reach field 2");
 
         active2.SendKeys(Keys.Tab);
-        var active3 = Session.FindElement(MobileBy.AccessibilityId("A11yNav_Field3"));
+        var active3 = FindById("A11yNav_Field3");
         Assert.IsNotNull(active3, "Tab from field 2 should reach field 3");
 
         active3.SendKeys(Keys.Tab);
-        var active4 = Session.FindElement(MobileBy.AccessibilityId("A11yNav_Field4"));
+        var active4 = FindById("A11yNav_Field4");
         Assert.IsNotNull(active4, "Tab from field 3 should reach field 4");
 
         // Verify the submit button is reachable
         active4.SendKeys(Keys.Tab);
-        var submit = Session.FindElement(MobileBy.AccessibilityId("A11yNav_Submit"));
+        var submit = FindById("A11yNav_Submit");
         Assert.IsNotNull(submit, "Tab from field 4 should reach Submit button");
     }
 

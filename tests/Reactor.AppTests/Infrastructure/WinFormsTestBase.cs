@@ -1,83 +1,80 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using OpenQA.Selenium;
-using OpenQA.Selenium.Appium;
-using OpenQA.Selenium.Appium.Windows;
-using OpenQA.Selenium.Interactions;
-using OpenQA.Selenium.Support.UI;
 
 namespace Microsoft.UI.Reactor.AppTests.Infrastructure;
 
 /// <summary>
-/// Base class for WinForms interop E2E tests.
-/// Provides helpers for element lookup, waiting, focus verification, and Tab testing.
+/// Base class for WinForms interop E2E tests. Provides helpers for element lookup, waiting,
+/// focus verification, and Tab testing. Drives the WinForms host through
+/// <see cref="WinAppUi"/> (winapp ui), with Win32 <see cref="InputInjector"/> for the
+/// real keystrokes (Tab/Shift+Tab/typing) winapp can't synthesize.
 /// </summary>
 public class WinFormsTestBase
 {
-    protected static WindowsDriver<WindowsElement> Session => WinFormsTestSession.Session;
+    protected static WinAppUi App => WinFormsTestSession.App;
 
-    protected WindowsElement FindById(string automationId)
+    protected static UiaPropertyReader Uia => WinFormsTestSession.Uia;
+
+    protected static long HostHwnd => WinFormsTestSession.HostHwnd;
+
+    protected static UiElement Element(string selector, string? automationId = null) =>
+        new(App, Uia, selector, automationId ?? selector, WinFormsTestSession.HostHwnd);
+
+    protected UiElement FindById(string automationId)
     {
-        return Session.FindElement(MobileBy.AccessibilityId(automationId));
+        if (!App.Exists(automationId))
+            throw new WinAppException($"No element found with AutomationId '{automationId}'.");
+        return Element(automationId, automationId);
     }
 
-    protected WindowsElement FindByName(string name)
+    protected UiElement FindByName(string name)
     {
-        return Session.FindElement(MobileBy.Name(name));
+        var matches = App.Search(name);
+        var exact = matches.FirstOrDefault(m => m.Name == name) ?? matches.FirstOrDefault();
+        if (exact is null)
+            throw new WinAppException($"No element found with Name '{name}'.");
+        var selector = !string.IsNullOrEmpty(exact.AutomationId) ? exact.AutomationId! : exact.Selector;
+        return Element(selector, exact.AutomationId);
     }
 
-    protected WindowsElement WaitForElement(string automationId, int timeoutMs = 5000)
+    protected UiElement WaitForElement(string automationId, int timeoutMs = 5000)
     {
-        var wait = new DefaultWait<WindowsDriver<WindowsElement>>(Session)
-        {
-            Timeout = TimeSpan.FromMilliseconds(timeoutMs),
-            PollingInterval = TimeSpan.FromMilliseconds(100),
-        };
-        wait.IgnoreExceptionTypes(typeof(WebDriverException));
-
-        return wait.Until(driver => driver.FindElement(MobileBy.AccessibilityId(automationId)));
+        if (!App.WaitForExists(automationId, timeoutMs))
+            throw new WinAppTimeoutException(
+                $"Timed out after {timeoutMs}ms waiting for AutomationId='{automationId}' to appear.");
+        return Element(automationId, automationId);
     }
 
     protected void WaitForText(string automationId, string expectedText, int timeoutMs = 5000)
     {
-        var wait = new DefaultWait<WindowsDriver<WindowsElement>>(Session)
+        if (!App.WaitForValue(automationId, expectedText, contains: false, timeoutMs: timeoutMs))
         {
-            Timeout = TimeSpan.FromMilliseconds(timeoutMs),
-            PollingInterval = TimeSpan.FromMilliseconds(100),
-        };
-        wait.IgnoreExceptionTypes(typeof(WebDriverException));
-
-        wait.Until(driver =>
-        {
-            var element = driver.FindElement(MobileBy.AccessibilityId(automationId));
-            return element.Text == expectedText ? element : null;
-        });
+            var seen = App.GetValue(automationId) ?? "<not found>";
+            throw new WinAppTimeoutException(
+                $"Timed out after {timeoutMs}ms waiting for AutomationId='{automationId}' " +
+                $"to have text '{expectedText}'. Last-seen text: '{seen}'.");
+        }
     }
 
     protected string WaitForTextContaining(string automationId, string substring, int timeoutMs = 5000)
     {
-        var wait = new DefaultWait<WindowsDriver<WindowsElement>>(Session)
+        if (!App.WaitForValue(automationId, substring, contains: true, timeoutMs: timeoutMs))
         {
-            Timeout = TimeSpan.FromMilliseconds(timeoutMs),
-            PollingInterval = TimeSpan.FromMilliseconds(100),
-        };
-        wait.IgnoreExceptionTypes(typeof(WebDriverException));
-
-        string lastText = "";
-        wait.Until(driver =>
-        {
-            var element = driver.FindElement(MobileBy.AccessibilityId(automationId));
-            lastText = element.Text ?? "";
-            return lastText.Contains(substring) ? element : null;
-        });
-        return lastText;
+            var seen = App.GetValue(automationId) ?? "<not found>";
+            throw new WinAppTimeoutException(
+                $"Timed out after {timeoutMs}ms waiting for AutomationId='{automationId}' " +
+                $"text to contain '{substring}'. Last-seen text: '{seen}'.");
+        }
+        return App.GetValue(automationId) ?? "";
     }
 
     /// <summary>
-    /// Sends a Tab key press to the currently focused element.
+    /// Sends a Tab key press to the currently focused element. Foregrounds the host first so
+    /// the injected keystroke routes to it.
     /// </summary>
     protected void SendTab()
     {
-        new Actions(Session).SendKeys(Keys.Tab).Perform();
+        InputInjector.Foreground(HostHwnd);
+        InputInjector.Tab();
     }
 
     /// <summary>
@@ -85,21 +82,8 @@ public class WinFormsTestBase
     /// </summary>
     protected void SendShiftTab()
     {
-        new Actions(Session)
-            .KeyDown(Keys.Shift)
-            .SendKeys(Keys.Tab)
-            .KeyUp(Keys.Shift)
-            .Perform();
-    }
-
-    /// <summary>
-    /// Returns the currently focused element via a Desktop session query.
-    /// WinAppDriver exposes the focused element through the active element API.
-    /// </summary>
-    protected WindowsElement GetFocusedElement()
-    {
-        return Session.SwitchTo().ActiveElement() as WindowsElement
-            ?? throw new InvalidOperationException("Could not get active element");
+        InputInjector.Foreground(HostHwnd);
+        InputInjector.ShiftTab();
     }
 
     /// <summary>
@@ -107,34 +91,19 @@ public class WinFormsTestBase
     /// </summary>
     protected void ClickElement(string nameOrId)
     {
-        try
+        if (App.Exists(nameOrId))
         {
-            var element = Session.FindElement(MobileBy.AccessibilityId(nameOrId));
-            element.Click();
+            App.Invoke(nameOrId);
+            return;
         }
-        catch (WebDriverException)
-        {
-            var element = Session.FindElement(MobileBy.Name(nameOrId));
-            element.Click();
-        }
+        FindByName(nameOrId).Click();
     }
 
     /// <summary>
-    /// Returns the AutomationId of the currently focused element.
+    /// Returns the AutomationId of the currently focused element (live UIA focus).
     /// Returns empty string if the focused element has no AutomationId or on error.
     /// </summary>
-    protected string GetFocusedAutomationId()
-    {
-        try
-        {
-            var focused = GetFocusedElement();
-            return focused.GetAttribute("AutomationId") ?? "";
-        }
-        catch
-        {
-            return "";
-        }
-    }
+    protected string GetFocusedAutomationId() => Uia.GetFocusedAutomationId();
 
     /// <summary>
     /// Polls until the focused element's AutomationId matches the expected value.
@@ -156,7 +125,6 @@ public class WinFormsTestBase
             elapsed += pollMs;
         }
 
-        // Final check with assertion
         actual = GetFocusedAutomationId();
         Assert.AreEqual(expectedAutomationId, actual,
             $"[{step}] Expected focus on '{expectedAutomationId}' but found '{actual}'");

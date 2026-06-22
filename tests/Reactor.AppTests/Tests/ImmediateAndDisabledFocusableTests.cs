@@ -1,7 +1,5 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.UI.Reactor.AppTests.Infrastructure;
-using OpenQA.Selenium;
-using OpenQA.Selenium.Appium;
 
 namespace Microsoft.UI.Reactor.AppTests.Tests;
 

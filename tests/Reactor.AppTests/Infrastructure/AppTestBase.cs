@@ -1,22 +1,32 @@
 using System.Drawing;
+using System.Globalization;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using OpenQA.Selenium;
-using OpenQA.Selenium.Appium;
-using OpenQA.Selenium.Appium.Windows;
-using OpenQA.Selenium.Support.UI;
 
 namespace Microsoft.UI.Reactor.AppTests.Infrastructure;
 
 /// <summary>
-/// Base class for all Appium-based UI test classes.
-/// Provides helpers for navigation, element lookup, waiting, and DPI-aware assertions.
+/// Base class for all UI test classes. Provides helpers for navigation, element lookup,
+/// waiting, and DPI-aware assertions.
+///
+/// Drives the running Host app through <see cref="WinAppUi"/> (the <c>winapp ui</c> CLI,
+/// UIA-based) instead of an Appium <c>WindowsDriver</c> session. Method signatures are kept
+/// identical to the former Appium harness so existing test bodies keep their shape — element
+/// handles are now <see cref="UiElement"/> rather than <c>WindowsElement</c>.
 /// </summary>
 public class AppTestBase
 {
-    /// <summary>
-    /// The active WindowsDriver session.
-    /// </summary>
-    protected static WindowsDriver<WindowsElement> Session => TestSession.Session;
+    /// <summary>The winapp-backed UI automation driver bound to the Host window.</summary>
+    protected static WinAppUi App => TestSession.App;
+
+    /// <summary>In-process UIA property reader (fallback for properties winapp can't surface).</summary>
+    protected static UiaPropertyReader Uia => TestSession.Uia;
+
+    /// <summary>HWND of the primary Host window.</summary>
+    protected static long HostHwnd => TestSession.HostHwnd;
+
+    /// <summary>Build a <see cref="UiElement"/> handle for a selector against the host window.</summary>
+    protected static UiElement Element(string selector, string? automationId = null, long hwnd = 0) =>
+        new(App, Uia, selector, automationId ?? selector, hwnd == 0 ? TestSession.HostHwnd : hwnd);
 
     // Per-test interactivity preflight — bails out as Inconclusive (not Failed)
     // when the workstation is locked or the session is disconnected, so flake
@@ -44,33 +54,32 @@ public class AppTestBase
         // Click + wait. If the click is silently absorbed (observed when the
         // previous test left a flyout open, or when a Reset re-render races the
         // navigator's hit-test rebuild), the wait times out — retry the click
-        // once before giving up. This keeps fast paths fast (no extra waits in
-        // the common case) but absorbs the occasional missed click.
+        // once before giving up.
         try
         {
             for (int attempt = 0; attempt < 2; attempt++)
             {
-                Session.FindElement(MobileBy.AccessibilityId($"Nav_{name}")).Click();
-                try
+                App.Invoke($"Nav_{name}");
+                if (App.WaitForValue("FixtureStatus", expected, timeoutMs: 5000))
                 {
-                    WaitForText("FixtureStatus", expected, timeoutMs: 5000);
                     _currentFixture = name;
                     return;
                 }
-                catch (WebDriverTimeoutException) when (attempt == 0)
-                {
-                    // Brief pause before the retry so the next click doesn't land in
-                    // the same window that swallowed the first one.
+                if (attempt == 0)
                     Thread.Sleep(250);
-                }
             }
+
+            var lastSeen = App.GetValue("FixtureStatus") ?? "<not found>";
+            throw new WinAppTimeoutException(
+                $"Timed out waiting for fixture '{name}' to load (FixtureStatus expected " +
+                $"'{expected}', last-seen '{lastSeen}').");
         }
-        catch (WebDriverException)
+        catch (WinAppException)
         {
             // The screen may have locked between the preflight check and the click.
             // Recheck — if locked, surface as Inconclusive; otherwise rethrow as a
             // real test failure.
-            SessionInteractivityGuard.RecheckAfterWebDriverFailure($"NavigateToFixture({name})");
+            SessionInteractivityGuard.RecheckAfterFailure($"NavigateToFixture({name})");
             throw;
         }
     }
@@ -79,13 +88,6 @@ public class AppTestBase
     /// Forces re-navigation to the fixture even if it's the current one.
     /// Use when the test modifies fixture state and needs a fresh start.
     /// </summary>
-    /// <remarks>
-    /// Resets the host to "Ready" first (which un-mounts the fixture's component
-    /// tree, discarding any useState) and then clicks the Nav_ button to remount.
-    /// Without the reset step, clicking the same nav button a second time is a
-    /// no-op in TestHost (setFixture is called with the same value), and state
-    /// from the previous run leaks into the next test.
-    /// </remarks>
     protected void NavigateToFixtureFresh(string name)
     {
         ResetFixture();
@@ -100,11 +102,12 @@ public class AppTestBase
     {
         try
         {
-            var reset = Session.FindElement(MobileBy.AccessibilityId("ResetFixture"));
-            reset.Click();
-            WaitForText("FixtureStatus", "Ready", timeoutMs: 3000);
+            if (!App.Exists("ResetFixture"))
+                return; // not present yet (e.g., before first navigation)
+            App.Invoke("ResetFixture");
+            App.WaitForValue("FixtureStatus", "Ready", timeoutMs: 3000);
         }
-        catch (WebDriverException)
+        catch (WinAppException)
         {
             // Reset button may not be present yet (e.g., before first navigation).
         }
@@ -112,33 +115,38 @@ public class AppTestBase
 
     /// <summary>
     /// Finds an element by its AutomationId (UIA accessibility identifier).
+    /// Throws when no element matches, mirroring the former FindElement contract.
     /// </summary>
-    protected WindowsElement FindById(string automationId)
+    protected UiElement FindById(string automationId)
     {
-        return Session.FindElement(MobileBy.AccessibilityId(automationId));
+        if (!App.Exists(automationId))
+            throw new WinAppException($"No element found with AutomationId '{automationId}'.");
+        return Element(automationId, automationId);
     }
 
     /// <summary>
     /// Finds an element by its Name property.
     /// </summary>
-    protected WindowsElement FindByName(string name)
+    protected UiElement FindByName(string name)
     {
-        return Session.FindElement(MobileBy.Name(name));
+        var matches = App.Search(name);
+        // Prefer an exact Name match; winapp may also return substring hits.
+        var exact = matches.FirstOrDefault(m => m.Name == name) ?? matches.FirstOrDefault();
+        if (exact is null)
+            throw new WinAppException($"No element found with Name '{name}'.");
+        var selector = !string.IsNullOrEmpty(exact.AutomationId) ? exact.AutomationId! : exact.Selector;
+        return Element(selector, exact.AutomationId);
     }
 
     /// <summary>
     /// Waits for an element with the given AutomationId to appear.
     /// </summary>
-    protected WindowsElement WaitForElement(string automationId, int timeoutMs = 5000)
+    protected UiElement WaitForElement(string automationId, int timeoutMs = 5000)
     {
-        var wait = new DefaultWait<WindowsDriver<WindowsElement>>(Session)
-        {
-            Timeout = TimeSpan.FromMilliseconds(timeoutMs),
-            PollingInterval = TimeSpan.FromMilliseconds(100),
-        };
-        wait.IgnoreExceptionTypes(typeof(WebDriverException));
-
-        return wait.Until(driver => driver.FindElement(MobileBy.AccessibilityId(automationId)));
+        if (!App.WaitForExists(automationId, timeoutMs))
+            throw new WinAppTimeoutException(
+                $"Timed out after {timeoutMs}ms waiting for AutomationId='{automationId}' to appear.");
+        return Element(automationId, automationId);
     }
 
     /// <summary>
@@ -146,29 +154,13 @@ public class AppTestBase
     /// </summary>
     protected void WaitForText(string automationId, string expectedText, int timeoutMs = 5000)
     {
-        var wait = new DefaultWait<WindowsDriver<WindowsElement>>(Session)
-        {
-            Timeout = TimeSpan.FromMilliseconds(timeoutMs),
-            PollingInterval = TimeSpan.FromMilliseconds(100),
-        };
-        wait.IgnoreExceptionTypes(typeof(WebDriverException));
+        if (App.WaitForValue(automationId, expectedText, contains: false, timeoutMs: timeoutMs))
+            return;
 
-        string lastSeen = "<not found>";
-        try
-        {
-            wait.Until(driver =>
-            {
-                var element = driver.FindElement(MobileBy.AccessibilityId(automationId));
-                lastSeen = element.Text ?? "<null>";
-                return lastSeen == expectedText ? element : null;
-            });
-        }
-        catch (WebDriverTimeoutException)
-        {
-            throw new WebDriverTimeoutException(
-                $"Timed out after {timeoutMs}ms waiting for AutomationId='{automationId}' " +
-                $"to have text '{expectedText}'. Last-seen text: '{lastSeen}'.");
-        }
+        var lastSeen = App.GetValue(automationId) ?? "<not found>";
+        throw new WinAppTimeoutException(
+            $"Timed out after {timeoutMs}ms waiting for AutomationId='{automationId}' " +
+            $"to have text '{expectedText}'. Last-seen text: '{lastSeen}'.");
     }
 
     /// <summary>
@@ -177,21 +169,14 @@ public class AppTestBase
     /// </summary>
     protected string WaitForTextContaining(string automationId, string substring, int timeoutMs = 5000)
     {
-        var wait = new DefaultWait<WindowsDriver<WindowsElement>>(Session)
+        if (!App.WaitForValue(automationId, substring, contains: true, timeoutMs: timeoutMs))
         {
-            Timeout = TimeSpan.FromMilliseconds(timeoutMs),
-            PollingInterval = TimeSpan.FromMilliseconds(100),
-        };
-        wait.IgnoreExceptionTypes(typeof(WebDriverException));
-
-        string lastText = "";
-        wait.Until(driver =>
-        {
-            var element = driver.FindElement(MobileBy.AccessibilityId(automationId));
-            lastText = element.Text ?? "";
-            return lastText.Contains(substring) ? element : null;
-        });
-        return lastText;
+            var seen = App.GetValue(automationId) ?? "<not found>";
+            throw new WinAppTimeoutException(
+                $"Timed out after {timeoutMs}ms waiting for AutomationId='{automationId}' " +
+                $"text to contain '{substring}'. Last-seen text: '{seen}'.");
+        }
+        return App.GetValue(automationId) ?? "";
     }
 
     /// <summary>
@@ -200,15 +185,12 @@ public class AppTestBase
     /// </summary>
     protected double GetDpiScale()
     {
-        var root = Session.FindElement(MobileBy.AccessibilityId("TestHostRoot"));
-        var name = root.GetAttribute("Name");
+        var name = App.GetProperty("TestHostRoot", "Name");
 
         // Expected format: "DpiScale:1.5000"
         if (name != null && name.StartsWith("DpiScale:") &&
             double.TryParse(name["DpiScale:".Length..],
-                global::System.Globalization.NumberStyles.Float,
-                global::System.Globalization.CultureInfo.InvariantCulture,
-                out var scale))
+                NumberStyles.Float, CultureInfo.InvariantCulture, out var scale))
         {
             return scale;
         }
@@ -234,8 +216,7 @@ public class AppTestBase
     /// </summary>
     protected Rectangle GetElementRect(string automationId)
     {
-        var element = FindById(automationId);
-        return element.Rect;
+        return FindById(automationId).Rect;
     }
 
     /// <summary>
@@ -253,15 +234,11 @@ public class AppTestBase
     /// </summary>
     protected void ClickButton(string nameOrId)
     {
-        try
+        if (App.Exists(nameOrId))
         {
-            var element = Session.FindElement(MobileBy.AccessibilityId(nameOrId));
-            element.Click();
+            App.Invoke(nameOrId);
+            return;
         }
-        catch (WebDriverException)
-        {
-            var element = Session.FindElement(MobileBy.Name(nameOrId));
-            element.Click();
-        }
+        FindByName(nameOrId).Click();
     }
 }
