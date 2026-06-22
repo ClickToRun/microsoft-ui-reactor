@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
@@ -99,9 +100,8 @@ public class CoreControlFamilyBoundaryTests
             var typeName = GetReadableTypeName(reader, typeHandle);
 
             // ── Field signatures ──────────────────────────────────────────
-            foreach (var fieldHandle in typeDef.GetFields())
+            foreach (var field in typeDef.GetFields().Select(reader.GetFieldDefinition))
             {
-                var field = reader.GetFieldDefinition(fieldHandle);
                 sigProvider.Hits.Clear();
                 field.DecodeSignature(sigProvider, null);
                 foreach (var ns in sigProvider.Hits)
@@ -109,11 +109,10 @@ public class CoreControlFamilyBoundaryTests
             }
 
             // ── Method signatures + IL bodies ─────────────────────────────
-            foreach (var methodHandle in typeDef.GetMethods())
+            foreach (var (method, methodName) in typeDef.GetMethods()
+                .Select(reader.GetMethodDefinition)
+                .Select(m => (Method: m, Name: reader.GetString(m.Name))))
             {
-                var method = reader.GetMethodDefinition(methodHandle);
-                var methodName = reader.GetString(method.Name);
-
                 sigProvider.Hits.Clear();
                 method.DecodeSignature(sigProvider, null);
                 foreach (var ns in sigProvider.Hits)
@@ -199,8 +198,9 @@ public class CoreControlFamilyBoundaryTests
         {
             handle = MetadataTokens.EntityHandle(token);
         }
-        catch
+        catch (ArgumentException)
         {
+            // Not a valid metadata token (e.g. user-string heap handle) — skip.
             return null;
         }
 
@@ -274,13 +274,9 @@ public class CoreControlFamilyBoundaryTests
 
     private static bool StartsWithAny(string value, string[] prefixes)
     {
-        foreach (var p in prefixes)
-        {
-            if (value.Equals(p, StringComparison.Ordinal) ||
-                value.StartsWith(p + ".", StringComparison.Ordinal))
-                return true;
-        }
-        return false;
+        return prefixes.Any(p =>
+            value.Equals(p, StringComparison.Ordinal) ||
+            value.StartsWith(p + ".", StringComparison.Ordinal));
     }
 
     // ════════════════════════════════════════════════════════════════════
@@ -297,11 +293,11 @@ public class CoreControlFamilyBoundaryTests
     private static Dictionary<int, OperandKind> BuildOpCodeTable()
     {
         var table = new Dictionary<int, OperandKind>();
-        foreach (var field in typeof(OpCodes).GetFields(BindingFlags.Public | BindingFlags.Static))
+        var opCodes = typeof(OpCodes).GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Select(f => f.GetValue(null))
+            .OfType<OpCode>();
+        foreach (var op in opCodes)
         {
-            if (field.GetValue(null) is not OpCode op)
-                continue;
-
             ushort raw = unchecked((ushort)op.Value);
             int key = op.Size == 2 ? (0xFE00 | (raw & 0xFF)) : (raw & 0xFF);
             table[key] = MapOperand(op.OperandType);

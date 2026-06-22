@@ -97,8 +97,8 @@ internal sealed class ChartAccessibilityChecker : IScanExtension
         // Has explicit description?
         if (!string.IsNullOrWhiteSpace(data.Description)) return;
 
-        // Does the auto-summarizer produce a non-empty summary?
-        var summary = ChartSummarizer.Summarize(data);
+        // The auto-summarizer only yields an empty summary when there are no
+        // series, so any series at all means a usable summary exists.
         if (data.Series.Count > 0)
             return;
 
