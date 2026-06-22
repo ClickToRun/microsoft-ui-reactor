@@ -66,12 +66,22 @@ public sealed class WinAppUi
         return "winapp"; // fall back to PATH lookup
     }
 
+    /// <summary>
+    /// Total number of <c>winapp.exe</c> processes spawned since process start. winapp has no
+    /// persistent session — every verb is a fresh process — so this is the headline
+    /// process-spawn-overhead metric vs the old single long-lived WinAppDriver session.
+    /// <see cref="AppTestBase"/> snapshots this around each test to report a per-test count.
+    /// </summary>
+    public static long InvocationCount;
+
     // ─── Process plumbing ────────────────────────────────────────────────────
 
     private readonly record struct RunResult(int ExitCode, string StdOut, string StdErr);
 
     private RunResult Run(int processTimeoutMs, params string[] args)
     {
+        Interlocked.Increment(ref InvocationCount);
+
         var psi = new ProcessStartInfo(WinAppExe)
         {
             UseShellExecute = false,

@@ -23,7 +23,7 @@ public class WinFormsTestSession
         _app ?? throw new InvalidOperationException(
             "WinForms test session has not been initialized. Ensure [ClassInitialize] has run.");
 
-    public static UiaPropertyReader Uia =>
+    public static IUiaPropertyReader Uia =>
         _uia ?? throw new InvalidOperationException(
             "WinForms test session has not been initialized. Ensure [ClassInitialize] has run.");
 

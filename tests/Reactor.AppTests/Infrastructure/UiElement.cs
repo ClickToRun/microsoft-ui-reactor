@@ -16,7 +16,7 @@ namespace Microsoft.UI.Reactor.AppTests.Infrastructure;
 public sealed class UiElement
 {
     private readonly WinAppUi _app;
-    private readonly UiaPropertyReader _uia;
+    private readonly IUiaPropertyReader _uia;
     private readonly long _hwnd;
 
     /// <summary>The selector used to address this element (AutomationId when available).</summary>
@@ -25,7 +25,7 @@ public sealed class UiElement
     /// <summary>The AutomationId, when this handle was resolved from one (enables UIA fallback).</summary>
     public string? AutomationId { get; }
 
-    internal UiElement(WinAppUi app, UiaPropertyReader uia, string selector, string? automationId, long hwnd)
+    internal UiElement(WinAppUi app, IUiaPropertyReader uia, string selector, string? automationId, long hwnd)
     {
         _app = app;
         _uia = uia;
@@ -50,7 +50,7 @@ public sealed class UiElement
         var viaWinApp = _app.GetProperty(Selector, name, _hwnd);
         if (viaWinApp != null) return viaWinApp;
 
-        if (AutomationId != null && UiaPropertyReader.Handles(name))
+        if (AutomationId != null && _uia.Handles(name))
             return _uia.ReadByAutomationId(AutomationId, name);
 
         return viaWinApp;

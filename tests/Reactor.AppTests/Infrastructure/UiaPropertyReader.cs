@@ -5,14 +5,24 @@ namespace Microsoft.UI.Reactor.AppTests.Infrastructure;
 
 /// <summary>
 /// In-process UI Automation (UIA) property reader used <b>only</b> as a fallback for the
-/// handful of UIA properties that winapp 0.3.2 <c>get-property</c> cannot surface
-/// (it returns <c>null</c> for them): LandmarkType, IsRequiredForForm, Level,
-/// PositionInSet, SizeOfSet, ItemStatus, LiveSetting, HeadingLevel, FullDescription,
-/// LocalizedControlType. WinAppDriver could read these via the native UIA client, so we
-/// reproduce just that read path with a minimal CUIAutomation COM interop — no Appium,
-/// read-only, and the primary driver remains <see cref="WinAppUi"/>.
+/// handful of UIA properties that winapp 0.3.2 <c>get-property</c> cannot surface.
+///
+/// Empirically verified against winapp 0.3.2 (live Accessibility_Showcase fixture) — it
+/// returns <c>null</c> for exactly these 10: LocalizedControlType, IsRequiredForForm,
+/// FullDescription, HeadingLevel, LandmarkType, Level, PositionInSet, SizeOfSet, ItemStatus,
+/// LiveSetting. (It DOES return Name, HelpText and AccessKey, which the GetAttribute path
+/// takes from winapp directly — those are mapped here only as a safety net.) WinAppDriver
+/// could read the missing 10 via the native UIA client, so we reproduce just that read path
+/// with a minimal CUIAutomation COM interop — no Appium, read-only, and the primary driver
+/// remains <see cref="WinAppUi"/>.
+///
+/// TODO (winappCli gap): once <c>winapp ui get-property</c> exposes the 10 properties above,
+/// delete this COM interop and route those reads back through <see cref="WinAppUi"/>.
+/// At that point the only implementation of <see cref="IUiaPropertyReader"/> can be a thin
+/// winapp shim, or <see cref="Handles"/> can return <c>false</c> so the fallback is skipped.
+/// The interface exists precisely so callers don't need to change when that happens.
 /// </summary>
-public sealed class UiaPropertyReader
+public sealed class UiaPropertyReader : IUiaPropertyReader
 {
     private readonly long _hostHwnd;
     private readonly IUIAutomation _uia;
@@ -47,7 +57,7 @@ public sealed class UiaPropertyReader
     private const int UIA_HeadingLevel_None = 80050;
 
     /// <summary>The set of GetAttribute names this reader knows how to map.</summary>
-    public static bool Handles(string property) => MapName(property) != 0;
+    public bool Handles(string property) => MapName(property) != 0;
 
     private static int MapName(string property) => property switch
     {

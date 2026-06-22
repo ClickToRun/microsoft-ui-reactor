@@ -19,7 +19,7 @@ public class AppTestBase
     protected static WinAppUi App => TestSession.App;
 
     /// <summary>In-process UIA property reader (fallback for properties winapp can't surface).</summary>
-    protected static UiaPropertyReader Uia => TestSession.Uia;
+    protected static IUiaPropertyReader Uia => TestSession.Uia;
 
     /// <summary>HWND of the primary Host window.</summary>
     protected static long HostHwnd => TestSession.HostHwnd;
@@ -34,7 +34,26 @@ public class AppTestBase
     [TestInitialize]
     public void GuardSessionInteractive()
     {
+        _winappCountAtStart = WinAppUi.InvocationCount;
+        _testStopwatch = System.Diagnostics.Stopwatch.StartNew();
         SessionInteractivityGuard.EnsureInteractive("TestInitialize");
+    }
+
+    /// <summary>Injected by MSTest; used to attribute winapp invocation counts to each test.</summary>
+    public TestContext? TestContext { get; set; }
+
+    private long _winappCountAtStart;
+    private System.Diagnostics.Stopwatch? _testStopwatch;
+
+    // Record how many winapp.exe processes this test spawned (process-per-call overhead).
+    [TestCleanup]
+    public void RecordWinAppInvocations()
+    {
+        var spawned = WinAppUi.InvocationCount - _winappCountAtStart;
+        var seconds = (_testStopwatch?.Elapsed.TotalSeconds) ?? 0;
+        var name = TestContext?.TestName ?? GetType().Name;
+        TestContext?.WriteLine($"winapp-invocations={spawned}");
+        WinAppMetrics.Record(name, spawned, seconds);
     }
 
     private static string? _currentFixture;

@@ -30,7 +30,7 @@ public class TestSession
             "Test session has not been initialized. Ensure [ClassInitialize] has run.");
 
     /// <summary>In-process UIA property reader (fallback for properties winapp can't surface).</summary>
-    public static UiaPropertyReader Uia =>
+    public static IUiaPropertyReader Uia =>
         _uia ?? throw new InvalidOperationException(
             "Test session has not been initialized. Ensure [ClassInitialize] has run.");
 

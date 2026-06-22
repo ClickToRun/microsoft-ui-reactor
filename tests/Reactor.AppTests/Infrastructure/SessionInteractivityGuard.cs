@@ -77,6 +77,18 @@ public static class SessionInteractivityGuard
     /// </summary>
     public static void EnsureInteractive(string operation)
     {
+        // Diagnostic opt-out: winapp's UIA verbs (invoke/get-value/get-property/
+        // search/wait-for/focus) work cross-desktop — they succeed even when the
+        // console session is locked or disconnected (e.g. the operator is on RDP and
+        // the agent's tests run in the detached console session). Only *input
+        // injection* needs the live input desktop, and that is gated separately by
+        // EnsureInputInjectable. Setting E2E_SKIP_LOCK_GUARD=1 lets the UIA-only
+        // tests run in that situation (useful for capturing metrics over RDP);
+        // the input-injection tests still skip themselves. Off by default so normal
+        // runs keep the conservative lock behaviour.
+        if (IsTruthy(Environment.GetEnvironmentVariable("E2E_SKIP_LOCK_GUARD")))
+            return;
+
         var state = GetState();
         // Unknown means the OS gave us an unexpected error from the desktop
         // probe — don't fabricate a verdict. Let the test run; if winapp
@@ -93,6 +105,9 @@ public static class SessionInteractivityGuard
             "fail with a generic error. Treating these as Inconclusive " +
             "(not Failed). Unlock the session and rerun.");
     }
+
+    private static bool IsTruthy(string? v) =>
+        v is "1" or "true" or "True" or "yes" or "YES";
 
     /// <summary>
     /// If <paramref name="operation"/> threw a <see cref="WinAppException"/>, recheck

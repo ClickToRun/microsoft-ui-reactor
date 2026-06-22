@@ -12,9 +12,33 @@ public class WinFormsTestBase
 {
     protected static WinAppUi App => WinFormsTestSession.App;
 
-    protected static UiaPropertyReader Uia => WinFormsTestSession.Uia;
+    protected static IUiaPropertyReader Uia => WinFormsTestSession.Uia;
 
     protected static long HostHwnd => WinFormsTestSession.HostHwnd;
+
+    /// <summary>Injected by MSTest; used to attribute winapp invocation counts to each test.</summary>
+    public TestContext? TestContext { get; set; }
+
+    private long _winappCountAtStart;
+    private System.Diagnostics.Stopwatch? _testStopwatch;
+
+    [TestInitialize]
+    public void SnapshotWinAppCount()
+    {
+        _winappCountAtStart = WinAppUi.InvocationCount;
+        _testStopwatch = System.Diagnostics.Stopwatch.StartNew();
+    }
+
+    // Record how many winapp.exe processes this test spawned (process-per-call overhead).
+    [TestCleanup]
+    public void RecordWinAppInvocations()
+    {
+        var spawned = WinAppUi.InvocationCount - _winappCountAtStart;
+        var seconds = (_testStopwatch?.Elapsed.TotalSeconds) ?? 0;
+        var name = TestContext?.TestName ?? GetType().Name;
+        TestContext?.WriteLine($"winapp-invocations={spawned}");
+        WinAppMetrics.Record(name, spawned, seconds);
+    }
 
     protected static UiElement Element(string selector, string? automationId = null) =>
         new(App, Uia, selector, automationId ?? selector, WinFormsTestSession.HostHwnd);
