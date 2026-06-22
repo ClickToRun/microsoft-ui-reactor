@@ -323,7 +323,10 @@ internal static class DataGridScrollFixtures
             H.Check($"ScrollPerf_DG_Measured (median={dgMedian:F2}ms)",
                 dgTimes.Count > 0);
 
-            // DataGrid scroll-to-position should stay within ~2x of VirtualList.
+            // DataGrid scroll-to-position should stay under 2x of VirtualList:
+            // the check passes only while the ratio is below 2.0x, so any
+            // regression that reaches 2x or worse fails it (the bound is
+            // exclusive — ratio >= 2.0 is caught).
             // Both realize ~11 rows per scroll jump with the same Grid structure.
             // The DataGrid adds selection/placeholder/event-handler overhead per
             // row; this ratio depends heavily on hardware and measurement jitter
@@ -333,9 +336,10 @@ internal static class DataGridScrollFixtures
             // 1000-iteration stress run flaked twice right at the boundary
             // (~1.46x and ~1.52x), see issue #209. The 2.0x headroom absorbs that
             // variance while still catching structural regressions (FlexRow
-            // wrapping, redundant Yoga passes, …) which the fixture's original
-            // comment calls out as 2x+.
-            H.Check($"ScrollPerf_Ratio (dg={dgMedian:F2} vl={vlMedian:F2} ratio={ratio:F1}x)",
+            // wrapping, redundant Yoga passes, …) that push the ratio to 2x+.
+            // The ratio is printed at full precision (F3) so a failure log shows
+            // the true measured bound rather than a rounded value (#209).
+            H.Check($"ScrollPerf_Ratio (dg={dgMedian:F2} vl={vlMedian:F2} ratio={ratio:F3}x)",
                 ratio < 2.0);
         }
     }
