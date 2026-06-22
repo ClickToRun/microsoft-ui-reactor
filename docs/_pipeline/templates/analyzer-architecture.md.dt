@@ -8,7 +8,7 @@ goal: |
   registers, the syntactic fast path that keeps the analyzers cheap on
   large compilations, the symbol check that grounds the syntactic match
   in real Reactor types, the code-fix link, and the doc-system family
-  (REACTOR_DOC_001 / 002) added in Phase 1.8. Covers authoring a new
+  (REACTOR_DOC_001) added in Phase 1.8. Covers authoring a new
   analyzer end-to-end: rule descriptor, syntax registration, symbol
   guard, diagnostic property bag for the fix provider.
 tier: comprehensive
