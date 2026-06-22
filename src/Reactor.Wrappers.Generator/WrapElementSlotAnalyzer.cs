@@ -78,12 +78,12 @@ public sealed class WrapElementSlotAnalyzer : DiagnosticAnalyzer
         }
         if (control is null || slots.Count == 0) return;
 
-        foreach (var a in slots)
+        foreach (var a in slots.Where(a => a.ConstructorArguments.Length >= 1 && a.ConstructorArguments[0].Value is string))
         {
-            if (a.ConstructorArguments.Length < 1 || a.ConstructorArguments[0].Value is not string slotName) continue;
+            var slotName = (string)a.ConstructorArguments[0].Value!;
             var controlProp = slotName;
-            foreach (var na in a.NamedArguments)
-                if (na.Key == "ControlProperty" && na.Value.Value is string cp) controlProp = cp;
+            foreach (var na in a.NamedArguments.Where(na => na.Key == "ControlProperty"))
+                if (na.Value.Value is string cp) controlProp = cp;
 
             var loc = a.ApplicationSyntaxReference?.GetSyntax(ctx.CancellationToken).GetLocation() ?? Location.None;
 
@@ -115,10 +115,10 @@ public sealed class WrapElementSlotAnalyzer : DiagnosticAnalyzer
     private static IPropertySymbol? FindSettableProperty(INamedTypeSymbol control, string name)
     {
         for (ITypeSymbol? t = control; t is not null; t = t.BaseType)
-            foreach (var p in t.GetMembers(name).OfType<IPropertySymbol>())
-                if (p.DeclaredAccessibility == Accessibility.Public && !p.IsStatic && !p.IsIndexer &&
-                    p.SetMethod is { DeclaredAccessibility: Accessibility.Public })
-                    return p;
+            foreach (var p in t.GetMembers(name).OfType<IPropertySymbol>()
+                .Where(p => p.DeclaredAccessibility == Accessibility.Public && !p.IsStatic && !p.IsIndexer &&
+                    p.SetMethod is { DeclaredAccessibility: Accessibility.Public }))
+                return p;
         return null;
     }
 
