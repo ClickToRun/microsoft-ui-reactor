@@ -21,6 +21,13 @@ namespace Microsoft.UI.Reactor.Tests;
 /// </summary>
 public class CoverageGapTargetedTests
 {
+    static CoverageGapTargetedTests()
+    {
+        // Chart accessibility rules are contributed to the core scanner via
+        // registration now (issue #498). Install the checker for these tests.
+        AccessibilityScanner.RegisterScanExtension(ChartAccessibilityChecker.Instance);
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // Sankey - cycle detection and collision resolution
     // ═══════════════════════════════════════════════════════════════
@@ -307,20 +314,20 @@ public class CoverageGapTargetedTests
         bool isRawColors = false,
         global::Windows.UI.Color? customFocusColor = null)
     {
-        return new CanvasElement([])
+        var chartData = data ?? new MockChartData
         {
-            ChartData = data ?? new MockChartData
-            {
-                Name = "Test Chart",
-                Series = [],
-            },
+            Name = "Test Chart",
+            Series = [],
+        };
+        return (CanvasElement)new CanvasElement([]).SetAttached(new ChartA11yData(chartData)
+        {
             IsInteractive = isInteractive,
             IsKeyboardDisabled = isKeyboardDisabled,
             IsTightHitTest = isTightHitTest,
             IsAnnounceEveryFrame = isAnnounceEveryFrame,
             IsRawColors = isRawColors,
             CustomFocusColor = customFocusColor,
-        };
+        });
     }
 
     [Fact]

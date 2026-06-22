@@ -314,6 +314,17 @@ public abstract record Element
     internal virtual bool HasCallbacks => false;
 
     /// <summary>
+    /// Per-type override hook for <see cref="OwnPropsEqual"/> (the dev highlight
+    /// overlay's "modified" determination). Returns <c>true</c>/<c>false</c> when
+    /// this element type wants to author its own own-props comparison, or
+    /// <c>null</c> to defer to the core switch. This lets a control family (e.g.
+    /// Docking) declare its own structural-equality semantics without the core
+    /// statically naming the subsystem's element types. <paramref name="other"/>
+    /// is guaranteed to be the same runtime type as <c>this</c>.
+    /// </summary>
+    internal virtual bool? OwnPropsEqualOverride(Element other) => null;
+
+    /// <summary>
     /// Returns true if two elements are structurally identical AND the child can be
     /// completely skipped during reconciliation (no need to call Update at all).
     /// This is stricter than ShallowEquals: elements with ThemeBindings must still
@@ -606,15 +617,6 @@ public abstract record Element
                 && ca.Height == cb.Height
                 && BrushesEqual(ca.Background, cb.Background)
                 && ReferenceEquals(ca.Children, cb.Children)
-                && ReferenceEquals(ca.ChartData, cb.ChartData)
-                && ReferenceEquals(ca.CustomPalette, cb.CustomPalette)
-                && ca.IsColorOnly == cb.IsColorOnly
-                && ca.IsRawColors == cb.IsRawColors
-                && ca.IsInteractive == cb.IsInteractive
-                && ca.IsKeyboardDisabled == cb.IsKeyboardDisabled
-                && ca.IsTightHitTest == cb.IsTightHitTest
-                && ca.IsAnnounceEveryFrame == cb.IsAnnounceEveryFrame
-                && ca.CustomFocusColor == cb.CustomFocusColor
                 && ca.Setters.Length == 0 && cb.Setters.Length == 0,
 
             (EmptyElement, EmptyElement) => true,
@@ -639,6 +641,11 @@ public abstract record Element
     {
         if (ReferenceEquals(a, b)) return true;
         if (a.GetType() != b.GetType()) return false;
+
+        // Per-type override hook: control families (e.g. Docking) declare their
+        // own structural-equality semantics without the core statically naming
+        // the subsystem's element types.
+        if (a.OwnPropsEqualOverride(b) is { } overridden) return overridden;
 
         return (a, b) switch
         {
@@ -852,23 +859,6 @@ public abstract record Element
                 && la.EstimatedItemSize == lb.EstimatedItemSize
                 && ReferenceEquals(la.ScrollViewerSetters, lb.ScrollViewerSetters)
                 && ReferenceEquals(la.RepeaterSetters, lb.RepeaterSetters),
-
-            // Spec 045 §2.1 / §2.3 — docking elements use closures for
-            // their callbacks (OnDelta, OnHover, etc.) that are freshly
-            // captured on every parent render. The closures don't touch
-            // the realized WinUI control's visible properties — only
-            // structural fields (Direction, Mode) do — so for the
-            // highlight overlay's purposes these are "equal" when the
-            // structural fields match. Without these arms, every parent
-            // re-render flashes the splitter handles + drop overlay
-            // yellow even though nothing visible changed.
-            (Microsoft.UI.Reactor.Docking.Native.DockSplitterElement da,
-             Microsoft.UI.Reactor.Docking.Native.DockSplitterElement db) =>
-                da.Direction == db.Direction,
-
-            (Microsoft.UI.Reactor.Docking.Native.DockDropTargetOverlayElement oa,
-             Microsoft.UI.Reactor.Docking.Native.DockDropTargetOverlayElement ob) =>
-                oa.Mode == ob.Mode,
 
             // Non-container / leaf types: return false → always captured
             _ => false,
@@ -4035,47 +4025,6 @@ public partial record CanvasElement(Element[] Children) : Element
         d.Children = global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.Descriptors.CanvasChildrenStrategy.Strategy;
         return d;
     }
-
-    /// <summary>
-    /// When this Canvas was created by a chart element, carries the chart's
-    /// accessibility data so the scanner can inspect chart-specific properties.
-    /// Null for non-chart canvases.
-    /// </summary>
-    internal Charting.Accessibility.IChartAccessibilityData? ChartData { get; init; }
-
-    /// <summary>
-    /// When set, indicates this chart used <c>.ColorOnly()</c> — scanner flags as A11Y_CHART_004.
-    /// </summary>
-    internal bool IsColorOnly { get; init; }
-
-    /// <summary>
-    /// When set, indicates this chart used <c>.RawColors()</c> — scanner flags as A11Y_CHART_012.
-    /// </summary>
-    internal bool IsRawColors { get; init; }
-
-    /// <summary>Custom palette set on the chart, if any — scanner validates for contrast.</summary>
-    internal Charting.Accessibility.ChartPalette? CustomPalette { get; init; }
-
-    /// <summary>When true, chart is interactive with keyboard navigation enabled.</summary>
-    internal bool IsInteractive { get; init; }
-
-    /// <summary>When true, keyboard navigation is explicitly disabled. Scanner flags as A11Y_CHART_003.</summary>
-    internal bool IsKeyboardDisabled { get; init; }
-
-    /// <summary>When true, hit targets are not expanded to 24×24. Scanner flags as A11Y_CHART_005.</summary>
-    internal bool IsTightHitTest { get; init; }
-
-    /// <summary>
-    /// When set, a custom focus indicator color is used instead of the default double-ring.
-    /// Scanner validates it meets 3:1 contrast (A11Y_CHART_006).
-    /// </summary>
-    internal global::Windows.UI.Color? CustomFocusColor { get; init; }
-
-    /// <summary>
-    /// When true, the chart announces every animation frame via the live region,
-    /// which floods assistive technology. Scanner flags as A11Y_CHART_007.
-    /// </summary>
-    internal bool IsAnnounceEveryFrame { get; init; }
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -5572,7 +5521,7 @@ public partial record PathElement() : Element
         if (e.PathDataString is { Length: > 0 } pdsFallback)
         {
             global::System.Exception? parserError = null;
-            try { c.Data = global::Microsoft.UI.Reactor.Charting.PathDataParser.Parse(pdsFallback); }
+            try { c.Data = PathDataParser.Parse(pdsFallback); }
             catch (global::System.Exception ex) { parserError = ex; }
 
             if (parserError is not null)

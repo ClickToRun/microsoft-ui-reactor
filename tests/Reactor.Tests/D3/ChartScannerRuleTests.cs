@@ -9,6 +9,14 @@ namespace Microsoft.UI.Reactor.Tests.D3;
 
 public class ChartScannerRuleTests
 {
+    static ChartScannerRuleTests()
+    {
+        // The chart accessibility rules now live in the Charting subsystem and are
+        // contributed to the core scanner via registration (issue #498). Install
+        // the checker so these unit tests exercise the chart rules.
+        AccessibilityScanner.RegisterScanExtension(ChartAccessibilityChecker.Instance);
+    }
+
     private record DataPoint(double X, double Y);
 
     private static readonly DataPoint[] SampleData =
@@ -34,16 +42,22 @@ public class ChartScannerRuleTests
         {
             Width = 400,
             Height = 300,
-            ChartData = chartData,
-            IsColorOnly = isColorOnly,
-            IsRawColors = isRawColors,
-            CustomPalette = customPalette,
-            IsInteractive = isInteractive,
-            IsKeyboardDisabled = isKeyboardDisabled,
-            IsTightHitTest = isTightHitTest,
-            CustomFocusColor = customFocusColor,
-            IsAnnounceEveryFrame = isAnnounceEveryFrame,
         };
+
+        if (chartData != null)
+        {
+            canvas = (CanvasElement)canvas.SetAttached(new ChartA11yData(chartData)
+            {
+                IsColorOnly = isColorOnly,
+                IsRawColors = isRawColors,
+                CustomPalette = customPalette,
+                IsInteractive = isInteractive,
+                IsKeyboardDisabled = isKeyboardDisabled,
+                IsTightHitTest = isTightHitTest,
+                CustomFocusColor = customFocusColor,
+                IsAnnounceEveryFrame = isAnnounceEveryFrame,
+            });
+        }
 
         if (automationName != null)
             canvas = (CanvasElement)(canvas as Element).AutomationName(automationName);

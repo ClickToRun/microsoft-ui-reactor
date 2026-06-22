@@ -88,7 +88,7 @@ public sealed class TreeChartElement<T> : IChartAccessibilityData
     }
     public static implicit operator Element(TreeChartElement<T> chart)
     {
-        Hosting.ChartingActivation.RequestActivation();
+        ChartingRuntime.Activate();
         return chart.ToElement();
     }
 
@@ -141,7 +141,7 @@ public sealed class TreeChartElement<T> : IChartAccessibilityData
         if (_onReady is { } cb)
             canvas = canvas.Set(c => cb(new TreeChartHandle(c)));
 
-        return canvas with { ChartData = this };
+        return canvas.SetAttached(new Accessibility.ChartA11yData(this));
     }
 
     // ── IChartAccessibilityData ──────────────────────────────────────
@@ -249,7 +249,7 @@ public sealed class ForceGraphElement : IChartAccessibilityData
     }
     public static implicit operator Element(ForceGraphElement chart)
     {
-        Hosting.ChartingActivation.RequestActivation();
+        ChartingRuntime.Activate();
         return chart.ToElement();
     }
 

@@ -29,6 +29,13 @@ internal sealed record DockDropTargetOverlayElement(
     public DockTarget[]? DisabledTargets { get; init; }
 
     internal override bool HasCallbacks => true;
+
+    // Spec 045 §2.3 — own-props (dev highlight overlay) equality. Callback
+    // closures are re-captured each render but only Mode affects the realized
+    // overlay's visible state. Authored here so the core never statically
+    // references this docking type.
+    internal override bool? OwnPropsEqualOverride(Element other)
+        => other is DockDropTargetOverlayElement ob ? Mode == ob.Mode : null;
 }
 
 internal static class DockDropTargetReconcilerRegistration
