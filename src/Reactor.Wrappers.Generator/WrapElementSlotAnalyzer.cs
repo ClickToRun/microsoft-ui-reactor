@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Diagnostics;
 
 namespace Microsoft.UI.Reactor.Wrappers.Generator;
@@ -13,6 +14,8 @@ namespace Microsoft.UI.Reactor.Wrappers.Generator;
 /// <item>REACTORGEN014 — that property's type must be assignable from a mounted
 /// <c>UIElement</c> (i.e. <c>object</c> or a <c>UIElement</c>-derived type); otherwise the
 /// generated assignment can never succeed.</item>
+/// <item>REACTORGEN015 — the element-facing slot property name (the attribute's first
+/// argument) must be a valid C# identifier, since it becomes a generated member name.</item>
 /// </list>
 /// Applies under both <c>[GenerateReactorWrapper]</c> and <c>[GenerateReactorDescriptor]</c>.
 /// </summary>
@@ -26,7 +29,7 @@ public sealed class WrapElementSlotAnalyzer : DiagnosticAnalyzer
     private static readonly DiagnosticDescriptor UnknownProperty = new(
         id: "REACTORGEN013",
         title: "Unknown WrapElementSlot control property",
-        messageFormat: "WrapElementSlot target property '{0}' is not a public settable property of control '{1}'",
+        messageFormat: "WrapElementSlot target property '{0}' is not a public settable property of control '{1}' (set ControlProperty= if the control property name differs from the slot name)",
         category: "Reactor.Wrappers",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
@@ -39,8 +42,16 @@ public sealed class WrapElementSlotAnalyzer : DiagnosticAnalyzer
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    private static readonly DiagnosticDescriptor InvalidSlotName = new(
+        id: "REACTORGEN015",
+        title: "Invalid WrapElementSlot property name",
+        messageFormat: "WrapElementSlot property name '{0}' is not a valid C# identifier; it is emitted as a generated member name",
+        category: "Reactor.Wrappers",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-        ImmutableArray.Create(UnknownProperty, NotElementTyped);
+        ImmutableArray.Create(UnknownProperty, NotElementTyped, InvalidSlotName);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -76,6 +87,12 @@ public sealed class WrapElementSlotAnalyzer : DiagnosticAnalyzer
 
             var loc = a.ApplicationSyntaxReference?.GetSyntax(ctx.CancellationToken).GetLocation() ?? Location.None;
 
+            if (!IsValidIdentifier(slotName))
+            {
+                ctx.ReportDiagnostic(Diagnostic.Create(InvalidSlotName, loc, slotName));
+                continue;
+            }
+
             var prop = FindSettableProperty(control, controlProp);
             if (prop is null)
             {
@@ -87,6 +104,13 @@ public sealed class WrapElementSlotAnalyzer : DiagnosticAnalyzer
                     NotElementTyped, loc, controlProp, control.Name, prop.Type.ToDisplayString()));
         }
     }
+
+    // The slot name becomes a generated init-property / member identifier; reject
+    // anything that isn't a valid C# identifier or that collides with a reserved keyword.
+    // Contextual keywords are allowed (they are legal identifiers).
+    private static bool IsValidIdentifier(string name) =>
+        SyntaxFacts.IsValidIdentifier(name) &&
+        SyntaxFacts.GetKeywordKind(name) == SyntaxKind.None;
 
     private static IPropertySymbol? FindSettableProperty(INamedTypeSymbol control, string name)
     {

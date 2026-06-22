@@ -1701,11 +1701,18 @@ public partial record SlotControlElement;
         Assert.Contains("global::Microsoft.UI.Reactor.Core.Element? headerIcon = null", src);
         Assert.Contains("HeaderIcon = headerIcon", src);
 
-        // ImperativeBridged mount/reconcile with a down-cast to the narrow control type.
+        // ImperativeBridged mount/reconcile with a hard cast to the narrow control type.
         Assert.Contains(".ImperativeBridged(", src);
-        Assert.Contains("if (e.HeaderIcon is not null) c.HeaderIcon = (ctx.MountChild(e.HeaderIcon) as global::Microsoft.UI.Xaml.Controls.IconElement)!;", src);
+        Assert.Contains("if (e.HeaderIcon is not null) c.HeaderIcon = (global::Microsoft.UI.Xaml.Controls.IconElement)ctx.MountChild(e.HeaderIcon)!;", src);
         Assert.Contains("var __next = ctx.ReconcileChild(__o.HeaderIcon, __n.HeaderIcon, __existing);", src);
-        Assert.Contains("if (!ReferenceEquals(__existing, __next)) c.HeaderIcon = (__next as global::Microsoft.UI.Xaml.Controls.IconElement)!;", src);
+        Assert.Contains("if (!ReferenceEquals(__existing, __next)) c.HeaderIcon = (global::Microsoft.UI.Xaml.Controls.IconElement)__next!;", src);
+
+        // Explicit removal: when the new slot is null but the old was not, the child is
+        // unmounted and the control property is cleared.
+        Assert.Contains("if (__o.HeaderIcon is not null) ctx.ReconcileChild(__o.HeaderIcon, null, c.HeaderIcon as global::Microsoft.UI.Xaml.UIElement);", src);
+        Assert.Contains("c.HeaderIcon = null!;", src);
+        // Both-null stays an early return (preserves the control's own default).
+        Assert.Contains("if (__o.HeaderIcon is null && __n.HeaderIcon is null) return;", src);
 
         // The slot's control property is NOT also surfaced as a value prop.
         Assert.DoesNotContain("c.HeaderIcon = v", src);
@@ -1746,7 +1753,7 @@ public partial record SlotControlElement;
         var src = WrapperFor(result, "SlotControlElement");
 
         Assert.Contains("public global::Microsoft.UI.Reactor.Core.Element? Glyph { get; init; }", src);
-        Assert.Contains("if (e.Glyph is not null) c.HeaderIcon = (ctx.MountChild(e.Glyph) as global::Microsoft.UI.Xaml.Controls.IconElement)!;", src);
+        Assert.Contains("if (e.Glyph is not null) c.HeaderIcon = (global::Microsoft.UI.Xaml.Controls.IconElement)ctx.MountChild(e.Glyph)!;", src);
         Assert.Contains("var __next = ctx.ReconcileChild(__o.Glyph, __n.Glyph, __existing);", src);
 
         Assert.Empty(result.Diagnostics);

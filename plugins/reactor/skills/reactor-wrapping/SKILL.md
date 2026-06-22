@@ -98,6 +98,7 @@ All live in `Microsoft.UI.Reactor.Wrappers`. All are repeatable unless noted.
 | `[WrapLifecycle(nameof(Start), OnUnmounted = nameof(Stop))]` | run a `static void M(TControl)` on mount/unmount for imperative controls (`CameraPreview.StartAsync`) — **no call-site boilerplate**. |
 | `[WrapPanelChildren(PerChild = …)]` | wire per-child attached props (`Grid.SetRow`, `Canvas.SetLeft`) onto a panel; `AfterAll` for two-pass (RelativePanel). |
 | `[WrapManual("P")]` + `static partial Customize(d)` | hand-chain one entry the generator can't infer while it still generates the rest. |
+| `[WrapElementSlot("Prop", ControlProperty = "…")]` | auto-wire a **secondary single-element slot** that writes a dedicated control property (`TabView.TabStripHeader`, `SettingsCard.HeaderIcon`) — mounts via `ctx.MountChild`, updates via state-preserving `ctx.ReconcileChild`. Use `ControlProperty=` when the element-facing name differs from the control property. The control property must be public-settable and `object`/`UIElement`-typed. For the **primary** child use `[WrapContent]`; for a slot that shares a control prop with a string fallback (`Expander.Header`) stay manual. |
 | `[WrapPolymorphic(nameof(Resolve))]` / `[WrapDecorator(nameof(Create))]` | controls whose concrete type is chosen at runtime, or that need a fully custom mount/update/unmount lifecycle (emit an `IDecoratorElementHandler`, not a descriptor). |
 
 ### Imperative control (lifecycle) — paste-ready
@@ -149,8 +150,12 @@ public partial record SettingsCardElement
 `REACTORGEN001` (target isn't a non-static `FrameworkElement` with a public
 parameterless ctor) · `…002` (bad Include/Exclude name) · `…003`/`…004`
 (WrapControlled property / change-event) · `…005` (WrapAlias control property) ·
-`…006` (WrapOneWay) · `…007` (WrapContent) · `…008` (WrapConvert) · `…012` (two
-controlled props share one control). Run `mur check <path>` — it surfaces these
+`…006` (WrapOneWay) · `…007` (WrapContent) · `…008` (WrapConvert) ·
+`…009`/`…010` (WrapEvent target / arg) · `…011` (WrapLifecycle method) · `…012` (two
+controlled props share one control) · `…013` (WrapElementSlot control property
+missing/not-settable — set `ControlProperty=`) · `…014` (WrapElementSlot control
+property not `UIElement`-assignable) · `…015` (WrapElementSlot slot name not a valid
+identifier). Run `mur check <path>` — it surfaces these
 with skill pointers.
 
 ## When to drop to a hand-written descriptor

@@ -7,9 +7,10 @@ using Xunit;
 namespace Microsoft.UI.Reactor.Tests.WrappersGenerator;
 
 /// <summary>
-/// Tests for <see cref="WrapElementSlotAnalyzer"/> (REACTORGEN013 / REACTORGEN014),
-/// which validate that a <c>[WrapElementSlot]</c> target control property exists, is
-/// public-settable, and is assignable from a mounted UIElement.
+/// Tests for <see cref="WrapElementSlotAnalyzer"/> (REACTORGEN013 / REACTORGEN014 /
+/// REACTORGEN015), which validate that a <c>[WrapElementSlot]</c> target control property
+/// exists, is public-settable, is assignable from a mounted UIElement, and that the
+/// element-facing slot name is a valid C# identifier.
 /// </summary>
 public class WrapElementSlotAnalyzerTests
 {
@@ -95,6 +96,27 @@ partial class HolderElement { }
     public Task Non_Element_Typed_Property_Errors() => Verify(@"
 [Microsoft.UI.Reactor.Wrappers.GenerateReactorWrapper(typeof(Microsoft.UI.Xaml.Controls.Holder))]
 [{|REACTORGEN014:Microsoft.UI.Reactor.Wrappers.WrapElementSlot(""Title"")|}]
+partial class HolderElement { }
+");
+
+    [Fact]
+    public Task Invalid_Identifier_Slot_Name_Errors() => Verify(@"
+[Microsoft.UI.Reactor.Wrappers.GenerateReactorWrapper(typeof(Microsoft.UI.Xaml.Controls.Holder))]
+[{|REACTORGEN015:Microsoft.UI.Reactor.Wrappers.WrapElementSlot(""Bad-Name"", ControlProperty = ""HeaderIcon"")|}]
+partial class HolderElement { }
+");
+
+    [Fact]
+    public Task Keyword_Slot_Name_Errors() => Verify(@"
+[Microsoft.UI.Reactor.Wrappers.GenerateReactorWrapper(typeof(Microsoft.UI.Xaml.Controls.Holder))]
+[{|REACTORGEN015:Microsoft.UI.Reactor.Wrappers.WrapElementSlot(""class"", ControlProperty = ""HeaderIcon"")|}]
+partial class HolderElement { }
+");
+
+    [Fact]
+    public Task Contextual_Keyword_Slot_Name_Is_Clean() => Verify(@"
+[Microsoft.UI.Reactor.Wrappers.GenerateReactorWrapper(typeof(Microsoft.UI.Xaml.Controls.Holder))]
+[Microsoft.UI.Reactor.Wrappers.WrapElementSlot(""value"", ControlProperty = ""HeaderIcon"")]
 partial class HolderElement { }
 ");
 }

@@ -95,7 +95,11 @@ public partial record TabViewElement
                     tvi.IconSource = newItem.Icon is null ? null : V1.IconResolver.ResolveIconSource(newItem.Icon);
             });
         // TabStripHeader / TabStripFooter are declared via [WrapElementSlot] — the
-        // generator emits their mount/reconcile ImperativeBridged entries.
+        // generator emits their mount/reconcile ImperativeBridged entries. They can't be
+        // NamedSlots/SingleContent children: a control has exactly one ChildrenStrategy and
+        // TabView's is already the tab ItemsHost. Secondary single-element slots that write a
+        // dedicated control property therefore ride the imperative bridge (see
+        // docs/guide/extensibility-preview.md — secondary-slot decision).
         return d
             .HandCodedControlled<V1.TabViewEventPayload, int, WinUI.SelectionChangedEventHandler>(
                 get:         static e => e.SelectedIndex,

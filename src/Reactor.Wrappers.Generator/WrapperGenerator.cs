@@ -1659,19 +1659,26 @@ public sealed class WrapperGenerator : IIncrementalGenerator
             {
                 var narrow = slot.ControlPropTypeFqn is not (null or "object"
                     or "global::System.Object" or UIElement);
-                // Narrow control prop (e.g. IconElement): down-cast the mounted UIElement
-                // and null-forgive (the `as` widens to nullable; the control property is
-                // non-null-annotated, and on removal the null is the intended "no child").
+                // Narrow control prop (e.g. IconElement): hard-cast the mounted UIElement so a
+                // genuine type mismatch throws InvalidCastException instead of silently nulling
+                // the child. The `!` only suppresses the UIElement? nullability of MountChild /
+                // ReconcileChild — casting an actual null reference still yields null (no throw).
                 var mountExpr = narrow
-                    ? $"(ctx.MountChild(e.{slot.Name}) as {slot.ControlPropTypeFqn})!"
+                    ? $"({slot.ControlPropTypeFqn})ctx.MountChild(e.{slot.Name})!"
                     : $"ctx.MountChild(e.{slot.Name})";
-                var nextExpr = narrow ? $"(__next as {slot.ControlPropTypeFqn})!" : "__next";
+                var nextExpr = narrow ? $"({slot.ControlPropTypeFqn})__next!" : "__next";
                 sb.AppendLine();
                 sb.AppendLine("        .ImperativeBridged(");
                 sb.AppendLine($"            mount: static (ctx, c, e) => {{ if (e.{slot.Name} is not null) c.{slot.ControlProp} = {mountExpr}; }},");
                 sb.AppendLine("            update: static (ctx, c, __o, __n) =>");
                 sb.AppendLine("            {");
                 sb.AppendLine($"                if (__o.{slot.Name} is null && __n.{slot.Name} is null) return;");
+                sb.AppendLine($"                if (__n.{slot.Name} is null)");
+                sb.AppendLine("                {");
+                sb.AppendLine($"                    if (__o.{slot.Name} is not null) ctx.ReconcileChild(__o.{slot.Name}, null, c.{slot.ControlProp} as {UIElement});");
+                sb.AppendLine($"                    c.{slot.ControlProp} = null!;");
+                sb.AppendLine("                    return;");
+                sb.AppendLine("                }");
                 sb.AppendLine($"                var __existing = c.{slot.ControlProp} as {UIElement};");
                 sb.AppendLine($"                var __next = ctx.ReconcileChild(__o.{slot.Name}, __n.{slot.Name}, __existing);");
                 sb.Append($"                if (!ReferenceEquals(__existing, __next)) c.{slot.ControlProp} = {nextExpr};\n            }})");
