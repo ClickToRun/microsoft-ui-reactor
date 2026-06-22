@@ -1,0 +1,13 @@
+# Reactor framework source — analyzer severity overrides.
+# This file layers on top of the repo-root .editorconfig (root = true there);
+# settings here apply only under src/Reactor/.
+
+[*.cs]
+# Unresolved XML-doc crefs. This replaces the former REACTOR_DOC_002 analyzer,
+# which was a pure re-skin of the built-in CS1574 (see issue #496). CS1574
+# answers the exact same question — "does this <see cref="..."/> resolve?" —
+# and can be elevated/suppressed per-project, so we configure it directly
+# instead of mirroring it under a Reactor-specific id. Kept at warning to match
+# REACTOR_DOC_002's prior severity; raise to `error` to gate the build on
+# doc-cref correctness (spec 041 §10.4).
+dotnet_diagnostic.CS1574.severity = warning

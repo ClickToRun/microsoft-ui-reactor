@@ -17,9 +17,8 @@ namespace Microsoft.UI.Reactor.Tests.AnalyzerTests;
 /// <c>REACTOR_DOC_*</c> rules that only make sense on the framework's own
 /// public-API XML doc (spec 041 §10.4) and is deliberately NOT packed. The
 /// asymmetry is intentional and easily broken: if someone moves
-/// <c>XmlDocSummaryAnalyzer</c> or <c>XmlDocCrefAnalyzer</c> back into
-/// <c>Reactor.Analyzers</c>, every customer build starts warning about
-/// missing summaries on their own types.
+/// <c>XmlDocSummaryAnalyzer</c> back into <c>Reactor.Analyzers</c>, every
+/// customer build starts warning about missing summaries on their own types.
 /// </para>
 ///
 /// <para>
@@ -61,9 +60,9 @@ public class AnalyzerPackagingTests
     [Fact]
     public void InternalAnalyzerAssembly_Hosts_DocCoverageRules()
     {
-        // Symmetric companion: ensure REACTOR_DOC_001 / _002 still exist
-        // (and live in the internal-only assembly). Catches accidental
-        // deletion of the analyzers themselves.
+        // Symmetric companion: ensure REACTOR_DOC_001 still exists
+        // (and lives in the internal-only assembly). Catches accidental
+        // deletion of the analyzer itself.
         var @internal = typeof(XmlDocSummaryAnalyzer).Assembly;
         Assert.Equal("Reactor.Analyzers.Internal", @internal.GetName().Name);
 
@@ -77,6 +76,5 @@ public class AnalyzerPackagingTests
             .ToHashSet();
 
         Assert.Contains("REACTOR_DOC_001", docIds);
-        Assert.Contains("REACTOR_DOC_002", docIds);
     }
 }

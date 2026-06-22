@@ -32,8 +32,8 @@ support).
 - Pipeline tests live under `tests/Reactor.Cli.Tests/` (CLI) and
   `tests/Reactor.DocPipeline.Tests/` (compiler logic). If the latter
   doesn't exist yet, create it in Phase 1.
-- Public-API XML doc enforcement uses the new `REACTOR_DOC_001`
-  analyzer (Phase 1) and `REACTOR_DOC_002` (Phase 1, cref resolution).
+- Public-API XML doc enforcement uses the `REACTOR_DOC_001`
+  analyzer (Phase 1); unresolved crefs are caught by the built-in `CS1574`.
 - Spec section anchors are referenced in task bodies (e.g. `(spec
   §7.1.1)`).
 - Do not run unit + selftest dotnet processes in parallel —
@@ -287,6 +287,12 @@ infrastructure to unblock content phases.
       fixture under `Fixtures/refgen/tiny.xml`.*
 
 ### 1.8 REACTOR_DOC_001 + REACTOR_DOC_002 analyzers
+
+> **Update (#496):** `REACTOR_DOC_002` / `XmlDocCrefAnalyzer` was later
+> removed as a pure duplicate of the built-in `CS1574`; unresolved crefs
+> are now caught by `CS1574` (severity configured in
+> `src/Reactor/.editorconfig`). The checked-off entries below remain as
+> the original Phase 1.8 implementation record.
 
 - [x] `REACTOR_DOC_001`: public type or member lacks `<summary>`.
       *`src/Reactor.Analyzers/XmlDocSummaryAnalyzer.cs`. Severity

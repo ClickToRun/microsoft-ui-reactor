@@ -8,7 +8,7 @@ goal: |
   registers, the syntactic fast path that keeps the analyzers cheap on
   large compilations, the symbol check that grounds the syntactic match
   in real Reactor types, the code-fix link, and the doc-system family
-  (REACTOR_DOC_001 / 002) added in Phase 1.8. Covers authoring a new
+  (REACTOR_DOC_001) added in Phase 1.8. Covers authoring a new
   analyzer end-to-end: rule descriptor, syntax registration, symbol
   guard, diagnostic property bag for the fix provider.
 tier: comprehensive
@@ -121,7 +121,6 @@ via `.editorconfig`.
 | `REACTOR_DSL_001` | Warning | Dynamic list item missing .WithKey | `MissingWithKeyAnalyzer.cs` |
 | `REACTOR_DOCK_001` | Warning | OnLiveLayoutChanged feeds the live layout back into state | `OnLiveLayoutRoundTripAnalyzer.cs` |
 | `REACTOR_DOC_001` | Warning | Public API missing XML doc summary | `XmlDocSummaryAnalyzer.cs` |
-| `REACTOR_DOC_002` | Warning | XML doc cref does not resolve | `XmlDocCrefAnalyzer.cs` |
 | `REACTOR_POOL_001` | Warning | `.Set` writes to a property that pool reset clears | `PoolResetSetAnalyzer.cs` |
 | `REACTOR0050` | Warning | Optional OneWay descriptor entry has no `dp:` ClearValue fallback | `OneWayClearValueAnalyzer.cs` |
 
@@ -182,16 +181,18 @@ fix the moment the message changes or gets localized.
 ## The doc-system analyzers
 
 Phase 1.8 of [spec 041](https://github.com/microsoft/reactor) added
-two analyzers that don't fire on application code at all — they fire
+an analyzer that doesn't fire on application code at all — it fires
 on the Reactor SDK's own source to keep the auto-generated reference
 docset honest. `REACTOR_DOC_001` flags any public type, method,
-property, or event without a `<summary>` XML doc comment;
-`REACTOR_DOC_002` flags `cref="X"` attributes that don't resolve to a
-real symbol. Both run during the `dotnet build` of `Reactor.csproj`
-itself; downstream consumers don't see them.
+property, or event without a `<summary>` XML doc comment. It runs
+during the `dotnet build` of `Reactor.csproj` itself; downstream
+consumers don't see it. Unresolved `cref="X"` attributes are caught by
+the built-in `CS1574` (configured in `src/Reactor/.editorconfig`); a
+former `REACTOR_DOC_002` analyzer mirrored that same check under a
+Reactor-specific id but added no analysis on top, so it was removed.
 
-The doc analyzers register a `SymbolAction` instead of a
-`SyntaxNodeAction` — the question they answer is per-symbol
+The doc analyzer registers a `SymbolAction` instead of a
+`SyntaxNodeAction` — the question it answers is per-symbol
 (is this symbol documented?) rather than per-syntax-node, so the
 symbol-level callback is the cheaper and more accurate hook. This is
 the second registration pattern in the codebase; everything else uses
