@@ -406,17 +406,8 @@ public sealed class StepCard : Component<StepCardProps>
             (FlexRow(
                 Image(iconPath).Width(16).Height(16),
                 TextBlock(command.Label).VAlign(VerticalAlignment.Center))
-            with { ColumnGap = 8, AlignItems = FlexAlign.Center }),
-            () =>
-            {
-                // Match the framework's CommandBindings.Invoke contract: prefer
-                // the synchronous Execute (which is what UseCommand sets after
-                // wrapping an async command), fall back to firing ExecuteAsync
-                // for raw async commands that didn't go through UseCommand.
-                if (command.Execute is not null) command.Execute();
-                else if (command.ExecuteAsync is not null) _ = command.ExecuteAsync();
-            })
-        .IsEnabled(command.IsEnabled)
+            with { ColumnGap = 8, AlignItems = FlexAlign.Center }))
+        .Command(command)
         .HAlign(HorizontalAlignment.Stretch)
         .AutomationName(automationName);
 

@@ -845,6 +845,7 @@ internal static class SelfTestFixtureRegistry
         "Commanding_ToggleButtonCommandFiresOnToggle",
         "Commanding_RepeatButtonCommandInvokesExecute",
         "Commanding_DisabledCommandDisablesControl",
+        "Commanding_CustomContentCommandReappliesIsEnabledOnUpdate",
 
         // Drag-and-drop — spec 027 Tier 6 (Phase 6a)
         "DragDrop_OnDragStartAutoSetsCanDrag",
@@ -2226,6 +2227,7 @@ internal static class SelfTestFixtureRegistry
         "Commanding_ToggleButtonCommandFiresOnToggle" => new CommandingCoverageFixtures.ToggleButtonCommandFiresOnToggle(harness),
         "Commanding_RepeatButtonCommandInvokesExecute" => new CommandingCoverageFixtures.RepeatButtonCommandInvokesExecute(harness),
         "Commanding_DisabledCommandDisablesControl" => new CommandingCoverageFixtures.DisabledCommandDisablesControl(harness),
+        "Commanding_CustomContentCommandReappliesIsEnabledOnUpdate" => new CommandingCoverageFixtures.CustomContentCommandReappliesIsEnabledOnUpdate(harness),
 
         // Drag-and-drop — spec 027 Tier 6 (Phase 6a)
         "DragDrop_OnDragStartAutoSetsCanDrag" => new DragDropFixtures.OnDragStartAutoSetsCanDrag(harness),

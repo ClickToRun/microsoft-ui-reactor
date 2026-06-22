@@ -126,4 +126,39 @@ internal static class CommandingCoverageFixtures
             H.Check("DisabledCmd_DisablesControl", sb is not null && !sb.IsEnabled);
         }
     }
+
+    /// <summary>
+    /// Issue #133 regression: a custom-content button bound via the
+    /// <c>.Command(command)</c> modifier must re-apply <c>command.IsEnabled</c> to the
+    /// live control on every update — not capture it once at construction. Mounts an
+    /// icon-style (custom content) button whose command flips from enabled to disabled
+    /// across a state-driven re-render and asserts the reused control's IsEnabled tracks it.
+    /// </summary>
+    internal class CustomContentCommandReappliesIsEnabledOnUpdate(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (disabled, setDisabled) = ctx.UseState(false);
+                var cmd = new Command { Label = "Run", Execute = () => { }, CanExecute = !disabled };
+                return VStack(
+                    Button("toggleCmdState", () => setDisabled(true)),
+                    Button(TextBlock("Run")).Command(cmd).Set(b => b.Name = "cmdContentBtn"));
+            });
+            await Harness.Render();
+
+            var btn = H.FindControl<Button>(b => b.Name == "cmdContentBtn");
+            H.Check("CmdContent_Mounted", btn is not null);
+            H.Check("CmdContent_InitiallyEnabled", btn is not null && btn.IsEnabled);
+
+            H.ClickButton("toggleCmdState");
+            await Harness.Render();
+
+            var btn2 = H.FindControl<Button>(b => b.Name == "cmdContentBtn");
+            H.Check("CmdContent_Reused", ReferenceEquals(btn, btn2));
+            H.Check("CmdContent_DisabledAfterUpdate", btn2 is not null && !btn2.IsEnabled);
+        }
+    }
 }

@@ -236,6 +236,7 @@ BreadcrumbBarElement.ItemClicked(Action<BreadcrumbBarItemData> handler) → Brea
 BreadcrumbBarElement.Set(Action<BreadcrumbBar> configure) → BreadcrumbBarElement
 ButtonElement.AccentButton() → ButtonElement
 ButtonElement.Click(Action handler) → ButtonElement
+ButtonElement.Command(Command command) → ButtonElement
 ButtonElement.IsDisabledFocusable(bool disabled = true) → ButtonElement
 ButtonElement.Set(Action<Button> configure) → ButtonElement
 ButtonElement.SubtleButton() → ButtonElement
@@ -350,6 +351,7 @@ GridViewElement.SelectionChanged(Action<IReadOnlyList<int>> handler) → GridVie
 GridViewElement.SelectionMode(ListViewSelectionMode mode) → GridViewElement
 GridViewElement.Set(Action<GridView> configure) → GridViewElement
 HyperlinkButtonElement.Click(Action handler) → HyperlinkButtonElement
+HyperlinkButtonElement.Command(Command command) → HyperlinkButtonElement
 HyperlinkButtonElement.NavigateUri(Uri uri) → HyperlinkButtonElement
 HyperlinkButtonElement.Set(Action<HyperlinkButton> configure) → HyperlinkButtonElement
 HyperlinkButtonElement.TextLink() → HyperlinkButtonElement
@@ -482,6 +484,7 @@ RefreshContainerElement.RefreshRequested(Action handler) → RefreshContainerEle
 RefreshContainerElement.Set(Action<RefreshContainer> configure) → RefreshContainerElement
 RelativePanelElement.Set(Action<RelativePanel> configure) → RelativePanelElement
 RepeatButtonElement.Click(Action handler) → RepeatButtonElement
+RepeatButtonElement.Command(Command command) → RepeatButtonElement
 RepeatButtonElement.Delay(int delay) → RepeatButtonElement
 RepeatButtonElement.Interval(int interval) → RepeatButtonElement
 RepeatButtonElement.Set(Action<RepeatButton> configure) → RepeatButtonElement
@@ -808,6 +811,7 @@ TitleBarElement.Subtitle(string subtitle) → TitleBarElement
 TitleBarElement.WithNavigation<TRoute>(NavigationHandle<TRoute> nav) → TitleBarElement
 ToggleButtonElement.CheckedState(bool? state) → ToggleButtonElement
 ToggleButtonElement.CheckedStateChanged(Action<bool?> handler) → ToggleButtonElement
+ToggleButtonElement.Command(Command command) → ToggleButtonElement
 ToggleButtonElement.IsCheckedChanged(Action<bool> handler) → ToggleButtonElement
 ToggleButtonElement.IsThreeState(bool isThreeState = true) → ToggleButtonElement
 ToggleButtonElement.Set(Action<ToggleButton> configure) → ToggleButtonElement
