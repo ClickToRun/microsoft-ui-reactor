@@ -17,8 +17,11 @@ namespace Microsoft.UI.Reactor.Hooks;
 /// </summary>
 public sealed class AnnounceHandle
 {
-    private TextBlock? _textBlock;
-    private DispatcherQueue? _dispatcherQueue;
+    // Both are written together in SetTextBlock on the UI thread (reconciler
+    // mount) and read from arbitrary threads in Announce — volatile makes that
+    // publication well-defined so a cross-thread caller can't observe a torn pair.
+    private volatile TextBlock? _textBlock;
+    private volatile DispatcherQueue? _dispatcherQueue;
 
     /// <summary>
     /// A zero-size, invisible Reactor element that acts as the live-region anchor.
@@ -56,15 +59,26 @@ public sealed class AnnounceHandle
     /// If true, interrupts current speech immediately.
     /// If false (default), queued after current speech finishes.
     /// </param>
+    /// <remarks>
+    /// Thread-safe. When called on the UI thread the announcement is raised
+    /// synchronously. When called from any other thread it is marshalled to the
+    /// captured UI <see cref="DispatcherQueue"/> and runs asynchronously
+    /// (fire-and-forget) — it may complete after this method returns. Calls made
+    /// before the live-region <see cref="Region"/> has mounted are ignored.
+    /// </remarks>
     // <snippet:announce-live-region>
     public void Announce(string message, bool assertive)
     {
-        if (_textBlock is null) return;
+        // _dispatcherQueue is the readiness signal: it is assigned together with
+        // _textBlock in SetTextBlock on the UI thread. Gating on it (rather than
+        // _textBlock) means an off-thread caller can never observe a wired text
+        // block with no dispatcher and fall through to AnnounceCore off-thread.
+        if (_dispatcherQueue is not { } dq) return;
 
         // WinUI XAML APIs throw RPC_E_WRONG_THREAD (0x8001010E) off the UI thread.
         // Marshal back to the captured DispatcherQueue when called cross-thread; the
         // UI-thread fast path is a single HasThreadAccess bool check.
-        if (_dispatcherQueue is { } dq && !dq.HasThreadAccess)
+        if (!dq.HasThreadAccess)
         {
             dq.TryEnqueue(() => AnnounceCore(message, assertive));
             return;

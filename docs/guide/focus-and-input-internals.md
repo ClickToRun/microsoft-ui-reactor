@@ -172,6 +172,26 @@ on the parent must not block focus moving into the child.
 ```csharp
 public void Announce(string message, bool assertive)
 {
+    // _dispatcherQueue is the readiness signal: it is assigned together with
+    // _textBlock in SetTextBlock on the UI thread. Gating on it (rather than
+    // _textBlock) means an off-thread caller can never observe a wired text
+    // block with no dispatcher and fall through to AnnounceCore off-thread.
+    if (_dispatcherQueue is not { } dq) return;
+
+    // WinUI XAML APIs throw RPC_E_WRONG_THREAD (0x8001010E) off the UI thread.
+    // Marshal back to the captured DispatcherQueue when called cross-thread; the
+    // UI-thread fast path is a single HasThreadAccess bool check.
+    if (!dq.HasThreadAccess)
+    {
+        dq.TryEnqueue(() => AnnounceCore(message, assertive));
+        return;
+    }
+
+    AnnounceCore(message, assertive);
+}
+
+private void AnnounceCore(string message, bool assertive)
+{
     if (_textBlock is null) return;
 
     // Primary path: RaiseNotificationEvent (WinUI 1.4+, best Narrator/NVDA support).
