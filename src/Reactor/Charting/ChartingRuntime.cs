@@ -15,14 +15,28 @@ namespace Microsoft.UI.Reactor.Charting;
 /// </summary>
 internal static class ChartingRuntime
 {
-    private static int s_registered;
+    private static readonly object s_gate = new();
+    private static volatile bool s_registered;
 
     internal static void Activate()
     {
-        if (global::System.Threading.Interlocked.Exchange(ref s_registered, 1) == 0)
+        // Register the host bridge + scanner extension exactly once, and make the
+        // `s_registered` flag observable only *after* registration completes. A
+        // concurrent first-caller that loses the race blocks on the lock until
+        // registration is done, so it can never reach RequestActivation() (and the
+        // host's `s_chartingBridge?.CaptureForcedColorsTheme()` path) before the
+        // bridge has been published. See issue #498 review (M1).
+        if (!s_registered)
         {
-            Hosting.ReactorHost.RegisterChartingBridge(D3ChartsHostBridge.Instance);
-            Core.AccessibilityScanner.RegisterScanExtension(Accessibility.ChartAccessibilityChecker.Instance);
+            lock (s_gate)
+            {
+                if (!s_registered)
+                {
+                    Hosting.ReactorHost.RegisterChartingBridge(D3ChartsHostBridge.Instance);
+                    Core.AccessibilityScanner.RegisterScanExtension(Accessibility.ChartAccessibilityChecker.Instance);
+                    s_registered = true;
+                }
+            }
         }
 
         Hosting.ChartingActivation.RequestActivation();
