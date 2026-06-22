@@ -818,6 +818,85 @@ public sealed class OptionalReconcilerUpdateBench : IBench
     private static readonly Action NoOp = static () => { };
 }
 
+/// <summary>
+/// C207 — Issue #207. Change-event trampoline ReactorState DP-read coalescing.
+///
+/// Holds one tagged <see cref="WinUI.TextBox"/> off-tree and runs the
+/// change-handler body N times, isolating the cost difference of the attached-DP
+/// (<c>GetValue(StateProperty)</c>, a COM-interop read) traffic per event:
+///   <list type="bullet">
+///     <item><b>ReactorToday</b> = BEFORE #207 — two DP reads per event
+///       (<c>ChangeEchoSuppressor.ShouldSuppress</c> + <c>Reconciler.GetElementTag</c>).</item>
+///     <item><b>Reactor</b> = AFTER #207 — one DP read per event
+///       (<c>Reconciler.TryGetReactorState</c> → reuse <c>state</c> for both the
+///       suppression check and the live-element dispatch).</item>
+///     <item><b>Direct</b> = floor — callback invoke only, no DP read.</item>
+///   </list>
+/// Encoding both patterns as variants makes this an in-process A/B: a single
+/// build measures the BEFORE and AFTER under identical conditions, so the delta
+/// is exactly the one eliminated <c>GetValue(StateProperty)</c> read per event.
+/// </summary>
+public sealed class C207_ChangeHandlerDpRead : IBench
+{
+    public string Id => "C207";
+    public string Name => "ChangeHandler_DpRead_Coalesce";
+
+    private sealed class Holder
+    {
+        public required WinUI.TextBox Control;
+        public required TextBoxElement Element;
+    }
+
+    // Static sink incremented by the dispatched callback so the JIT cannot
+    // elide the trampoline body as dead code.
+    private static long _sink;
+
+    public void RunOne(BenchVariant variant, BenchContext ctx)
+    {
+        if (ctx.Scratch is not Holder h)
+        {
+            var tb = new WinUI.TextBox();
+            var el = new TextBoxElement(Value: "x", OnChanged: static _ => _sink++);
+            Reconciler.SetElementTag(tb, el);
+            h = new Holder { Control = tb, Element = el };
+            ctx.Scratch = h;
+        }
+
+        switch (variant)
+        {
+            case BenchVariant.Direct:
+                // Floor: dispatch with no attached-DP read at all.
+                h.Element.OnChanged?.Invoke("x");
+                break;
+
+            case BenchVariant.ReactorToday:
+                // BEFORE #207: two GetValue(StateProperty) reads per event.
+                if (ChangeEchoSuppressor.ShouldSuppress(h.Control)) return;
+                (Reconciler.GetElementTag(h.Control) as TextBoxElement)?.OnChanged?.Invoke("x");
+                break;
+
+            case BenchVariant.Reactor:
+                // AFTER #207: one GetValue(StateProperty) read per event, shared
+                // by the suppression check and the live-element dispatch.
+                if (!Reconciler.TryGetReactorState(h.Control, out var state)) return;
+                if (ChangeEchoSuppressor.ShouldSuppress(state)) return;
+                (state.Element as TextBoxElement)?.OnChanged?.Invoke("x");
+                break;
+        }
+    }
+
+    public void DemoMount(BenchVariant variant, BenchContext ctx)
+    {
+        var stack = new StackPanel { Orientation = Orientation.Vertical };
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"C207 {variant}: change-handler ReactorState DP-read coalescing",
+            FontSize = 16,
+        });
+        ctx.Parent.Children.Add(stack);
+    }
+}
+
 public static class BenchCatalog
 {
     public static IReadOnlyList<IBench> All { get; } = new IBench[]
@@ -837,5 +916,6 @@ public static class BenchCatalog
         new M13_SettersSuppressionScope(),
         new OptionalElementAllocBench(),
         new OptionalReconcilerUpdateBench(),
+        new C207_ChangeHandlerDpRead(),
     };
 }

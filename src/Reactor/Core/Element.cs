@@ -2770,8 +2770,9 @@ public partial record TextBoxElement(
     private static readonly WinUI.TextChangedEventHandler __TextChangedTrampoline = (s, _) =>
     {
         var tb = (WinUI.TextBox)s!;
-        if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(tb)) return;
-        (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(tb) as TextBoxElement)?.OnChanged?.Invoke(tb.Text);
+        if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(tb, out var state)) return;
+        if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(state)) return;
+        (state.Element as TextBoxElement)?.OnChanged?.Invoke(tb.Text);
     };
 
     private static readonly global::Microsoft.UI.Xaml.RoutedEventHandler __SelectionChangedTrampoline = (s, _) =>
@@ -2877,8 +2878,9 @@ public partial record NumberBoxElement(
         __ValueChangedTrampoline = (s, _) =>
         {
             var box = (WinUI.NumberBox)s!;
-            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(box)) return;
-            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(box) as NumberBoxElement)?.OnValueChanged?.Invoke(box.Value);
+            if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(box, out var state)) return;
+            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(state)) return;
+            (state.Element as NumberBoxElement)?.OnValueChanged?.Invoke(box.Value);
         };
 
     // Min/Max BEFORE Value (Customize entries emit first) so a fresh in-range Value isn't
@@ -2946,8 +2948,9 @@ public partial record AutoSuggestBoxElement(
         {
             if (args.Reason != WinUI.AutoSuggestionBoxTextChangeReason.UserInput) return;
             var asb = (WinUI.AutoSuggestBox)s!;
-            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(asb)) return;
-            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(asb) as AutoSuggestBoxElement)?.OnTextChanged?.Invoke(asb.Text);
+            if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(asb, out var state)) return;
+            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(state)) return;
+            (state.Element as AutoSuggestBoxElement)?.OnTextChanged?.Invoke(asb.Text);
         };
 
     private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.AutoSuggestBox, WinUI.AutoSuggestBoxQuerySubmittedEventArgs>
@@ -3130,8 +3133,9 @@ public partial record ComboBoxElement(
     private static readonly WinUI.SelectionChangedEventHandler __SelectionChangedTrampoline = (s, _) =>
     {
         var cb = (WinUI.ComboBox)s!;
-        if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppressEcho(cb, cb.SelectedIndex)) return;
-        (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(cb) as ComboBoxElement)
+        if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(cb, out var state)) return;
+        if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppressEcho(state, cb.SelectedIndex)) return;
+        (state.Element as ComboBoxElement)
             ?.OnSelectedIndexChanged?.Invoke(cb.SelectedIndex);
     };
 
@@ -3606,9 +3610,10 @@ public partial record RichEditBoxElement(
     private static readonly global::Microsoft.UI.Xaml.RoutedEventHandler __TextChangedTrampoline = (s, _) =>
     {
         var r = (WinUI.RichEditBox)s!;
-        if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(r)) return;
+        if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(r, out var state)) return;
+        if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(state)) return;
         r.Document.GetText(global::Microsoft.UI.Text.TextGetOptions.None, out var text);
-        (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(r) as RichEditBoxElement)
+        (state.Element as RichEditBoxElement)
             ?.OnTextChanged?.Invoke(text?.TrimEnd('\r') ?? "");
     };
 
@@ -3860,15 +3865,17 @@ public partial record ExpanderElement(
     private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.Expander, WinUI.ExpanderExpandingEventArgs>
         __ExpandingTrampoline = (s, _) =>
         {
-            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(s)) return;
-            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(s) as ExpanderElement)?.OnIsExpandedChanged?.Invoke(true);
+            if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(s, out var state)) return;
+            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(state)) return;
+            (state.Element as ExpanderElement)?.OnIsExpandedChanged?.Invoke(true);
         };
 
     private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.Expander, WinUI.ExpanderCollapsedEventArgs>
         __CollapsedTrampoline = (s, _) =>
         {
-            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(s)) return;
-            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(s) as ExpanderElement)?.OnIsExpandedChanged?.Invoke(false);
+            if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(s, out var state)) return;
+            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(state)) return;
+            (state.Element as ExpanderElement)?.OnIsExpandedChanged?.Invoke(false);
         };
 
     private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<ExpanderElement, WinUI.Expander> Customize(
@@ -4353,8 +4360,9 @@ internal override bool HasCallbacks => OnSelectedIndexChanged is not null;
 private static readonly WinUI.SelectionChangedEventHandler __SelectionChangedTrampoline = (s, _) =>
 {
     var p = (WinUI.Pivot)s!;
-    if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppressEcho(p, p.SelectedIndex)) return;
-    (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(p) as PivotElement)?.OnSelectedIndexChanged?.Invoke(p.SelectedIndex);
+    if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(p, out var state)) return;
+    if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppressEcho(state, p.SelectedIndex)) return;
+    (state.Element as PivotElement)?.OnSelectedIndexChanged?.Invoke(p.SelectedIndex);
 };
 
 private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<PivotElement, WinUI.Pivot> Customize(
@@ -5760,8 +5768,9 @@ public partial record ListBoxElement(string[] Items) : Element
     private static readonly WinUI.SelectionChangedEventHandler __SelectionChangedTrampoline = (s, _) =>
     {
         var lb = (WinUI.ListBox)s!;
-        if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(lb)) return;
-        if (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(lb) is not ListBoxElement el) return;
+        if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(lb, out var state)) return;
+        if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(state)) return;
+        if (state.Element is not ListBoxElement el) return;
         el.OnSelectedIndexChanged?.Invoke(lb.SelectedIndex);
         if (el.OnSelectionChanged is { } h)
         {
@@ -5815,8 +5824,9 @@ public partial record SelectorBarElement(SelectorBarItemData[] Items) : Element
         {
             var bar = (WinUI.SelectorBar)s!;
             var idx = bar.Items.IndexOf(bar.SelectedItem);
-            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppressEcho(bar, idx)) return;
-            if (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(bar) is not SelectorBarElement el) return;
+            if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(bar, out var state)) return;
+            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppressEcho(state, idx)) return;
+            if (state.Element is not SelectorBarElement el) return;
             el.OnSelectedIndexChanged?.Invoke(idx);
         };
 
@@ -5994,8 +6004,9 @@ public partial record CalendarViewElement() : Element
         __SelectedDatesChangedTrampoline = static (s, _) =>
         {
             var c = (WinUI.CalendarView)s!;
-            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(c)) return;
-            if (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(c) is CalendarViewElement el && el.OnSelectedDatesChanged is { } h)
+            if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(c, out var state)) return;
+            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(state)) return;
+            if (state.Element is CalendarViewElement el && el.OnSelectedDatesChanged is { } h)
                 h(global::System.Linq.Enumerable.ToArray(c.SelectedDates));
         };
 

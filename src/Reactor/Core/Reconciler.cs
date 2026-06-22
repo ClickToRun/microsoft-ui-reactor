@@ -453,6 +453,22 @@ public sealed partial class Reconciler : IDisposable
         return state;
     }
 
+    /// <summary>
+    /// Issue #207 — single attached-DP read for change-event trampolines.
+    /// Returns the control's <see cref="ReactorState"/> (or <c>null</c>) with one
+    /// <c>GetValue(StateProperty)</c> COM-interop read so a handler can check
+    /// suppression (<see cref="ChangeEchoSuppressor.ShouldSuppress(ReactorState)"/>)
+    /// and resolve the live element (<see cref="ReactorState.Element"/>) without a
+    /// second DP read via <see cref="GetElementTag(FrameworkElement)"/>. On hot
+    /// paths (TextChanged per keystroke, Slider.ValueChanged during drag) this
+    /// halves the per-event DP traffic.
+    /// </summary>
+    internal static bool TryGetReactorState(FrameworkElement fe, [NotNullWhen(true)] out ReactorState? state)
+    {
+        state = fe.GetValue(ReactorAttached.StateProperty) as ReactorState;
+        return state is not null;
+    }
+
     // ── Typed TreeView<T> container hosting ──────────────────────────────
     //
     // The typed TreeView hosts each node's view imperatively (the WinUI
@@ -1078,6 +1094,21 @@ public sealed partial class Reconciler : IDisposable
     {
         if (fe.GetValue(ReactorAttached.StateProperty) is ReactorState state
             && state.ControlEventState is ControlEventStateBox box
+            && box.HandlerType == typeof(T))
+        {
+            return (T)box.Payload;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Issue #207 — payload accessor for trampolines that already hold the
+    /// control's <see cref="ReactorState"/> (read once via
+    /// <see cref="TryGetReactorState"/>), avoiding a second attached-DP read.
+    /// </summary>
+    internal static T? TryGetControlEventPayload<T>(ReactorState state) where T : class
+    {
+        if (state.ControlEventState is ControlEventStateBox box
             && box.HandlerType == typeof(T))
         {
             return (T)box.Payload;
