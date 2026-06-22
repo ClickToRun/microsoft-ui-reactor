@@ -24,9 +24,19 @@ internal static class CommandBindings
     /// derivatives and WinUI controls that don't derive from ButtonBase
     /// (e.g. <see cref="SplitButton"/>, <see cref="ToggleSplitButton"/>).
     /// </summary>
-    internal static void ApplyButtonBaseCommon(Control btn, Command cmd)
+    /// <param name="btn">The live command-capable control to apply metadata to.</param>
+    /// <param name="cmd">The command whose metadata (enabled state, tooltip, accelerator, access key) is applied.</param>
+    /// <param name="applyIsEnabled">
+    /// When false, the command's <see cref="Command.IsEnabled"/> is NOT written to the
+    /// control. Callers whose element already drives <see cref="Control.IsEnabled"/> through
+    /// a descriptor prop pass false so this setter doesn't clobber descriptor-owned coercion
+    /// — notably <see cref="ButtonElement"/>'s <c>IsDisabledFocusable</c>, which must keep a
+    /// disabled button <see cref="Control.IsEnabled"/>=true (reachable via Tab) even when the
+    /// bound command is disabled. (issue #133, PR review M1)
+    /// </param>
+    internal static void ApplyButtonBaseCommon(Control btn, Command cmd, bool applyIsEnabled = true)
     {
-        btn.IsEnabled = cmd.IsEnabled;
+        if (applyIsEnabled) btn.IsEnabled = cmd.IsEnabled;
         if (cmd.Description is not null)
         {
             ToolTipService.SetToolTip(btn, cmd.Description);

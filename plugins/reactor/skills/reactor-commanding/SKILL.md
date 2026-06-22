@@ -70,6 +70,25 @@ MenuItem(save)            // + icon, accelerator, accessKey, description
 MenuItem(deleteCmd, item) // parameterized: binds item as argument
 ```
 
+Custom content (icon + label, stacked layouts) — build the element, then
+attach the command with the `.Command()` modifier. Works on `Button`,
+`HyperlinkButton`, `RepeatButton`, `ToggleButton`, and `AppBarButton`:
+
+```csharp
+// Factory takes a text label only:
+Button(save)
+
+// .Command() binds execute + isEnabled + icon/accelerator/accessKey/description
+// onto any custom-content clickable, and auto-disables while !command.IsEnabled:
+Button(HStack(Icon(SymbolIcon("Save")), Text("Save"))).Command(save)
+```
+
+`.Command()` re-applies `IsEnabled` on every update (so `UseCommand`
+toggling `IsExecuting`, or `CanExecute` changes, flow through) — never
+re-thread `.IsEnabled(command.IsEnabled)` by hand. It composes with
+`.IsDisabledFocusable()`: a disabled command keeps the button reachable
+via Tab instead of dropping it from the tab order.
+
 Per-site overrides with `with`:
 
 ```csharp
