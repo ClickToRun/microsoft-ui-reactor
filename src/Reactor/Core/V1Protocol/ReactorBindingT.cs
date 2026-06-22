@@ -181,8 +181,9 @@ public readonly struct ReactorBinding<TElement> where TElement : Element
             // a free no-op. See §8 / Phase 4 followup: when the echo
             // suppressor is replaced by per-control tolerance / coercion
             // metadata, this drain migrates with it.
-            if (ChangeEchoSuppressor.ShouldSuppress(fe)) return;
-            if (Reconciler.GetElementTag(fe) is TElement el)
+            if (!Reconciler.TryGetReactorState(fe, out var state) || state is null) return;
+            if (ChangeEchoSuppressor.ShouldSuppress(state)) return;
+            if (state.Element is TElement el)
                 handler(el, args);
         };
         subscribe(fe, trampoline);

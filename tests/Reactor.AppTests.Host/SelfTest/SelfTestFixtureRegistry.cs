@@ -636,6 +636,8 @@ internal static class SelfTestFixtureRegistry
         "EchoSuppress_PasswordBox",
         "EchoSuppress_TextBox",
         "EchoSuppress_ToggleSplitButton",
+        // Issue #207 — single coalesced ReactorState DP read in change handlers.
+        "EchoSuppress_TryGetReactorStateCoalescing",
         // §8.2 setter-suppression scope — Set(c => c.X = ...) must not echo.
         "SettersScope_ToggleSwitch",
         "SettersScope_Slider",
@@ -2004,6 +2006,7 @@ internal static class SelfTestFixtureRegistry
         "EchoSuppress_PasswordBox" => new EchoSuppressionFixtures.PasswordBoxNoEcho(harness),
         "EchoSuppress_TextBox" => new EchoSuppressionFixtures.TextBoxNoEcho(harness),
         "EchoSuppress_ToggleSplitButton" => new EchoSuppressionFixtures.ToggleSplitButtonNoEcho(harness),
+        "EchoSuppress_TryGetReactorStateCoalescing" => new EchoSuppressionFixtures.TryGetReactorStateCoalescing(harness),
         "SettersScope_ToggleSwitch" => new EchoSuppressionFixtures.SettersScope_ToggleSwitch_NoEcho(harness),
         "SettersScope_Slider" => new EchoSuppressionFixtures.SettersScope_Slider_NoEcho(harness),
         "SettersScope_NumberBox" => new EchoSuppressionFixtures.SettersScope_NumberBox_NoEcho(harness),

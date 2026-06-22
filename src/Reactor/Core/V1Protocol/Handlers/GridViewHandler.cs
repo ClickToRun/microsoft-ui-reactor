@@ -71,8 +71,9 @@ internal sealed class GridViewHandler : IElementHandler<GridViewElement, WinUI.G
             // (CheckBox/Slider/TextBox/etc.) so the programmatic SelectedIndex
             // writes below in Mount / Update don't echo back into
             // OnSelectedIndexChanged.
-            if (ChangeEchoSuppressor.ShouldSuppress(g)) return;
-            if (Reconciler.GetElementTag(g) is not GridViewElement el) return;
+            if (!Reconciler.TryGetReactorState(g, out var state) || state is null) return;
+            if (ChangeEchoSuppressor.ShouldSuppress(state)) return;
+            if (state.Element is not GridViewElement el) return;
             el.OnSelectedIndexChanged?.Invoke(g.SelectedIndex);
             if (el.OnSelectionChanged is { } h)
             {

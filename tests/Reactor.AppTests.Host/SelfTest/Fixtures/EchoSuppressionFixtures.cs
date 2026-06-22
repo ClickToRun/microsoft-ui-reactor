@@ -657,4 +657,63 @@ internal static class EchoSuppressionFixtures
                 calls.Count >= 1 && calls[^1] == false);
         }
     }
+
+    // ── Issue #207: coalesced single ReactorState DP read ─────────────
+    //
+    // The change-event trampolines were collapsed from two attached-DP reads
+    // (ChangeEchoSuppressor.ShouldSuppress + Reconciler.GetElementTag) to one
+    // (Reconciler.TryGetReactorState → state). This fixture pins the two
+    // invariants that the coalescing must preserve on a live control:
+    //   1. TryGetReactorState resolves the SAME live element that GetElementTag
+    //      would — the single read is a faithful substitute for the two.
+    //   2. The end-to-end contract still holds: a real user edit fires the
+    //      callback (dispatch via state.Element works) and a programmatic-write
+    //      echo is still swallowed exactly once (suppression via the state
+    //      overload works).
+
+    internal class TryGetReactorStateCoalescing(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var calls = new List<string>();
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (phase, setPhase) = ctx.UseState(0);
+                var t = phase == 0 ? "initial" : "next";
+                return VStack(
+                    Button("Go_C207", () => setPhase(1)),
+                    TextBox(t, s => calls.Add(s), placeholderText: "c207")
+                );
+            });
+            await Harness.Render();
+            H.Check("Coalesce207_TextBox_MountNoFire", calls.Count == 0);
+
+            var tb = H.FindControl<TextBox>(t => t.PlaceholderText == "c207");
+            H.Check("Coalesce207_TextBox_Found", tb is not null);
+
+            // Invariant 1: the single TryGetReactorState read resolves the same
+            // live element the two-read path (GetElementTag) would have.
+            var resolved = tb is not null
+                && Reconciler.TryGetReactorState(tb, out var state)
+                && state is not null
+                && state.Element is TextBoxElement
+                && ReferenceEquals(state.Element, Reconciler.GetElementTag(tb));
+            H.Check("Coalesce207_TextBox_StateResolvesSameElement", resolved);
+
+            // Invariant 2a: a setState-driven controlled write does not echo a
+            // cross-value call back into the callback (suppression intact).
+            H.ClickButton("Go_C207");
+            await Harness.Render();
+            H.Check("Coalesce207_TextBox_UpdateAppliedValue", tb?.Text == "next");
+            H.Check("Coalesce207_TextBox_NoCrossValueEcho", calls.All(s => s == "next"));
+
+            // Invariant 2b: a real user edit still dispatches the callback.
+            var precedingCount = calls.Count;
+            if (tb is not null) tb.Text = "typed";
+            await Harness.Render();
+            H.Check("Coalesce207_TextBox_UserEditFires",
+                calls.Count > precedingCount && calls[^1] == "typed");
+        }
+    }
 }
