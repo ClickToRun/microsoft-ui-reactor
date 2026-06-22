@@ -157,8 +157,8 @@ internal sealed class CardsPage : Component
                 SettingsCard(
                     header: "Wi-Fi",
                     description: wifiOn ? "Connected to CONTOSO-5G" : "Disconnected",
-                    content: ToggleSwitch(isOn: wifiOn, onIsOnChanged: setWifiOn))
-                    with { HeaderIcon = Icon(FontIcon("\uE701")) },   // secondary element slot, wired via [WrapElementSlot]
+                    content: ToggleSwitch(isOn: wifiOn, onIsOnChanged: setWifiOn),
+                    headerIcon: Icon(FontIcon("\uE701"))),   // secondary element slot, a generated factory param via [WrapElementSlot]
                 SettingsCard(
                     header: "About",
                     description: $"Tapped {clicks} time(s) — click anywhere on this card",

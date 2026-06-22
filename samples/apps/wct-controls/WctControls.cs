@@ -23,8 +23,8 @@ namespace WctControls;
 // by Content. [WrapElementSlot("HeaderIcon")] promotes it to a SECONDARY element
 // slot: the generator surfaces the Element? HeaderIcon init prop + factory param
 // and emits the state-preserving mount/reconcile wiring (ctx.MountChild on mount,
-// the public ctx.ReconcileChild on update). Authors pass any Reactor icon element,
-// e.g. `with { HeaderIcon = Icon(FontIcon("\uE701")) }`.
+// the public ctx.ReconcileChild on update). Authors pass any Reactor icon element
+// through the generated factory param, e.g. `SettingsCard(header: …, headerIcon: Icon(FontIcon("\uE701")))`.
 [GenerateReactorWrapper(typeof(CommunityToolkit.WinUI.Controls.SettingsCard),
     Exclude = new[] { "CommandParameter" })]
 [WrapElementSlot("HeaderIcon")]
