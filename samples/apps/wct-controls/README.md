@@ -12,11 +12,11 @@ dotnet run --project samples/apps/wct-controls -p:Platform=x64 -p:RuntimeIdentif
 
 ## What it demonstrates
 
-The point of the sample is the **wrapper generator**. Each `[GenerateReactorWrapper(typeof(WctControl))]` partial record in [`WctControls.cs`](WctControls.cs) is filled in by the source generator with one init-property per surfaced control property, child/items slots, `On{Event}` callbacks, a `ControlDescriptor`, Pattern-A registration, and a parameterized factory method named after the control. The interesting controls each highlight a different wrapper annotation:
+The point of the sample is the **wrapper generator**. Each `[GenerateReactorWrapper(typeof(...))]` partial record in [`WctControls.cs`](WctControls.cs) names a concrete WCT control type (e.g. `typeof(CommunityToolkit.WinUI.Controls.SettingsCard)`) and is filled in by the source generator with one init-property per surfaced control property, child/items slots, `On{Event}` callbacks, a `ControlDescriptor`, Pattern-A registration, and a parameterized factory method named after the control. The interesting controls each highlight a different wrapper annotation:
 
 | Control | Annotation shown | Why |
 | --- | --- | --- |
-| `SettingsCard` | `[WrapElementSlot("HeaderIcon")]` + `Exclude` | promote a secondary `IconElement` slot to an `Element?` prop (the single content slot is already `Content`); drop the meaningless inherited `CommandParameter` |
+| `SettingsCard` | `Exclude = new[]{ "CommandParameter" }` | drop the meaningless inherited `ButtonBase.CommandParameter` prop (the content slot is already `Content`) |
 | `Segmented` | `[WrapControlled("SelectedIndex", ChangedEvent = "SelectionChanged")]` | two-way bind a value whose change event doesn't follow the `{Prop}Changed` convention |
 | `CameraPreview` | `[WrapLifecycle]` + `[WrapEvent("PreviewFailed", Arg = "Error")]` | declare the imperative start/stop lifecycle once; project typed event args into a callback |
 | `TokenizingTextBox`, `RichSuggestBox` | `Exclude = new[]{ "Items" }` | opt out of the auto items slot for an internally-managed collection |
