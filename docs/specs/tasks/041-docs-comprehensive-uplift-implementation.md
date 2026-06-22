@@ -288,6 +288,12 @@ infrastructure to unblock content phases.
 
 ### 1.8 REACTOR_DOC_001 + REACTOR_DOC_002 analyzers
 
+> **Update (#496):** `REACTOR_DOC_002` / `XmlDocCrefAnalyzer` was later
+> removed as a pure duplicate of the built-in `CS1574`; unresolved crefs
+> are now caught by `CS1574` (severity configured in
+> `src/Reactor/.editorconfig`). The checked-off entries below remain as
+> the original Phase 1.8 implementation record.
+
 - [x] `REACTOR_DOC_001`: public type or member lacks `<summary>`.
       *`src/Reactor.Analyzers/XmlDocSummaryAnalyzer.cs`. Severity
       starts at Warning so the Phase-1B backlog doesn't block CI;

@@ -124,9 +124,9 @@
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
     <!-- Reactor.Analyzers.Internal IS registered as an analyzer: it carries
-         the REACTOR_DOC_001 / _002 rules that police public-API XML doc on
+         the REACTOR_DOC_001 rule that polices public-API XML doc on
          this assembly (spec 041 §10.4). It must never be packed into the
-         nupkg — these rules have no purpose on consumer code and used to
+         nupkg — this rule has no purpose on consumer code and used to
          leak there when bundled into Reactor.Analyzers.dll. -->
   </ItemGroup>
 
