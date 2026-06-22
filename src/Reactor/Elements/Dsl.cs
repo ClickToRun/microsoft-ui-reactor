@@ -172,7 +172,12 @@ public static partial class Factories
         return new ButtonElement(command.Label, () => Core.CommandBindings.Invoke(command))
         {
             IsEnabled = command.IsEnabled,
-            Setters = [b => Core.CommandBindings.ApplyButtonBaseCommon(b, command)],
+            // applyIsEnabled: false — the record IsEnabled prop above drives the control
+            // through ButtonElement's descriptor, which gates IsEnabled on !IsDisabledFocusable
+            // and coerces a disabled-focusable button back to IsEnabled=true. Writing IsEnabled
+            // from the setter too would override that coercion and drop a disabled-command +
+            // .IsDisabledFocusable() button out of the tab order. (issue #133, PR review)
+            Setters = [b => Core.CommandBindings.ApplyButtonBaseCommon(b, command, applyIsEnabled: false)],
         };
     }
 

@@ -226,4 +226,28 @@ public class CommandModifierTests
 
         Assert.True(el.IsDisabledFocusable);
     }
+
+    // ── (M1, PR-review) The Button(Command) factory must defer IsEnabled to the
+    //    descriptor too (applyIsEnabled:false), so a disabled command chained with
+    //    .IsDisabledFocusable() stays in the tab order — same guarantee as the modifier.
+
+    [Fact]
+    public void Button_Command_Factory_Applies_IsEnabled_False_When_Disabled()
+    {
+        var cmd = new Command { Label = "Run", Execute = () => { }, CanExecute = false };
+
+        var el = Button(cmd);
+
+        Assert.False(el.IsEnabled);
+    }
+
+    [Fact]
+    public void Button_Command_Factory_With_IsDisabledFocusable_Keeps_DisabledFocusable()
+    {
+        var cmd = new Command { Label = "Run", Execute = () => { }, CanExecute = false };
+
+        var el = Button(cmd).IsDisabledFocusable();
+
+        Assert.True(el.IsDisabledFocusable);
+    }
 }
