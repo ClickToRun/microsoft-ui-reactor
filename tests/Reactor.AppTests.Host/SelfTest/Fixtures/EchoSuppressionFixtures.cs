@@ -701,12 +701,16 @@ internal static class EchoSuppressionFixtures
                 && ReferenceEquals(state.Element, Reconciler.GetElementTag(tb));
             H.Check("Coalesce207_TextBox_StateResolvesSameElement", resolved);
 
-            // Invariant 2a: a setState-driven controlled write does not echo a
-            // cross-value call back into the callback (suppression intact).
+            // Invariant 2a: a setState-driven controlled write is swallowed
+            // exactly once — the callback must not fire at all. Snapshot the
+            // count first: asserting the value alone would pass even on a missed
+            // suppression, since the echo readback equals the written value
+            // ("next"), so it would not register as a cross-value call.
+            var preWriteCount = calls.Count;
             H.ClickButton("Go_C207");
             await Harness.Render();
             H.Check("Coalesce207_TextBox_UpdateAppliedValue", tb?.Text == "next");
-            H.Check("Coalesce207_TextBox_NoCrossValueEcho", calls.All(s => s == "next"));
+            H.Check("Coalesce207_TextBox_NoEchoCall", calls.Count == preWriteCount);
 
             // Invariant 2b: a real user edit still dispatches the callback.
             var precedingCount = calls.Count;
