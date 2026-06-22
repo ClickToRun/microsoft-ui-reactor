@@ -4251,8 +4251,8 @@ public partial record TitleBarElement(
 [global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.TabView), Exclude = new[] { "TabCloseRequested", "AddTabButtonClick", "TabDragStarting", "TabDragCompleted" })]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("Tabs")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("SelectedIndex")]
-[global::Microsoft.UI.Reactor.Wrappers.WrapManual("TabStripHeader")]
-[global::Microsoft.UI.Reactor.Wrappers.WrapManual("TabStripFooter")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapElementSlot("TabStripHeader")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapElementSlot("TabStripFooter")]
 public partial record TabViewElement(
     TabViewItemData[] Tabs
 ) : Element

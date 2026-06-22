@@ -181,6 +181,32 @@ namespace Microsoft.UI.Reactor.Wrappers
         public string Property { get; }
     }
 
+    /// <summary>Spec 058 §15 — declares a <b>secondary single-element slot</b>: an <c>Element?</c> property
+    /// whose mounted control is assigned to a UIElement-typed (or <c>object</c>) control property, alongside
+    /// the control's primary content/children slot. The generator surfaces an <c>Element?</c> init property
+    /// (and factory parameter, in full-wrapper mode) named <paramref name="property"/> and emits the
+    /// mount/reconcile wiring — the same shape otherwise hand-written as an <c>.ImperativeBridged</c> entry in
+    /// <c>Customize</c> (e.g. <c>TabView.TabStripHeader</c>/<c>TabStripFooter</c>, <c>SettingsCard.HeaderIcon</c>).
+    /// <para>The element value is reconciled across re-renders (descendant component state preserved) via the
+    /// public <c>ctx.ReconcileChild(...)</c> primitive, so the same emit works for both built-in descriptors
+    /// and external wrappers. Use <see cref="ControlProperty"/> when the control property name differs from the
+    /// element-facing slot name.</para>
+    /// <para><b>Not for</b> a slot that shares a control property with a sibling value prop needing precedence
+    /// gating (e.g. <c>Expander.HeaderTemplate</c> vs. the string <c>Header</c>) — keep those in <c>Customize</c>,
+    /// where write order is explicit.</para></summary>
+    [global::System.AttributeUsage(global::System.AttributeTargets.Class | global::System.AttributeTargets.Struct, AllowMultiple = true)]
+    public sealed class WrapElementSlotAttribute : global::System.Attribute
+    {
+        /// <summary>Declares <paramref name="property"/> as a secondary element slot.</summary>
+        public WrapElementSlotAttribute(string property) { Property = property; }
+
+        /// <summary>The element-facing <c>Element?</c> slot property name.</summary>
+        public string Property { get; }
+
+        /// <summary>The control property the mounted element is assigned to. Defaults to <see cref="Property"/>.</summary>
+        public string? ControlProperty { get; set; }
+    }
+
     /// <summary>Spec 058 §15 — projects an event's args into a <b>typed</b> <c>On{Event}</c> callback.
     /// The generated trampoline invokes <c>On{Event}(args.{Arg})</c> — projecting the named property off
     /// the event-args object (e.g. <c>Image.ImageFailed</c> → <c>OnImageFailed(args.ErrorMessage)</c>,

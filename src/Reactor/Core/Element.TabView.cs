@@ -94,31 +94,13 @@ public partial record TabViewElement
                 if (!Equals(newItem.Icon, oldItem.Icon))
                     tvi.IconSource = newItem.Icon is null ? null : V1.IconResolver.ResolveIconSource(newItem.Icon);
             });
+        // TabStripHeader / TabStripFooter are declared via [WrapElementSlot] — the
+        // generator emits their mount/reconcile ImperativeBridged entries. They can't be
+        // NamedSlots/SingleContent children: a control has exactly one ChildrenStrategy and
+        // TabView's is already the tab ItemsHost. Secondary single-element slots that write a
+        // dedicated control property therefore ride the imperative bridge (see
+        // docs/guide/extensibility-preview.md — secondary-slot decision).
         return d
-            .ImperativeBridged(
-                mount: static (ctx, c, e) =>
-                {
-                    if (e.TabStripHeader is not null)
-                        c.TabStripHeader = ctx.Reconciler.Mount(e.TabStripHeader, ctx.RequestRerender);
-                },
-                update: static (ctx, c, o, n) =>
-                {
-                    var next = ctx.Reconciler.ReconcileV1Child(
-                        o.TabStripHeader, n.TabStripHeader, c.TabStripHeader as UIElement, ctx.RequestRerender);
-                    if (!ReferenceEquals(c.TabStripHeader, next)) c.TabStripHeader = next;
-                })
-            .ImperativeBridged(
-                mount: static (ctx, c, e) =>
-                {
-                    if (e.TabStripFooter is not null)
-                        c.TabStripFooter = ctx.Reconciler.Mount(e.TabStripFooter, ctx.RequestRerender);
-                },
-                update: static (ctx, c, o, n) =>
-                {
-                    var next = ctx.Reconciler.ReconcileV1Child(
-                        o.TabStripFooter, n.TabStripFooter, c.TabStripFooter as UIElement, ctx.RequestRerender);
-                    if (!ReferenceEquals(c.TabStripFooter, next)) c.TabStripFooter = next;
-                })
             .HandCodedControlled<V1.TabViewEventPayload, int, WinUI.SelectionChangedEventHandler>(
                 get:         static e => e.SelectedIndex,
                 set:         static (c, v) => c.SelectedIndex = v,

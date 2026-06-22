@@ -329,6 +329,7 @@ internal static class SelfTestFixtureRegistry
         "ControlUpdate2_VisibilityModifier",
         "ControlUpdate2_RichEditBox",
         "ControlUpdate2_AutoSuggestBox",
+        "WrapElementSlot_TabStripHeaderMountUpdateRemove",
         // Modifier and event handler tests
         "ModifierEvent_EventHandlers",
         "ModifierEvent_Brushes",
@@ -1701,6 +1702,7 @@ internal static class SelfTestFixtureRegistry
         "ControlUpdate2_VisibilityModifier" => new ControlUpdateFixtures2.VisibilityModifier(harness),
         "ControlUpdate2_RichEditBox" => new ControlUpdateFixtures2.RichEditBoxUpdate(harness),
         "ControlUpdate2_AutoSuggestBox" => new ControlUpdateFixtures2.AutoSuggestBoxUpdate(harness),
+        "WrapElementSlot_TabStripHeaderMountUpdateRemove" => new WrapElementSlotFixtures.TabStripHeaderMountUpdateRemove(harness),
         // Modifier and event handler tests
         "ModifierEvent_EventHandlers" => new ModifierEventFixtures.EventHandlerModifiers(harness),
         "ModifierEvent_Brushes" => new ModifierEventFixtures.BrushModifiers(harness),
