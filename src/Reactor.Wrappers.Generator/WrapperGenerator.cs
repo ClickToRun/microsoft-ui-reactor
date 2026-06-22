@@ -348,12 +348,13 @@ public sealed class WrapperGenerator : IIncrementalGenerator
         var slotSymbol = compilation.GetTypeByMetadataName("Microsoft.UI.Reactor.Wrappers.WrapElementSlotAttribute");
         if (slotSymbol is not null)
         {
-            foreach (var a in element.GetAttributes().Where(a => SymbolEqualityComparer.Default.Equals(a.AttributeClass, slotSymbol)))
+            foreach (var a in element.GetAttributes().Where(a => SymbolEqualityComparer.Default.Equals(a.AttributeClass, slotSymbol)
+                && a.ConstructorArguments.Length >= 1 && a.ConstructorArguments[0].Value is string))
             {
-                if (a.ConstructorArguments.Length < 1 || a.ConstructorArguments[0].Value is not string sp) continue;
+                var sp = (string)a.ConstructorArguments[0].Value!;
                 var controlProp = sp;
-                foreach (var na in a.NamedArguments.Where(na => na.Key == "ControlProperty"))
-                    if (na.Value.Value is string cp) controlProp = cp;
+                foreach (var na in a.NamedArguments.Where(na => na.Key == "ControlProperty" && na.Value.Value is string))
+                    controlProp = (string)na.Value.Value!;
                 var slotTypeFqn = FindContentProperty(control, controlProp) is { } sps
                     ? sps.Type.WithNullableAnnotation(NullableAnnotation.NotAnnotated)
                             .ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)

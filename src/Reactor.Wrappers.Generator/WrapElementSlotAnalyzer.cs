@@ -82,8 +82,8 @@ public sealed class WrapElementSlotAnalyzer : DiagnosticAnalyzer
         {
             var slotName = (string)a.ConstructorArguments[0].Value!;
             var controlProp = slotName;
-            foreach (var na in a.NamedArguments.Where(na => na.Key == "ControlProperty"))
-                if (na.Value.Value is string cp) controlProp = cp;
+            foreach (var na in a.NamedArguments.Where(na => na.Key == "ControlProperty" && na.Value.Value is string))
+                controlProp = (string)na.Value.Value!;
 
             var loc = a.ApplicationSyntaxReference?.GetSyntax(ctx.CancellationToken).GetLocation() ?? Location.None;
 
