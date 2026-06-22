@@ -74,10 +74,35 @@ public class CoreControlFamilyBoundaryTests
         Assert.NotEmpty(violations);
     }
 
-    private (SortedSet<string> Violations, int ScannedTypes) Scan(string[] forbiddenPrefixes)
+    /// <summary>
+    /// Meta-test: proves the scanner sees forbidden references that appear
+    /// <i>only</i> through a generic instantiation in an IL body — e.g.
+    /// <c>List&lt;ForbiddenMarker&gt;.Add</c>, a <c>MemberReference</c> whose parent is a
+    /// <c>TypeSpecification</c>. Before the fix these slipped through because the
+    /// token resolver returned null for type specs, so a Core/Hosting leak hidden
+    /// inside a generic could pass the boundary test silently. The probe type
+    /// <see cref="GenericProbe.GenericRefHolder"/> references
+    /// <see cref="GenericProbe.ForbiddenMarker"/> nowhere except as a generic
+    /// argument, isolating this path from the direct-reference path.
+    /// </summary>
+    [Fact]
+    public void Scanner_DetectsGenericInstantiationReferences_NotVacuous()
     {
-        var assemblyPath = typeof(Element).Assembly.Location;
-        Assert.False(string.IsNullOrEmpty(assemblyPath), "Could not locate Reactor.dll on disk.");
+        const string probeNs = "Microsoft.UI.Reactor.Tests.Architecture.GenericProbe";
+        var (violations, _) = Scan(
+            forbiddenPrefixes: new[] { probeNs },
+            assemblyPath: typeof(GenericProbe.GenericRefHolder).Assembly.Location,
+            sourcePrefixes: new[] { probeNs });
+
+        Assert.Contains(violations, v => v.Contains("(IL generic)", StringComparison.Ordinal));
+    }
+
+    private (SortedSet<string> Violations, int ScannedTypes) Scan(
+        string[] forbiddenPrefixes, string? assemblyPath = null, string[]? sourcePrefixes = null)
+    {
+        assemblyPath ??= typeof(Element).Assembly.Location;
+        sourcePrefixes ??= SourceNamespacePrefixes;
+        Assert.False(string.IsNullOrEmpty(assemblyPath), "Could not locate the assembly under test on disk.");
 
         var opcodes = BuildOpCodeTable();
         var violations = new SortedSet<string>(StringComparer.Ordinal);
@@ -93,7 +118,7 @@ public class CoreControlFamilyBoundaryTests
         {
             var typeDef = reader.GetTypeDefinition(typeHandle);
             var rootNs = GetRootNamespace(reader, typeHandle);
-            if (!StartsWithAny(rootNs, SourceNamespacePrefixes))
+            if (!StartsWithAny(rootNs, sourcePrefixes))
                 continue;
 
             scannedTypes++;
@@ -122,7 +147,7 @@ public class CoreControlFamilyBoundaryTests
                     continue;
 
                 var body = pe.GetMethodBody(method.RelativeVirtualAddress);
-                ScanMethodBody(reader, body.GetILBytes(), opcodes, forbiddenPrefixes, typeName, methodName, violations);
+                ScanMethodBody(reader, body.GetILBytes(), opcodes, sigProvider, forbiddenPrefixes, typeName, methodName, violations);
             }
         }
 
@@ -131,7 +156,8 @@ public class CoreControlFamilyBoundaryTests
 
     private void ScanMethodBody(
         MetadataReader reader, byte[]? il, Dictionary<int, OperandKind> opcodes,
-        string[] forbiddenPrefixes, string typeName, string methodName, SortedSet<string> violations)
+        NamespaceCollectingSignatureProvider sigProvider, string[] forbiddenPrefixes,
+        string typeName, string methodName, SortedSet<string> violations)
     {
         if (il is null || il.Length == 0)
             return;
@@ -175,9 +201,7 @@ public class CoreControlFamilyBoundaryTests
                     if (pos + 4 > il.Length) return;
                     int token = BitConverter.ToInt32(il, pos);
                     pos += 4;
-                    var ns = ResolveTokenNamespace(reader, token);
-                    if (ns is not null && StartsWithAny(ns, forbiddenPrefixes))
-                        violations.Add($"{typeName}.{methodName} (IL) -> {ns}");
+                    ScanToken(reader, token, sigProvider, forbiddenPrefixes, typeName, methodName, violations);
                     break;
                 }
                 case OperandKind.Switch:
@@ -191,7 +215,25 @@ public class CoreControlFamilyBoundaryTests
         }
     }
 
-    private static string? ResolveTokenNamespace(MetadataReader reader, int token)
+    /// <summary>
+    /// Resolves an IL metadata token to its forbidden-namespace references and
+    /// records any hits. Covers three encodings:
+    /// <list type="bullet">
+    /// <item>direct type/method/field references (via <see cref="GetRootNamespaceForEntity"/>);</item>
+    /// <item>generic instantiations / arrays / pointers — e.g. <c>List&lt;ForbiddenType&gt;</c>
+    /// or <c>ForbiddenType[]</c> — encoded as a <c>TypeSpecification</c> blob, including
+    /// when they appear as the parent of a <c>MemberReference</c> such as
+    /// <c>List&lt;ForbiddenType&gt;.Add</c>;</item>
+    /// <item>generic-method instantiations — e.g. <c>Helper.M&lt;ForbiddenType&gt;()</c> —
+    /// encoded as a <c>MethodSpecification</c> blob.</item>
+    /// </list>
+    /// The latter two were previously invisible to the scanner because
+    /// <see cref="GetRootNamespaceForEntity"/> returns null for type specs, so a
+    /// Core/Hosting → Charting/Docking leak hidden inside a generic could pass.
+    /// </summary>
+    private static void ScanToken(
+        MetadataReader reader, int token, NamespaceCollectingSignatureProvider sigProvider,
+        string[] forbiddenPrefixes, string typeName, string methodName, SortedSet<string> violations)
     {
         EntityHandle handle;
         try
@@ -201,10 +243,57 @@ public class CoreControlFamilyBoundaryTests
         catch (ArgumentException)
         {
             // Not a valid metadata token (e.g. user-string heap handle) — skip.
-            return null;
+            return;
         }
 
-        return GetRootNamespaceForEntity(reader, handle);
+        // 1. Decode any generic-instantiation / array / pointer blob reachable
+        //    from this token so forbidden *type arguments* buried inside it are
+        //    caught. The signature provider records hits as a side effect.
+        DecodeTokenSignatureBlob(reader, handle, sigProvider, typeName, methodName, violations);
+
+        // 2. Resolve the declaring/root namespace of the token itself.
+        var ns = GetRootNamespaceForEntity(reader, handle);
+        if (ns is not null && StartsWithAny(ns, forbiddenPrefixes))
+            violations.Add($"{typeName}.{methodName} (IL) -> {ns}");
+    }
+
+    private static void DecodeTokenSignatureBlob(
+        MetadataReader reader, EntityHandle handle, NamespaceCollectingSignatureProvider sigProvider,
+        string typeName, string methodName, SortedSet<string> violations)
+    {
+        // A TypeSpecification token directly, or as the parent of a MemberReference
+        // (e.g. List<ForbiddenType>.Add), carries its type arguments in a blob.
+        TypeSpecificationHandle? specHandle = handle.Kind switch
+        {
+            HandleKind.TypeSpecification => (TypeSpecificationHandle)handle,
+            HandleKind.MemberReference when
+                reader.GetMemberReference((MemberReferenceHandle)handle).Parent.Kind == HandleKind.TypeSpecification
+                => (TypeSpecificationHandle)reader.GetMemberReference((MemberReferenceHandle)handle).Parent,
+            _ => null,
+        };
+
+        try
+        {
+            if (specHandle is { } spec)
+            {
+                sigProvider.Hits.Clear();
+                reader.GetTypeSpecification(spec).DecodeSignature(sigProvider, null);
+                foreach (var ns in sigProvider.Hits)
+                    violations.Add($"{typeName}.{methodName} (IL generic) -> {ns}");
+            }
+
+            if (handle.Kind == HandleKind.MethodSpecification)
+            {
+                sigProvider.Hits.Clear();
+                reader.GetMethodSpecification((MethodSpecificationHandle)handle).DecodeSignature(sigProvider, null);
+                foreach (var ns in sigProvider.Hits)
+                    violations.Add($"{typeName}.{methodName} (IL generic method) -> {ns}");
+            }
+        }
+        catch (BadImageFormatException)
+        {
+            // Malformed signature blob — defensively skip rather than fail the scan.
+        }
     }
 
     private static string? GetRootNamespaceForEntity(MetadataReader reader, EntityHandle handle)
@@ -237,8 +326,10 @@ public class CoreControlFamilyBoundaryTests
             }
             default:
                 // TypeSpecification (generic instantiations / arrays) carry their
-                // referenced types in a blob; those are covered by signature
-                // decoding elsewhere. Skip here.
+                // referenced types in a signature blob, not a resolvable handle.
+                // Those are decoded explicitly: by the signature provider for
+                // field/method signatures, and by DecodeTokenSignatureBlob for IL
+                // tokens. Returning null here is correct for the single-handle path.
                 return null;
         }
     }

@@ -90,15 +90,18 @@ internal sealed class ChartAccessibilityChecker : IScanExtension
         });
     }
 
-    /// <summary>A11Y_CHART_002: Chart has no Description and auto-summary is empty.</summary>
+    /// <summary>
+    /// A11Y_CHART_002: Chart has no explicit <c>Description</c> and no series data,
+    /// so the auto-summarizer has nothing to describe.
+    /// </summary>
     private static void CheckChartDescription(CanvasElement canvas, IChartAccessibilityData data,
         IScanContext ctx, List<A11yDiagnostic> findings)
     {
         // Has explicit description?
         if (!string.IsNullOrWhiteSpace(data.Description)) return;
 
-        // The auto-summarizer only yields an empty summary when there are no
-        // series, so any series at all means a usable summary exists.
+        // With any series present the auto-summarizer produces a meaningful
+        // description, so only an empty chart (no series) is left unlabeled.
         if (data.Series.Count > 0)
             return;
 
@@ -106,7 +109,7 @@ internal sealed class ChartAccessibilityChecker : IScanExtension
         {
             Id = "A11Y_CHART_002",
             Severity = "warning",
-            Message = "Chart has no description and auto-summary is empty — set .Description(\"...\") or provide data with labels",
+            Message = "Chart has no description and no data to auto-summarize — set .Description(\"...\") or provide series data",
             WcagCriterion = "1.1.1",
             ElementType = "CanvasElement (Chart)",
             AutomationId = ctx.GetAutomationId(canvas),
