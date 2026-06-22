@@ -32,7 +32,7 @@ internal static class GridViewDescriptor
     private static readonly WinUI.SelectionChangedEventHandler SelectionChangedTrampoline = (s, _) =>
     {
         var gv = (WinUI.GridView)s!;
-        if (!Reconciler.TryGetReactorState(gv, out var state) || state is null) return;
+        if (!Reconciler.TryGetReactorState(gv, out var state)) return;
         if (ChangeEchoSuppressor.ShouldSuppress(state)) return;
         if (state.Element is not GridViewElement el) return;
 

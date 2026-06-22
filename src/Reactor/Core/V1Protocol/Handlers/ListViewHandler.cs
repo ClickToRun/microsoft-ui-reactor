@@ -78,7 +78,7 @@ internal sealed class ListViewHandler : IElementHandler<ListViewElement, WinUI.L
             // looping back through OnSelectedIndexChanged → setIndex →
             // re-render → … which previously caused a 50+-render storm when
             // the callback was bound to UseState.
-            if (!Reconciler.TryGetReactorState(l, out var state) || state is null) return;
+            if (!Reconciler.TryGetReactorState(l, out var state)) return;
             if (ChangeEchoSuppressor.ShouldSuppress(state)) return;
             if (state.Element is not ListViewElement el) return;
             el.OnSelectedIndexChanged?.Invoke(l.SelectedIndex);

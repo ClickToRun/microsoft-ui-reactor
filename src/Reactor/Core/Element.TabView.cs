@@ -15,7 +15,7 @@ public partial record TabViewElement
     private static readonly WinUI.SelectionChangedEventHandler __SelectionChangedTrampoline = (s, _) =>
     {
         var t = (WinUI.TabView)s!;
-        if (!Reconciler.TryGetReactorState(t, out var state) || state is null) return;
+        if (!Reconciler.TryGetReactorState(t, out var state)) return;
         if (ChangeEchoSuppressor.ShouldSuppressEcho(state, t.SelectedIndex)) return;
         (state.Element as TabViewElement)?.OnSelectedIndexChanged?.Invoke(t.SelectedIndex);
     };

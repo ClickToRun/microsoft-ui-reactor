@@ -280,7 +280,7 @@ internal sealed class ControlledPropEntry<TElement, TControl, TValue, TArgs> : P
         // Issue #207 — single attached-DP read shared by payload lookup,
         // suppression check, and live-element resolution (was three GetValue
         // reads: TryGetControlEventPayload + ShouldSuppress + GetElementTag).
-        if (!Reconciler.TryGetReactorState(fe, out var state) || state is null) return;
+        if (!Reconciler.TryGetReactorState(fe, out var state)) return;
         var payload = Reconciler.TryGetControlEventPayload<
             DescriptorControlledPayload<TElement, TControl, TValue, TArgs>>(state);
 

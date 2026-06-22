@@ -463,7 +463,7 @@ public sealed partial class Reconciler : IDisposable
     /// paths (TextChanged per keystroke, Slider.ValueChanged during drag) this
     /// halves the per-event DP traffic.
     /// </summary>
-    internal static bool TryGetReactorState(FrameworkElement fe, out ReactorState? state)
+    internal static bool TryGetReactorState(FrameworkElement fe, [NotNullWhen(true)] out ReactorState? state)
     {
         state = fe.GetValue(ReactorAttached.StateProperty) as ReactorState;
         return state is not null;

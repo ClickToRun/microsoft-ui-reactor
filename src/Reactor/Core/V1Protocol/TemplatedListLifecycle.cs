@@ -66,7 +66,7 @@ internal static class TemplatedListLifecycle
             // arm BeginSuppress around the SelectedIndex writes below so the
             // synthesized SelectionChanged is dropped here instead of looping
             // back through OnSelectedIndexChanged → setState → re-render.
-            if (!Reconciler.TryGetReactorState(l, out var state) || state is null) return;
+            if (!Reconciler.TryGetReactorState(l, out var state)) return;
             if (ChangeEchoSuppressor.ShouldSuppress(state)) return;
             if (state.Element is not TemplatedListElementBase tel) return;
             tel.InvokeSelectionChanged(l.SelectedIndex);
@@ -141,7 +141,7 @@ internal static class TemplatedListLifecycle
         {
             var g = (WinUI.GridView)s!;
             // Issue #495 — see ListView trampoline above.
-            if (!Reconciler.TryGetReactorState(g, out var state) || state is null) return;
+            if (!Reconciler.TryGetReactorState(g, out var state)) return;
             if (ChangeEchoSuppressor.ShouldSuppress(state)) return;
             if (state.Element is not TemplatedListElementBase tel) return;
             tel.InvokeSelectionChanged(g.SelectedIndex);
@@ -203,7 +203,7 @@ internal static class TemplatedListLifecycle
         {
             var f = (WinUI.FlipView)s!;
             // Issue #495 — see ListView trampoline above.
-            if (!Reconciler.TryGetReactorState(f, out var state) || state is null) return;
+            if (!Reconciler.TryGetReactorState(f, out var state)) return;
             if (ChangeEchoSuppressor.ShouldSuppress(state)) return;
             (state.Element as TemplatedListElementBase)?.InvokeSelectionChanged(f.SelectedIndex);
         };

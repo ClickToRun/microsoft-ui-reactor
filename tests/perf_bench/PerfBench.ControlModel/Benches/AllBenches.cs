@@ -878,7 +878,7 @@ public sealed class C207_ChangeHandlerDpRead : IBench
             case BenchVariant.Reactor:
                 // AFTER #207: one GetValue(StateProperty) read per event, shared
                 // by the suppression check and the live-element dispatch.
-                if (!Reconciler.TryGetReactorState(h.Control, out var state) || state is null) return;
+                if (!Reconciler.TryGetReactorState(h.Control, out var state)) return;
                 if (ChangeEchoSuppressor.ShouldSuppress(state)) return;
                 (state.Element as TextBoxElement)?.OnChanged?.Invoke("x");
                 break;
