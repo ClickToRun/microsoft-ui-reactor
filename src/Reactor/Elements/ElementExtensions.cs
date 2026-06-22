@@ -1008,7 +1008,13 @@ public static partial class ElementExtensions
         {
             OnClick = () => Core.CommandBindings.Invoke(command),
             IsEnabled = command.IsEnabled,
-            Setters = [.. el.Setters, b => Core.CommandBindings.ApplyButtonBaseCommon(b, command)],
+            // applyIsEnabled: false — the record IsEnabled prop above already drives the
+            // control through ButtonElement's descriptor, which gates IsEnabled on
+            // !IsDisabledFocusable and coerces a disabled-focusable button back to
+            // IsEnabled=true. Writing IsEnabled from the setter too would override that
+            // coercion and silently drop a disabled-command + .IsDisabledFocusable() button
+            // out of the tab order. (issue #133, PR review M1)
+            Setters = [.. el.Setters, b => Core.CommandBindings.ApplyButtonBaseCommon(b, command, applyIsEnabled: false)],
         };
 
     /// <summary>
@@ -1054,7 +1060,7 @@ public static partial class ElementExtensions
     public static AppBarButtonData Command(this AppBarButtonData el, Core.Command command) =>
         el with
         {
-            OnClick = command.Execute,
+            OnClick = () => Core.CommandBindings.Invoke(command),
             IsEnabled = command.IsEnabled,
             IconElement = command.Icon,
             KeyboardAccelerators = command.Accelerator is not null ? [command.Accelerator] : null,

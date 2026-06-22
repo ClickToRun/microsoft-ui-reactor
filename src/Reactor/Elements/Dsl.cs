@@ -1155,7 +1155,7 @@ public static partial class Factories
     /// Accelerator, IsEnabled, AccessKey, and Description.
     /// </summary>
     public static AppBarButtonData AppBarButton(Core.Command command) =>
-        new(command.Label, command.Execute)
+        new(command.Label, () => Core.CommandBindings.Invoke(command))
         {
             IsEnabled = command.IsEnabled,
             IconElement = command.Icon,

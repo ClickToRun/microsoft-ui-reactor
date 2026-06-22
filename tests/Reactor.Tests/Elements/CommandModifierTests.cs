@@ -172,4 +172,58 @@ public class CommandModifierTests
         el.OnClick!();
         Assert.Equal(1, count);
     }
+
+    // ── (M3) AppBarButton routes through CommandBindings.Invoke so async-only
+    //         commands (ExecuteAsync, no sync Execute) fire instead of no-opping ──
+
+    [Fact]
+    public void Command_On_AppBarButton_Modifier_Wires_Click_To_ExecuteAsync_When_No_Sync_Execute()
+    {
+        int count = 0;
+        var cmd = new Command { Label = "Save", ExecuteAsync = () => { count++; return Task.CompletedTask; } };
+
+        var el = AppBarButton("Save").Command(cmd);
+        Assert.NotNull(el.OnClick);
+        el.OnClick!();
+
+        Assert.Equal(1, count);
+    }
+
+    [Fact]
+    public void AppBarButton_Command_Factory_Wires_Click_To_ExecuteAsync_When_No_Sync_Execute()
+    {
+        int count = 0;
+        var cmd = new Command { Label = "Save", ExecuteAsync = () => { count++; return Task.CompletedTask; } };
+
+        var el = AppBarButton(cmd);
+        Assert.NotNull(el.OnClick);
+        el.OnClick!();
+
+        Assert.Equal(1, count);
+    }
+
+    // ── (M1) A disabled command must not override .IsDisabledFocusable() ─────
+    //         The element keeps IsDisabledFocusable regardless of modifier order;
+    //         the live-control coercion (IsEnabled stays true / reachable via Tab)
+    //         is pinned by the CommandModifierDisabledFocusable* selftest fixtures.
+
+    [Fact]
+    public void Command_Before_IsDisabledFocusable_Keeps_DisabledFocusable()
+    {
+        var cmd = new Command { Label = "Run", Execute = () => { }, CanExecute = false };
+
+        var el = Button(TextBlock("Run")).Command(cmd).IsDisabledFocusable();
+
+        Assert.True(el.IsDisabledFocusable);
+    }
+
+    [Fact]
+    public void IsDisabledFocusable_Before_Command_Keeps_DisabledFocusable()
+    {
+        var cmd = new Command { Label = "Run", Execute = () => { }, CanExecute = false };
+
+        var el = Button(TextBlock("Run")).IsDisabledFocusable().Command(cmd);
+
+        Assert.True(el.IsDisabledFocusable);
+    }
 }

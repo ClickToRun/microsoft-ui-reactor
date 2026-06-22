@@ -846,6 +846,11 @@ internal static class SelfTestFixtureRegistry
         "Commanding_RepeatButtonCommandInvokesExecute",
         "Commanding_DisabledCommandDisablesControl",
         "Commanding_CustomContentCommandReappliesIsEnabledOnUpdate",
+        "Commanding_HyperlinkButtonCommandReappliesIsEnabledOnUpdate",
+        "Commanding_RepeatButtonCommandReappliesIsEnabledOnUpdate",
+        "Commanding_ToggleButtonCommandReappliesIsEnabledOnUpdate",
+        "Commanding_CommandDisabledFocusableStaysFocusable",
+        "Commanding_CommandDisabledFocusableStaysFocusableReverseOrder",
 
         // Drag-and-drop — spec 027 Tier 6 (Phase 6a)
         "DragDrop_OnDragStartAutoSetsCanDrag",
@@ -2228,6 +2233,11 @@ internal static class SelfTestFixtureRegistry
         "Commanding_RepeatButtonCommandInvokesExecute" => new CommandingCoverageFixtures.RepeatButtonCommandInvokesExecute(harness),
         "Commanding_DisabledCommandDisablesControl" => new CommandingCoverageFixtures.DisabledCommandDisablesControl(harness),
         "Commanding_CustomContentCommandReappliesIsEnabledOnUpdate" => new CommandingCoverageFixtures.CustomContentCommandReappliesIsEnabledOnUpdate(harness),
+        "Commanding_HyperlinkButtonCommandReappliesIsEnabledOnUpdate" => new CommandingCoverageFixtures.HyperlinkButtonCommandReappliesIsEnabledOnUpdate(harness),
+        "Commanding_RepeatButtonCommandReappliesIsEnabledOnUpdate" => new CommandingCoverageFixtures.RepeatButtonCommandReappliesIsEnabledOnUpdate(harness),
+        "Commanding_ToggleButtonCommandReappliesIsEnabledOnUpdate" => new CommandingCoverageFixtures.ToggleButtonCommandReappliesIsEnabledOnUpdate(harness),
+        "Commanding_CommandDisabledFocusableStaysFocusable" => new CommandingCoverageFixtures.CommandDisabledFocusableStaysFocusable(harness),
+        "Commanding_CommandDisabledFocusableStaysFocusableReverseOrder" => new CommandingCoverageFixtures.CommandDisabledFocusableStaysFocusableReverseOrder(harness),
 
         // Drag-and-drop — spec 027 Tier 6 (Phase 6a)
         "DragDrop_OnDragStartAutoSetsCanDrag" => new DragDropFixtures.OnDragStartAutoSetsCanDrag(harness),

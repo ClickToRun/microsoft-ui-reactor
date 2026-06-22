@@ -103,6 +103,40 @@ duplicate, and the keyboard binding would have to be wired by hand.
 With it, the `Command` record is the source of truth; the surfaces are
 projections.
 
+## Custom-content buttons: the `.Command()` modifier
+
+The `Button(command)` factory renders a plain text label. When you need
+richer content — an icon next to a label, a stacked layout, or any custom
+element tree — build the button from content and attach the command with
+the `.Command(command)` fluent modifier:
+
+```csharp
+// Plain label — the factory is enough:
+Button(saveCmd)
+
+// Custom content — compose the layout, then bind the command:
+Button(HStack(Icon(SymbolIcon("Save")), Text("Save")))
+    .Command(saveCmd)
+```
+
+`.Command()` wires the same synchronized-state contract as the factory:
+it routes the click through `Execute` / `ExecuteAsync`, applies the
+command's `Icon` / `Description` / `Accelerator` / `AccessKey` metadata,
+and binds `IsEnabled` so the button **auto-disables** while
+`command.IsEnabled` is false. Crucially it re-applies `IsEnabled` on
+**every** update, so a command toggling `CanExecute` (or `IsExecuting`
+via [`UseCommand`](hooks.md)) flows straight through — you never re-thread
+`.IsEnabled(command.IsEnabled)` by hand.
+
+The modifier works on every clickable element — `Button`,
+`HyperlinkButton`, `RepeatButton`, `ToggleButton`, and `AppBarButton` —
+so custom-content variants of each stay in sync with their command.
+
+> It composes with [`.IsDisabledFocusable()`](forms.md): a disabled
+> command on a disabled-focusable button keeps the button reachable via
+> Tab (only the click is suppressed) rather than dropping it from the
+> tab order.
+
 ## Async Commands and UseCommand
 
 When a command has an `ExecuteAsync` action, wrap it with the
