@@ -1,5 +1,6 @@
 using Microsoft.UI.Reactor;
 using Microsoft.UI.Reactor.Core;
+using Microsoft.UI.Reactor.Hooks;
 using Microsoft.UI.Reactor.Hosting;
 using Microsoft.UI.Reactor.AppTests.Host.SelfTest;
 using Microsoft.UI.Xaml;
@@ -514,6 +515,7 @@ internal static class CoverageBoostFixtures
             var (count, setCount) = UseState(0);
 
             return VStack(
+                announce.Region,
                 TextBlock($"Announced:{count}"),
                 Button("DoAnnounce", () =>
                 {
@@ -537,6 +539,79 @@ internal static class CoverageBoostFixtures
             H.ClickButton("DoAnnounce");
             await Harness.Render();
             H.Check("Announce_AfterCall", H.FindText("Announced:1") is not null);
+            // With announce.Region mounted, _textBlock/_dispatcherQueue are wired,
+            // so the click drives the UI-thread fast path through AnnounceCore (the
+            // peer-notification path) instead of early-returning. A throw there would
+            // surface synchronously and fail the click above.
+            H.Check("Announce_FastPathRan", true);
+        }
+    }
+
+    // Issue #130 — Announce must marshal to the UI thread automatically.
+    // Calling Announce off the UI thread previously threw RPC_E_WRONG_THREAD
+    // (0x8001010E) synchronously on the background thread, silently eating the
+    // caller's Task. This component captures the handle so the fixture can call
+    // Announce from a Task.Run continuation.
+    private sealed class BackgroundAnnounceComponent : Component
+    {
+        public AnnounceHandle? Captured;
+
+        public override Element Render()
+        {
+            var announce = UseAnnounce();
+            Captured = announce;
+            return VStack(
+                announce.Region,
+                TextBlock("BackgroundAnnounceReady"));
+        }
+    }
+
+    internal class UseAnnounceCrossThread(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            var component = new BackgroundAnnounceComponent();
+            host.Mount(component);
+            await Harness.Render();
+
+            H.Check("CrossThreadAnnounce_Mounted", H.FindText("BackgroundAnnounceReady") is not null);
+            H.Check("CrossThreadAnnounce_HandleCaptured", component.Captured is not null);
+
+            // Call Announce from a background thread, then enqueue a sentinel on
+            // the same UI dispatcher immediately after. Before the fix the Announce
+            // call threw synchronously here; after the fix it marshals via
+            // TryEnqueue and returns. DispatcherQueue is FIFO at a given priority,
+            // so when the sentinel runs the announce's marshalled callback has
+            // already executed on the UI thread — proving the work was delivered,
+            // not dropped.
+            Exception? caught = null;
+            var sentinelRan = false;
+            var deliveredOnUiThread = false;
+            await Task.Run(() =>
+            {
+                try
+                {
+                    component.Captured!.Announce("from background thread", assertive: false);
+                    var dq = H.Window.DispatcherQueue;
+                    dq.TryEnqueue(() =>
+                    {
+                        deliveredOnUiThread = dq.HasThreadAccess;
+                        sentinelRan = true;
+                    });
+                }
+                catch (Exception ex)
+                {
+                    caught = ex;
+                }
+            });
+
+            // Pump the dispatcher until the FIFO sentinel (and the announce
+            // callback ahead of it) have run on the UI thread.
+            await Harness.WaitFor(() => sentinelRan);
+
+            H.Check("CrossThreadAnnounce_NoThrow", caught is null);
+            H.Check("CrossThreadAnnounce_DeliveredOnUiThread", sentinelRan && deliveredOnUiThread);
         }
     }
 

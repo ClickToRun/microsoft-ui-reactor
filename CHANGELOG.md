@@ -279,4 +279,14 @@ Conventions for contributors:
 
 ### Fixed
 
+- **`UseAnnounce().Announce(...)` now marshals to the UI thread automatically.**
+  Previously, calling `Announce` off the UI thread (e.g. from a `Task.Run`
+  continuation) threw `RPC_E_WRONG_THREAD` (0x8001010E) — the underlying WinUI
+  XAML calls (`FrameworkElementAutomationPeer.FromElement`,
+  `RaiseNotificationEvent`, `TextBlock.Text`) are UI-thread affine — so the
+  announcement silently failed. The handle now captures its `DispatcherQueue`
+  when the live-region `TextBlock` is wired and re-marshals off-thread calls via
+  `TryEnqueue`; the UI-thread fast path stays a single `HasThreadAccess` check.
+  (issue #130)
+
 ### Security
