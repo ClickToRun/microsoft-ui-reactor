@@ -228,7 +228,7 @@ public sealed partial class Reconciler
             $"<{element.GetType().Name}, TControl>(static () => new YourHandler())`.\n" +
             "  (4) For custom controls authored by your project, follow the " +
             "Pattern A factory-as-registration recipe in " +
-            "docs/_pipeline/templates/extending-reactor-controls.md.dt.\n\n" +
+            "docs/guide/extending-reactor-controls.md.\n\n" +
             "See https://github.com/microsoft/microsoft-ui-reactor/issues/486 " +
             "for background.");
     }
