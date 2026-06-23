@@ -199,6 +199,13 @@ internal static class LayoutFootgunDetector
     /// keyed stack that moves to a new row/column). Including the placement keeps each distinct
     /// position warning once while staying stable across re-renders (records produce
     /// fresh-but-equal instances).
+    /// <para>
+    /// Known limitation: the dedup set is process-global and the element tree carries no parent
+    /// pointer, so two <em>unkeyed</em> offenders that share the same stack type and row/column but
+    /// live in <em>different</em> Grids hash to the same key — only the first warns. This is an
+    /// accepted tradeoff for a DEBUG-only diagnostic; assign distinct <see cref="Element.Key"/>s
+    /// (e.g. via <c>.WithKey(...)</c>) to the stacks to surface every offender.
+    /// </para>
     /// </summary>
     private static string BuildDedupKey(string stackName, int row, int col, string? locationKey)
         => locationKey is { Length: > 0 }
@@ -209,14 +216,16 @@ internal static class LayoutFootgunDetector
     {
         string axis = axisIsColumn ? "column" : "row";
         string sizeModifier = axisIsColumn ? "Width" : "Height";
+        string minSizeModifier = axisIsColumn ? "MinWidth" : "MinHeight";
         string starTrack = axisIsColumn ? "Star (\"*\") column" : "Star (\"*\") row";
         string location = locationKey is { Length: > 0 } ? $" (key: \"{locationKey}\")" : string.Empty;
 
         return string.Format(
             CultureInfo.InvariantCulture,
             "[Reactor] {0}{1} is in Grid {2} {3} (Auto) with no explicit {4} and no explicitly-sized " +
-            "children. The measure pass may return 0\u00d70 (collapsed). Use a {5} or set .{4}(...) on the {0}.",
-            stackName, location, axis, index, sizeModifier, starTrack);
+            "children. The measure pass may return 0\u00d70 (collapsed). Fix it by using a {5}, setting " +
+            ".{4}(...) or .{6}(...) on the {0}, or giving a child an explicit size.",
+            stackName, location, axis, index, sizeModifier, starTrack, minSizeModifier);
     }
 
     private static void Emit(string dedupKey, string message)

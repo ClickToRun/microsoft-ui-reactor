@@ -169,6 +169,48 @@ public sealed class LayoutFootgunDetectorTests : IDisposable
     }
 
     [Fact]
+    public void VStack_InAutoRow_WithExplicitHeight_DoesNotWarn()
+    {
+        var grid = Grid(
+            columns: new[] { GridSize.Star() },
+            rows: new[] { GridSize.Star(), GridSize.Auto },
+            VStack(TextBlock("A"), TextBlock("B")).Height(120).Grid(row: 1, column: 0));
+
+        LayoutFootgunDetector.InspectGrid(grid);
+
+        Assert.Empty(_warnings);
+    }
+
+    [Fact]
+    public void VStack_InAutoRow_WithExplicitlySizedChild_DoesNotWarn()
+    {
+        // Mirrors the horizontal child-Width case: a child's explicit Height keeps the column from
+        // collapsing, so AnyChildHasExplicitHeight must suppress the warning.
+        var grid = Grid(
+            columns: new[] { GridSize.Star() },
+            rows: new[] { GridSize.Star(), GridSize.Auto },
+            VStack(TextBlock("A").Height(60), TextBlock("B")).Grid(row: 1, column: 0));
+
+        LayoutFootgunDetector.InspectGrid(grid);
+
+        Assert.Empty(_warnings);
+    }
+
+    [Fact]
+    public void VStack_InAutoRow_WithChildMinHeight_DoesNotWarn()
+    {
+        // A child's MinHeight clamps the Measure pass too — mirrors the horizontal child-MinWidth case.
+        var grid = Grid(
+            columns: new[] { GridSize.Star() },
+            rows: new[] { GridSize.Star(), GridSize.Auto },
+            VStack(TextBlock("A").MinHeight(40), TextBlock("B")).Grid(row: 1, column: 0));
+
+        LayoutFootgunDetector.InspectGrid(grid);
+
+        Assert.Empty(_warnings);
+    }
+
+    [Fact]
     public void BorderWrappedHStack_BorderHasExplicitWidth_DoesNotWarn()
     {
         var grid = Grid(
@@ -203,6 +245,22 @@ public sealed class LayoutFootgunDetectorTests : IDisposable
             columns: new[] { GridSize.Auto, GridSize.Star() },
             rows: new[] { GridSize.Star() },
             HStack().Grid(row: 0, column: 0));
+
+        LayoutFootgunDetector.InspectGrid(grid);
+
+        Assert.Empty(_warnings);
+    }
+
+    [Fact]
+    public void NonStackChild_InAutoColumn_DoesNotWarn()
+    {
+        // A non-stack element (here a bare TextBlock) placed directly in an Auto track is not the
+        // footgun the detector models — InspectGrid must leave it alone (the "not a stack we model"
+        // branch), so a regression that warned on every TextBlock/Button in an Auto track is caught.
+        var grid = Grid(
+            columns: new[] { GridSize.Auto, GridSize.Star() },
+            rows: new[] { GridSize.Star() },
+            TextBlock("A").Grid(row: 0, column: 0));
 
         LayoutFootgunDetector.InspectGrid(grid);
 
@@ -304,6 +362,23 @@ public sealed class LayoutFootgunDetectorTests : IDisposable
             rows: new[] { GridSize.Star(), GridSize.Star() },
             HStack(TextBlock("A")).WithKey("row").Grid(row: 0, column: 0),
             HStack(TextBlock("B")).WithKey("row").Grid(row: 1, column: 0));
+
+        LayoutFootgunDetector.InspectGrid(grid);
+
+        Assert.Equal(2, _warnings.Count);
+    }
+
+    [Fact]
+    public void TwoKeyedOffenders_SameCell_DifferentKeys_BothWarn()
+    {
+        // Two HStacks in the SAME Auto cell (row 0, column 0) with different keys. They share stack
+        // type and placement, so without the author-key discriminator in the dedup key they would
+        // collapse to one warning — this pins that `.WithKey(...)` keeps distinct offenders distinct.
+        var grid = Grid(
+            columns: new[] { GridSize.Auto, GridSize.Star() },
+            rows: new[] { GridSize.Star() },
+            HStack(TextBlock("A")).WithKey("first").Grid(row: 0, column: 0),
+            HStack(TextBlock("B")).WithKey("second").Grid(row: 0, column: 0));
 
         LayoutFootgunDetector.InspectGrid(grid);
 
