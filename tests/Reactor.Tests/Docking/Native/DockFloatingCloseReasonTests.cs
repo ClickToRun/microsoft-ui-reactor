@@ -199,8 +199,10 @@ public class DockFloatingCloseReasonTests
         // A window can unregister (host unmount, disposal) WITHOUT ever
         // routing through the Closed handler that calls TakePendingClose.
         // If the stash survived, a later window reusing the reference would
-        // wrongly inherit a migration reason. ClearPendingCloseCore (called
-        // from Unregister) must drop it so the next read is a genuine close.
+        // wrongly inherit a migration reason. Production Unregister drops it
+        // directly via _pendingClose.Remove(window); ClearPendingCloseCore is
+        // the headless seam exercising that same removal so the next read is a
+        // genuine close.
         var key = new object();
         DockFloatingTracker.SetPendingCloseCore(key, DockFloatingCloseReason.MigratedToHost, Pane("doc:a"));
 

@@ -466,6 +466,10 @@ internal static class NativeDockingTearOffFixtures
             var savedPolicy = ReactorApp.ShutdownPolicy;
             ReactorApp.ShutdownPolicy = ShutdownPolicy.Explicit;
             ReactorWindow? floatingWindow = null;
+            // The migration path (StashReasonAndClose) auto-closes the preview
+            // window. Guard the finally so we don't Close() it a second time —
+            // double-closing a WinUI window risks the multi-window teardown AV.
+            var floatingWindowClosed = false;
             var closed = new List<(DockFloatingCloseReason Reason, DockableContent? Content)>();
             try
             {
@@ -487,6 +491,8 @@ internal static class NativeDockingTearOffFixtures
                 DockTabTearOff.SimulateMoveForTest(tv, 5.0, 5.0);
                 await Harness.Render();
                 floatingWindow = DockTabTearOffTracker.ActiveForTest?.FloatingWindow;
+                if (floatingWindow is not null)
+                    floatingWindow.Closed += (_, _) => floatingWindowClosed = true;
                 H.Check("T08b_TrackerHasActive", DockTabTearOffTracker.IsActive);
 
                 // Latch a host target as hovered, then release: the single
@@ -517,7 +523,7 @@ internal static class NativeDockingTearOffFixtures
             finally
             {
                 if (floatingWindow is not null) DockFloatingPaneRouter.Unregister(floatingWindow);
-                floatingWindow?.Close();
+                if (floatingWindow is not null && !floatingWindowClosed) floatingWindow.Close();
                 ReactorApp.ShutdownPolicy = savedPolicy;
                 ResetAll();
             }
@@ -868,6 +874,12 @@ internal static class NativeDockingTearOffFixtures
             ReactorApp.ShutdownPolicy = ShutdownPolicy.Explicit;
             ReactorWindow? floating = null;
             ReactorWindow? previewWindow = null;
+            // Both the source float (emptied by the migration) and the preview
+            // window auto-close via the migration path. Guard the finally so we
+            // don't Close() either a second time — double-closing a WinUI window
+            // risks the multi-window teardown AV.
+            var floatingClosed = false;
+            var previewClosed = false;
             var closed = new List<(DockFloatingCloseReason Reason, DockableContent? Content)>();
             try
             {
@@ -884,6 +896,7 @@ internal static class NativeDockingTearOffFixtures
                 await Harness.Render();
 
                 floating = DockFloatingWindow.Open(a, manager: managerEl);
+                floating.Closed += (_, _) => floatingClosed = true;
                 await Harness.Render();
                 await Harness.Render();
 
@@ -897,6 +910,8 @@ internal static class NativeDockingTearOffFixtures
                 await Harness.Render();
 
                 previewWindow = DockTabTearOffTracker.ActiveForTest?.FloatingWindow;
+                if (previewWindow is not null)
+                    previewWindow.Closed += (_, _) => previewClosed = true;
                 H.Check("T12b_TrackerActive", DockTabTearOffTracker.IsActive);
 
                 // Latch a host target as hovered (the production cursor would
@@ -942,8 +957,8 @@ internal static class NativeDockingTearOffFixtures
             {
                 if (previewWindow is not null) DockFloatingPaneRouter.Unregister(previewWindow);
                 if (floating is not null) DockFloatingPaneRouter.Unregister(floating);
-                previewWindow?.Close();
-                floating?.Close();
+                if (previewWindow is not null && !previewClosed) previewWindow.Close();
+                if (floating is not null && !floatingClosed) floating.Close();
                 ReactorApp.ShutdownPolicy = savedPolicy;
                 ResetAll();
             }
