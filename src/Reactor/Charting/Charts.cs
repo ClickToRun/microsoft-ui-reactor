@@ -667,6 +667,11 @@ public sealed class PieChartElement<T> : IChartAccessibilityData
             ChartBackground = _chartBackground,
         });
 
+    // Test-only seam (InternalsVisibleTo Reactor.Tests): mirrors ChartElement<T>'s seam so unit
+    // tests can pin PieChartElement<T>'s own .ChartBackground(...) → ChartA11yData wiring without
+    // building the chart's D3Canvas, which constructs a SolidColorBrush and therefore needs WinUI COM.
+    internal Core.CanvasElement AttachChartDataForTest(Core.CanvasElement canvas) => AttachChartData(canvas);
+
     // Non-finite offsets would propagate NaN/Infinity into Canvas.Left/Top and
     // can crash WinUI layout — treat them as 0 to match how Width/Height/InnerRadius
     // are normalized in BuildElement.

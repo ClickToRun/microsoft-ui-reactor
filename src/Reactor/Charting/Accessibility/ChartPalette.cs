@@ -73,6 +73,10 @@ public sealed class HardenOptions
     /// active background instead of hardening against <c>both</c> the fixed light and dark
     /// backgrounds. Mirrors A11Y_CHART_011's active-background scoping (issue #633). Null
     /// keeps the theme-agnostic both-backgrounds behavior.
+    /// <para>Opacity is ignored: contrast cannot be evaluated against a semi-transparent
+    /// background without knowing what is behind it, so any alpha is dropped to opaque RGB
+    /// inside <see cref="ChartPalette.Harden"/> (matching the
+    /// <c>.ChartBackground(...)</c> DSL modifier).</para>
     /// </summary>
     public D3.D3Color? Background { get; init; }
 
@@ -293,7 +297,7 @@ public sealed class ChartPalette
             // contrast against *either* fixed background, so the set is {light, dark}.
             // Both cases share this one path.
             var backgrounds = opts.Background is { } activeBg
-                ? new[] { activeBg }
+                ? new[] { new D3.D3Color(activeBg.R, activeBg.G, activeBg.B) }
                 : new[] { new D3.D3Color(255, 255, 255), new D3.D3Color(32, 32, 32) };
             for (int i = 0; i < adjusted.Length; i++)
             {
