@@ -72,9 +72,12 @@ internal interface INavigationHandle
 /// mutation &#8212; stack edit, <see cref="Navigated"/>/<c>RouteChanged</c>
 /// events, and the component re-render &#8212; is auto-marshaled onto the captured
 /// UI dispatcher, mirroring the <c>UseState</c>/<c>UseReducer</c> contract from
-/// issue #212. If no UI dispatcher is available (unit-test / headless contexts)
-/// an off-thread call throws <see cref="InvalidOperationException"/> loudly
-/// rather than corrupting the back/forward stacks. The bool-returning mutators
+/// issue #212. An off-thread call throws <see cref="InvalidOperationException"/>
+/// loudly &#8212; rather than corrupting the back/forward stacks &#8212; in two
+/// cases: when no UI dispatcher is available (unit-test / headless contexts), and
+/// when the captured dispatcher refuses the enqueue (its <c>TryEnqueue</c> returns
+/// <see langword="false"/>, e.g. once it has begun shutting down near window
+/// close). The bool-returning mutators
 /// return <see langword="true"/> when an off-thread call is accepted and
 /// scheduled; the actual guard/empty-stack outcome is then resolved on the UI
 /// thread. Off-thread callers must therefore not treat that <see langword="true"/>

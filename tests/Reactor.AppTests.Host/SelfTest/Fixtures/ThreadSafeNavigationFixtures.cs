@@ -52,7 +52,7 @@ internal static class ThreadSafeNavigationFixtures
                     nav!.Navigate(NavRoute.Detail);
                     done.TrySetResult();
                 }
-                catch (Exception ex)
+                catch (InvalidOperationException ex)
                 {
                     done.TrySetException(ex);
                 }
@@ -81,7 +81,7 @@ internal static class ThreadSafeNavigationFixtures
                     nav!.Replace(NavRoute.Settings);
                     done2.TrySetResult();
                 }
-                catch (Exception ex)
+                catch (InvalidOperationException ex)
                 {
                     done2.TrySetException(ex);
                 }
