@@ -95,6 +95,45 @@ public class ChartPaletteTests
     }
 
     [Fact]
+    public void Harden_KnownBackground_OutputPassesThatBackground()
+    {
+        // When HardenOptions.Background declares the active background (issue #633), the
+        // background pass is scoped to THAT single background and the nudge is direction-aware.
+        // A near-white color that fails the light background must be hardened so it ACTUALLY
+        // clears 3:1 against light — proving the scoped fix suggestion is a real remediation,
+        // not an echo of the failing color (mirrors the #629 OutputPasses guard).
+        var lightBg = new D3Color(255, 255, 255);
+        var nearWhite = new D3Color(255, 255, 200);
+        Assert.True(ChartPalette.ContrastRatio(nearWhite, lightBg) < 3.0);
+
+        var hardened = ChartPalette.Harden(
+            new[] { nearWhite },
+            new HardenOptions { Background = lightBg });
+        Assert.True(
+            ChartPalette.ContrastRatio(hardened.Palette[0], lightBg) >= 3.0,
+            $"Hardened near-white {hardened.Palette[0].ToHex()} still fails light bg " +
+            $"({ChartPalette.ContrastRatio(hardened.Palette[0], lightBg):F2}:1)");
+    }
+
+    [Fact]
+    public void Harden_KnownBackground_LeavesColorPassingThatBackgroundUnchanged()
+    {
+        // The same near-white color PASSES the dark (32,32,32) background. Scoping Harden to
+        // the dark background must not touch it — a palette is only adjusted for the background
+        // it actually renders on (issue #633).
+        var darkBg = new D3Color(32, 32, 32);
+        var nearWhite = new D3Color(255, 255, 200);
+        Assert.True(ChartPalette.ContrastRatio(nearWhite, darkBg) >= 3.0);
+
+        var hardened = ChartPalette.Harden(
+            new[] { nearWhite },
+            new HardenOptions { Background = darkBg });
+        Assert.Equal(nearWhite.R, hardened.Palette[0].R);
+        Assert.Equal(nearWhite.G, hardened.Palette[0].G);
+        Assert.Equal(nearWhite.B, hardened.Palette[0].B);
+    }
+
+    [Fact]
     public void Harden_FailsBothBackgrounds_ImprovesWorseSide()
     {
         // When MinBackgroundContrast is raised, a mid-tone can fail the minimum

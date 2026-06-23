@@ -67,6 +67,15 @@ public sealed class HardenOptions
     /// <summary>Minimum contrast ratio of each color against the background. Default 3.0.</summary>
     public double MinBackgroundContrast { get; init; } = 3.0;
 
+    /// <summary>
+    /// Representative background the palette will actually render on. When set, the
+    /// background-contrast pass scopes its check (and direction-aware nudge) to this single
+    /// active background instead of hardening against *both* the fixed light and dark
+    /// backgrounds. Mirrors A11Y_CHART_011's active-background scoping (issue #633). Null
+    /// keeps the theme-agnostic both-backgrounds behavior.
+    /// </summary>
+    public D3.D3Color? Background { get; init; }
+
     /// <summary>Maximum number of adjustment passes. Default 8.</summary>
     public int MaxPasses { get; init; } = 8;
 }
@@ -277,31 +286,47 @@ public sealed class ChartPalette
                 }
             }
 
-            // Check each color vs light and dark backgrounds
+            // Check each color vs the background(s). When the caller declares a single
+            // representative background (issue #633), scope the check and the nudge to
+            // THAT background only — a palette is only penalized for a background it will
+            // actually render on. Otherwise the palette is theme-agnostic and must clear
+            // contrast against *either* fixed background.
             var lightBg = new D3.D3Color(255, 255, 255);
             var darkBg = new D3.D3Color(32, 32, 32);
             for (int i = 0; i < adjusted.Length; i++)
             {
-                double lightContrast = ContrastRatio(adjusted[i], lightBg);
-                double darkContrast = ContrastRatio(adjusted[i], darkBg);
-                bool failsLight = lightContrast < opts.MinBackgroundContrast;
-                bool failsDark = darkContrast < opts.MinBackgroundContrast;
-                // A color need only contrast against whichever background is active, so
-                // harden when it fails against *either* (matching the A11Y_CHART_011
-                // detection rule). The adjustment is direction-aware: a near-white color
-                // that fails the light background must get darker, and a near-black color
-                // that fails the dark background must get lighter.
-                if (!failsLight && !failsDark) continue;
+                bool darken;
+                if (opts.Background is { } activeBg)
+                {
+                    if (ContrastRatio(adjusted[i], activeBg) >= opts.MinBackgroundContrast) continue;
 
-                // At the default 3:1 threshold failsLight and failsDark are mutually
-                // exclusive, but MinBackgroundContrast is configurable: a high threshold
-                // (e.g. >~4:1) lets a mid-tone fail against *both* fixed backgrounds. In
-                // that case darkening improves light contrast while lightening improves
-                // dark contrast, so move toward the worse (lower) of the two ratios to
-                // maximize the attainable minimum rather than always darkening.
-                bool darken = failsLight && failsDark
-                    ? lightContrast <= darkContrast
-                    : failsLight;
+                    // Move the color away from the background's lightness: darken when the
+                    // color is no lighter than the background, lighten when it is lighter.
+                    darken = RelativeLuminance(adjusted[i]) <= RelativeLuminance(activeBg);
+                }
+                else
+                {
+                    double lightContrast = ContrastRatio(adjusted[i], lightBg);
+                    double darkContrast = ContrastRatio(adjusted[i], darkBg);
+                    bool failsLight = lightContrast < opts.MinBackgroundContrast;
+                    bool failsDark = darkContrast < opts.MinBackgroundContrast;
+                    // A color need only contrast against whichever background is active, so
+                    // harden when it fails against *either* (matching the A11Y_CHART_011
+                    // detection rule). The adjustment is direction-aware: a near-white color
+                    // that fails the light background must get darker, and a near-black color
+                    // that fails the dark background must get lighter.
+                    if (!failsLight && !failsDark) continue;
+
+                    // At the default 3:1 threshold failsLight and failsDark are mutually
+                    // exclusive, but MinBackgroundContrast is configurable: a high threshold
+                    // (e.g. >~4:1) lets a mid-tone fail against *both* fixed backgrounds. In
+                    // that case darkening improves light contrast while lightening improves
+                    // dark contrast, so move toward the worse (lower) of the two ratios to
+                    // maximize the attainable minimum rather than always darkening.
+                    darken = failsLight && failsDark
+                        ? lightContrast <= darkContrast
+                        : failsLight;
+                }
 
                 var (l, c, h) = RgbToLch(adjusted[i]);
                 l = darken ? Math.Max(5, l - 15) : Math.Min(95, l + 15);

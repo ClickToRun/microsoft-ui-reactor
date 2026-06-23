@@ -36,7 +36,8 @@ public class ChartScannerRuleTests
         bool isKeyboardDisabled = false,
         bool isTightHitTest = false,
         global::Windows.UI.Color? customFocusColor = null,
-        bool isAnnounceEveryFrame = false)
+        bool isAnnounceEveryFrame = false,
+        D3Color? chartBackground = null)
     {
         var canvas = new CanvasElement([])
         {
@@ -56,6 +57,7 @@ public class ChartScannerRuleTests
                 IsTightHitTest = isTightHitTest,
                 CustomFocusColor = customFocusColor,
                 IsAnnounceEveryFrame = isAnnounceEveryFrame,
+                ChartBackground = chartBackground,
             });
         }
 
@@ -277,7 +279,61 @@ public class ChartScannerRuleTests
         Assert.DoesNotContain(findings, f => f.Id == "A11Y_CHART_011");
     }
 
-    // ── A11Y_CHART_012: RawColors escape hatch ──────────────────────
+    // ── A11Y_CHART_011: active-background scoping (issue #633) ───────
+
+    [Fact]
+    public void A11Y_CHART_011_KnownLightBackground_FailingColor_FiresWarning()
+    {
+        // Near-white yellow fails 3:1 against the light (255,255,255) background. When the
+        // author declares .ChartBackground(light), the scanner knows the palette actually
+        // renders on that background, so the failure is real and is promoted from info to a
+        // WARNING (the false positives that forced the info downgrade are gone — issue #633).
+        var palette = ChartPalette.FromColors(new D3Color(255, 255, 200));
+        var canvas = MakeChartCanvas(
+            chartData: DataWithSeries(name: "Revenue"),
+            customPalette: palette,
+            chartBackground: new D3Color(255, 255, 255));
+        var tree = VStack(canvas);
+
+        var findings = AccessibilityScanner.Scan(tree);
+        var finding = Assert.Single(findings, f => f.Id == "A11Y_CHART_011");
+        Assert.Equal("warning", finding.Severity);
+    }
+
+    [Fact]
+    public void A11Y_CHART_011_KnownDarkBackground_LightColor_DoesNotFire()
+    {
+        // The SAME near-white palette passes 3:1 against the dark (32,32,32) background. With
+        // the background scoped to dark, the color is legible on the background it actually
+        // renders on, so the rule must NOT fire — a palette is only penalized for a background
+        // it will actually render on (issue #633). Under the old both-backgrounds OR behavior
+        // this same palette would have produced an info finding.
+        var palette = ChartPalette.FromColors(new D3Color(255, 255, 200));
+        var canvas = MakeChartCanvas(
+            chartData: DataWithSeries(name: "Revenue"),
+            customPalette: palette,
+            chartBackground: new D3Color(32, 32, 32));
+        var tree = VStack(canvas);
+
+        var findings = AccessibilityScanner.Scan(tree);
+        Assert.DoesNotContain(findings, f => f.Id == "A11Y_CHART_011");
+    }
+
+    [Fact]
+    public void A11Y_CHART_011_NoDeclaredBackground_KeepsInfoBothBackgroundsBehavior()
+    {
+        // Without a declared background the scanner stays theme-agnostic: it flags the
+        // near-white color against EITHER fixed background and keeps the INFO severity so the
+        // alert-fatigue mitigation from #629 is preserved for charts that don't opt in. Pinning
+        // the severity guards the unknown-background path from silently regressing (issue #633).
+        var palette = ChartPalette.FromColors(new D3Color(255, 255, 200));
+        var canvas = MakeChartCanvas(chartData: DataWithSeries(name: "Revenue"), customPalette: palette);
+        var tree = VStack(canvas);
+
+        var findings = AccessibilityScanner.Scan(tree);
+        var finding = Assert.Single(findings, f => f.Id == "A11Y_CHART_011");
+        Assert.Equal("info", finding.Severity);
+    }
 
     [Fact]
     public void A11Y_CHART_012_RawColors_EmittedAsInfo()

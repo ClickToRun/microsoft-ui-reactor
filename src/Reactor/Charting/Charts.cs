@@ -80,6 +80,7 @@ public sealed class ChartElement<T> : IChartAccessibilityData
     private Accessibility.ChartPalette? _palette;
     private bool _colorOnly;
     private bool _rawColors;
+    private D3.D3Color? _chartBackground;
     private Accessibility.MarkerShape[]? _seriesShapes;
     private Accessibility.DashStyle[]? _seriesDashes;
 
@@ -162,6 +163,15 @@ public sealed class ChartElement<T> : IChartAccessibilityData
 
     /// <summary>Sets raw series colors — escape hatch with no validation (Tier 4). Triggers scanner warning A11Y_CHART_012.</summary>
     public ChartElement<T> RawColors(params D3.D3Color[] colors) { _palette = Accessibility.ChartPalette.FromRaw(colors); _rawColors = true; return this; }
+
+    /// <summary>
+    /// Declares the representative background color the chart actually renders on.
+    /// Lets the theme-agnostic accessibility scanner scope A11Y_CHART_011's custom-palette
+    /// contrast check to this single active background (a <c>warning</c>) instead of flagging
+    /// failure against either fixed light/dark background (an <c>info</c>). Omit for charts
+    /// that may render on any background.
+    /// </summary>
+    public ChartElement<T> ChartBackground(D3.D3Color background) { _chartBackground = background; return this; }
 
     /// <summary>Disables shape/dash double-encoding — color is sole series differentiator. Triggers scanner warning A11Y_CHART_004.</summary>
     public ChartElement<T> ColorOnly() { _colorOnly = true; return this; }
@@ -314,6 +324,7 @@ public sealed class ChartElement<T> : IChartAccessibilityData
             IsTightHitTest = _tightHitTest,
             CustomFocusColor = _customFocusColor,
             IsAnnounceEveryFrame = _announceEveryFrame,
+            ChartBackground = _chartBackground,
         });
 
     private Element[] RenderData(IReadOnlyList<T> data, LinearScale xScale, LinearScale yScale,
@@ -458,6 +469,7 @@ public sealed class PieChartElement<T> : IChartAccessibilityData
     // Double-encoding / palette fields
     private Accessibility.ChartPalette? _palette;
     private bool _colorOnly;
+    private D3Color? _chartBackground;
 
     // Custom label rendering — when set, replaces the built-in TextBlock label
     // produced from LabelAccessor. The string LabelAccessor is still consulted
@@ -515,6 +527,15 @@ public sealed class PieChartElement<T> : IChartAccessibilityData
 
     /// <summary>Sets a curated accessible palette (Tier 1).</summary>
     public PieChartElement<T> Palette(Accessibility.ChartPalette palette) { _palette = palette; return this; }
+
+    /// <summary>
+    /// Declares the representative background color the chart actually renders on.
+    /// Lets the theme-agnostic accessibility scanner scope A11Y_CHART_011's custom-palette
+    /// contrast check to this single active background (a <c>warning</c>) instead of flagging
+    /// failure against either fixed light/dark background (an <c>info</c>). Omit for charts
+    /// that may render on any background.
+    /// </summary>
+    public PieChartElement<T> ChartBackground(D3Color background) { _chartBackground = background; return this; }
 
     /// <summary>Disables shape/dash double-encoding. Triggers scanner warning A11Y_CHART_004.</summary>
     public PieChartElement<T> ColorOnly() { _colorOnly = true; return this; }
@@ -603,6 +624,7 @@ public sealed class PieChartElement<T> : IChartAccessibilityData
         {
             IsColorOnly = _colorOnly,
             CustomPalette = _palette,
+            ChartBackground = _chartBackground,
         });
 
     // Non-finite offsets would propagate NaN/Infinity into Canvas.Left/Top and
