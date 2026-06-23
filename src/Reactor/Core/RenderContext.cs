@@ -922,69 +922,37 @@ public sealed class RenderContext
     // ════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Processes a Command for use in a component. For sync-only commands with no
-    /// <see cref="Command.DebounceMs"/>, returns the command unchanged (no hook slots consumed).
-    /// For async commands, wraps ExecuteAsync with automatic IsExecuting tracking and re-entrance
-    /// guards. When <see cref="Command.DebounceMs"/> &gt; 0, wraps the dispatch with a leading-edge
-    /// debounce: a fire within the window of the prior accepted fire is dropped and
+    /// Processes a Command for use in a component. Always consumes a <b>stable hook shape</b>
+    /// (independent of whether the command is sync/async or debounced), so a command at a given
+    /// call site can flip between sync↔async or <see cref="Command.DebounceMs"/> 0↔N across
+    /// renders without ever reordering hook slots. For a pure sync command with no
+    /// <see cref="Command.DebounceMs"/> the original command is returned unchanged (identity
+    /// preserved). For async commands, wraps ExecuteAsync with automatic IsExecuting tracking and
+    /// re-entrance guards. When <see cref="Command.DebounceMs"/> &gt; 0, wraps the dispatch with a
+    /// leading-edge debounce: a fire within the window of the prior accepted fire is dropped and
     /// <see cref="Command.IsDebouncing"/> (hence <see cref="Command.IsEnabled"/>=false) reflects
     /// the window so the bound control disables, re-enabling when the window elapses. The returned
-    /// command always has a sync Execute action, ExecuteAsync = null, and DebounceMs = 0 (consumed).
+    /// command has a sync Execute action, ExecuteAsync = null, and preserves the authored
+    /// DebounceMs value (re-passing it through UseCommand is a no-op — debounce is never applied
+    /// twice).
     /// </summary>
     public Command UseCommand(Command command)
     {
-        bool needsDebounce = command.DebounceMs > 0;
+        var (guardRef, debounceRef, isExecuting, setIsExecuting, isDebouncing, setIsDebouncing)
+            = UseCommandState();
 
-        // Sync-only, no debounce → passthrough unchanged (no hooks consumed).
-        if (command.ExecuteAsync is null && !needsDebounce)
-            return command;
-
-        var (isExecuting, setIsExecuting) = UseState(false, threadSafe: true);
-        var (isDebouncing, setIsDebouncing) = UseState(false, threadSafe: true);
-        var guardRef = UseRef(false);
-        var debounceRef = UseRef<DebounceSlot?>(null);
         var asyncAction = command.ExecuteAsync;
         var syncAction = command.Execute;
         int debounceMs = command.DebounceMs;
 
         var wrappedExecute = UseMemo<Action>(() => () =>
-        {
-            if (asyncAction is not null)
-            {
-                // Re-entrance guard using ref for live value (not stale closure capture).
-                // Checked BEFORE arming the debounce window so a fire blocked because the
-                // async action is still running doesn't re-arm the window for nothing.
-                if (guardRef.Current) return;
-                if (!TryEnterDebounceWindow(debounceMs, debounceRef, setIsDebouncing)) return;
-                guardRef.Current = true;
-                setIsExecuting(true);
-                // try/finally — NOT try/catch. The user's command throw becomes a
-                // faulted Task; the framework's reentry-guard and IsExecuting
-                // state still get restored. We deliberately let the exception
-                // surface via Task.UnobservedTaskException rather than swallowing,
-                // so a buggy command is visible to the developer (matches the
-                // dispose / lifecycle policy elsewhere — don't hide user bugs).
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await asyncAction();
-                    }
-                    finally
-                    {
-                        guardRef.Current = false;
-                        setIsExecuting(false);
-                    }
-                });
-            }
-            else
-            {
-                // Sync command + debounce: dispatch stays synchronous (no Task.Run hop),
-                // so the action keeps running on the UI thread.
-                if (!TryEnterDebounceWindow(debounceMs, debounceRef, setIsDebouncing)) return;
-                syncAction?.Invoke();
-            }
-        }, (object?)command.ExecuteAsync ?? NullDep, (object?)command.Execute ?? NullDep, debounceMs);
+            DispatchCommand(asyncAction, syncAction, debounceMs, guardRef, debounceRef, setIsExecuting, setIsDebouncing),
+            (object?)command.ExecuteAsync ?? NullDep, (object?)command.Execute ?? NullDep, debounceMs);
+
+        // Branch on VALUES, never on hook calls: a pure sync, non-debounced, not-yet-wrapped
+        // command is returned unchanged (preserves identity / Assert.Same and today's behavior).
+        if (!CommandNeedsWrapping(command.ExecuteAsync, command.DebounceMs, command.DebounceHandled))
+            return command;
 
         return command with
         {
@@ -992,62 +960,33 @@ public sealed class RenderContext
             ExecuteAsync = null,
             IsExecuting = isExecuting,
             IsDebouncing = isDebouncing,
-            DebounceMs = 0,
+            DebounceHandled = true,
         };
     }
 
     /// <summary>
-    /// Processes a parameterized Command for use in a component. For sync-only commands with no
-    /// <see cref="Command{T}.DebounceMs"/>, returns unchanged. For async commands, wraps
-    /// ExecuteAsync with IsExecuting tracking and re-entrance guards. When
-    /// <see cref="Command{T}.DebounceMs"/> &gt; 0, applies the same leading-edge debounce as the
-    /// non-generic <see cref="UseCommand(Command)"/>.
+    /// Processes a parameterized Command for use in a component. Consumes the same
+    /// <b>stable hook shape</b> as the non-generic <see cref="UseCommand(Command)"/> and applies
+    /// the same async tracking and leading-edge <see cref="Command{T}.DebounceMs"/> debounce.
     /// </summary>
     public Command<T> UseCommand<T>(Command<T> command)
     {
-        bool needsDebounce = command.DebounceMs > 0;
+        var (guardRef, debounceRef, isExecuting, setIsExecuting, isDebouncing, setIsDebouncing)
+            = UseCommandState();
 
-        if (command.ExecuteAsync is null && !needsDebounce)
-            return command;
-
-        var (isExecuting, setIsExecuting) = UseState(false, threadSafe: true);
-        var (isDebouncing, setIsDebouncing) = UseState(false, threadSafe: true);
-        var guardRef = UseRef(false);
-        var debounceRef = UseRef<DebounceSlot?>(null);
         var asyncAction = command.ExecuteAsync;
         var syncAction = command.Execute;
         int debounceMs = command.DebounceMs;
 
         var wrappedExecute = UseMemo<Action<T>>(() => (arg) =>
-        {
-            if (asyncAction is not null)
-            {
-                // Re-entrance guard using ref for live value (not stale closure capture).
-                if (guardRef.Current) return;
-                if (!TryEnterDebounceWindow(debounceMs, debounceRef, setIsDebouncing)) return;
-                guardRef.Current = true;
-                setIsExecuting(true);
-                // try/finally — same shape as the non-generic UseCommand above.
-                // Cleanup runs; user throw surfaces via Task.UnobservedTaskException.
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await asyncAction(arg);
-                    }
-                    finally
-                    {
-                        guardRef.Current = false;
-                        setIsExecuting(false);
-                    }
-                });
-            }
-            else
-            {
-                if (!TryEnterDebounceWindow(debounceMs, debounceRef, setIsDebouncing)) return;
-                syncAction?.Invoke(arg);
-            }
-        }, (object?)command.ExecuteAsync ?? NullDep, (object?)command.Execute ?? NullDep, debounceMs);
+            DispatchCommand(
+                asyncAction is null ? null : () => asyncAction(arg),
+                syncAction is null ? null : () => syncAction(arg),
+                debounceMs, guardRef, debounceRef, setIsExecuting, setIsDebouncing),
+            (object?)command.ExecuteAsync ?? NullDep, (object?)command.Execute ?? NullDep, debounceMs);
+
+        if (!CommandNeedsWrapping(command.ExecuteAsync, command.DebounceMs, command.DebounceHandled))
+            return command;
 
         return command with
         {
@@ -1055,19 +994,113 @@ public sealed class RenderContext
             ExecuteAsync = null,
             IsExecuting = isExecuting,
             IsDebouncing = isDebouncing,
-            DebounceMs = 0,
+            DebounceHandled = true,
         };
     }
 
+    /// <summary>A command's execution needs wrapping when it is async, or it declares a debounce
+    /// window that <see cref="UseCommand(Command)"/> hasn't already consumed. Pure sync,
+    /// non-debounced commands (and already-wrapped commands) pass through untouched.</summary>
+    private static bool CommandNeedsWrapping(object? executeAsync, int debounceMs, bool debounceHandled)
+        => !debounceHandled && (executeAsync is not null || debounceMs > 0);
+
     /// <summary>
-    /// Per-command leading-edge debounce state: the in-window flag plus the one-shot
-    /// re-enable timer. Lives in a <see cref="UseRef{T}"/> slot so it persists across renders
-    /// (the <see cref="Command"/> record itself is reconstructed every render).
+    /// Allocates the stable hook shape shared by both <see cref="UseCommand(Command)"/> overloads:
+    /// the IsExecuting / IsDebouncing state, the re-entrance guard and debounce-slot refs, and an
+    /// unmount effect that disposes any live re-enable timer so it cannot fire
+    /// <c>setIsDebouncing</c> / request a re-render against a torn-down context. These hooks are
+    /// allocated unconditionally so the hook order is identical regardless of the command's shape.
+    /// </summary>
+    private (Ref<bool> GuardRef, Ref<DebounceSlot?> DebounceRef,
+             bool IsExecuting, Action<bool> SetIsExecuting,
+             bool IsDebouncing, Action<bool> SetIsDebouncing) UseCommandState()
+    {
+        var (isExecuting, setIsExecuting) = UseState(false, threadSafe: true);
+        var (isDebouncing, setIsDebouncing) = UseState(false, threadSafe: true);
+        var guardRef = UseRef(false);
+        var debounceRef = UseRef<DebounceSlot?>(null);
+
+        // Mount-once effect: on unmount, dispose the live re-enable timer (if any) so a pending
+        // window can't fire its callback against a context that no longer exists.
+        UseEffect(() => () =>
+        {
+            var slot = debounceRef.Current;
+            if (slot is null) return;
+            global::System.Threading.ITimer? timer;
+            lock (slot.Gate)
+            {
+                timer = slot.Timer;
+                slot.Timer = null;
+                slot.InWindow = false;
+            }
+            timer?.Dispose();
+        });
+
+        return (guardRef, debounceRef, isExecuting, setIsExecuting, isDebouncing, setIsDebouncing);
+    }
+
+    /// <summary>
+    /// Shared dispatch core for both <see cref="UseCommand(Command)"/> overloads. Applies the
+    /// re-entrance guard (async only, checked BEFORE arming the window so a fire blocked because
+    /// the async action is still running doesn't arm the window for nothing) and the leading-edge
+    /// debounce, then runs the action. Returns true if the fire was accepted.
+    /// </summary>
+    private bool DispatchCommand(
+        Func<Task>? asyncAction,
+        Action? syncAction,
+        int debounceMs,
+        Ref<bool> guardRef,
+        Ref<DebounceSlot?> debounceRef,
+        Action<bool> setIsExecuting,
+        Action<bool> setIsDebouncing)
+    {
+        if (asyncAction is not null)
+        {
+            // Re-entrance guard using ref for live value (not stale closure capture).
+            if (guardRef.Current) return false;
+            if (!TryEnterDebounceWindow(debounceMs, debounceRef, setIsDebouncing)) return false;
+            guardRef.Current = true;
+            setIsExecuting(true);
+            // try/finally — NOT try/catch. The user's command throw becomes a faulted Task; the
+            // framework's reentry-guard and IsExecuting state still get restored. We deliberately
+            // let the exception surface via Task.UnobservedTaskException rather than swallowing,
+            // so a buggy command is visible to the developer (matches the dispose / lifecycle
+            // policy elsewhere — don't hide user bugs).
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await asyncAction();
+                }
+                finally
+                {
+                    guardRef.Current = false;
+                    setIsExecuting(false);
+                }
+            });
+            return true;
+        }
+
+        // Sync command + debounce: dispatch stays synchronous (no Task.Run hop), so the action
+        // keeps running on the UI thread.
+        if (!TryEnterDebounceWindow(debounceMs, debounceRef, setIsDebouncing)) return false;
+        syncAction?.Invoke();
+        return true;
+    }
+
+    /// <summary>
+    /// Per-command leading-edge debounce state: the in-window flag, an epoch token, and the
+    /// one-shot re-enable timer. Lives in a <see cref="UseRef{T}"/> slot so it persists across
+    /// renders (the <see cref="Command"/> record itself is reconstructed every render).
     /// </summary>
     private sealed class DebounceSlot
     {
         public readonly object Gate = new();
         public bool InWindow;
+        /// <summary>Incremented for every accepted fire. The re-enable timer captures the epoch
+        /// it was created for and only clears the window if it still owns the current epoch — so a
+        /// stale timer (a newer accepted fire already re-armed the window) is a no-op.</summary>
+        public long Epoch;
         public global::System.Threading.ITimer? Timer;
     }
 
@@ -1087,25 +1120,48 @@ public sealed class RenderContext
 
         var slot = slotRef.Current ??= new DebounceSlot();
         global::System.Threading.ITimer? prior;
+        long epoch;
         lock (slot.Gate)
         {
             if (slot.InWindow) return false;
             slot.InWindow = true;
+            epoch = ++slot.Epoch;
             prior = slot.Timer;
+            slot.Timer = null;
+            // setIsDebouncing(true) is called under the gate so it is atomic with arming the
+            // window: a stale timer's setIsDebouncing(false) (below) can never interleave between
+            // here and the InWindow check, so the control can't be left wrongly enabled.
+            setIsDebouncing(true);
         }
-        // setState is threadSafe:true → safe to call from the timer callback thread too.
-        setIsDebouncing(true);
+        // Dispose the previous (already-fired, inert) timer outside the lock.
+        prior?.Dispose();
+
         var timer = TimeProvider.CreateTimer(
             _ =>
             {
-                lock (slot.Gate) { slot.InWindow = false; }
-                setIsDebouncing(false);
+                lock (slot.Gate)
+                {
+                    // Only the timer that still owns the current epoch may clear the window.
+                    // A stale timer whose window was superseded by a newer accepted fire is a
+                    // no-op. setIsDebouncing(false) runs under the gate so it is atomic with the
+                    // clear and cannot race a concurrent accepted fire's setIsDebouncing(true).
+                    if (slot.Epoch != epoch || !slot.InWindow) return;
+                    slot.InWindow = false;
+                    setIsDebouncing(false);
+                }
             },
             null,
             TimeSpan.FromMilliseconds(debounceMs),
             global::System.Threading.Timeout.InfiniteTimeSpan);
-        lock (slot.Gate) { slot.Timer = timer; }
-        prior?.Dispose();
+
+        lock (slot.Gate)
+        {
+            // Install only if we still own the window; otherwise this timer is already stale.
+            if (slot.Epoch == epoch)
+                slot.Timer = timer;
+            else
+                timer.Dispose();
+        }
         return true;
     }
 

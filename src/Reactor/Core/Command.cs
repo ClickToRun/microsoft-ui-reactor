@@ -44,18 +44,28 @@ public sealed record Command
     /// past the lambda's return (the effective disabled window is the longer of the two).
     /// </para>
     /// <para>
-    /// The debounce state (last-fire window + re-enable timer) lives in the
-    /// <see cref="RenderContext.UseCommand"/> hook's backing store, which persists across
-    /// renders. A raw <c>new Command { DebounceMs = … }</c> that is NOT routed through
-    /// <see cref="RenderContext.UseCommand"/> has nowhere to persist that state and therefore
-    /// does NOT debounce — always wrap a debounced command with <c>UseCommand</c>.
+    /// <b>DebounceMs only works through <see cref="RenderContext.UseCommand"/>.</b> The debounce
+    /// state (last-fire window + re-enable timer) lives in the <c>UseCommand</c> hook's backing
+    /// store, which is the only place that persists across renders (the <see cref="Command"/>
+    /// record itself is reconstructed every render). A raw <c>new Command { DebounceMs = … }</c>
+    /// bound directly to a control — without being passed through <c>UseCommand</c> — has nowhere
+    /// to persist that state and is therefore <b>inert: it does NOT debounce</b>. Always wrap a
+    /// debounced command with <c>UseCommand</c>:
+    /// <code>var run = UseCommand(new Command { Label = "Run", Execute = Run, DebounceMs = 1500 });</code>
     /// </para>
     /// </summary>
     public int DebounceMs { get; init; }
 
     /// <summary>Whether the command is currently inside its leading-edge debounce window.
-    /// Managed by <see cref="RenderContext.UseCommand"/> when <see cref="DebounceMs"/> &gt; 0.</summary>
-    public bool IsDebouncing { get; init; }
+    /// This is framework-managed state set by <see cref="RenderContext.UseCommand"/> when
+    /// <see cref="DebounceMs"/> &gt; 0; it is read-only to app authors (internal init).</summary>
+    public bool IsDebouncing { get; internal init; }
+
+    /// <summary>Internal marker: set when <see cref="RenderContext.UseCommand"/> has already
+    /// wrapped this command's execution (debounce + IsExecuting tracking). Re-passing an
+    /// already-handled command through <c>UseCommand</c> is a passthrough, so debounce is never
+    /// applied twice. Not part of the public surface.</summary>
+    internal bool DebounceHandled { get; init; }
 
     /// <summary>Icon to display alongside the command.</summary>
     public IconData? Icon { get; init; }
@@ -104,13 +114,22 @@ public sealed record Command<T>
     /// <see cref="RenderContext.UseCommand{T}"/>, the first fire is accepted and any
     /// subsequent fire within the window is dropped, with <see cref="IsDebouncing"/> (and
     /// therefore <see cref="IsEnabled"/>=false) reflecting the window so the bound control
-    /// disables. See <see cref="Command.DebounceMs"/> for the full contract (issue #136).
+    /// disables. <b>Like <see cref="Command.DebounceMs"/>, this only works through
+    /// <see cref="RenderContext.UseCommand{T}"/></b> — a raw <c>new Command&lt;T&gt; { DebounceMs = … }</c>
+    /// bound directly is inert and does not debounce. See <see cref="Command.DebounceMs"/> for
+    /// the full contract (issue #136).
     /// </summary>
     public int DebounceMs { get; init; }
 
     /// <summary>Whether the command is currently inside its leading-edge debounce window.
-    /// Managed by <see cref="RenderContext.UseCommand{T}"/> when <see cref="DebounceMs"/> &gt; 0.</summary>
-    public bool IsDebouncing { get; init; }
+    /// Framework-managed state set by <see cref="RenderContext.UseCommand{T}"/> when
+    /// <see cref="DebounceMs"/> &gt; 0; read-only to app authors (internal init).</summary>
+    public bool IsDebouncing { get; internal init; }
+
+    /// <summary>Internal marker: set when <see cref="RenderContext.UseCommand{T}"/> has already
+    /// wrapped this command's execution, so debounce is never applied twice on a re-passed
+    /// command. Not part of the public surface.</summary>
+    internal bool DebounceHandled { get; init; }
 
     /// <summary>Icon to display alongside the command.</summary>
     public IconData? Icon { get; init; }

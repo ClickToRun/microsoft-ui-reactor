@@ -196,4 +196,172 @@ public class CommandDebounceTests
         result.Execute!("c");            // accepted
         Assert.Equal(new[] { "a", "c" }, args);
     }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Parameterized async + debounce (L3)
+    // ════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Parameterized_Async_Command_Debounces_And_Forwards_Arg()
+    {
+        var time = new FakeTimeProvider();
+        var stateChanged = new SemaphoreSlim(0);
+        var ctx = new RenderContext { TimeProvider = time };
+        ctx.BeginRender(() => stateChanged.Release());
+
+        var seen = new List<string>();
+        var cmd = new Command<string>
+        {
+            Label = "Delete",
+            ExecuteAsync = arg => { lock (seen) seen.Add(arg); return Task.CompletedTask; },
+            DebounceMs = 300,
+        };
+
+        var result = ctx.UseCommand(cmd);
+
+        result.Execute!("a");   // accepted, forwards "a"
+        // Releases: IsDebouncing=true, IsExecuting=true, then IsExecuting=false (task completes).
+        for (int i = 0; i < 3; i++)
+            await stateChanged.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        result.Execute!("b");   // within window → dropped (guard already cleared, window holds)
+        lock (seen) Assert.Equal(new[] { "a" }, seen);
+
+        ctx.BeginRender(() => stateChanged.Release());
+        var during = ctx.UseCommand(cmd);
+        Assert.True(during.IsDebouncing);
+        Assert.False(during.IsEnabled);
+
+        time.Advance(TimeSpan.FromMilliseconds(300));   // window elapses → IsDebouncing=false
+        await stateChanged.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        result.Execute!("c");   // accepted, forwards "c"
+        for (int i = 0; i < 3; i++)
+            await stateChanged.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        lock (seen) Assert.Equal(new[] { "a", "c" }, seen);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Long-running async: window elapses but the lambda is still running, so a
+    //  second fire is dropped by the re-entrance guard (M5)
+    // ════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task LongRunning_Async_Second_Fire_After_Window_Is_Dropped_By_Guard()
+    {
+        var time = new FakeTimeProvider();
+        var ctx = new RenderContext { TimeProvider = time };
+        ctx.BeginRender(() => { });
+
+        int runs = 0;
+        var started = new SemaphoreSlim(0);
+        var release = new TaskCompletionSource();
+        var cmd = new Command
+        {
+            Label = "x",
+            ExecuteAsync = async () => { Interlocked.Increment(ref runs); started.Release(); await release.Task; },
+            DebounceMs = 100,
+        };
+
+        var result = ctx.UseCommand(cmd);
+
+        result.Execute!();
+        await started.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal(1, Volatile.Read(ref runs));
+
+        // Debounce window elapses, but the async lambda is still running → the command stays
+        // disabled via the re-entrance guard and a fresh fire is dropped, not re-armed.
+        time.Advance(TimeSpan.FromMilliseconds(100));
+        result.Execute!();
+        Assert.Equal(1, Volatile.Read(ref runs));
+
+        // Let the lambda finish; the guard clears and a subsequent fire is accepted.
+        release.SetResult();
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (Volatile.Read(ref runs) >= 2) break;
+            result.Execute!();
+            await Task.Delay(15, TestContext.Current.CancellationToken);
+        }
+        Assert.Equal(2, Volatile.Read(ref runs));
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Stable hook shape (H1): a command at one call site can flip
+    //  sync↔async and DebounceMs 0↔N across renders without reordering hooks
+    // ════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void UseCommand_Consumes_Stable_Hook_Shape_Across_Command_Shape_Changes()
+    {
+        var time = new FakeTimeProvider();
+        var ctx = new RenderContext { TimeProvider = time };
+
+        // Render 1: pure sync, no debounce. A UseState AFTER UseCommand lands at some slot.
+        ctx.BeginRender(() => { });
+        ctx.UseCommand(new Command { Label = "x", Execute = () => { } });
+        var (v1, set1) = ctx.UseState(42);
+        Assert.Equal(42, v1);
+        set1(99);
+
+        // Render 2: async + debounce at the SAME call site. If UseCommand consumed a different
+        // number of hook slots, the trailing UseState would shift and throw or misbind.
+        ctx.BeginRender(() => { });
+        ctx.UseCommand(new Command { Label = "x", ExecuteAsync = () => Task.CompletedTask, DebounceMs = 250 });
+        var (v2, _) = ctx.UseState(42);
+        Assert.Equal(99, v2);   // state preserved → slots didn't move
+
+        // Render 3: back to pure sync, no debounce.
+        ctx.BeginRender(() => { });
+        ctx.UseCommand(new Command { Label = "x", Execute = () => { } });
+        var (v3, _) = ctx.UseState(42);
+        Assert.Equal(99, v3);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Timer lifecycle (M7 / M8): the re-enable timer is disposed on unmount
+    //  and re-arming a window never leaks timers
+    // ════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Debounce_Timer_Is_Disposed_On_Unmount()
+    {
+        var time = new FakeTimeProvider();
+        var ctx = new RenderContext { TimeProvider = time };
+        ctx.BeginRender(() => { });
+        var cmd = new Command { Label = "x", Execute = () => { }, DebounceMs = 1000 };
+
+        var result = ctx.UseCommand(cmd);
+        ctx.FlushEffects();          // register the unmount cleanup effect
+
+        result.Execute!();           // arms a window → one live timer
+        Assert.Equal(1, time.ActiveTimerCount);
+
+        ctx.RunCleanups();           // unmount → cleanup disposes the live timer
+        Assert.Equal(0, time.ActiveTimerCount);
+    }
+
+    [Fact]
+    public void Reentering_Window_Does_Not_Leak_Timers()
+    {
+        var time = new FakeTimeProvider();
+        var ctx = new RenderContext { TimeProvider = time };
+        ctx.BeginRender(() => { });
+        var cmd = new Command { Label = "x", Execute = () => { }, DebounceMs = 100 };
+
+        var result = ctx.UseCommand(cmd);
+        ctx.FlushEffects();
+
+        for (int i = 0; i < 5; i++)
+        {
+            result.Execute!();                              // arm window i (prior fired timer disposed)
+            Assert.Equal(1, time.ActiveTimerCount);
+            time.Advance(TimeSpan.FromMilliseconds(100));   // window elapses
+        }
+        Assert.Equal(1, time.ActiveTimerCount);             // never accumulates
+
+        ctx.RunCleanups();
+        Assert.Equal(0, time.ActiveTimerCount);
+    }
 }

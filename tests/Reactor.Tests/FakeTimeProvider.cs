@@ -25,6 +25,13 @@ internal sealed class FakeTimeProvider : TimeProvider
         lock (_gate) return _now;
     }
 
+    /// <summary>Number of timers created but not yet disposed — lets tests assert the debounce
+    /// path disposes its re-enable timers (on unmount and when re-arming a window).</summary>
+    public int ActiveTimerCount
+    {
+        get { lock (_gate) return _timers.Count; }
+    }
+
     /// <summary>Moves the clock forward and fires any timers that come due.</summary>
     public void Advance(TimeSpan delta)
     {

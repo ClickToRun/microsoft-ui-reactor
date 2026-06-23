@@ -520,7 +520,12 @@ public sealed class DemoScriptShell : Component
         // Environment.TickCount64 guard we used to keep in OnGenerateAllCore:
         // it drops the duplicate fires of a single click (the multi-fire
         // symptom of a leaky click subscription, framework #114) while letting
-        // legitimate clicks through.
+        // legitimate clicks through. The 200ms window also briefly disables the
+        // button after it relabels to "Cancel" — this is intentional: it's
+        // exactly the duplicate fire that would otherwise instantly cancel the
+        // generation the first click just started. 200ms is well below human
+        // double-click-then-deliberately-cancel timing, so a real cancel is
+        // unaffected.
         var generateCmd = UseCommand(new Command
         {
             Label = isGenerating ? "Cancel" : "Generate All",

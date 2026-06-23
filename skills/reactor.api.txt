@@ -1812,7 +1812,7 @@ Func<Task> ExecuteAsync { get; init; }
 IconData Icon { get; init; }
 KeyboardAcceleratorData Accelerator { get; init; }
 bool CanExecute { get; init; }
-bool IsDebouncing { get; init; }
+bool IsDebouncing { get; }
 bool IsEnabled { get; }
 bool IsExecuting { get; init; }
 int DebounceMs { get; init; }
@@ -1830,7 +1830,7 @@ Func<T, Task> ExecuteAsync { get; init; }
 IconData Icon { get; init; }
 KeyboardAcceleratorData Accelerator { get; init; }
 bool CanExecute { get; init; }
-bool IsDebouncing { get; init; }
+bool IsDebouncing { get; }
 bool IsEnabled { get; }
 bool IsExecuting { get; init; }
 int DebounceMs { get; init; }
