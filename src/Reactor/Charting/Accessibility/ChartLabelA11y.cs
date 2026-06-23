@@ -49,10 +49,25 @@ internal static class ChartLabelA11y
         void OnLoaded(object sender, RoutedEventArgs e)
         {
             fe.Loaded -= OnLoaded;
-            HideSubtree(fe);
+            ApplyDeferredHide(fe);
         }
 
         fe.Loaded += OnLoaded;
+    }
+
+    /// <summary>
+    /// Deferred (<see cref="FrameworkElement.Loaded"/>) arm of <see cref="HideSubtreeOnMount"/>,
+    /// with a stale-handler guard (issue #162 review). If the element was unmounted and
+    /// returned to the pool <em>before it ever loaded</em>, this one-shot handler survives
+    /// into a later reuse. The pool reset restores <c>IsHitTestVisible</c> to <c>true</c> (see
+    /// <c>ElementPool.CleanElement</c>), and an interactive (or unrelated) re-renter never
+    /// re-hides it — so only apply the deferred hide when the element is still in the
+    /// non-interactive hidden state this hook established (<c>IsHitTestVisible == false</c>).
+    /// </summary>
+    internal static void ApplyDeferredHide(FrameworkElement fe)
+    {
+        if (!fe.IsHitTestVisible)
+            HideSubtree(fe);
     }
 
     /// <summary>

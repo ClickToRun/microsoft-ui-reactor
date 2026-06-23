@@ -1544,4 +1544,35 @@ internal static class ChartAccessibilityFixtures
                 yTicks.Count > 0 && yTicks.TrueForAll(tb => AutomationProperties.GetName(tb) == tb.Text));
         }
     }
+
+    /// <summary>
+    /// Issue #162 review — the deferred (<c>Loaded</c>) hide arm is one-shot and can survive a
+    /// pool round-trip if the element is unmounted before it ever loads. When that recycled FE
+    /// is later re-rented for an interactive (or unrelated) element, the pool reset has restored
+    /// <c>IsHitTestVisible=true</c>, so <c>ApplyDeferredHide</c> must skip — otherwise it would
+    /// wrongly force <c>Raw</c>/<c>IsTabStop=false</c> on the new renter's subtree.
+    /// </summary>
+    internal class LabelViewDeferredHideStaleGuard(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            // Recycled-FE-now-interactive: IsHitTestVisible restored to true by the pool reset.
+            var interactiveHost = new Button { Content = "stale-guard-probe", IsTabStop = true, IsHitTestVisible = true };
+            ChartLabelA11y.ApplyDeferredHide(interactiveHost);
+            H.Check("ChartA11y_StaleGuard_Skips_TabStopIntact", interactiveHost.IsTabStop);
+            H.Check("ChartA11y_StaleGuard_Skips_NotRaw",
+                AutomationProperties.GetAccessibilityView(interactiveHost) != AccessibilityView.Raw);
+
+            // Genuine deferred non-interactive load: HideSubtreeOnMount set IsHitTestVisible=false,
+            // so the deferred arm must still apply.
+            var hiddenHost = new Button { Content = "deferred-hide-probe", IsTabStop = true };
+            hiddenHost.IsHitTestVisible = false;
+            ChartLabelA11y.ApplyDeferredHide(hiddenHost);
+            H.Check("ChartA11y_StaleGuard_Applies_NotTabStop", !hiddenHost.IsTabStop);
+            H.Check("ChartA11y_StaleGuard_Applies_Raw",
+                AutomationProperties.GetAccessibilityView(hiddenHost) == AccessibilityView.Raw);
+
+            await Task.CompletedTask;
+        }
+    }
 }
