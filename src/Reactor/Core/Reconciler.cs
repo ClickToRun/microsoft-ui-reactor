@@ -1602,6 +1602,23 @@ public sealed partial class Reconciler : IDisposable
             {
                 // Still update the element reference (modifiers may have changed on the ComponentElement itself)
                 node.Element = newEl;
+
+                // Stale-delegate guard (issue #151): even though we skip re-rendering,
+                // refresh the live Props on the instance so any handler that reads
+                // Props.X at *dispatch* time invokes the CURRENT delegate rather than the
+                // one captured when the child last rendered. This is what makes an
+                // always-equal callbacks slot (Callbacks<T>) safe: data fields drive the
+                // memo decision, but the latest callbacks are still reachable off Props.
+                // Mirrors the leaf-level Tag-trampoline refresh (Element.cs HasCallbacks).
+                // The skipped data fields are equal by construction, so refreshing them is
+                // a no-op for the rendered subtree; only the excluded slots (callbacks)
+                // actually change. PreviousProps is kept in sync as the next baseline.
+                if (node.Component is IPropsReceiver skipReceiver
+                    && newEl is ComponentElement skipCompEl && skipCompEl.Props is not null)
+                {
+                    skipReceiver.SetProps(skipCompEl.Props);
+                    node.PreviousProps = skipCompEl.Props;
+                }
                 return;
             }
         }

@@ -6,33 +6,25 @@ using static Microsoft.UI.Reactor.Factories;
 
 namespace DemoScriptTool.App.Components;
 
-public sealed record StepsPanelProps(
-    DemoScriptModel Model,
-    bool IsGenerating,
+/// <summary>
+/// The panel-level callbacks, wrapped in <see cref="Callbacks{T}"/> so their
+/// per-render delegate identity never re-renders the panel (issue #151). Only
+/// <see cref="StepsPanelProps.Model"/> / <see cref="StepsPanelProps.IsGenerating"/>
+/// drive the memo decision.
+/// </summary>
+public sealed record StepsPanelCallbacks(
     Action<int, string> OnPromptChanged,
     Action<int, string> OnTitleChanged,
     Action<StepModel> OnRun,
     Action<StepModel> OnCopyDelta,
     Action OnAddStep,
     Action<StepModel> OnDeleteStep,
-    Action<StepModel> OnRegenFromStep)
-{
-    // Manual Equals: callback delegates are excluded from memo equality. They
-    // get a fresh delegate identity each parent render (local functions in
-    // DemoScriptShell.Render). SAFETY CONTRACT: when memo decides "skip render",
-    // Reactor does NOT refresh Props on the child, so the child continues to
-    // dispatch through the *prior* delegates. That's only safe when the
-    // callbacks' captured state doesn't change between renders, OR any state
-    // they capture is reflected in one of the data fields below. Both hold
-    // today: callbacks close over `model` (UseRef-stable identity) and
-    // observable Model changes show up via reference identity. Framework-level
-    // fix tracked at #151.
-    public bool Equals(StepsPanelProps? other) =>
-        other is not null
-        && ReferenceEquals(Model, other.Model)
-        && IsGenerating == other.IsGenerating;
-    public override int GetHashCode() => HashCode.Combine(Model, IsGenerating);
-}
+    Action<StepModel> OnRegenFromStep);
+
+public sealed record StepsPanelProps(
+    DemoScriptModel Model,
+    bool IsGenerating,
+    Callbacks<StepsPanelCallbacks> Cb);
 
 /// <summary>
 /// Vertical scroller of <see cref="StepCard"/> instances keyed by step number.
@@ -45,6 +37,12 @@ public sealed class StepsPanel : Component<StepsPanelProps>
     {
         var (_, setRevision) = UseState(0, threadSafe: true);
         var counterRef = UseRef(0);
+
+        // Read the live callbacks bundle off Props at render time (issue #151);
+        // forwarding them per-card is cheap because StepCard wraps them in a
+        // Callbacks<T> too, so the fresh per-render delegate identity is ignored
+        // by the card's memo check.
+        var cb = Props.Cb.Value;
 
         // StepsChanged only — the steps panel cares about Add/Remove, not about
         // typing in the demo title/prompt (which would otherwise re-render every
@@ -61,7 +59,7 @@ public sealed class StepsPanel : Component<StepsPanelProps>
         var addStepCmd = new Command
         {
             Label = "Add step",
-            Execute = Props.OnAddStep,
+            Execute = cb.OnAddStep,
             Icon = SymbolIcon("Add"),
             Description = "Append a new empty step at the end of the script",
             Accelerator = Accelerator(Windows.System.VirtualKey.Enter,
@@ -95,8 +93,9 @@ public sealed class StepsPanel : Component<StepsPanelProps>
                 idx > 0 ? steps[idx - 1] : null,
                 steps.Count,
                 Props.IsGenerating,
-                Props.OnPromptChanged, Props.OnTitleChanged, Props.OnRun, Props.OnCopyDelta, Props.OnDeleteStep,
-                Props.OnRegenFromStep)))
+                new StepCardCallbacks(
+                    cb.OnPromptChanged, cb.OnTitleChanged, cb.OnRun, cb.OnCopyDelta, cb.OnDeleteStep,
+                    cb.OnRegenFromStep))))
             .Append(addButton)
             .ToArray();
 
