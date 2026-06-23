@@ -385,6 +385,11 @@ public sealed partial class ElementFactory<T> : IElementFactory
         {
             _keyByControl[control] = key;
             _lastElementByControl[control] = element;
+
+            // Issue #383: arm the multi-select checkmark flicker guard on the
+            // realized container. Idempotent per container instance.
+            if (control is ItemContainer itemContainer)
+                ItemContainerSelectionFlickerGuard.Ensure(itemContainer);
         }
 
         return control ?? new TextBlock { Text = "" };

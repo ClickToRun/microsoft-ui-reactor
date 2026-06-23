@@ -318,4 +318,82 @@ internal static class ItemsViewFixtures
             }
         }
     }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Regression (issue #383): in a SelectionMode=Multiple ItemsView the
+    //  per-item selection checkmark flickered (faded out/in) on every realized
+    //  row during a window drag-resize. WinUI's ItemsView flips each realized
+    //  ItemContainer's internal MultiSelectMode on every recycle round-trip,
+    //  re-running MultiSelectStates.Multiple's opacity storyboard with
+    //  useTransitions:true — and Reactor's host re-lays-out on every resize
+    //  tick, so the inner ItemsRepeater recycles its working set dozens of
+    //  times per gesture and the storyboard re-fires over and over.
+    //
+    //  The mitigation (ItemContainerSelectionFlickerGuard) collapses the
+    //  Multiple state's opacity storyboard to zero duration on each realized
+    //  container, so WinUI's animated GoToState snaps the checkmark to full
+    //  opacity instantly instead of fading it.
+    //
+    //  This fixture drives the exact animated transition WinUI fires on a
+    //  recycle (Single -> Multiple, useTransitions:true) on a realized
+    //  container and asserts the checkmark opacity has been *snapped* to its
+    //  final value (1.0) rather than left mid-fade (~0). Without the guard the
+    //  animated transition would read ~0 immediately after GoToState.
+    // ────────────────────────────────────────────────────────────────────
+
+    internal class ItemsView_MultiSelect_CheckmarkDoesNotFlicker(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(_ =>
+                ItemsView(Catalog,
+                    keySelector: p => p.Sku,
+                    viewBuilder: (p, _) => ItemContainer(TextBlock(p.Name))
+                ) with { SelectionMode = WinUI.ItemsViewSelectionMode.Multiple }
+            );
+
+            await Harness.Render();
+
+            var container = H.FindControl<WinUI.ItemContainer>(_ => true);
+            H.Check("ItemsViewFlicker_HasRealizedContainer", container is not null);
+            if (container is null) return;
+
+            // Make neutralization deterministic regardless of Loaded timing:
+            // Ensure is idempotent and retries once the template is applied (it
+            // is by now). In production this is armed from ElementFactory.GetElement.
+            ItemContainerSelectionFlickerGuard.Ensure(container);
+
+            var checkbox = FindNamedDescendant(container, "PART_SelectionCheckbox");
+            H.Check("ItemsViewFlicker_CheckmarkPartFound", checkbox is not null);
+            if (checkbox is null) return;
+
+            // Reset to the "no checkmark" state, then drive the animated
+            // transition WinUI fires on every recycle round-trip.
+            Microsoft.UI.Xaml.VisualStateManager.GoToState(container, "Single", false);
+            await Harness.Render();
+            Microsoft.UI.Xaml.VisualStateManager.GoToState(container, "Multiple", true);
+
+            // With the storyboard collapsed to zero duration, the animated
+            // transition reaches its final keyframe value (Opacity = 1)
+            // immediately — no fade.
+            H.Check($"ItemsViewFlicker_CheckmarkSnappedNotFaded_opacity={checkbox.Opacity:F3}",
+                checkbox.Opacity >= 0.999);
+        }
+    }
+
+    private static Microsoft.UI.Xaml.FrameworkElement? FindNamedDescendant(
+        Microsoft.UI.Xaml.DependencyObject root, string name)
+    {
+        int count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < count; i++)
+        {
+            var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is Microsoft.UI.Xaml.FrameworkElement fe && fe.Name == name)
+                return fe;
+            var found = FindNamedDescendant(child, name);
+            if (found is not null) return found;
+        }
+        return null;
+    }
 }
