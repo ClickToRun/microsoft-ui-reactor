@@ -77,7 +77,10 @@ internal interface INavigationHandle
 /// rather than corrupting the back/forward stacks. The bool-returning mutators
 /// return <see langword="true"/> when an off-thread call is accepted and
 /// scheduled; the actual guard/empty-stack outcome is then resolved on the UI
-/// thread.</para>
+/// thread. Off-thread callers must therefore not treat that <see langword="true"/>
+/// as confirmation that the navigation actually happened &#8212; only that it was
+/// scheduled. (On the UI thread the bool keeps its original meaning: whether the
+/// navigation succeeded.)</para>
 /// </remarks>
 public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : notnull
 {
@@ -306,9 +309,12 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
     public void SetState(NavigationState<TRoute> state)
     {
         ArgumentNullException.ThrowIfNull(state);
-        if (IsOffUIThread && MarshalOff(nameof(SetState), () => SetState(state))) return;
+        // Validate the state shape up front, on the caller's thread, so an invalid
+        // snapshot fails fast at the call site rather than being marshaled and only
+        // throwing later on the UI dispatcher where the caller can't observe it.
         if (state.Current is null)
             throw new ArgumentException("Navigation state must include a non-null Current route.", nameof(state));
+        if (IsOffUIThread && MarshalOff(nameof(SetState), () => SetState(state))) return;
 
         var previous = _stack.Current;
         _stack.RestoreState(state.BackStack, state.Current, state.ForwardStack);

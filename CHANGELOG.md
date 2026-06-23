@@ -321,4 +321,19 @@ Conventions for contributors:
   `TryEnqueue`; the UI-thread fast path stays a single `HasThreadAccess` check.
   (issue #130)
 
+- **`UseNavigation` mutators are now thread-safe by default (issue #234).**
+  `NavigationHandle<TRoute>`'s `Navigate`, `GoBack`, `GoForward`, `Replace`,
+  `Reset`, `PopTo`, and `SetState` previously mutated the back/forward stacks
+  with no thread guard, so calling them off the UI thread (from a `Task.Run`,
+  a timer, or after `await … ConfigureAwait(false)`) could corrupt the stacks
+  or silently drop the navigation. Each mutator now auto-marshals the whole
+  operation onto the handle's captured UI dispatcher — completing the
+  thread-safety-by-default story that #212 started for `UseState` / `UseReducer`
+  — via the shared `UIThreadMarshal` gate. The UI-thread fast path stays a
+  single thread-id compare with zero allocation. When no dispatcher is available
+  (headless / unit-test contexts) or it has shut down, the off-thread call throws
+  a loud `InvalidOperationException` instead of corrupting state. On the UI thread
+  behavior is unchanged. The `RenderContext` setter marshal and the navigation
+  gate now share one `UIThreadMarshal.EnqueueOrThrow` implementation.
+
 ### Security

@@ -220,4 +220,80 @@ public class ThreadSafeNavigationTests
         Assert.False(nav.CanGoBack);
         Assert.False(nav.CanGoForward);
     }
+
+    // ════════════════════════════════════════════════════════════════
+    //  SetState validates the snapshot shape up front (M7 fail-fast)
+    // ════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void SetState_OffThread_NullCurrent_Throws_ArgumentException_Synchronously()
+    {
+        var nav = MakeHandle(new Home());
+        var bad = new NavigationState<Route>(
+            BackStack: Array.Empty<Route>(),
+            Current: null!,
+            ForwardStack: Array.Empty<Route>());
+
+        // The Current-null check runs BEFORE the marshal gate, so an off-thread caller
+        // gets an ArgumentException at the call site — NOT an InvalidOperationException
+        // raised later on the dispatcher (which the caller could never observe), and
+        // NOT a swallowed marshal. ArgumentException must win the race against the gate.
+        var ex = Assert.ThrowsAsync<ArgumentException>(async () =>
+        {
+            await Task.Run(() => nav.SetState(bad), TestContext.Current.CancellationToken);
+        }).Result;
+        Assert.IsNotType<InvalidOperationException>(ex);
+        Assert.Equal("state", ex.ParamName);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  UIThreadMarshal.EnqueueOrThrow — the shared marshal primitive (M8/M9)
+    // ════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void EnqueueOrThrow_NullDispatcher_Throws_NoDispatcher_Message()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            UIThreadMarshal.EnqueueOrThrow(
+                tryEnqueue: null,
+                work: () => { },
+                onNoDispatcher: () => "NO-DISPATCHER",
+                onRefused: () => "REFUSED"));
+
+        Assert.Equal("NO-DISPATCHER", ex.Message);
+    }
+
+    [Fact]
+    public void EnqueueOrThrow_DispatcherRefuses_Throws_Refused_Message()
+    {
+        // tryEnqueue returns false — the dispatcher-shutting-down branch that was
+        // previously unreachable from a unit test (only the null-dispatcher branch
+        // was hit). This covers the TryEnqueue == false failure mode end-to-end.
+        bool enqueueCalled = false;
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            UIThreadMarshal.EnqueueOrThrow(
+                tryEnqueue: _ => { enqueueCalled = true; return false; },
+                work: () => { },
+                onNoDispatcher: () => "NO-DISPATCHER",
+                onRefused: () => "REFUSED"));
+
+        Assert.True(enqueueCalled);
+        Assert.Equal("REFUSED", ex.Message);
+    }
+
+    [Fact]
+    public void EnqueueOrThrow_DispatcherAccepts_Returns_True_And_Posts_Work()
+    {
+        Action? posted = null;
+        var work = new Action(() => { });
+
+        bool result = UIThreadMarshal.EnqueueOrThrow(
+            tryEnqueue: w => { posted = w; return true; },
+            work: work,
+            onNoDispatcher: () => "NO-DISPATCHER",
+            onRefused: () => "REFUSED");
+
+        Assert.True(result);
+        Assert.Same(work, posted); // the exact work delegate is handed to the dispatcher
+    }
 }

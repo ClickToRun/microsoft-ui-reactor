@@ -54,32 +54,32 @@ public sealed class RenderContext
         if (Environment.CurrentManagedThreadId == _uiThreadId) return false;
         // </snippet:ui-thread-invariant>
 
+        // Off-thread: funnel through the shared marshal-or-throw primitive so this
+        // and NavigationHandle's mutator gate (issue #234) share one implementation.
+        // The exact diagnostic wording — including the "threadSafe: true" remedy — is
+        // preserved here because callers/tests depend on it.
         var dq = Microsoft.UI.Reactor.ReactorApp.UIDispatcher;
-        if (dq is null)
-        {
-            // Test/headless context with no captured UI dispatcher AND off-thread.
-            // The legacy [Conditional("DEBUG")] assert at this spot swallowed silently
-            // in RELEASE; surface loudly in both flavors so the call is visible.
-            throw new InvalidOperationException(
+        return UIThreadMarshal.EnqueueOrThrow(
+            dq is null ? null : w => dq.TryEnqueue(() => w()),
+            work,
+            () =>
+                // Test/headless context with no captured UI dispatcher AND off-thread.
+                // The legacy [Conditional("DEBUG")] assert at this spot swallowed silently
+                // in RELEASE; surface loudly in both flavors so the call is visible.
                 $"{hookName} setter was called from thread {Environment.CurrentManagedThreadId}, " +
                 $"but the captured UI thread is {_uiThreadId}, and no UI dispatcher is " +
                 $"available to marshal the call. Run the setter on the UI thread, " +
-                $"or pass threadSafe: true to the hook.");
-        }
-        // TryEnqueue returns false when the dispatcher has begun shutting down
-        // (queue closed, owning thread exiting). Silently swallowing that case
-        // would lose the state update with no diagnostic; throw so the caller
-        // sees the same loud failure mode as the no-dispatcher path.
-        if (!dq.TryEnqueue(() => work()))
-        {
-            throw new InvalidOperationException(
+                $"or pass threadSafe: true to the hook.",
+            () =>
+                // TryEnqueue returns false when the dispatcher has begun shutting down
+                // (queue closed, owning thread exiting). Silently swallowing that case
+                // would lose the state update with no diagnostic; throw so the caller
+                // sees the same loud failure mode as the no-dispatcher path.
                 $"{hookName} setter was called from thread {Environment.CurrentManagedThreadId}, " +
                 $"but the UI dispatcher refused the marshaled call (TryEnqueue returned " +
                 $"false — typically because the dispatcher is shutting down). The state " +
                 $"update was dropped. Stop scheduling background setters past window/app " +
                 $"shutdown (cancel the producing task in the effect cleanup).");
-        }
-        return true;
     }
 
     /// <summary>

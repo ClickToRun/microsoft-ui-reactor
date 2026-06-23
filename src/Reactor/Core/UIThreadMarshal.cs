@@ -37,6 +37,55 @@ internal static class UIThreadMarshal
         => global::System.Environment.CurrentManagedThreadId != uiThreadId;
 
     /// <summary>
+    /// Shared off-thread dispatch primitive: enqueues <paramref name="work"/> via
+    /// <paramref name="tryEnqueue"/>, or throws a caller-supplied diagnostic when no
+    /// dispatcher is available (<paramref name="tryEnqueue"/> is <see langword="null"/>)
+    /// or the dispatcher refuses the enqueue (<paramref name="tryEnqueue"/> returns
+    /// <see langword="false"/>). Both <see cref="RenderContext"/>'s hook-setter
+    /// marshal and <c>NavigationHandle&lt;TRoute&gt;</c>'s mutator gate funnel
+    /// through this single implementation so the marshal-or-throw contract from
+    /// issue #212 has exactly one copy. The caller is responsible for the UI-thread
+    /// fast-path check BEFORE calling this (this method assumes it is already
+    /// off-thread). The message factories are only invoked on the throwing paths, so
+    /// the successful-enqueue path allocates no message strings.
+    /// </summary>
+    /// <param name="tryEnqueue">
+    /// Posts the work onto the captured UI dispatcher and returns whether it was
+    /// accepted; <see langword="null"/> when no dispatcher has been captured.
+    /// </param>
+    /// <param name="work">The mutation to run on the UI thread.</param>
+    /// <param name="onNoDispatcher">
+    /// Builds the exception message thrown when no dispatcher is available.
+    /// </param>
+    /// <param name="onRefused">
+    /// Builds the exception message thrown when the dispatcher refuses the enqueue.
+    /// </param>
+    public static bool EnqueueOrThrow(
+        global::System.Func<global::System.Action, bool>? tryEnqueue,
+        global::System.Action work,
+        global::System.Func<string> onNoDispatcher,
+        global::System.Func<string> onRefused)
+    {
+        if (tryEnqueue is null)
+        {
+            // Test/headless context with no captured UI dispatcher AND off-thread.
+            // Surface loudly instead of silently racing the reconciler.
+            throw new global::System.InvalidOperationException(onNoDispatcher());
+        }
+
+        // TryEnqueue returns false once the dispatcher has begun shutting down
+        // (queue closed, owning thread exiting). Silently swallowing that would
+        // lose the mutation with no diagnostic; throw so the caller sees the same
+        // loud failure mode as the no-dispatcher path.
+        if (!tryEnqueue(work))
+        {
+            throw new global::System.InvalidOperationException(onRefused());
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Marshals <paramref name="work"/> onto the captured UI dispatcher. Call this
     /// only once <see cref="IsOffUIThread"/> has confirmed the caller is off-thread
     /// (the short-circuit pattern in the type remarks keeps the closure off the hot
@@ -66,29 +115,24 @@ internal static class UIThreadMarshal
     public static bool MarshalOffUIThread(int uiThreadId, string operation, global::System.Action work)
     {
         var dq = Microsoft.UI.Reactor.ReactorApp.UIDispatcher;
-        int callerThreadId = global::System.Environment.CurrentManagedThreadId;
-        if (dq is null)
-        {
-            throw new global::System.InvalidOperationException(
-                $"{operation} was called from thread {callerThreadId}, " +
-                $"but the captured UI thread is {uiThreadId}, and no UI dispatcher is " +
-                $"available to marshal the call. Invoke it on the UI thread.");
-        }
-
-        // TryEnqueue returns false once the dispatcher has begun shutting down
-        // (queue closed, owning thread exiting). Silently swallowing that would
-        // lose the mutation with no diagnostic; throw so the caller sees the same
-        // loud failure mode as the no-dispatcher path.
-        if (!dq.TryEnqueue(() => work()))
-        {
-            throw new global::System.InvalidOperationException(
-                $"{operation} was called from thread {callerThreadId}, " +
-                $"but the UI dispatcher refused the marshaled call (TryEnqueue returned " +
-                $"false — typically because the dispatcher is shutting down). The mutation " +
-                $"was dropped. Cancel background work in effect cleanup before window/app " +
-                $"shutdown.");
-        }
-
-        return true;
+        return EnqueueOrThrow(
+            dq is null ? null : w => dq.TryEnqueue(() => w()),
+            work,
+            () =>
+            {
+                int callerThreadId = global::System.Environment.CurrentManagedThreadId;
+                return $"{operation} was called from thread {callerThreadId}, " +
+                    $"but the captured UI thread is {uiThreadId}, and no UI dispatcher is " +
+                    $"available to marshal the call. Invoke it on the UI thread.";
+            },
+            () =>
+            {
+                int callerThreadId = global::System.Environment.CurrentManagedThreadId;
+                return $"{operation} was called from thread {callerThreadId}, " +
+                    $"but the UI dispatcher refused the marshaled call (TryEnqueue returned " +
+                    $"false — typically because the dispatcher is shutting down). The mutation " +
+                    $"was dropped. Cancel background work in effect cleanup before window/app " +
+                    $"shutdown.";
+            });
     }
 }
