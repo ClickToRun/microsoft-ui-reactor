@@ -284,15 +284,49 @@ public sealed class ChartPalette
             {
                 double lightContrast = ContrastRatio(adjusted[i], lightBg);
                 double darkContrast = ContrastRatio(adjusted[i], darkBg);
-                if (lightContrast < opts.MinBackgroundContrast && darkContrast < opts.MinBackgroundContrast)
+                bool failsLight = lightContrast < opts.MinBackgroundContrast;
+                bool failsDark = darkContrast < opts.MinBackgroundContrast;
+                // A color need only contrast against whichever background is active, so
+                // harden when it fails against *either* (matching the A11Y_CHART_011
+                // detection rule). The adjustment is direction-aware: a near-white color
+                // that fails the light background must get darker, and a near-black color
+                // that fails the dark background must get lighter.
+                if (!failsLight && !failsDark) continue;
+
+                // At the default 3:1 threshold failsLight and failsDark are mutually
+                // exclusive, but MinBackgroundContrast is configurable: a high threshold
+                // (e.g. >~4:1) lets a mid-tone fail against *both* fixed backgrounds. In
+                // that case darkening improves light contrast while lightening improves
+                // dark contrast, so move toward the worse (lower) of the two ratios to
+                // maximize the attainable minimum rather than always darkening.
+                bool darken = failsLight && failsDark
+                    ? lightContrast <= darkContrast
+                    : failsLight;
+
+                var (l, c, h) = RgbToLch(adjusted[i]);
+                l = darken ? Math.Max(5, l - 15) : Math.Min(95, l + 15);
+                var candidate = LchToRgb(l, c, h);
+
+                // Series distinguishability takes priority: a color and its background
+                // both being legible is impossible to guarantee for every theme when
+                // colors must also stay ≥3:1 apart from each other. Only apply the
+                // background nudge when it does not push this color below the pairwise
+                // minimum against any other series.
+                bool breaksPairwise = false;
+                for (int k = 0; k < adjusted.Length; k++)
                 {
-                    // Push away from mid-lightness
-                    var (l, c, h) = RgbToLch(adjusted[i]);
-                    l = l < 50 ? Math.Max(5, l - 15) : Math.Min(95, l + 15);
-                    adjusted[i] = LchToRgb(l, c, h);
-                    passChanged = true;
-                    changed = true;
+                    if (k == i) continue;
+                    if (ContrastRatio(candidate, adjusted[k]) < opts.MinPairwiseContrast)
+                    {
+                        breaksPairwise = true;
+                        break;
+                    }
                 }
+                if (breaksPairwise) continue;
+
+                adjusted[i] = candidate;
+                passChanged = true;
+                changed = true;
             }
 
             if (!passChanged) break;
