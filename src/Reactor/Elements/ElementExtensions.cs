@@ -994,8 +994,10 @@ public static partial class ElementExtensions
     // a typed property: the reconciler applies the command metadata field-aware from
     // that property (no per-render Setters lambda), and re-applies IsEnabled whenever
     // the command's state flips (e.g. UseCommand toggling IsExecuting) — not captured
-    // once at construction. Place `.Command(cmd)` before per-site overrides so the
-    // usual modifier-after-command ordering still lets later calls win.
+    // once at construction. Raw `.Set(...)` setters always run after every descriptor
+    // prop (the documented "Setters apply last / win" rule, spec 058), so an explicit
+    // `.Set(b => b.AccessKey = "X")` overrides command-derived metadata regardless of
+    // where it sits in the chain.
 
     /// <summary>
     /// Binds a <see cref="Core.Command"/> to a custom-content <see cref="ButtonElement"/>:
@@ -1003,6 +1005,9 @@ public static partial class ElementExtensions
     /// every update), and flows Description / Accelerator / AccessKey via the typed
     /// <see cref="ButtonElement.Command"/> property. Pairs with <c>Button(content)</c> so
     /// icon-plus-label buttons auto-disable like the <c>Button(Command)</c> factory.
+    /// A raw <c>.Set(...)</c> setter runs after the command metadata and therefore overrides
+    /// it (e.g. <c>.Command(cmd).Set(b =&gt; b.AccessKey = "X")</c> — or the reverse order — both
+    /// resolve AccessKey to "X").
     /// (issue #133, lifted to a typed property in issue #153)
     /// </summary>
     public static ButtonElement Command(this ButtonElement el, Core.Command command) =>

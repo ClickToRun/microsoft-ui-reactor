@@ -385,4 +385,107 @@ internal static class CommandingCoverageFixtures
                 && ReferenceEquals(btn2.KeyboardAccelerators[0], accel0));
         }
     }
+
+    /// <summary>
+    /// Issue #153 (M1) precedence pin: a raw <c>.Set(...)</c> setter applies after the typed
+    /// Command's descriptor metadata, so it overrides command-derived metadata regardless of where
+    /// it sits in the fluent chain. Both <c>.Set(...).Command(cmd)</c> and <c>.Command(cmd).Set(...)</c>
+    /// must resolve AccessKey to the Setter's value (the documented "Setters apply last / win" rule).
+    /// </summary>
+    internal class BoundButtonSetterOverridesCommandMetadata(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var cmd = new Command { Label = "Save", Execute = () => { }, AccessKey = "S" };
+
+            var host = H.CreateHost();
+            host.Mount(ctx => VStack(
+                // Setter before .Command — Setter must still win (applied last).
+                Button("setThenCmd").Set(b => b.AccessKey = "X").Command(cmd),
+                // .Command before Setter — Setter wins (normal chain order).
+                Button("cmdThenSet").Command(cmd).Set(b => b.AccessKey = "Y")));
+            await Harness.Render();
+
+            var setThenCmd = H.FindControl<Button>(b => (b.Content as string) == "setThenCmd");
+            var cmdThenSet = H.FindControl<Button>(b => (b.Content as string) == "cmdThenSet");
+            H.Check("Precedence_SetThenCmd_Mounted", setThenCmd is not null);
+            H.Check("Precedence_SetThenCmd_SetterWins", setThenCmd is not null && setThenCmd.AccessKey == "X");
+            H.Check("Precedence_CmdThenSet_Mounted", cmdThenSet is not null);
+            H.Check("Precedence_CmdThenSet_SetterWins", cmdThenSet is not null && cmdThenSet.AccessKey == "Y");
+        }
+    }
+
+    /// <summary>
+    /// Issue #153 (M3): the <c>SplitButton(Command)</c> typed property is applied by a descriptor
+    /// entry; when the bound command changes across a re-render, the command metadata (AccessKey,
+    /// IsEnabled) must update on the reused live control. Mirrors
+    /// <see cref="BoundButtonCommandChangeUpdatesMetadata"/>.
+    /// </summary>
+    internal class BoundSplitButtonCommandChangeUpdatesMetadata(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (flipped, setFlipped) = ctx.UseState(false);
+                var cmd = flipped
+                    ? new Command { Label = "Save", Execute = () => { }, AccessKey = "D", CanExecute = false }
+                    : new Command { Label = "Save", Execute = () => { }, AccessKey = "S", CanExecute = true };
+                return VStack(
+                    Button("flipSplitCmd", () => setFlipped(true)),
+                    SplitButton(cmd).Set(b => b.Name = "splitCmdChangeBtn"));
+            });
+            await Harness.Render();
+
+            var sb = H.FindControl<SplitButton>(b => b.Name == "splitCmdChangeBtn");
+            H.Check("SplitCmdChange_Mounted", sb is not null);
+            H.Check("SplitCmdChange_InitialAccessKey", sb is not null && sb.AccessKey == "S");
+            H.Check("SplitCmdChange_InitiallyEnabled", sb is not null && sb.IsEnabled);
+
+            H.ClickButton("flipSplitCmd");
+            await Harness.Render();
+
+            var sb2 = H.FindControl<SplitButton>(b => b.Name == "splitCmdChangeBtn");
+            H.Check("SplitCmdChange_Reused", ReferenceEquals(sb, sb2));
+            H.Check("SplitCmdChange_AccessKeyUpdated", sb2 is not null && sb2.AccessKey == "D");
+            H.Check("SplitCmdChange_DisabledAfterUpdate", sb2 is not null && !sb2.IsEnabled);
+        }
+    }
+
+    /// <summary>
+    /// Issue #153 (M3): same live command-change reapply check as
+    /// <see cref="BoundSplitButtonCommandChangeUpdatesMetadata"/>, for <c>ToggleSplitButton(Command)</c>.
+    /// </summary>
+    internal class BoundToggleSplitButtonCommandChangeUpdatesMetadata(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (flipped, setFlipped) = ctx.UseState(false);
+                var cmd = flipped
+                    ? new Command { Label = "Pin", Execute = () => { }, AccessKey = "D", CanExecute = false }
+                    : new Command { Label = "Pin", Execute = () => { }, AccessKey = "S", CanExecute = true };
+                return VStack(
+                    Button("flipToggleSplitCmd", () => setFlipped(true)),
+                    ToggleSplitButton(cmd).Set(b => b.Name = "toggleSplitCmdChangeBtn"));
+            });
+            await Harness.Render();
+
+            var tsb = H.FindControl<ToggleSplitButton>(b => b.Name == "toggleSplitCmdChangeBtn");
+            H.Check("ToggleSplitCmdChange_Mounted", tsb is not null);
+            H.Check("ToggleSplitCmdChange_InitialAccessKey", tsb is not null && tsb.AccessKey == "S");
+            H.Check("ToggleSplitCmdChange_InitiallyEnabled", tsb is not null && tsb.IsEnabled);
+
+            H.ClickButton("flipToggleSplitCmd");
+            await Harness.Render();
+
+            var tsb2 = H.FindControl<ToggleSplitButton>(b => b.Name == "toggleSplitCmdChangeBtn");
+            H.Check("ToggleSplitCmdChange_Reused", ReferenceEquals(tsb, tsb2));
+            H.Check("ToggleSplitCmdChange_AccessKeyUpdated", tsb2 is not null && tsb2.AccessKey == "D");
+            H.Check("ToggleSplitCmdChange_DisabledAfterUpdate", tsb2 is not null && !tsb2.IsEnabled);
+        }
+    }
 }

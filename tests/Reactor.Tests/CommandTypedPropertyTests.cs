@@ -187,6 +187,32 @@ public class CommandTypedPropertyTests
         Assert.False(Element.ShallowEquals(withCmd, noCmd));
     }
 
+    // issue #153 (L1) — Split / ToggleSplit fast-path the command arm too, so all six
+    // command-capable buttons memoize consistently.
+    [Fact]
+    public void ShallowEquals_True_For_Split_And_ToggleSplit_When_Command_Unchanged()
+    {
+        var cmd = MakeCmd();
+        // reference-equal command
+        Assert.True(Element.ShallowEquals(SplitButton(cmd), SplitButton(cmd)));
+        Assert.True(Element.ShallowEquals(ToggleSplitButton(cmd), ToggleSplitButton(cmd)));
+
+        // structurally-equal-modulo-delegates (fresh Execute closure each render)
+        var cmdA = MakeCmd() with { Execute = () => { } };
+        var cmdB = MakeCmd() with { Execute = () => { } };
+        Assert.True(Element.ShallowEquals(SplitButton(cmdA), SplitButton(cmdB)));
+        Assert.True(Element.ShallowEquals(ToggleSplitButton(cmdA), ToggleSplitButton(cmdB)));
+    }
+
+    [Fact]
+    public void ShallowEquals_False_For_Split_And_ToggleSplit_When_Command_AccessKey_Differs()
+    {
+        var cmdA = MakeCmd();
+        var cmdB = cmdA with { AccessKey = "X" };
+        Assert.False(Element.ShallowEquals(SplitButton(cmdA), SplitButton(cmdB)));
+        Assert.False(Element.ShallowEquals(ToggleSplitButton(cmdA), ToggleSplitButton(cmdB)));
+    }
+
     // ════════════════════════════════════════════════════════════════
     //  CommandsEqual unit semantics (internal, via InternalsVisibleTo)
     // ════════════════════════════════════════════════════════════════

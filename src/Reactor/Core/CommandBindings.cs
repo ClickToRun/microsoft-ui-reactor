@@ -8,11 +8,14 @@ namespace Microsoft.UI.Reactor.Core;
 
 /// <summary>
 /// Shared binding helpers for wiring a <see cref="Command"/> into command-capable
-/// WinUI controls (<see cref="ButtonBase"/> derivatives, <see cref="SwipeItem"/>, …).
-/// Keeps the per-control factory overloads thin: apply label/onClick at construction
-/// time and defer Description / Icon / Accelerator / AccessKey to a mount-time setter
-/// so per-site overrides (e.g. <c>.AccessKey("X")</c> after <c>.Command(cmd)</c>) win
-/// via the normal modifier-after-command ordering.
+/// WinUI controls (<see cref="ButtonBase"/> derivatives, <see cref="SplitButton"/>, …).
+/// Keeps the per-control factory overloads thin: the factory/modifier wires label +
+/// click and stores the command on the element's typed <c>Command</c> property; the
+/// reconciler applies its Description / Icon / Accelerator / AccessKey / enabled metadata
+/// field-aware through the <see cref="OneWayCommand{TElement,TControl}"/> descriptor entry
+/// (issue #153). Raw <c>.Set(...)</c> setters run after every descriptor prop, so an explicit
+/// <c>.Set(b =&gt; b.AccessKey = "X")</c> overrides command-derived metadata regardless of where
+/// it appears in the fluent chain — the documented "<c>.Set</c> wins / applied last" rule.
 /// </summary>
 internal static class CommandBindings
 {
@@ -117,6 +120,32 @@ internal static class CommandBindings
         if (cmd.Execute is not null) cmd.Execute();
         else if (cmd.ExecuteAsync is not null) _ = cmd.ExecuteAsync();
     }
+
+    /// <summary>
+    /// Registers the typed <see cref="Command"/> descriptor entry shared by every
+    /// command-capable button element (issue #153). On mount it applies
+    /// <see cref="ApplyButtonBaseCommon"/>; on update it re-applies only when a rendered
+    /// command field changed (delegate fields ignored via
+    /// <see cref="CommandModuloDelegatesComparer"/>). Pass <paramref name="applyIsEnabled"/>=false
+    /// when the element already drives <see cref="Control.IsEnabled"/> through its own descriptor
+    /// prop (e.g. <see cref="ButtonElement"/>'s <c>IsDisabledFocusable</c>-coerced entry), so the
+    /// command apply does not clobber that coercion.
+    /// </summary>
+    internal static global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<TElement, TControl> OneWayCommand<TElement, TControl>(
+        this global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<TElement, TControl> d,
+        Func<TElement, Command?> getCommand,
+        bool applyIsEnabled = true)
+        where TElement : Element
+        where TControl : Control, new()
+        => applyIsEnabled
+            ? d.OneWay<Command?>(
+                getCommand,
+                static (c, cmd) => { if (cmd is not null) ApplyButtonBaseCommon(c, cmd, applyIsEnabled: true); },
+                CommandModuloDelegatesComparer.Instance)
+            : d.OneWay<Command?>(
+                getCommand,
+                static (c, cmd) => { if (cmd is not null) ApplyButtonBaseCommon(c, cmd, applyIsEnabled: false); },
+                CommandModuloDelegatesComparer.Instance);
 
     /// <summary>
     /// Structural equality for two <see cref="Command"/> values that <b>ignores</b> the
