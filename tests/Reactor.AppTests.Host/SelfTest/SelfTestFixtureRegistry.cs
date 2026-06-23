@@ -859,6 +859,7 @@ internal static class SelfTestFixtureRegistry
         "Commanding_BoundButtonSetterOverridesCommandMetadata",
         "Commanding_BoundSplitButtonCommandChangeUpdatesMetadata",
         "Commanding_BoundToggleSplitButtonCommandChangeUpdatesMetadata",
+        "Commanding_BoundButtonCommandClearedWhenRemoved",
 
         // Drag-and-drop — spec 027 Tier 6 (Phase 6a)
         "DragDrop_OnDragStartAutoSetsCanDrag",
@@ -2253,6 +2254,7 @@ internal static class SelfTestFixtureRegistry
         "Commanding_BoundButtonSetterOverridesCommandMetadata" => new CommandingCoverageFixtures.BoundButtonSetterOverridesCommandMetadata(harness),
         "Commanding_BoundSplitButtonCommandChangeUpdatesMetadata" => new CommandingCoverageFixtures.BoundSplitButtonCommandChangeUpdatesMetadata(harness),
         "Commanding_BoundToggleSplitButtonCommandChangeUpdatesMetadata" => new CommandingCoverageFixtures.BoundToggleSplitButtonCommandChangeUpdatesMetadata(harness),
+        "Commanding_BoundButtonCommandClearedWhenRemoved" => new CommandingCoverageFixtures.BoundButtonCommandClearedWhenRemoved(harness),
 
         // Drag-and-drop — spec 027 Tier 6 (Phase 6a)
         "DragDrop_OnDragStartAutoSetsCanDrag" => new DragDropFixtures.OnDragStartAutoSetsCanDrag(harness),

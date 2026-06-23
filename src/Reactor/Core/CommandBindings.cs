@@ -111,6 +111,28 @@ internal static class CommandBindings
     private static readonly ConditionalWeakTable<Control, KeyboardAccelerator> _commandAccelerators = new();
 
     /// <summary>
+    /// Clears the metadata a prior <see cref="Command"/> applied to <paramref name="btn"/> when the
+    /// element's command transitions to <c>null</c> — either an in-place re-render (e.g.
+    /// <c>Button(cmd)</c> → <c>Button("x")</c>) or a pooled control rented for a command-less button.
+    /// Without this, the previously-set tooltip / UIA HelpText, AccessKey, command-added
+    /// <see cref="KeyboardAccelerator"/>, and placement mode would stick on the live control (issue
+    /// #153, PR review). <see cref="Control.IsEnabled"/> is intentionally NOT reset: the element's
+    /// own IsEnabled descriptor prop drives it.
+    /// </summary>
+    internal static void ClearButtonCommandMetadata(Control btn)
+    {
+        ToolTipService.SetToolTip(btn, null);
+        btn.ClearValue(Microsoft.UI.Xaml.Automation.AutomationProperties.HelpTextProperty);
+        btn.AccessKey = "";
+        if (_commandAccelerators.TryGetValue(btn, out var prior))
+        {
+            btn.KeyboardAccelerators.Remove(prior);
+            _commandAccelerators.Remove(btn);
+        }
+        btn.ClearValue(UIElement.KeyboardAcceleratorPlacementModeProperty);
+    }
+
+    /// <summary>
     /// Invokes <see cref="Command.Execute"/> or fires-and-forgets
     /// <see cref="Command.ExecuteAsync"/>. Used by factory overloads that need to
     /// wire a click handler from a bare <see cref="Command"/>.
@@ -126,10 +148,13 @@ internal static class CommandBindings
     /// command-capable button element (issue #153). On mount it applies
     /// <see cref="ApplyButtonBaseCommon"/>; on update it re-applies only when a rendered
     /// command field changed (delegate fields ignored via
-    /// <see cref="CommandModuloDelegatesComparer"/>). Pass <paramref name="applyIsEnabled"/>=false
-    /// when the element already drives <see cref="Control.IsEnabled"/> through its own descriptor
-    /// prop (e.g. <see cref="ButtonElement"/>'s <c>IsDisabledFocusable</c>-coerced entry), so the
-    /// command apply does not clobber that coercion.
+    /// <see cref="CommandModuloDelegatesComparer"/>). When the command transitions to <c>null</c>
+    /// (in-place re-render or a pooled control reused without a command) the setter clears the
+    /// stale command metadata via <see cref="ClearButtonCommandMetadata"/>. Pass
+    /// <paramref name="applyIsEnabled"/>=false when the element already drives
+    /// <see cref="Control.IsEnabled"/> through its own descriptor prop (e.g.
+    /// <see cref="ButtonElement"/>'s <c>IsDisabledFocusable</c>-coerced entry), so the command apply
+    /// does not clobber that coercion.
     /// </summary>
     internal static global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<TElement, TControl> OneWayCommand<TElement, TControl>(
         this global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<TElement, TControl> d,
@@ -140,11 +165,11 @@ internal static class CommandBindings
         => applyIsEnabled
             ? d.OneWay<Command?>(
                 getCommand,
-                static (c, cmd) => { if (cmd is not null) ApplyButtonBaseCommon(c, cmd, applyIsEnabled: true); },
+                static (c, cmd) => { if (cmd is not null) ApplyButtonBaseCommon(c, cmd, applyIsEnabled: true); else ClearButtonCommandMetadata(c); },
                 CommandModuloDelegatesComparer.Instance)
             : d.OneWay<Command?>(
                 getCommand,
-                static (c, cmd) => { if (cmd is not null) ApplyButtonBaseCommon(c, cmd, applyIsEnabled: false); },
+                static (c, cmd) => { if (cmd is not null) ApplyButtonBaseCommon(c, cmd, applyIsEnabled: false); else ClearButtonCommandMetadata(c); },
                 CommandModuloDelegatesComparer.Instance);
 
     /// <summary>

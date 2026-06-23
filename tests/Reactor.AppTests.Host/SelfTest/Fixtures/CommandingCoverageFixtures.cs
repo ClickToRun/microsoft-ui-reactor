@@ -372,7 +372,7 @@ internal static class CommandingCoverageFixtures
 
             var btn = H.FindControl<Button>(b => (b.Content as string) == "Open");
             H.Check("FastPath_Mounted", btn is not null && btn.KeyboardAccelerators.Count == 1);
-            var accel0 = btn?.KeyboardAccelerators.Count == 1 ? btn.KeyboardAccelerators[0] : null;
+            var accel0 = btn is { KeyboardAccelerators.Count: 1 } ? btn.KeyboardAccelerators[0] : null;
 
             H.ClickButton("bumpFastPath");
             await Harness.Render();
@@ -486,6 +486,53 @@ internal static class CommandingCoverageFixtures
             H.Check("ToggleSplitCmdChange_Reused", ReferenceEquals(tsb, tsb2));
             H.Check("ToggleSplitCmdChange_AccessKeyUpdated", tsb2 is not null && tsb2.AccessKey == "D");
             H.Check("ToggleSplitCmdChange_DisabledAfterUpdate", tsb2 is not null && !tsb2.IsEnabled);
+        }
+    }
+
+    /// <summary>
+    /// Issue #153 (PR review): when a command-bound button is re-rendered <em>without</em> a Command
+    /// (the typed Command transitions to null on the reused live control), the descriptor's command
+    /// entry must clear the stale command metadata — tooltip / UIA HelpText, AccessKey, and the
+    /// command-added <see cref="KeyboardAccelerator"/> — rather than leaving it stuck.
+    /// </summary>
+    internal class BoundButtonCommandClearedWhenRemoved(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (removed, setRemoved) = ctx.UseState(false);
+                return VStack(
+                    Button("removeCmd", () => setRemoved(true)),
+                    removed
+                        ? Button("Open").Set(b => b.Name = "cmdClearBtn")
+                        : Button(new Command
+                        {
+                            Label = "Open",
+                            Execute = () => { },
+                            AccessKey = "S",
+                            Accelerator = new KeyboardAcceleratorData(
+                                global::Windows.System.VirtualKey.O, global::Windows.System.VirtualKeyModifiers.Control),
+                            Description = "Open a file",
+                        }).Set(b => b.Name = "cmdClearBtn"));
+            });
+            await Harness.Render();
+
+            var btn = H.FindControl<Button>(b => b.Name == "cmdClearBtn");
+            H.Check("CmdClear_Mounted", btn is not null);
+            H.Check("CmdClear_InitialAccessKey", btn is not null && btn.AccessKey == "S");
+            H.Check("CmdClear_InitialAccelerator", btn is not null && btn.KeyboardAccelerators.Count == 1);
+            H.Check("CmdClear_InitialToolTip", btn is not null && ToolTipService.GetToolTip(btn) is not null);
+
+            H.ClickButton("removeCmd");
+            await Harness.Render();
+
+            var btn2 = H.FindControl<Button>(b => b.Name == "cmdClearBtn");
+            H.Check("CmdClear_Reused", ReferenceEquals(btn, btn2));
+            H.Check("CmdClear_AccessKeyCleared", btn2 is not null && string.IsNullOrEmpty(btn2.AccessKey));
+            H.Check("CmdClear_AcceleratorCleared", btn2 is not null && btn2.KeyboardAccelerators.Count == 0);
+            H.Check("CmdClear_ToolTipCleared", btn2 is not null && ToolTipService.GetToolTip(btn2) is null);
         }
     }
 }
