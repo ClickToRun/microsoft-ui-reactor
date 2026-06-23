@@ -18,6 +18,21 @@ namespace Microsoft.UI.Reactor.Core.V1Protocol;
 /// should avoid allocations in <see cref="Mount"/> / <see cref="Update"/>
 /// bodies; the <c>ref struct</c> context types are allocation-free by
 /// construction.</para>
+///
+/// <para><b>Echo suppression for value-bearing controls (issue #206).</b> If
+/// the control raises the same change event for a programmatic property write
+/// as it does for a user edit, a write from <see cref="Update"/> would echo
+/// back through the trampoline into the owning component's <c>OnChanged</c>
+/// state setter — indistinguishable from real input. Guard every programmatic
+/// controlled-value write with the supported, RCW-safe public primitive
+/// <see cref="ReactorBinding{TElement}"/>'s <c>WriteSuppressed</c> method
+/// (or the static <see cref="Microsoft.UI.Reactor.Core.ReactorBinding"/>):
+/// <c>ctx.BindFor(ctrl, newEl).WriteSuppressed(() =&gt; ctrl.Value = newEl.Value)</c>.
+/// Pair it 1:1 with the write and gate it on an equality check so the token is
+/// always consumed by the engine-provoked echo. Descriptor authors get this for
+/// free through <c>.Controlled</c> / <c>.HandCodedControlled</c>. Never reach
+/// into the internal <c>ChangeEchoSuppressor</c>. See
+/// <c>docs/guide/extending-reactor-controls.md</c>.</para>
 /// </summary>
 // <snippet:handler-contract>
 public interface IElementHandler<TElement, TControl>

@@ -5,6 +5,18 @@ namespace Microsoft.UI.Reactor.Core;
 /// <summary>
 /// Per-control "suppress next change event" counter used by the reconciler.
 ///
+/// <para><b>Custom-control authors: do NOT use this type directly.</b> It is
+/// <c>internal</c> by design (issue #206). The supported, RCW-safe PUBLIC entry
+/// point is <see cref="ReactorBinding"/>'s <c>WriteSuppressed</c> method
+/// (and the per-binding wrapper
+/// <see cref="V1Protocol.ReactorBinding{TElement}"/>,
+/// reached in a handler via <c>ctx.BindFor(ctrl, el).WriteSuppressed(...)</c>),
+/// or — for descriptor
+/// authors — the <c>.Controlled</c> / <c>.HandCodedControlled</c> opt-ins,
+/// which wrap this primitive for you. Those surfaces were deliberately kept as
+/// the only public path so the storage mechanism below can evolve without
+/// breaking external controls.</para>
+///
 /// Background — why this exists:
 ///   A Reactor Update handler that writes a value-bearing DP (<c>cp.Color = ...</c>,
 ///   <c>nb.Value = ...</c>, <c>ts.IsOn = ...</c>) synthesizes a ValueChanged /

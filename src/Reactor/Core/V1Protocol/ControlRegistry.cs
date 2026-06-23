@@ -75,6 +75,17 @@ public static class ControlRegistry
     /// the call site. A capturing lambda is functionally correct but
     /// allocates a closure on every <c>Reg&lt;&gt;.Init</c> / cctor run,
     /// undoing the cost-model claim in spec §9.</para>
+    ///
+    /// <para><b>Echo suppression for value-bearing controls (issue #206).</b> A
+    /// custom <see cref="IElementHandler{TElement,TControl}"/> registered here
+    /// that writes a value-bearing property in <c>Update</c> must guard that
+    /// write with the supported public primitive
+    /// <see cref="ReactorBinding{TElement}"/>'s <c>WriteSuppressed</c> method
+    /// (or the static <see cref="Microsoft.UI.Reactor.Core.ReactorBinding"/>) so
+    /// the control's own echo does not flow back as a spurious user edit. Never
+    /// reach into the internal <c>ChangeEchoSuppressor</c>. Descriptor authors
+    /// get this through <c>.Controlled</c> / <c>.HandCodedControlled</c>. See
+    /// <c>docs/guide/extending-reactor-controls.md</c>.</para>
     /// </summary>
     /// <typeparam name="TElement">The element record type the handler
     /// dispatches against. Used as the dispatch key (<see cref="Type"/>).</typeparam>

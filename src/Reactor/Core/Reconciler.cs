@@ -771,6 +771,22 @@ public sealed partial class Reconciler : IDisposable
     /// (throw on duplicate, no base-class fallback, no open generics) tightens
     /// previously-undefined behavior; it does not change the shape of this API.
     /// </summary>
+    /// <remarks>
+    /// A value-bearing custom control (one that raises the same change event for
+    /// a programmatic write as for a user edit) must suppress its own write echo
+    /// from the <c>update</c> callback. Use the supported public primitive
+    /// <see cref="ReactorBinding"/>'s
+    /// <c>WriteSuppressed</c> method — wrap the programmatic write, gate it on an
+    /// equality check, and pair it 1:1 with the write. For new controls prefer
+    /// the V1 path: a <see cref="V1Protocol.Descriptor.ControlDescriptor{TElement,TControl}"/>
+    /// (the primary, descriptor-first authoring shape — its <c>.Controlled</c> /
+    /// <c>.HandCodedControlled</c> handle echo suppression for you), or a
+    /// hand-coded <see cref="V1Protocol.IElementHandler{TElement,TControl}"/> via
+    /// <see cref="RegisterHandler{TElement,TControl}"/> only for irregular
+    /// controls (its <see cref="V1Protocol.ReactorBinding{TElement}"/> wraps the
+    /// same primitive). See <c>docs/guide/extending-reactor-controls.md</c>
+    /// (issue #206).
+    /// </remarks>
     public void RegisterType<TElement, TControl>(
         Func<Reconciler, TElement, Action, TControl> mount,
         Func<Reconciler, TElement, TElement, TControl, Action, UIElement?> update,
@@ -826,6 +842,16 @@ public sealed partial class Reconciler : IDisposable
     /// (including across registries) and on open-generic element types
     /// (spec §13 Q17).
     /// </summary>
+    /// <remarks>
+    /// Value-bearing handlers (a control whose programmatic property write
+    /// raises the same change event as a user edit) must suppress their own
+    /// write echo with the supported public primitive
+    /// <see cref="V1Protocol.ReactorBinding{TElement}"/>'s <c>WriteSuppressed</c>
+    /// method (or the static <see cref="ReactorBinding"/>); descriptor authors get it
+    /// via <c>.Controlled</c> / <c>.HandCodedControlled</c>. See
+    /// <see cref="V1Protocol.IElementHandler{TElement,TControl}"/> and
+    /// <c>docs/guide/extending-reactor-controls.md</c> (issue #206).
+    /// </remarks>
     public void RegisterHandler<TElement, TControl>(V1Protocol.IElementHandler<TElement, TControl> handler)
         where TElement : Element
         where TControl : UIElement

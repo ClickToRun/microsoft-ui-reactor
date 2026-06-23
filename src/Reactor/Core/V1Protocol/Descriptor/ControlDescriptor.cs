@@ -34,6 +34,17 @@ public delegate void AfterChildrenMountCallback<TElement, TControl>(
 /// decision matrix determines which surface ships as the primary author
 /// path. See <c>docs/specs/047-extensible-control-model.md</c> §13 Q1.</para>
 ///
+/// <para><b>Echo suppression (issue #206).</b> A <c>.Controlled</c> /
+/// <c>.HandCodedControlled</c> entry suppresses the echo of its own
+/// programmatic write automatically — the interpreter wraps the write in the
+/// public <see cref="Microsoft.UI.Reactor.Core.ReactorBinding"/> <c>WriteSuppressed</c> primitive
+/// (or arms a value-diff predicate when <c>valueDiffEcho</c> is set),
+/// so a framework-driven write never echoes back into the user's
+/// <c>OnChanged</c> callback. Descriptor authors therefore never touch the
+/// suppressor directly; hand-coded <see cref="IElementHandler{TElement,TControl}"/>
+/// authors call <c>WriteSuppressed</c> themselves. See
+/// <c>docs/guide/extending-reactor-controls.md</c>.</para>
+///
 /// <para><b>Fluent author pattern:</b>
 /// <code>
 /// public record ToggleSwitchElement(Optional&lt;bool&gt; IsOn = default) : Element;
