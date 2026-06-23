@@ -760,9 +760,13 @@ public sealed class PieChartElement<T> : IChartAccessibilityData
 
             // Default (issue #162): force-Raw the whole realized subtree and remove
             // inner focusable children from the tab order, so only the chart's own
-            // descriptor surfaces to UIA / assistive tech.
+            // descriptor surfaces to UIA / assistive tech. OnUpdateAdd re-asserts the
+            // hide over descendants realized on a later in-place update (M1); OnUnmountAdd
+            // clears the deferred-hide sentinel so a pre-load unmount can't poison reuse (L1).
             return labelElement
                 .OnMountAdd(Accessibility.ChartLabelA11y.HideSubtreeOnMount)
+                .OnUpdateAdd(Accessibility.ChartLabelA11y.HideSubtreeOnUpdate)
+                .OnUnmountAdd(Accessibility.ChartLabelA11y.ClearPendingHide)
                 .AccessibilityView(Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw);
         }).ToArray();
     }

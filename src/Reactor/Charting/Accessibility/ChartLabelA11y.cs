@@ -26,6 +26,18 @@ namespace Microsoft.UI.Reactor.Charting.Accessibility;
 /// </summary>
 internal static class ChartLabelA11y
 {
+    // L1 (issue #162 review): a private attached sentinel marking elements whose
+    // deferred (Loaded) hide is still pending. Replaces the old IsHitTestVisible
+    // identity check — which mis-fired when a recycled element happened to carry
+    // IsHitTestVisible=false from an unrelated prior use. AOT/trim-safe (a plain
+    // attached DependencyProperty, no reflection).
+    private static readonly DependencyProperty PendingDeferredHideProperty =
+        DependencyProperty.RegisterAttached(
+            "PendingDeferredHide",
+            typeof(bool),
+            typeof(ChartLabelA11y),
+            new PropertyMetadata(false));
+
     /// <summary>
     /// <c>OnMount</c> hook for a non-interactive custom label / tick element. Blocks
     /// pointer hit-testing and recursively hides the element's subtree from UIA and the
@@ -46,6 +58,10 @@ internal static class ChartLabelA11y
         if (fe.IsLoaded)
             return;
 
+        // Mark the pending hide so the one-shot Loaded handler only acts when this
+        // hook is still the owner of the element's hidden state (see ApplyDeferredHide).
+        MarkPendingDeferredHide(fe);
+
         void OnLoaded(object sender, RoutedEventArgs e)
         {
             fe.Loaded -= OnLoaded;
@@ -56,18 +72,54 @@ internal static class ChartLabelA11y
     }
 
     /// <summary>
+    /// <c>OnUpdate</c> hook for a non-interactive custom label / tick element (issue #162
+    /// review M1). An in-place data/content update can realize <em>new</em> focusable
+    /// descendants; <see cref="HideSubtreeOnMount"/> only fires once (at mount), so those
+    /// would leak back into UIA / the tab order. The element is already loaded on update,
+    /// so a single synchronous re-walk suffices — no deferred <see cref="FrameworkElement.Loaded"/>
+    /// arm is needed.
+    /// </summary>
+    internal static void HideSubtreeOnUpdate(FrameworkElement fe)
+    {
+        fe.IsHitTestVisible = false;
+        HideSubtree(fe);
+    }
+
+    /// <summary>
+    /// Marks <paramref name="fe"/> as having a deferred hide still pending its
+    /// <see cref="FrameworkElement.Loaded"/> event. Internal (not private) so the
+    /// deferred-hide self-test can drive the sentinel directly.
+    /// </summary>
+    internal static void MarkPendingDeferredHide(FrameworkElement fe) =>
+        fe.SetValue(PendingDeferredHideProperty, true);
+
+    /// <summary>
+    /// Clears the deferred-hide sentinel. Wired as an <c>OnUnmount</c> hook on the
+    /// non-interactive chart sites so an element unmounted <em>before it ever loaded</em>
+    /// (its one-shot <see cref="FrameworkElement.Loaded"/> handler still attached) cannot
+    /// later hide a recycled interactive / unrelated renter: with the sentinel cleared,
+    /// the surviving handler's <see cref="ApplyDeferredHide"/> becomes a no-op. Lives on
+    /// the Charting side (not <c>ElementPool</c>) to avoid a Core→Charting layering dependency.
+    /// </summary>
+    internal static void ClearPendingHide(FrameworkElement fe) =>
+        fe.ClearValue(PendingDeferredHideProperty);
+
+    /// <summary>
     /// Deferred (<see cref="FrameworkElement.Loaded"/>) arm of <see cref="HideSubtreeOnMount"/>,
-    /// with a stale-handler guard (issue #162 review). If the element was unmounted and
-    /// returned to the pool <em>before it ever loaded</em>, this one-shot handler survives
-    /// into a later reuse. The pool reset restores <c>IsHitTestVisible</c> to <c>true</c> (see
-    /// <c>ElementPool.CleanElement</c>), and an interactive (or unrelated) re-renter never
-    /// re-hides it — so only apply the deferred hide when the element is still in the
-    /// non-interactive hidden state this hook established (<c>IsHitTestVisible == false</c>).
+    /// with a stale-handler guard (issue #162 review L1). If the element was unmounted and
+    /// returned to the pool <em>before it ever loaded</em>, this one-shot handler can survive
+    /// into a later reuse. Only apply the deferred hide when the pending-hide sentinel this
+    /// hook set is still present — a recycled element that was re-rendered interactive (or for
+    /// an unrelated purpose) has had the sentinel cleared on unmount, so the stale handler
+    /// no-ops. The sentinel is consumed (cleared) once applied.
     /// </summary>
     internal static void ApplyDeferredHide(FrameworkElement fe)
     {
-        if (!fe.IsHitTestVisible)
-            HideSubtree(fe);
+        if (!(bool)fe.GetValue(PendingDeferredHideProperty))
+            return;
+
+        fe.ClearValue(PendingDeferredHideProperty);
+        HideSubtree(fe);
     }
 
     /// <summary>

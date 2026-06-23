@@ -1546,33 +1546,183 @@ internal static class ChartAccessibilityFixtures
     }
 
     /// <summary>
-    /// Issue #162 review — the deferred (<c>Loaded</c>) hide arm is one-shot and can survive a
-    /// pool round-trip if the element is unmounted before it ever loads. When that recycled FE
-    /// is later re-rented for an interactive (or unrelated) element, the pool reset has restored
-    /// <c>IsHitTestVisible=true</c>, so <c>ApplyDeferredHide</c> must skip — otherwise it would
-    /// wrongly force <c>Raw</c>/<c>IsTabStop=false</c> on the new renter's subtree.
+    /// Issue #162 review L1 — the deferred (<c>Loaded</c>) hide arm is one-shot and can survive a
+    /// pool round-trip if the element is unmounted before it ever loads. The guard is now a private
+    /// attached <em>sentinel</em> set by <c>HideSubtreeOnMount</c> (not an <c>IsHitTestVisible</c>
+    /// identity check, which mis-fired on a recycled element that merely happened to carry
+    /// <c>IsHitTestVisible=false</c>). <c>ApplyDeferredHide</c> must hide only when the sentinel is
+    /// present, and the un-mount path clears it so a stale handler becomes a no-op.
     /// </summary>
     internal class LabelViewDeferredHideStaleGuard(Harness h) : SelfTestFixtureBase(h)
     {
         public override async Task RunAsync()
         {
-            // Recycled-FE-now-interactive: IsHitTestVisible restored to true by the pool reset.
-            var interactiveHost = new Button { Content = "stale-guard-probe", IsTabStop = true, IsHitTestVisible = true };
-            ChartLabelA11y.ApplyDeferredHide(interactiveHost);
-            H.Check("ChartA11y_StaleGuard_Skips_TabStopIntact", interactiveHost.IsTabStop);
-            H.Check("ChartA11y_StaleGuard_Skips_NotRaw",
-                AutomationProperties.GetAccessibilityView(interactiveHost) != AccessibilityView.Raw);
+            // Case A — the bug scenario: a recycled FE carries IsHitTestVisible=false from a prior
+            // use but has NO pending-hide sentinel (it's being reused for an interactive/unrelated
+            // element). ApplyDeferredHide must SKIP. The OLD IsHitTestVisible guard would WRONGLY
+            // hide here (red on revert), because it keyed off hit-test state, not ownership.
+            var staleHost = new Button { Content = "stale-guard-probe", IsTabStop = true, IsHitTestVisible = false };
+            ChartLabelA11y.ApplyDeferredHide(staleHost);
+            H.Check("ChartA11y_StaleGuard_NoSentinel_Skips_TabStopIntact", staleHost.IsTabStop);
+            H.Check("ChartA11y_StaleGuard_NoSentinel_Skips_NotRaw",
+                AutomationProperties.GetAccessibilityView(staleHost) != AccessibilityView.Raw);
 
-            // Genuine deferred non-interactive load: HideSubtreeOnMount set IsHitTestVisible=false,
-            // so the deferred arm must still apply.
-            var hiddenHost = new Button { Content = "deferred-hide-probe", IsTabStop = true };
-            hiddenHost.IsHitTestVisible = false;
-            ChartLabelA11y.ApplyDeferredHide(hiddenHost);
-            H.Check("ChartA11y_StaleGuard_Applies_NotTabStop", !hiddenHost.IsTabStop);
-            H.Check("ChartA11y_StaleGuard_Applies_Raw",
-                AutomationProperties.GetAccessibilityView(hiddenHost) == AccessibilityView.Raw);
+            // Case B — genuine pending hide: the sentinel is set (as HideSubtreeOnMount does for an
+            // unloaded element), so ApplyDeferredHide must hide — even though IsHitTestVisible is
+            // TRUE here, which the OLD guard would have SKIPPED (also red on revert). Proves the new
+            // guard keys off the sentinel, not hit-test state.
+            var pendingHost = new Button { Content = "deferred-hide-probe", IsTabStop = true, IsHitTestVisible = true };
+            ChartLabelA11y.MarkPendingDeferredHide(pendingHost);
+            ChartLabelA11y.ApplyDeferredHide(pendingHost);
+            H.Check("ChartA11y_StaleGuard_Sentinel_Applies_NotTabStop", !pendingHost.IsTabStop);
+            H.Check("ChartA11y_StaleGuard_Sentinel_Applies_Raw",
+                AutomationProperties.GetAccessibilityView(pendingHost) == AccessibilityView.Raw);
+
+            // Case C — cleared sentinel (the OnUnmount path ran before Loaded): ApplyDeferredHide
+            // must SKIP, so a pre-load unmount can't hide a later renter.
+            var clearedHost = new Button { Content = "cleared-sentinel-probe", IsTabStop = true, IsHitTestVisible = false };
+            ChartLabelA11y.MarkPendingDeferredHide(clearedHost);
+            ChartLabelA11y.ClearPendingHide(clearedHost);
+            ChartLabelA11y.ApplyDeferredHide(clearedHost);
+            H.Check("ChartA11y_StaleGuard_Cleared_Skips_TabStopIntact", clearedHost.IsTabStop);
+            H.Check("ChartA11y_StaleGuard_Cleared_Skips_NotRaw",
+                AutomationProperties.GetAccessibilityView(clearedHost) != AccessibilityView.Raw);
+
+            // Sentinel is consumed once applied: a second ApplyDeferredHide on the now-hidden
+            // pending host is a no-op (cleared in Case B), so re-applying can't re-hide a control
+            // that has since been reset and reused.
+            pendingHost.IsTabStop = true;
+            ChartLabelA11y.ApplyDeferredHide(pendingHost);
+            H.Check("ChartA11y_StaleGuard_Sentinel_ConsumedAfterApply", pendingHost.IsTabStop);
 
             await Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Issue #162 review M1 — the subtree hide runs at mount; a later <em>in-place</em> data/content
+    /// update that realizes NEW focusable descendants must re-assert the hide (via the
+    /// <c>OnUpdate</c> hook), or those descendants leak back into UIA / the tab order. Keeps the
+    /// label non-interactive (stable key ⇒ in-place update, not remount) and grows the label
+    /// content from <c>VStack(TextBlock)</c> to <c>VStack(TextBlock, Button)</c> on a state toggle;
+    /// the buttons realized on update must be <c>Raw</c> + out of the tab order. Red on revert:
+    /// without the update hook those buttons mount exposed and tabbable.
+    /// </summary>
+    internal class LabelViewUpdateRehide(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            XamlInterop.Register(host.Reconciler);
+            host.Mount(ctx =>
+            {
+                var (expanded, setExpanded) = ctx.UseState(false);
+                return VStack(
+                    Button("ToggleExpanded", () => setExpanded(!expanded)),
+                    Charts.PieChart(NonInteractiveSlices, d => d.Value, d => d.Label)
+                        .Width(360).Height(360)
+                        // Same VStack root + non-interactive ⇒ stable key ⇒ in-place update.
+                        // The Button only appears in the expanded phase, realized on UPDATE.
+                        .LabelView((d, _) => expanded
+                            ? VStack(TextBlock(d.Label), Button("upd-" + d.Label, () => { }))
+                            : VStack(TextBlock(d.Label)))
+                        .ToElement());
+            });
+
+            await Harness.Render();
+
+            // Phase 0 — collapsed: no update-realized buttons yet.
+            var p0 = H.FindAllControls<Button>(b => b.Content is string s && s.StartsWith("upd-"));
+            H.Check("ChartA11y_UpdateRehide_Phase0_NoButtons", p0.Count == 0);
+
+            // Toggle → expanded: the new focusable descendants are mounted on an in-place update.
+            H.ClickButton("ToggleExpanded");
+            await Harness.Render();
+
+            var p1 = H.FindAllControls<Button>(b => b.Content is string s && s.StartsWith("upd-"));
+            H.Check("ChartA11y_UpdateRehide_Phase1_ButtonsRealizedOnUpdate", p1.Count == 2);
+            H.Check("ChartA11y_UpdateRehide_Phase1_NewButtonsRaw",
+                p1.Count == 2 && p1.TrueForAll(b =>
+                    AutomationProperties.GetAccessibilityView(b) == AccessibilityView.Raw));
+            H.Check("ChartA11y_UpdateRehide_Phase1_NewButtonsNotTabStop",
+                p1.Count == 2 && p1.TrueForAll(b => !b.IsTabStop));
+        }
+    }
+
+    private record TickTogglePoint(double X, double Y);
+
+    private static readonly TickTogglePoint[] TickToggleData =
+        [new(0, 10), new(1, 20), new(2, 15)];
+
+    /// <summary>
+    /// Issue #162 review L2 — exercises the Y-tick hide branch and the tick remount-by-interactive
+    /// key for BOTH axes (the existing tick subtree fixture is X-only and static; the toggle fixture
+    /// is pie-only). Composite X and Y tick labels carry a focusable Button; flipping
+    /// <c>interactive</c> at runtime must hide → expose → hide the inner buttons on each axis.
+    /// </summary>
+    internal class TickLabelViewInteractiveToggle(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            XamlInterop.Register(host.Reconciler);
+            host.Mount(ctx =>
+            {
+                var (interactive, setInteractive) = ctx.UseState(false);
+                return VStack(
+                    Button("ToggleTickInteractive", () => setInteractive(!interactive)),
+                    Charts.LineChart(TickToggleData, d => d.X, d => d.Y)
+                        .Width(400).Height(300)
+                        .XTickLabelView(t => VStack(TextBlock("xt" + (int)t), Button("xtb-" + (int)t, () => { })),
+                            interactive: interactive)
+                        .YTickLabelView(t => VStack(TextBlock("yt" + (int)t), Button("ytb-" + (int)t, () => { })),
+                            interactive: interactive)
+                        .ToElement());
+            });
+
+            await Harness.Render();
+
+            // Phase 0 — non-interactive: inner buttons on BOTH axes hidden + out of tab order.
+            var x0 = H.FindAllControls<Button>(b => b.Content is string s && s.StartsWith("xtb-"));
+            var y0 = H.FindAllControls<Button>(b => b.Content is string s && s.StartsWith("ytb-"));
+            H.Check("ChartA11y_TickToggle_Phase0_XMounted", x0.Count > 0);
+            H.Check("ChartA11y_TickToggle_Phase0_YMounted", y0.Count > 0);
+            H.Check("ChartA11y_TickToggle_Phase0_XRaw",
+                x0.Count > 0 && x0.TrueForAll(b => AutomationProperties.GetAccessibilityView(b) == AccessibilityView.Raw));
+            H.Check("ChartA11y_TickToggle_Phase0_XNotTabStop",
+                x0.Count > 0 && x0.TrueForAll(b => !b.IsTabStop));
+            H.Check("ChartA11y_TickToggle_Phase0_YRaw",
+                y0.Count > 0 && y0.TrueForAll(b => AutomationProperties.GetAccessibilityView(b) == AccessibilityView.Raw));
+            H.Check("ChartA11y_TickToggle_Phase0_YNotTabStop",
+                y0.Count > 0 && y0.TrueForAll(b => !b.IsTabStop));
+
+            // Toggle → interactive: keyed remount drops the hide on both axes.
+            H.ClickButton("ToggleTickInteractive");
+            await Harness.Render();
+            var x1 = H.FindAllControls<Button>(b => b.Content is string s && s.StartsWith("xtb-"));
+            var y1 = H.FindAllControls<Button>(b => b.Content is string s && s.StartsWith("ytb-"));
+            H.Check("ChartA11y_TickToggle_Phase1_XTabStop",
+                x1.Count > 0 && x1.TrueForAll(b => b.IsTabStop));
+            H.Check("ChartA11y_TickToggle_Phase1_XNotRaw",
+                x1.Count > 0 && x1.TrueForAll(b => AutomationProperties.GetAccessibilityView(b) != AccessibilityView.Raw));
+            H.Check("ChartA11y_TickToggle_Phase1_YTabStop",
+                y1.Count > 0 && y1.TrueForAll(b => b.IsTabStop));
+            H.Check("ChartA11y_TickToggle_Phase1_YNotRaw",
+                y1.Count > 0 && y1.TrueForAll(b => AutomationProperties.GetAccessibilityView(b) != AccessibilityView.Raw));
+
+            // Toggle back → hidden again on both axes (symmetric).
+            H.ClickButton("ToggleTickInteractive");
+            await Harness.Render();
+            var x2 = H.FindAllControls<Button>(b => b.Content is string s && s.StartsWith("xtb-"));
+            var y2 = H.FindAllControls<Button>(b => b.Content is string s && s.StartsWith("ytb-"));
+            H.Check("ChartA11y_TickToggle_Phase2_XNotTabStop",
+                x2.Count > 0 && x2.TrueForAll(b => !b.IsTabStop));
+            H.Check("ChartA11y_TickToggle_Phase2_XRaw",
+                x2.Count > 0 && x2.TrueForAll(b => AutomationProperties.GetAccessibilityView(b) == AccessibilityView.Raw));
+            H.Check("ChartA11y_TickToggle_Phase2_YNotTabStop",
+                y2.Count > 0 && y2.TrueForAll(b => !b.IsTabStop));
+            H.Check("ChartA11y_TickToggle_Phase2_YRaw",
+                y2.Count > 0 && y2.TrueForAll(b => AutomationProperties.GetAccessibilityView(b) == AccessibilityView.Raw));
         }
     }
 }

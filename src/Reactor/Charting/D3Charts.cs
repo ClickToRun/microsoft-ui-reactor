@@ -457,7 +457,11 @@ public static class D3Charts
                     ? el
                     : el
                         // Default: hide the whole realized subtree from UIA + focus.
+                        // OnUpdateAdd re-asserts on in-place update (M1); OnUnmountAdd
+                        // clears the deferred-hide sentinel to keep pool reuse clean (L1).
                         .OnMountAdd(Accessibility.ChartLabelA11y.HideSubtreeOnMount)
+                        .OnUpdateAdd(Accessibility.ChartLabelA11y.HideSubtreeOnUpdate)
+                        .OnUnmountAdd(Accessibility.ChartLabelA11y.ClearPendingHide)
                         .AccessibilityView(Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw));
             }
             xi++;
@@ -482,7 +486,11 @@ public static class D3Charts
                     ? el
                     : el
                         // Default: hide the whole realized subtree from UIA + focus.
+                        // OnUpdateAdd re-asserts on in-place update (M1); OnUnmountAdd
+                        // clears the deferred-hide sentinel to keep pool reuse clean (L1).
                         .OnMountAdd(Accessibility.ChartLabelA11y.HideSubtreeOnMount)
+                        .OnUpdateAdd(Accessibility.ChartLabelA11y.HideSubtreeOnUpdate)
+                        .OnUnmountAdd(Accessibility.ChartLabelA11y.ClearPendingHide)
                         .AccessibilityView(Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw));
             }
             yi++;
