@@ -176,12 +176,27 @@ internal static class Spec047ExternalProofFixtures
                 gc?.Value == 2.0);
 
             // Genuine user edit — direct write OUTSIDE the suppression scope.
-            // The callback must fire exactly once.
+            // The callback must fire exactly once. This also sets up the
+            // coincident-reconcile case: the callback's setValue drives a
+            // re-render where newEl.Value == ctrl.Value already (oldEl.Value !=
+            // newEl.Value, but the control is in sync), so the handler's
+            // readback-gated Update performs NO write and arms NO suppression
+            // token.
             int beforeUser = fireCount;
             if (gc is not null) gc.Value = 5.0;
             await Harness.Render();
             H.Check("ExtProof_Gauge_WriteSuppressed_FiresOnUserEdit",
                 fireCount == beforeUser + 1);
+
+            // Token-stranding pin — if the coincident reconcile above had armed
+            // a stray suppression token, the NEXT real user edit would be
+            // swallowed. Assert it still fires exactly once.
+            int beforeSecond = fireCount;
+            gc = H.FindControl<GaugeControl>(_ => true);
+            if (gc is not null) gc.Value = 7.0;
+            await Harness.Render();
+            H.Check("ExtProof_Gauge_WriteSuppressed_NoStrandedTokenAfterCoincident",
+                fireCount == beforeSecond + 1);
         }
     }
 

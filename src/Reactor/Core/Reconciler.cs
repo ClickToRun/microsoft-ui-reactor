@@ -777,8 +777,12 @@ public sealed partial class Reconciler : IDisposable
     /// from the <c>update</c> callback. Use the supported public primitive
     /// <see cref="ReactorBinding"/>'s
     /// <c>WriteSuppressed</c> method — wrap the programmatic write, gate it on an
-    /// equality check, and pair it 1:1 with the write. Prefer <see cref="RegisterHandler{TElement,TControl}"/>
-    /// + <see cref="V1Protocol.IElementHandler{TElement,TControl}"/> for new
+    /// equality check, and pair it 1:1 with the write. For new controls prefer
+    /// the V1 path: a <see cref="V1Protocol.Descriptor.ControlDescriptor{TElement,TControl}"/>
+    /// (the primary, descriptor-first authoring shape — its <c>.Controlled</c> /
+    /// <c>.HandCodedControlled</c> handle echo suppression for you), or a
+    /// hand-coded <see cref="V1Protocol.IElementHandler{TElement,TControl}"/> via
+    /// <see cref="RegisterHandler{TElement,TControl}"/> only for irregular
     /// controls (its <see cref="V1Protocol.ReactorBinding{TElement}"/> wraps the
     /// same primitive). See <c>docs/guide/extending-reactor-controls.md</c>
     /// (issue #206).

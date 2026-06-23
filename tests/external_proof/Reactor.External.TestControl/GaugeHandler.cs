@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Microsoft.UI.Reactor.Core.V1Protocol;
 
 namespace Reactor.External.TestControl;
@@ -19,9 +20,11 @@ namespace Reactor.External.TestControl;
 /// </list>
 ///
 /// <para><b>Controlled-control contract.</b> The programmatic write in
-/// <see cref="Update"/> is (1) gated on an equality check so it only runs when
-/// the value actually changed, and (2) wrapped in <c>WriteSuppressed</c> 1:1 —
-/// so the engine-synthesized <see cref="GaugeControl.ValueChanged"/> consumes
+/// <see cref="Update"/> is (1) gated on a readback-vs-target equality check
+/// (<c>ctrl.Value</c> vs <c>newEl.Value</c>) so it only runs when the live
+/// control actually differs from the rendered value — which also snaps back
+/// native drift — and (2) wrapped in <c>WriteSuppressed</c> 1:1 — so the
+/// engine-synthesized <see cref="GaugeControl.ValueChanged"/> consumes
 /// exactly one suppression token and never reaches the user's
 /// <see cref="GaugeElement.OnValueChanged"/>. A genuine user edit (outside the
 /// suppression scope) leaves no token and flows through to the callback.</para>
@@ -36,7 +39,7 @@ public sealed class GaugeHandler : IElementHandler<GaugeElement, GaugeControl>
         // Bare initial write — the ValueChanged subscription is wired below,
         // so the synchronous setter event has no trampoline yet. Suppression
         // at mount would leak a token that drains the next real event.
-        if (ctrl.Value != el.Value)
+        if (!EqualityComparer<double>.Default.Equals(ctrl.Value, el.Value))
             ctrl.Value = el.Value;
 
         bind.OnCustomEvent<EventArgs>(
@@ -50,10 +53,13 @@ public sealed class GaugeHandler : IElementHandler<GaugeElement, GaugeControl>
 
     public void Update(UpdateContext ctx, GaugeElement oldEl, GaugeElement newEl, GaugeControl ctrl)
     {
-        // Controlled-value write: equality-gated AND echo-suppressed. This is
-        // the entire public-surface contract issue #206 asks custom-control
-        // authors to follow.
-        if (oldEl.Value != newEl.Value && ctrl.Value != newEl.Value)
+        // Controlled-value write: gated on the live control readback (NOT the
+        // old element) so the handler also snaps back any native-control drift
+        // when the rendered value is unchanged — mirroring the descriptor
+        // .Controlled path. The write is echo-suppressed 1:1. This is the entire
+        // public-surface contract issue #206 asks custom-control authors to
+        // follow.
+        if (!EqualityComparer<double>.Default.Equals(ctrl.Value, newEl.Value))
             ctx.BindFor(ctrl, newEl).WriteSuppressed(() => ctrl.Value = newEl.Value);
         ctx.ApplySetters(newEl.Setters, ctrl);
     }

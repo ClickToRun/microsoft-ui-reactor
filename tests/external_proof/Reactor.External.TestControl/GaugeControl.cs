@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Microsoft.UI.Xaml.Controls;
 
 namespace Reactor.External.TestControl;
@@ -33,7 +34,9 @@ public sealed partial class GaugeControl : UserControl
         get => _value;
         set
         {
-            if (_value == value) return;
+            // EqualityComparer (not ==) so NaN == NaN holds and a repeated
+            // NaN write is a genuine no-op rather than a phantom change.
+            if (EqualityComparer<double>.Default.Equals(_value, value)) return;
             _value = value;
             _text.Text = value.ToString();
             ValueChanged?.Invoke(this, EventArgs.Empty);
