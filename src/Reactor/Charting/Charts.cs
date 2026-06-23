@@ -170,8 +170,11 @@ public sealed class ChartElement<T> : IChartAccessibilityData
     /// contrast check to this single active background (a <c>warning</c>) instead of flagging
     /// failure against either fixed light/dark background (an <c>info</c>). Omit for charts
     /// that may render on any background.
+    /// <para>The stored value is normalized to opaque RGB: contrast math
+    /// (<see cref="Accessibility.ChartPalette.ContrastRatio"/>) cannot evaluate a semi-transparent
+    /// background without knowing what is behind it, so any alpha is dropped.</para>
     /// </summary>
-    public ChartElement<T> ChartBackground(D3.D3Color background) { _chartBackground = background; return this; }
+    public ChartElement<T> ChartBackground(D3.D3Color background) { _chartBackground = new D3.D3Color(background.R, background.G, background.B); return this; }
 
     /// <summary>
     /// <inheritdoc cref="ChartBackground(D3.D3Color)"/> Parses a CSS color string (hex, rgb(), hsl(), or named).
@@ -557,8 +560,11 @@ public sealed class PieChartElement<T> : IChartAccessibilityData
     /// <para><b>Note:</b> only a scanner-visible palette (set via <see cref="Palette(Accessibility.ChartPalette)"/>)
     /// is contrast-checked against this background. Colors set via <c>.SetColors(...)</c> are
     /// not seen by the scanner.</para>
+    /// <para>The stored value is normalized to opaque RGB: contrast math
+    /// (<see cref="Accessibility.ChartPalette.ContrastRatio"/>) cannot evaluate a semi-transparent
+    /// background without knowing what is behind it, so any alpha is dropped.</para>
     /// </summary>
-    public PieChartElement<T> ChartBackground(D3Color background) { _chartBackground = background; return this; }
+    public PieChartElement<T> ChartBackground(D3Color background) { _chartBackground = new D3Color(background.R, background.G, background.B); return this; }
 
     /// <summary>
     /// <inheritdoc cref="ChartBackground(D3Color)"/> Parses a CSS color string (hex, rgb(), hsl(), or named).

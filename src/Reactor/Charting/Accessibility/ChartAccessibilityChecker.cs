@@ -233,7 +233,7 @@ internal sealed class ChartAccessibilityChecker : IScanExtension
     /// the check is scoped to that single active background and emitted as a <c>warning</c>
     /// (the palette is only penalized for a background it actually renders on). Otherwise the
     /// scanner is theme-agnostic and cannot know the active theme, so it flags failure against
-    /// *either* fixed background as an <c>info</c> finding to avoid alert fatigue (issue #633).
+    /// <c>either</c> fixed background as an <c>info</c> finding to avoid alert fatigue (issue #633).
     /// </summary>
     private static void CheckChartPaletteBackground(CanvasElement canvas, ChartA11yData cd, IScanContext ctx, List<A11yDiagnostic> findings)
     {

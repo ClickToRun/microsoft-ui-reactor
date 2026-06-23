@@ -390,6 +390,27 @@ public class ChartScannerRuleTests
     }
 
     [Fact]
+    public void ChartBackground_NormalizesToOpaqueRgb()
+    {
+        // Contrast math (ChartPalette.ContrastRatio/RelativeLuminance) ignores opacity — a
+        // semi-transparent background can't be evaluated without knowing what's behind it. So
+        // .ChartBackground(...) must drop alpha and store opaque RGB regardless of overload,
+        // rather than persisting a misleading alpha (PR #638 review). Drive a translucent
+        // Windows.UI.Color through the real modifier and assert the attached value is opaque.
+        var translucent = global::Windows.UI.Color.FromArgb(0x80, 0x20, 0x20, 0x20);
+        var chart = Charts.LineChart(Array.Empty<DataPoint>(), d => d.X, d => d.Y)
+            .ChartBackground(translucent);
+        var canvas = chart.AttachChartDataForTest(new CanvasElement([]) { Width = 400, Height = 300 });
+
+        var bg = canvas.GetAttached<ChartA11yData>()!.ChartBackground;
+        Assert.NotNull(bg);
+        Assert.Equal(1.0, bg!.Value.Opacity);
+        Assert.Equal(0x20, bg.Value.R);
+        Assert.Equal(0x20, bg.Value.G);
+        Assert.Equal(0x20, bg.Value.B);
+    }
+
+    [Fact]
     public void A11Y_CHART_012_RawColors_EmittedAsInfo()
     {
         var canvas = MakeChartCanvas(

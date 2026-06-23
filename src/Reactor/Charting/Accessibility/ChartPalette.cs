@@ -70,7 +70,7 @@ public sealed class HardenOptions
     /// <summary>
     /// Representative background the palette will actually render on. When set, the
     /// background-contrast pass scopes its check (and direction-aware nudge) to this single
-    /// active background instead of hardening against *both* the fixed light and dark
+    /// active background instead of hardening against <c>both</c> the fixed light and dark
     /// backgrounds. Mirrors A11Y_CHART_011's active-background scoping (issue #633). Null
     /// keeps the theme-agnostic both-backgrounds behavior.
     /// </summary>
