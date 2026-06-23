@@ -119,7 +119,12 @@ internal static class ItemContainerSelectionFlickerGuard
             return true;
         }
 
-        return false;
+        // The template is applied (we have a root) but there is no
+        // MultiSelectStates group at all — an unusual ItemContainer template.
+        // Give up symmetrically with the no-Multiple-state branch above so we
+        // don't retain the Loaded handler and re-walk the tree on every recycle.
+        holder.Neutralized = true;
+        return true;
     }
 
     private static bool TryCollapseStoryboard(Storyboard? storyboard)

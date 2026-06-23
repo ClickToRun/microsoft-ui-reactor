@@ -28,6 +28,16 @@ internal static class ItemsViewFixtures
         new("E5", "Endive", 1.99),
     ];
 
+    // Disjoint keys + different count from Catalog, so toggling between them
+    // forces the inner ItemsRepeater to clear and re-prepare every container
+    // (a real recycle round-trip) rather than merely reordering.
+    private static readonly Product[] AltCatalog =
+    [
+        new("X1", "Xigua",    3.49),
+        new("Y2", "Yam",      0.79),
+        new("Z3", "Zucchini", 1.29),
+    ];
+
     // ────────────────────────────────────────────────────────────────────
     //  Mount — verifies the dispatch arm wires the ItemsView at all, that
     //  the framework has materialized the template (PART_ItemsRepeater),
@@ -346,12 +356,16 @@ internal static class ItemsViewFixtures
     //   directly and prove the identical transition now SNAPS to 1.0. The fade
     //   makes the snap load-bearing — a no-op guard would leave it fading.
     //
-    //   Part B — production wiring (auto-arm, no direct Ensure). On an
-    //   ItemContainer realized by a *Reactor* ItemsView, drive the same
-    //   transition WITHOUT calling the guard. The guard, armed from
-    //   ElementFactory.GetElement, must have already collapsed the storyboard so
-    //   the checkmark snaps. This guards the GetElement -> Ensure wiring: if that
-    //   wiring silently breaks, this half fails even though Part A still passes.
+    //   Part B — production wiring (auto-arm, no direct Ensure) + recycle
+    //   survival. On an ItemContainer realized by a *Reactor* ItemsView, first
+    //   poll until the GetElement-armed guard has actually collapsed the Multiple
+    //   storyboard (so the assert doesn't race the deferred Loaded arm on a slow
+    //   runner), then drive the transition WITHOUT calling the guard and assert it
+    //   snaps. This guards the GetElement -> Ensure wiring. Then force a real
+    //   recycle round-trip — toggle the ItemsView to a disjoint keyed item set and
+    //   back, so the inner ItemsRepeater clears and re-prepares its containers (the
+    //   exact OnItemsRepeaterElementClearing/Prepared path that re-fires the
+    //   flicker in production) — and assert a realized container STILL snaps.
     // ────────────────────────────────────────────────────────────────────
 
     internal class ItemsView_MultiSelect_CheckmarkDoesNotFlicker(Harness h) : SelfTestFixtureBase(h)
@@ -405,19 +419,32 @@ internal static class ItemsViewFixtures
 
             // ── Part B: production GetElement -> Ensure auto-arm wiring. ──
             // Mounting a Reactor ItemsView replaces the raw view in the content
-            // area. No direct Ensure call here — this asserts the wiring.
+            // area. A "recycle" button toggles between two disjoint keyed item
+            // sets to force a recycle round-trip in Part C. No direct Ensure call
+            // anywhere here — this asserts the wiring.
             var host = H.CreateHost();
-            host.Mount(_ =>
-                ItemsView(Catalog,
-                    keySelector: p => p.Sku,
-                    viewBuilder: (p, _) => ItemContainer(TextBlock(p.Name))
-                ) with { SelectionMode = WinUI.ItemsViewSelectionMode.Multiple }
-            );
+            host.Mount(ctx =>
+            {
+                var (alt, setAlt) = ctx.UseState(false);
+                var items = alt ? AltCatalog : Catalog;
+                return VStack(
+                    Button("recycle", () => setAlt(!alt)),
+                    (ItemsView(items,
+                        keySelector: p => p.Sku,
+                        viewBuilder: (p, _) => ItemContainer(TextBlock(p.Name))
+                    ) with { SelectionMode = WinUI.ItemsViewSelectionMode.Multiple }).Height(400)
+                );
+            });
 
-            // Two render passes so realized containers fire Loaded, which is
-            // when the GetElement-armed guard collapses their storyboard.
-            await Harness.Render();
-            await Harness.Render();
+            // Poll until the deferred-Loaded arm has actually collapsed the
+            // storyboard, instead of relying on a fixed render-pass budget
+            // (cheap insurance against CI flake on slower runners).
+            var armed = await Harness.WaitFor(() =>
+            {
+                var c = H.FindControl<WinUI.ItemContainer>(_ => true);
+                return c is not null && IsMultipleStoryboardCollapsed(c);
+            });
+            H.Check("ItemsViewFlicker_AutoArm_GuardCollapsedStoryboard", armed);
 
             var realized = H.FindControl<WinUI.ItemContainer>(_ => true);
             H.Check("ItemsViewFlicker_AutoArm_ContainerRealized", realized is not null);
@@ -432,7 +459,78 @@ internal static class ItemsViewFixtures
             Microsoft.UI.Xaml.VisualStateManager.GoToState(realized, "Multiple", true);
             H.Check($"ItemsViewFlicker_AutoArmed_Snaps_opacity={checkbox.Opacity:F3}",
                 checkbox.Opacity >= 0.999);
+
+            // ── Part C: survive a real recycle round-trip. ──
+            // Toggle to the disjoint keyed set and back, forcing the inner
+            // ItemsRepeater to clear + re-prepare its containers — the exact
+            // production trigger that re-fires the flicker. A reused container
+            // keeps its collapsed storyboard; a freshly realized one is re-armed
+            // on prepare. Either way the checkmark must still snap.
+            H.ClickButton("recycle");
+            await Harness.Render();
+            await Harness.Render();
+            H.ClickButton("recycle");
+            await Harness.Render();
+            await Harness.Render();
+
+            var recycledArmed = await Harness.WaitFor(() =>
+            {
+                var c = H.FindControl<WinUI.ItemContainer>(_ => true);
+                return c is not null && IsMultipleStoryboardCollapsed(c);
+            });
+            H.Check("ItemsViewFlicker_Recycle_GuardCollapsedStoryboard", recycledArmed);
+
+            var recycled = H.FindControl<WinUI.ItemContainer>(_ => true);
+            H.Check("ItemsViewFlicker_Recycle_ContainerRealized", recycled is not null);
+            if (recycled is null) return;
+
+            var recycledCheckbox = FindNamedDescendant(recycled, "PART_SelectionCheckbox");
+            H.Check("ItemsViewFlicker_Recycle_CheckmarkPartFound", recycledCheckbox is not null);
+            if (recycledCheckbox is null) return;
+
+            Microsoft.UI.Xaml.VisualStateManager.GoToState(recycled, "Single", false);
+            await Harness.Render();
+            Microsoft.UI.Xaml.VisualStateManager.GoToState(recycled, "Multiple", true);
+            H.Check($"ItemsViewFlicker_Recycle_Snaps_opacity={recycledCheckbox.Opacity:F3}",
+                recycledCheckbox.Opacity >= 0.999);
         }
+    }
+
+    // True once the container's MultiSelectStates.Multiple opacity storyboard has
+    // been collapsed by the guard — i.e. every keyframe KeyTime is zero. Used to
+    // poll for the deferred-Loaded arm completing before asserting.
+    private static bool IsMultipleStoryboardCollapsed(WinUI.ItemContainer container)
+    {
+        if (Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(container) == 0)
+            return false;
+        if (Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(container, 0)
+                is not Microsoft.UI.Xaml.FrameworkElement root)
+            return false;
+
+        var groups = Microsoft.UI.Xaml.VisualStateManager.GetVisualStateGroups(root);
+        foreach (var group in groups)
+        {
+            if (group.Name != "MultiSelectStates") continue;
+            foreach (var state in group.States)
+            {
+                if (state.Name != "Multiple" || state.Storyboard is null) continue;
+                bool sawKeyframe = false;
+                foreach (var child in state.Storyboard.Children)
+                {
+                    if (child is Microsoft.UI.Xaml.Media.Animation.DoubleAnimationUsingKeyFrames kf)
+                    {
+                        foreach (var f in kf.KeyFrames)
+                        {
+                            sawKeyframe = true;
+                            if (f.KeyTime.TimeSpan != global::System.TimeSpan.Zero)
+                                return false;
+                        }
+                    }
+                }
+                return sawKeyframe;
+            }
+        }
+        return false;
     }
 
     private static Microsoft.UI.Xaml.FrameworkElement? FindNamedDescendant(
