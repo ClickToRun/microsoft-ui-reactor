@@ -26,13 +26,14 @@ if (cliOptions.Headless)
 
 StockGridApp.CliOpts = cliOptions;
 
-// Spec-048 §3.4 — direct-record-initializer hot path (see Render() below)
-// uses `new TextBlockElement(...)` to avoid factory overhead. Spec-048
-// requires that handlers are registered before first reconcile, normally
-// via the factory call itself. This explicit factory touch (the result is
-// discarded) runs the TextBlock factory's static cctor exactly once at
-// process startup so the hot loop can skip the factory call.
-_ = TextBlock(string.Empty);
+// Spec-048 §3.4 (issue #486) — the direct-record-initializer hot path (see
+// Render() below) constructs `new TextBlockElement(...)` to avoid factory
+// overhead, which bypasses the factory's lazy handler registration. Opt into
+// the full built-in catalog once at startup so every element record — direct-
+// built or factory-built — has a registered handler before the first reconcile.
+// This is the documented one-line prelude for the direct-record idiom; a
+// trim-minimal app would instead let each factory register only what it uses.
+ReactorApp.RegisterAllBuiltIns();
 
 ReactorApp.Run<StockGridApp>("StressPerf.ReactorOptimized", fullScreen: true);
 

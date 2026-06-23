@@ -219,10 +219,14 @@ public sealed partial class Reconciler
             $"  (1) Call the factory method at least once before mounting (e.g. " +
             "`Factories.TextBlock(\"\")` for built-ins) so the handler registers, " +
             "then continue using the direct-record idiom for the hot path.\n" +
-            "  (2) Register the handler explicitly up front: " +
+            "  (2) Opt into the whole built-in catalog at startup with " +
+            "`Microsoft.UI.Reactor.ReactorApp.RegisterAllBuiltIns()` (spec-048 " +
+            "§3.4 option A) so every built-in element record mounts regardless " +
+            "of how it was constructed.\n" +
+            "  (3) Register the handler explicitly up front: " +
             $"`Microsoft.UI.Reactor.Core.V1Protocol.ControlRegistry.Register" +
             $"<{element.GetType().Name}, TControl>(static () => new YourHandler())`.\n" +
-            "  (3) For custom controls authored by your project, follow the " +
+            "  (4) For custom controls authored by your project, follow the " +
             "Pattern A factory-as-registration recipe in " +
             "docs/_pipeline/templates/extending-reactor-controls.md.dt.\n\n" +
             "See https://github.com/microsoft/microsoft-ui-reactor/issues/486 " +
