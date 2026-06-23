@@ -711,8 +711,14 @@ public static class ReactorApp
         var snapshot = Windows;
         for (int i = 0; i < snapshot.Count; i++)
         {
+            // Best-effort: a window mid-teardown can throw while we flip its
+            // title-bar mode. Catch only the exceptions a teardown-racing
+            // AppWindow/title-bar interop call can realistically surface so a
+            // genuine bug elsewhere still propagates.
             try { snapshot[i].PrepareTitleBarTreeForClose(); }
-            catch (Exception ex) { global::System.Diagnostics.Debug.WriteLine($"[Reactor] PrepareOpenWindowsForExit threw: {ex.Message}"); }
+            catch (ObjectDisposedException ex) { global::System.Diagnostics.Debug.WriteLine($"[Reactor] PrepareOpenWindowsForExit threw: {ex.Message}"); }
+            catch (InvalidOperationException ex) { global::System.Diagnostics.Debug.WriteLine($"[Reactor] PrepareOpenWindowsForExit threw: {ex.Message}"); }
+            catch (COMException ex) { global::System.Diagnostics.Debug.WriteLine($"[Reactor] PrepareOpenWindowsForExit threw: {ex.Message}"); }
         }
     }
 
