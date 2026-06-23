@@ -157,6 +157,13 @@ internal static class ItemContainerSelectionFlickerGuard
 
     private sealed class Holder
     {
+        // Set once the container's Multiple storyboard has been collapsed (or
+        // determined to have no MultiSelectStates/Multiple to collapse). Gates
+        // re-entry so repeated GetElement reuse of a pooled container never
+        // re-walks the visual tree. Note: this intentionally will NOT re-collapse
+        // a storyboard if the container is later re-templated with a fresh
+        // (non-zero) Multiple storyboard — not observed in practice for ItemsView
+        // containers, and re-templating would re-run the whole arming flow anyway.
         public bool Neutralized;
         public bool LoadedHooked;
     }

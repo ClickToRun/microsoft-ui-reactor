@@ -334,31 +334,78 @@ internal static class ItemsViewFixtures
     //  container, so WinUI's animated GoToState snaps the checkmark to full
     //  opacity instantly instead of fading it.
     //
-    //  This fixture is load-bearing in three complementary checks, all on a
-    //  real realized container from a live SelectionMode=Multiple ItemsView (the
-    //  only place ItemContainer actually realizes PART_SelectionCheckbox):
+    //  This fixture is load-bearing in two complementary halves, both on a real
+    //  realized container from a live SelectionMode=Multiple ItemsView (the only
+    //  place ItemContainer actually realizes PART_SelectionCheckbox):
     //
-    //   1. Production wiring: WITHOUT calling the guard directly, drive the
-    //      animated Single -> Multiple transition WinUI fires on a recycle. The
-    //      guard, armed from ElementFactory.GetElement, must have already
-    //      collapsed the storyboard so the checkmark snaps to 1.0.
+    //   Part A — guard mechanism (direct Ensure, before/after). On an
+    //   ItemContainer realized by a *raw WinUI* ItemsView (so it never went
+    //   through Reactor's ElementFactory and is therefore un-armed), prove the
+    //   animated Single -> Multiple transition genuinely FADES (opacity has not
+    //   reached 1.0 the instant after GoToState), then call the guard's Ensure
+    //   directly and prove the identical transition now SNAPS to 1.0. The fade
+    //   makes the snap load-bearing — a no-op guard would leave it fading.
     //
-    //   2. Un-guarded fade proof: restore a real, non-zero keyframe duration on
-    //      that same container's Multiple storyboard — i.e. reproduce the
-    //      un-guarded WinUI default — and prove the identical transition now
-    //      genuinely FADES (opacity has not reached 1.0 the instant after
-    //      GoToState). This guarantees the snap in check 1 is not
-    //      green-by-construction: a regressed guard that left the keyframe alone
-    //      would land here and flicker.
-    //
-    //   3. Re-collapse proof: re-zero the keyframe (the guard's exact operation)
-    //      and prove the same transition SNAPS to 1.0 again.
+    //   Part B — production wiring (auto-arm, no direct Ensure). On an
+    //   ItemContainer realized by a *Reactor* ItemsView, drive the same
+    //   transition WITHOUT calling the guard. The guard, armed from
+    //   ElementFactory.GetElement, must have already collapsed the storyboard so
+    //   the checkmark snaps. This guards the GetElement -> Ensure wiring: if that
+    //   wiring silently breaks, this half fails even though Part A still passes.
     // ────────────────────────────────────────────────────────────────────
 
     internal class ItemsView_MultiSelect_CheckmarkDoesNotFlicker(Harness h) : SelfTestFixtureBase(h)
     {
         public override async Task RunAsync()
         {
+            // ── Part A: guard mechanism on an un-armed raw-WinUI container. ──
+            // A raw WinUI ItemsView realizes its own ItemContainers (never through
+            // Reactor's ElementFactory), so the guard has NOT auto-armed them.
+            // Done before any Reactor host owns the content area.
+            var rawView = new WinUI.ItemsView
+            {
+                Width = 300,
+                Height = 400,
+                SelectionMode = WinUI.ItemsViewSelectionMode.Multiple,
+                ItemsSource = new[] { "a", "b", "c", "d", "e" },
+                ItemTemplate = (Microsoft.UI.Xaml.DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(
+                    "<DataTemplate xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\">" +
+                    "<ItemContainer><TextBlock Text=\"{Binding}\"/></ItemContainer></DataTemplate>"),
+            };
+            H.SetContent(rawView);
+            await Harness.Render();
+            await Harness.Render();
+
+            var rawContainer = H.FindControl<WinUI.ItemContainer>(_ => true);
+            H.Check("ItemsViewFlicker_DirectEnsure_ContainerRealized", rawContainer is not null);
+            if (rawContainer is not null)
+            {
+                var rawCheckbox = FindNamedDescendant(rawContainer, "PART_SelectionCheckbox");
+                H.Check("ItemsViewFlicker_DirectEnsure_CheckmarkPartFound", rawCheckbox is not null);
+                if (rawCheckbox is not null)
+                {
+                    // BEFORE: un-armed → the animated transition genuinely fades.
+                    Microsoft.UI.Xaml.VisualStateManager.GoToState(rawContainer, "Single", false);
+                    await Harness.Render();
+                    Microsoft.UI.Xaml.VisualStateManager.GoToState(rawContainer, "Multiple", true);
+                    var before = rawCheckbox.Opacity;
+                    H.Check($"ItemsViewFlicker_DirectEnsure_Before_Fades_opacity={before:F3}",
+                        before < 0.999);
+
+                    // AFTER: arm the guard directly → identical transition snaps.
+                    Microsoft.UI.Xaml.VisualStateManager.GoToState(rawContainer, "Single", false);
+                    await Harness.Render();
+                    ItemContainerSelectionFlickerGuard.Ensure(rawContainer);
+                    Microsoft.UI.Xaml.VisualStateManager.GoToState(rawContainer, "Multiple", true);
+                    var after = rawCheckbox.Opacity;
+                    H.Check($"ItemsViewFlicker_DirectEnsure_After_Snaps_opacity={after:F3}",
+                        after >= 0.999);
+                }
+            }
+
+            // ── Part B: production GetElement -> Ensure auto-arm wiring. ──
+            // Mounting a Reactor ItemsView replaces the raw view in the content
+            // area. No direct Ensure call here — this asserts the wiring.
             var host = H.CreateHost();
             host.Mount(_ =>
                 ItemsView(Catalog,
@@ -373,76 +420,19 @@ internal static class ItemsViewFixtures
             await Harness.Render();
 
             var realized = H.FindControl<WinUI.ItemContainer>(_ => true);
-            H.Check("ItemsViewFlicker_HasRealizedContainer", realized is not null);
+            H.Check("ItemsViewFlicker_AutoArm_ContainerRealized", realized is not null);
             if (realized is null) return;
 
             var checkbox = FindNamedDescendant(realized, "PART_SelectionCheckbox");
-            H.Check("ItemsViewFlicker_CheckmarkPartFound", checkbox is not null);
+            H.Check("ItemsViewFlicker_AutoArm_CheckmarkPartFound", checkbox is not null);
             if (checkbox is null) return;
 
-            // ── Check 1: production GetElement -> Ensure auto-arm path. ──
-            // No direct Ensure call here — this asserts the production wiring
-            // already collapsed the storyboard so the animated transition snaps.
             Microsoft.UI.Xaml.VisualStateManager.GoToState(realized, "Single", false);
             await Harness.Render();
             Microsoft.UI.Xaml.VisualStateManager.GoToState(realized, "Multiple", true);
             H.Check($"ItemsViewFlicker_AutoArmed_Snaps_opacity={checkbox.Opacity:F3}",
                 checkbox.Opacity >= 0.999);
-
-            // Locate the very storyboard animation the guard collapses.
-            var anim = FindMultipleOpacityAnimation(realized);
-            H.Check("ItemsViewFlicker_MultipleAnimationFound", anim is not null);
-            if (anim is null) return;
-
-            // ── Check 2: un-guarded fade proof (load-bearing). ──
-            // Restore a real, non-zero keyframe duration: this is exactly the
-            // state a regressed/absent guard would leave behind. The same
-            // transition must now FADE rather than snap.
-            foreach (var f in anim.KeyFrames)
-                f.KeyTime = Microsoft.UI.Xaml.Media.Animation.KeyTime.FromTimeSpan(
-                    global::System.TimeSpan.FromMilliseconds(300));
-            Microsoft.UI.Xaml.VisualStateManager.GoToState(realized, "Single", false);
-            await Harness.Render();
-            Microsoft.UI.Xaml.VisualStateManager.GoToState(realized, "Multiple", true);
-            var faded = checkbox.Opacity;
-            H.Check($"ItemsViewFlicker_Unguarded_Fades_opacity={faded:F3}", faded < 0.999);
-
-            // ── Check 3: re-collapse proof (the guard's exact operation). ──
-            foreach (var f in anim.KeyFrames)
-                f.KeyTime = Microsoft.UI.Xaml.Media.Animation.KeyTime.FromTimeSpan(
-                    global::System.TimeSpan.Zero);
-            Microsoft.UI.Xaml.VisualStateManager.GoToState(realized, "Single", false);
-            await Harness.Render();
-            Microsoft.UI.Xaml.VisualStateManager.GoToState(realized, "Multiple", true);
-            H.Check($"ItemsViewFlicker_Recollapsed_Snaps_opacity={checkbox.Opacity:F3}",
-                checkbox.Opacity >= 0.999);
         }
-    }
-
-    // Mirrors ItemContainerSelectionFlickerGuard's walk: MultiSelectStates group
-    // -> Multiple state -> the DoubleAnimationUsingKeyFrames the guard collapses.
-    private static Microsoft.UI.Xaml.Media.Animation.DoubleAnimationUsingKeyFrames?
-        FindMultipleOpacityAnimation(WinUI.ItemContainer container)
-    {
-        if (Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(container) == 0)
-            return null;
-        if (Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(container, 0)
-                is not Microsoft.UI.Xaml.FrameworkElement root)
-            return null;
-
-        var groups = Microsoft.UI.Xaml.VisualStateManager.GetVisualStateGroups(root);
-        foreach (var group in groups)
-        {
-            if (group.Name != "MultiSelectStates") continue;
-            foreach (var state in group.States)
-            {
-                if (state.Name != "Multiple" || state.Storyboard is null) continue;
-                foreach (var child in state.Storyboard.Children)
-                    if (child is Microsoft.UI.Xaml.Media.Animation.DoubleAnimationUsingKeyFrames kf)
-                        return kf;
-            }
-        }
-        return null;
     }
 
     private static Microsoft.UI.Xaml.FrameworkElement? FindNamedDescendant(
