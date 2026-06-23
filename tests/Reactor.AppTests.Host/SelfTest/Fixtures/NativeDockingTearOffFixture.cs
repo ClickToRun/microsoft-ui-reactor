@@ -446,6 +446,84 @@ internal static class NativeDockingTearOffFixtures
         }
     }
 
+    // ─── #8b ImmediateTearOff_DropOnHostTarget_ReportsMigratedToHost ───────
+
+    /// <summary>Producer-path coverage for issue #417 (review H1), the
+    /// DOCKED-source immediate tear-off variant. A docked tab is torn into a
+    /// preview window then dropped back on a host target — the seam is
+    /// <see cref="DockHostNativeComponent"/>'s <c>FinalizeImmediateDrop</c>
+    /// confirmedTarget branch, which used to bare-<c>Close()</c> the preview
+    /// with no stash. After the fix the auto-close must report
+    /// <see cref="DockFloatingCloseReason.MigratedToHost"/> + the pane,
+    /// because the pane is alive again in the docked tree. Symmetric with
+    /// T08 (drop-outside) but latching a host hover so the release confirms a
+    /// target instead of falling through to drop-outside.</summary>
+    internal class T08b_ImmediateTearOff_DropOnHostTarget_ReportsMigratedToHost(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            ResetAll(); PrepDeterministic();
+            var savedPolicy = ReactorApp.ShutdownPolicy;
+            ReactorApp.ShutdownPolicy = ShutdownPolicy.Explicit;
+            ReactorWindow? floatingWindow = null;
+            var closed = new List<(DockFloatingCloseReason Reason, DockableContent? Content)>();
+            try
+            {
+                var host = H.CreateHost();
+                DockingNativeInterop.Register(host.Reconciler);
+                var a = MakePane("a", "body-a");
+                var b = MakePane("b", "body-b");
+                host.Mount(_ => new DockManager
+                {
+                    Layout = new DockTabGroup(new[] { a, b }),
+                    OnFloatingWindowClosed = args => closed.Add((args.Reason, args.Content)),
+                });
+                await Harness.Render();
+                var tv = FirstTabView(H);
+                if (tv is null) { H.Check("T08b_TabViewFound", false); return; }
+
+                var item0 = (TabViewItem)tv.TabItems[0];
+                DockTabTearOff.SimulatePressForTest(tv, item0, a, 0);
+                DockTabTearOff.SimulateMoveForTest(tv, 5.0, 5.0);
+                await Harness.Render();
+                floatingWindow = DockTabTearOffTracker.ActiveForTest?.FloatingWindow;
+                H.Check("T08b_TrackerHasActive", DockTabTearOffTracker.IsActive);
+
+                // Latch a host target as hovered, then release: the single
+                // FinalizeImmediateDrop closure docks the pane back AND
+                // stash-then-closes the preview (the H1 seam).
+                var hostOverlay = H.FindAllControls<DockDropTargetOverlayControl>(
+                    o => o.Visibility == Microsoft.UI.Xaml.Visibility.Visible).FirstOrDefault()
+                    ?? H.FindAllControls<DockDropTargetOverlayControl>(_ => true).FirstOrDefault();
+                H.Check("T08b_HostOverlayFound", hostOverlay is not null);
+                hostOverlay?.SetHoveredForTest(DockTarget.SplitRight);
+
+                DockTabTearOffTracker.SimulateReleaseForTest(commit: true);
+                await Harness.Render();
+                await Harness.Render();
+
+                H.Check("T08b_AtLeastOneCloseFired", closed.Count >= 1);
+                H.Check("T08b_ReportsMigratedToHost",
+                    closed.Any(c => c.Reason == DockFloatingCloseReason.MigratedToHost));
+                H.Check("T08b_NoCloseReportsContentClosed",
+                    closed.All(c => c.Reason != DockFloatingCloseReason.ContentClosed));
+                H.Check("T08b_MigratedCloseCarriesPaneA",
+                    closed.Any(c => c.Reason == DockFloatingCloseReason.MigratedToHost
+                                    && ReferenceEquals(c.Content, a)));
+
+                host.Mount(_ => TextBlock("done"));
+                await Harness.Render();
+            }
+            finally
+            {
+                if (floatingWindow is not null) DockFloatingPaneRouter.Unregister(floatingWindow);
+                floatingWindow?.Close();
+                ReactorApp.ShutdownPolicy = savedPolicy;
+                ResetAll();
+            }
+        }
+    }
+
     // ─── #9 EscCancel_BehavesLikeDropOutside ───────────────────────────────
 
     /// <summary>Esc cancellation (commit=false to SimulateReleaseForTest)
@@ -750,6 +828,112 @@ internal static class NativeDockingTearOffFixtures
                 DockTabTearOffTracker.SimulateReleaseForTest(commit: true);
                 await Harness.Render();
                 await Harness.Render();
+
+                host.Mount(_ => TextBlock("done"));
+                await Harness.Render();
+            }
+            finally
+            {
+                if (previewWindow is not null) DockFloatingPaneRouter.Unregister(previewWindow);
+                if (floating is not null) DockFloatingPaneRouter.Unregister(floating);
+                previewWindow?.Close();
+                floating?.Close();
+                ReactorApp.ShutdownPolicy = savedPolicy;
+                ResetAll();
+            }
+        }
+    }
+
+    // ─── #12b FloatingTearOff_DropOnHostTarget_ReportsMigratedToHost ───────
+
+    /// <summary>Producer-path coverage for issue #417 (review H1): the
+    /// SAME float→host dock-back T12 drives, but asserting the
+    /// <see cref="DockManager.OnFloatingWindowClosed"/> REASON. When the
+    /// torn-off preview window auto-closes after its pane was reinserted
+    /// into the host, the event must report
+    /// <see cref="DockFloatingCloseReason.MigratedToHost"/> — NOT the
+    /// default <see cref="DockFloatingCloseReason.ContentClosed"/>, which
+    /// would tell a consumer to release resources for a pane that is still
+    /// alive in the docked tree. The genuine bug this guards: the immediate
+    /// tear-off finalize used to call a bare <c>Close()</c> with no stash.
+    /// Every close that fires in this sequence is a migration (source
+    /// emptied into the preview = MigratedToFloat; preview docked back =
+    /// MigratedToHost), so NONE may report ContentClosed.</summary>
+    internal class T12b_FloatingTearOff_DropOnHostTarget_ReportsMigratedToHost(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            ResetAll(); PrepDeterministic();
+            var savedPolicy = ReactorApp.ShutdownPolicy;
+            ReactorApp.ShutdownPolicy = ShutdownPolicy.Explicit;
+            ReactorWindow? floating = null;
+            ReactorWindow? previewWindow = null;
+            var closed = new List<(DockFloatingCloseReason Reason, DockableContent? Content)>();
+            try
+            {
+                var host = H.CreateHost();
+                DockingNativeInterop.Register(host.Reconciler);
+                var a = MakePane("a", "body-a");
+                var b = MakePane("b", "body-b");
+                var managerEl = new DockManager
+                {
+                    Layout = new DockTabGroup(new[] { b }),
+                    OnFloatingWindowClosed = args => closed.Add((args.Reason, args.Content)),
+                };
+                host.Mount(_ => managerEl);
+                await Harness.Render();
+
+                floating = DockFloatingWindow.Open(a, manager: managerEl);
+                await Harness.Render();
+                await Harness.Render();
+
+                var floatingTabView = FindTabViewInWindow(floating);
+                if (floatingTabView is null) { H.Check("T12b_FloatingTabViewFound", false); return; }
+                var item = floatingTabView.TabItems.OfType<TabViewItem>().FirstOrDefault();
+                if (item is null) { H.Check("T12b_TabItemFound", false); return; }
+
+                DockTabTearOff.SimulatePressForTest(floatingTabView, item, a, 0);
+                DockTabTearOff.SimulateMoveForTest(floatingTabView, 5.0, 5.0);
+                await Harness.Render();
+
+                previewWindow = DockTabTearOffTracker.ActiveForTest?.FloatingWindow;
+                H.Check("T12b_TrackerActive", DockTabTearOffTracker.IsActive);
+
+                // Latch a host target as hovered (the production cursor would
+                // be over its button), then drive the release. Unlike T12,
+                // we do NOT pre-confirm via ConfirmTargetForTest — we want the
+                // SINGLE finalize/confirm closure (the seam H1 patched) to do
+                // BOTH the host re-insert AND the stash-then-close, exactly as
+                // production does on mouse-up.
+                var hostOverlay = H.FindAllControls<DockDropTargetOverlayControl>(
+                    o => o.Visibility == Microsoft.UI.Xaml.Visibility.Visible).FirstOrDefault()
+                    ?? H.FindAllControls<DockDropTargetOverlayControl>(_ => true).FirstOrDefault();
+                H.Check("T12b_HostOverlayFound", hostOverlay is not null);
+                hostOverlay?.SetHoveredForTest(DockTarget.SplitRight);
+
+                // Drive the finalize path → confirm closure docks the pane
+                // back into the host AND auto-closes the preview window. This
+                // is the seam that must stash MigratedToHost.
+                DockTabTearOffTracker.SimulateReleaseForTest(commit: true);
+                await Harness.Render();
+                await Harness.Render();
+
+                // The pane is back in the host (sanity).
+                var allHeaders = H.FindAllControls<TabView>(_ => true)
+                    .SelectMany(t => t.TabItems.OfType<TabViewItem>().Select(ti => ti.Header as string))
+                    .ToList();
+                H.Check("T12b_HostNowContainsA", allHeaders.Contains("a"));
+
+                // The key #417 assertions: a MigratedToHost close fired, and
+                // NOTHING in this all-migration sequence reported ContentClosed.
+                H.Check("T12b_AtLeastOneCloseFired", closed.Count >= 1);
+                H.Check("T12b_ReportsMigratedToHost",
+                    closed.Any(c => c.Reason == DockFloatingCloseReason.MigratedToHost));
+                H.Check("T12b_NoCloseReportsContentClosed",
+                    closed.All(c => c.Reason != DockFloatingCloseReason.ContentClosed));
+                H.Check("T12b_MigratedCloseCarriesPaneA",
+                    closed.Any(c => c.Reason == DockFloatingCloseReason.MigratedToHost
+                                    && ReferenceEquals(c.Content, a)));
 
                 host.Mount(_ => TextBlock("done"));
                 await Harness.Render();

@@ -296,7 +296,7 @@ internal static class NativeDockingCoverageFloatingFixtures
     /// Issue #417 — the close-reason discriminator threads end-to-end through
     /// a real <see cref="DockFloatingWindow.Open"/> window. A genuine
     /// user/OS close (no stash) reports
-    /// <see cref="DockFloatingCloseReason.UserClosed"/>; a synthetic
+    /// <see cref="DockFloatingCloseReason.ContentClosed"/>; a synthetic
     /// migration close that stashed
     /// <see cref="DockFloatingCloseReason.MigratedToHost"/> + the migrated
     /// pane via <see cref="DockFloatingTracker.SetPendingClose"/> right before
@@ -344,15 +344,15 @@ internal static class NativeDockingCoverageFloatingFixtures
             ReactorApp.ShutdownPolicy = ShutdownPolicy.Explicit;
             try
             {
-                // (1) Genuine user/OS close — nothing stashed → UserClosed.
+                // (1) Genuine user/OS close — nothing stashed → ContentClosed.
                 var userWindow = DockFloatingWindow.Open(userPane, manager: managerEl);
                 H.Check("FloatReason_User_OpenSucceeded", userWindow is not null);
                 userWindow?.Close();
                 await Harness.Render();
                 await Harness.Render();
                 H.Check("FloatReason_User_ClosedEventFired", closedCount == 1);
-                H.Check("FloatReason_User_ReasonIsUserClosed",
-                    lastReason == DockFloatingCloseReason.UserClosed);
+                H.Check("FloatReason_User_ReasonIsContentClosed",
+                    lastReason == DockFloatingCloseReason.ContentClosed);
                 H.Check("FloatReason_User_ContentIsPane",
                     ReferenceEquals(lastContent, userPane));
 

@@ -157,7 +157,7 @@ public static class DockFloatingWindow
         {
             // Read the stashed close cause BEFORE Unregister clears it.
             // A window closed by the user / OS (no stash) reports
-            // UserClosed; a synthetic dock-back / re-tear-out close stashed
+            // ContentClosed; a synthetic dock-back / re-tear-out close stashed
             // its reason + the migrated pane right before Close() (issue #417).
             var pending = DockFloatingTracker.TakePendingClose(window);
             DockFloatingTracker.Unregister(window);
@@ -165,7 +165,7 @@ public static class DockFloatingWindow
             // Spec 045 §2.6 — paired OnFloatingWindowClosed event. Fires
             // for both user-initiated close and host-unmount close
             // (DockingNativeInterop iterates DockFloatingTracker.SnapshotFor
-            // and calls Close() on each) with Reason=UserClosed; the
+            // and calls Close() on each) with Reason=ContentClosed; the
             // synthetic cross-window dock-back close instead carries
             // Reason=MigratedToHost (or MigratedToFloat) so handlers can
             // tell a true close apart from a migration whose Content is
@@ -381,7 +381,7 @@ public static class DockFloatingWindow
     /// <summary>
     /// Maps the active drag-session consume state to a
     /// <see cref="DockFloatingCloseReason"/> scoped to a specific pane
-    /// (issue #417). Returns <see cref="DockFloatingCloseReason.UserClosed"/>
+    /// (issue #417). Returns <see cref="DockFloatingCloseReason.ContentClosed"/>
     /// unless THIS pane was the one consumed by the current drag — a
     /// multi-pane float that lost an earlier tab to a dock-back keeps
     /// <see cref="DockDragSession.Consumed"/> true, but a genuine user close
@@ -392,13 +392,41 @@ public static class DockFloatingWindow
     /// </summary>
     internal static DockFloatingCloseReason MigratedReasonFor(DockableContent pane)
     {
-        if (!DockDragSession.Consumed) return DockFloatingCloseReason.UserClosed;
+        if (!DockDragSession.Consumed) return DockFloatingCloseReason.ContentClosed;
         var consumed = DockDragSession.LastConsumedPane;
         if (consumed is not null && !ReferenceEquals(consumed, pane))
-            return DockFloatingCloseReason.UserClosed;
+            return DockFloatingCloseReason.ContentClosed;
         return DockDragSession.LastConsumedToFloat
             ? DockFloatingCloseReason.MigratedToFloat
             : DockFloatingCloseReason.MigratedToHost;
+    }
+
+    /// <summary>
+    /// Stashes <paramref name="reason"/> + <paramref name="pane"/> for
+    /// <paramref name="window"/> then closes it, so the paired
+    /// <see cref="DockManager.OnFloatingWindowClosed"/> reports the truthful
+    /// migration reason instead of the default
+    /// <see cref="DockFloatingCloseReason.ContentClosed"/>. Used by every
+    /// synthetic dock-back / tear-off close path whose pane has already been
+    /// reinserted into its destination (issue #417) — centralizing the
+    /// stash-then-close so a future close site cannot silently regress to
+    /// reporting ContentClosed for a migrated pane.
+    ///
+    /// The close is DEFERRED onto the dispatcher when one is available — the
+    /// synchronous confirm path may already be mid-render, and closing a
+    /// window during another render's reentry breaks WinUI's dispatcher (see
+    /// the spike doc's "render-time cleanup" gotcha). One queued tick lets the
+    /// pending re-render flush. <see cref="ReactorWindow.Close"/> is idempotent
+    /// (no-op after dispose) and narrows the teardown COMException set, so
+    /// calling it once per branch — enqueued OR sync fallback, never both — is
+    /// safe without an outer catch.
+    /// </summary>
+    internal static void StashReasonAndClose(ReactorWindow window, DockableContent pane, DockFloatingCloseReason reason)
+    {
+        DockFloatingTracker.SetPendingClose(window, reason, pane);
+        var dq = global::Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        bool enqueued = dq is not null && dq.TryEnqueue(window.Close);
+        if (!enqueued) window.Close();
     }
 }
 
@@ -513,7 +541,7 @@ internal sealed class DockFloatingWindowComponent : Component<DockFloatingWindow
 
         var currentPanes = panes;
 
-        void RemoveLocal(DockableContent pane, DockFloatingCloseReason closeReason = DockFloatingCloseReason.UserClosed)
+        void RemoveLocal(DockableContent pane, DockFloatingCloseReason closeReason = DockFloatingCloseReason.ContentClosed)
         {
             // Filter by reference (Key equality is unreliable — apps
             // can ship multiple panes with the same Key). When the
@@ -542,10 +570,10 @@ internal sealed class DockFloatingWindowComponent : Component<DockFloatingWindow
                 // Stash the close cause so the window.Closed handler can
                 // report Reason on OnFloatingWindowClosed. A migration-driven
                 // empty (last tab dock-backed / re-torn-out) carries
-                // Migrated*; an ordinary last-tab close stays UserClosed.
+                // Migrated*; an ordinary last-tab close stays ContentClosed.
                 // Issue #417.
                 var w = holder[0];
-                if (w is not null && closeReason != DockFloatingCloseReason.UserClosed)
+                if (w is not null && closeReason != DockFloatingCloseReason.ContentClosed)
                     DockFloatingTracker.SetPendingClose(w, closeReason, pane);
                 w?.Close();
                 return;
@@ -739,14 +767,14 @@ internal sealed class DockFloatingWindowComponent : Component<DockFloatingWindow
                 if (target is not null)
                 {
                     RestoreSourcePointerInput();
-                    // ReactorWindow.Close is idempotent (no-op after
-                    // _disposed) and internally narrows the teardown
-                    // COMException set, so calling it once per branch —
-                    // enqueued OR sync fallback, never both — is safe
-                    // without an outer catch.
-                    var dq = global::Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
-                    bool ok = dq is not null && dq.TryEnqueue(capturedDragged.Close);
-                    if (!ok) capturedDragged.Close();
+                    // The confirmed target is a host dock surface whose
+                    // OnConfirm reinserted the pane into the docked tree, so
+                    // this synthetic close is a migration, NOT a user close —
+                    // stash MigratedToHost so OnFloatingWindowClosed reports
+                    // the truth rather than the default ContentClosed
+                    // (issue #417). StashReasonAndClose also defers the close
+                    // onto the dispatcher (idempotent, COMException-narrowed).
+                    DockFloatingWindow.StashReasonAndClose(capturedDragged, pane, DockFloatingCloseReason.MigratedToHost);
                     return;
                 }
                 // No target hit — drop-outside semantics: strip drag styles,
@@ -895,6 +923,13 @@ internal static class DockFloatingTracker
     private static readonly object _lock = new();
     private static readonly HashSet<ReactorWindow> _open = new();
     private static readonly Dictionary<ReactorWindow, Entry> _entries = new();
+    // Kept separate from _entries (rather than hung off Entry) on purpose:
+    // the stash is keyed on `object`, not ReactorWindow, so the pending-close
+    // round-trip is unit-testable headlessly with a plain `new object()` —
+    // a real WinUI-backed ReactorWindow can't be constructed off-thread/in a
+    // headless xUnit run, and an Entry only exists for a registered window.
+    // The end-to-end ReactorWindow path is covered by the FloatCov_Close
+    // selftest. (Issue #417, review M2.)
     private static readonly Dictionary<object, PendingClose> _pendingClose = new();
     private static readonly ConditionalWeakTable<DockManager, HashSet<ReactorWindow>> _byManager = new();
 
@@ -911,7 +946,7 @@ internal static class DockFloatingTracker
     /// Records why <paramref name="window"/> is about to close. Call
     /// immediately before <c>window.Close()</c> on any synthetic
     /// (migration-driven) path. A window with no stashed reason defaults to
-    /// <see cref="DockFloatingCloseReason.UserClosed"/> when read.
+    /// <see cref="DockFloatingCloseReason.ContentClosed"/> when read.
     /// </summary>
     public static void SetPendingClose(ReactorWindow window, DockFloatingCloseReason reason, DockableContent? content)
     {
@@ -921,7 +956,7 @@ internal static class DockFloatingTracker
 
     /// <summary>
     /// Reads and clears the stashed close cause for <paramref name="window"/>.
-    /// Returns <see cref="DockFloatingCloseReason.UserClosed"/> with a null
+    /// Returns <see cref="DockFloatingCloseReason.ContentClosed"/> with a null
     /// content when nothing was stashed — i.e. a genuine OS / user close.
     /// </summary>
     public static PendingClose TakePendingClose(ReactorWindow window)
@@ -949,8 +984,17 @@ internal static class DockFloatingTracker
                 _pendingClose.Remove(key);
                 return pc;
             }
-            return new PendingClose(DockFloatingCloseReason.UserClosed, null);
+            return new PendingClose(DockFloatingCloseReason.ContentClosed, null);
         }
+    }
+
+    // Drops any stashed reason without reading it. Called when a window
+    // unregisters without going through the Closed handler, so a stale stash
+    // can never bleed onto a later window that reuses the reference (#417, M6).
+    internal static void ClearPendingCloseCore(object key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        lock (_lock) { _pendingClose.Remove(key); }
     }
 
     public static void Register(ReactorWindow window)

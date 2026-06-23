@@ -122,12 +122,16 @@ public sealed class DockFloatingWindowCreatedEventArgs
 public enum DockFloatingCloseReason
 {
     /// <summary>
-    /// The window closed because the user dismissed it — the OS close
-    /// button, Alt+F4, an app-driven <c>Close()</c>, the last tab being
-    /// closed, or the owning host unmounting. The content is gone; it is
-    /// safe to release per-document state tied to it.
+    /// The window closed and its content is gone — the OS close button,
+    /// Alt+F4, an app-driven <c>Close()</c>, the last tab being closed, or
+    /// the owning host unmounting. It is safe to release per-document state
+    /// tied to the content. This is the zero value, so a handler that ignores
+    /// <see cref="DockFloatingWindowClosedEventArgs.Reason"/> sees the
+    /// pre-#417 behaviour. Named for the outcome (content gone), not the
+    /// initiator — it deliberately covers app-driven and host-unmount closes
+    /// too, and so is distinct from <c>WindowCloseReason.UserClosed</c>.
     /// </summary>
-    UserClosed = 0,
+    ContentClosed = 0,
 
     /// <summary>
     /// The window closed synthetically because its last pane was
@@ -152,7 +156,7 @@ public sealed class DockFloatingWindowClosedEventArgs
     public DockableContent? Content { get; init; }
 
     /// <summary>
-    /// Why the window closed. <see cref="DockFloatingCloseReason.UserClosed"/>
+    /// Why the window closed. <see cref="DockFloatingCloseReason.ContentClosed"/>
     /// uniquely identifies a true close; the <c>Migrated*</c> values mark the
     /// synthetic close that pairs a cross-window dock-back / re-tear-out, where
     /// <see cref="Content"/> is still alive elsewhere and must not be released.

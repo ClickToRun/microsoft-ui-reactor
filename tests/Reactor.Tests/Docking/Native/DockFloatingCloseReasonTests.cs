@@ -97,12 +97,12 @@ public class DockFloatingCloseReasonTests
     // ── MigratedReasonFor: the reason-decision seam ────────────────────
 
     [Fact]
-    public void MigratedReasonFor_NotConsumed_IsUserClosed()
+    public void MigratedReasonFor_NotConsumed_IsContentClosed()
     {
         DockDragSession.ResetForTest();
         var pane = Pane("doc:a");
 
-        Assert.Equal(DockFloatingCloseReason.UserClosed, DockFloatingWindow.MigratedReasonFor(pane));
+        Assert.Equal(DockFloatingCloseReason.ContentClosed, DockFloatingWindow.MigratedReasonFor(pane));
 
         DockDragSession.ResetForTest();
     }
@@ -134,7 +134,7 @@ public class DockFloatingCloseReasonTests
     }
 
     [Fact]
-    public void MigratedReasonFor_DifferentPaneConsumed_IsUserClosed()
+    public void MigratedReasonFor_DifferentPaneConsumed_IsContentClosed()
     {
         // The multi-pane subtlety (issue #417): a float lost tab A to a
         // dock-back (Consumed stays true), then the user genuinely closes
@@ -145,7 +145,7 @@ public class DockFloatingCloseReasonTests
         DockDragSession.Begin(a, Mgr(a), 0);
         DockDragSession.MarkConsumed(); // A migrated; Consumed == true
 
-        Assert.Equal(DockFloatingCloseReason.UserClosed, DockFloatingWindow.MigratedReasonFor(b));
+        Assert.Equal(DockFloatingCloseReason.ContentClosed, DockFloatingWindow.MigratedReasonFor(b));
         // ...but A itself is still correctly reported as migrated.
         Assert.Equal(DockFloatingCloseReason.MigratedToHost, DockFloatingWindow.MigratedReasonFor(a));
 
@@ -155,13 +155,13 @@ public class DockFloatingCloseReasonTests
     // ── DockFloatingTracker pending-close stash round-trip ─────────────
 
     [Fact]
-    public void PendingClose_DefaultsToUserClosed_WhenNothingStashed()
+    public void PendingClose_DefaultsToContentClosed_WhenNothingStashed()
     {
         var key = new object();
 
         var pending = DockFloatingTracker.TakePendingCloseCore(key);
 
-        Assert.Equal(DockFloatingCloseReason.UserClosed, pending.Reason);
+        Assert.Equal(DockFloatingCloseReason.ContentClosed, pending.Reason);
         Assert.Null(pending.Content);
     }
 
@@ -189,7 +189,25 @@ public class DockFloatingCloseReasonTests
         var second = DockFloatingTracker.TakePendingCloseCore(key);
 
         // Second read sees no stash → genuine close semantics.
-        Assert.Equal(DockFloatingCloseReason.UserClosed, second.Reason);
+        Assert.Equal(DockFloatingCloseReason.ContentClosed, second.Reason);
         Assert.Null(second.Content);
+    }
+
+    [Fact]
+    public void PendingClose_ClearedOnUnregister_LeavesNoStaleStash()
+    {
+        // A window can unregister (host unmount, disposal) WITHOUT ever
+        // routing through the Closed handler that calls TakePendingClose.
+        // If the stash survived, a later window reusing the reference would
+        // wrongly inherit a migration reason. ClearPendingCloseCore (called
+        // from Unregister) must drop it so the next read is a genuine close.
+        var key = new object();
+        DockFloatingTracker.SetPendingCloseCore(key, DockFloatingCloseReason.MigratedToHost, Pane("doc:a"));
+
+        DockFloatingTracker.ClearPendingCloseCore(key);
+        var pending = DockFloatingTracker.TakePendingCloseCore(key);
+
+        Assert.Equal(DockFloatingCloseReason.ContentClosed, pending.Reason);
+        Assert.Null(pending.Content);
     }
 }

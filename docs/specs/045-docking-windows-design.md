@@ -373,7 +373,7 @@ Reactor-idiomatic delivery: events are `Action<TArgs>?` props on the record. App
 ```csharp
 public enum DockFloatingCloseReason
 {
-    UserClosed,      // true close — safe to release resources tied to Content
+    ContentClosed,   // content gone — safe to release resources tied to Content
     MigratedToHost,  // last pane dock-backed into another host — Content alive
     MigratedToFloat, // last pane re-torn-out / dropped into another float — Content alive
 }
@@ -385,7 +385,7 @@ public sealed class DockFloatingWindowClosedEventArgs
 }
 ```
 
-Apps write `if (e.Reason == DockFloatingCloseReason.UserClosed) { /* release */ }`. The reason is stashed on the window holder (`DockFloatingTracker.SetPendingClose`) immediately before the synthetic `Close()` and read once by the `Closed` handler; a window with no stashed reason reports `UserClosed`. The migrated reason is scoped to the **specific** pane that was consumed (`DockDragSession.LastConsumedPane`) — a multi-pane float that loses one tab to a dock-back keeps `Consumed == true`, but a later genuine user close of its surviving tabs still reports `UserClosed`.
+Apps write `if (e.Reason == DockFloatingCloseReason.ContentClosed) { /* release */ }`. The reason is stashed on the window holder (`DockFloatingTracker.SetPendingClose`) immediately before the synthetic `Close()` and read once by the `Closed` handler; a window with no stashed reason reports `ContentClosed`. The migrated reason is scoped to the **specific** pane that was consumed (`DockDragSession.LastConsumedPane`) — a multi-pane float that loses one tab to a dock-back keeps `Consumed == true`, but a later genuine close of its surviving tabs still reports `ContentClosed`. `ContentClosed` (not `UserClosed`) names the discriminator after the *outcome* — the content is gone and its resources can be released — which also covers app-driven `Close()` and host-unmount, and avoids colliding with the unrelated `WindowCloseReason.UserClosed`. The synthetic dock-back paths covered are: an existing float's last-tab cross-window dock-back, and the immediate tab tear-off dropped onto a host target (`DockHostNativeComponent.FinalizeImmediateDrop` / `DockFloatingWindow.BeginFloatingTearOff`).
 
 #### 5.3.6 Insertion-policy hook (`IDockLayoutStrategy`)
 
