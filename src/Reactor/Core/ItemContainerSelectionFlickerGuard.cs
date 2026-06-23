@@ -52,6 +52,16 @@ internal static class ItemContainerSelectionFlickerGuard
 
     // One holder per container instance; tracks whether the storyboard has been
     // neutralized so repeated GetElement reuse never re-processes a container.
+    //
+    // Deliberately a private ConditionalWeakTable rather than the reconciler's
+    // ReactorAttached.StateProperty store: this guard is a self-contained,
+    // reconciler-agnostic mitigation scoped to ItemContainer, and Ensure is
+    // designed to be safe on any ItemContainer — including one that never carries
+    // a ReactorState (e.g. a container a raw WinUI ItemsView realizes, as the
+    // regression fixture exercises directly). Keeping its one-time bookkeeping
+    // isolated avoids coupling to the per-element reconcile state's shape and
+    // lifetime. The weak key collapses with the container, same as the attached
+    // store would.
     private static readonly ConditionalWeakTable<ItemContainer, Holder> Holders = new();
 
     /// <summary>
@@ -75,17 +85,32 @@ internal static class ItemContainerSelectionFlickerGuard
         // not be applied yet for a freshly mounted container. Try now for an
         // already-templated (pooled / re-Ensured) container; otherwise wait for
         // Loaded. Repeated Ensure calls keep retrying until it succeeds.
-        if (!TryNeutralize(container, holder) && !holder.LoadedHooked)
+        if (TryNeutralize(container, holder))
+        {
+            // Succeeded synchronously (or on a later Ensure after a deferred
+            // hook) — drop any Loaded handler a prior attempt left attached so
+            // it doesn't linger on the container until the next Loaded fires.
+            DetachLoaded(container, holder);
+            return;
+        }
+
+        if (!holder.LoadedHooked)
         {
             holder.LoadedHooked = true;
-            RoutedEventHandler? onLoaded = null;
-            onLoaded = (s, _) =>
+            holder.OnLoaded = (s, _) =>
             {
                 if (s is ItemContainer ic && TryNeutralize(ic, holder))
-                    ic.Loaded -= onLoaded;
+                    DetachLoaded(ic, holder);
             };
-            container.Loaded += onLoaded;
+            container.Loaded += holder.OnLoaded;
         }
+    }
+
+    private static void DetachLoaded(ItemContainer container, Holder holder)
+    {
+        if (holder.OnLoaded is null) return;
+        container.Loaded -= holder.OnLoaded;
+        holder.OnLoaded = null;
     }
 
     private static bool TryNeutralize(ItemContainer container, Holder holder)
@@ -171,5 +196,10 @@ internal static class ItemContainerSelectionFlickerGuard
         // containers, and re-templating would re-run the whole arming flow anyway.
         public bool Neutralized;
         public bool LoadedHooked;
+
+        // The deferred one-time Loaded handler, retained so a later synchronous
+        // TryNeutralize success (or the handler itself) can detach it instead of
+        // leaving it subscribed until the container fires Loaded again.
+        public RoutedEventHandler? OnLoaded;
     }
 }

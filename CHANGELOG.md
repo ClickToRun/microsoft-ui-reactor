@@ -311,6 +311,22 @@ Conventions for contributors:
   control is no longer orphaned and the per-control tracking stays consistent.
   `ListView<T>` / `GridView<T>` already remount per realize and are unaffected.
 
+- **ItemsView multi-select checkmark no longer flickers during window resize
+  (issue #383).** In a `SelectionMode=Multiple` `ItemsView<T>`, the per-item
+  selection checkmark visibly faded out/in on every realized row while the
+  window was drag-resized. WinUI's `ItemsView` flips each realized
+  `ItemContainer`'s internal multi-select mode on every clear/prepare recycle
+  round-trip, re-running the `MultiSelectStates.Multiple` opacity storyboard with
+  `useTransitions: true`; and because the inner `ItemsRepeater` recycles its
+  realized set on every ancestor arrange pass during a resize, the storyboard
+  re-fired dozens of times per gesture. The recycle is intrinsic WinUI
+  viewport-manager behavior (not eliminable without regressing ItemsView sizing
+  — see the issue #383 investigation), so Reactor now collapses each realized
+  container's `Multiple`-state opacity storyboard keyframes to zero duration: the
+  animated `GoToState` still runs but snaps the checkmark to full opacity in the
+  same UI tick instead of fading it. Selection behavior, the recycle, and the
+  final checkmark visibility are unchanged — only the spurious fade is gone.
+
 - **`UseAnnounce().Announce(...)` now marshals to the UI thread automatically.**
   Previously, calling `Announce` off the UI thread (e.g. from a `Task.Run`
   continuation) threw `RPC_E_WRONG_THREAD` (0x8001010E) — the underlying WinUI

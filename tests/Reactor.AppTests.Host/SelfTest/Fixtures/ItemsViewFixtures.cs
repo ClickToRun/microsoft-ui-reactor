@@ -466,12 +466,32 @@ internal static class ItemsViewFixtures
             // production trigger that re-fires the flicker. A reused container
             // keeps its collapsed storyboard; a freshly realized one is re-armed
             // on prepare. Either way the checkmark must still snap.
+            //
+            // Assert the realized dataset genuinely swapped each way before
+            // checking the snap — otherwise the round-trip could pass vacuously
+            // if the toggle ever stopped realizing a new set. AltCatalog has
+            // fully disjoint keys AND a different cardinality from Catalog, so a
+            // successful toggle (a) changes the bound source count and (b) forces
+            // every container to be cleared + re-prepared (no key reuse). Reading
+            // the source count is pool-proof: WinUI keeps cleared containers
+            // parented in its recycle pool with stale text, so a tree-wide
+            // FindText would still match the old set.
+            int SourceCount() =>
+                (H.FindControl<WinUI.ItemsView>(_ => true)?.ItemsSource
+                    as global::System.Collections.ICollection)?.Count ?? -1;
+
             H.ClickButton("recycle");
-            await Harness.Render();
-            await Harness.Render();
+            var swappedToAlt = await Harness.WaitFor(() =>
+                // "Xigua" exists only in AltCatalog, so a realized container
+                // showing it proves a fresh prepare ran (not a pooled-stale
+                // leftover); the source-count change confirms the swap.
+                H.FindText("Xigua") is not null && SourceCount() == AltCatalog.Length);
+            H.Check("ItemsViewFlicker_Recycle_SwappedToAltSet", swappedToAlt);
+
             H.ClickButton("recycle");
-            await Harness.Render();
-            await Harness.Render();
+            var swappedBack = await Harness.WaitFor(() =>
+                H.FindText("Apple") is not null && SourceCount() == Catalog.Length);
+            H.Check("ItemsViewFlicker_Recycle_SwappedBackToOriginal", swappedBack);
 
             var recycledArmed = await Harness.WaitFor(() =>
             {
