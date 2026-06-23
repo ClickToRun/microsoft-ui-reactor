@@ -1182,6 +1182,7 @@ internal static class SelfTestFixtureRegistry
         "FloatCov_OpenWithoutManager_SkipsPerManagerWiring",
         "FloatCov_Router_RegisterUnregister_AndEmptyHitTest",
         "FloatCov_BuildFloatingRoot_ProducesTabbedChrome",
+        "FloatCov_Close_ThreadsCloseReason",
 
         "OverlayCov_HostMode_EdgesVisible_InnerHidden",
         "OverlayCov_GroupInnerMode_ModeSwitch_AppliesVisibility",
@@ -2569,6 +2570,7 @@ internal static class SelfTestFixtureRegistry
         "FloatCov_OpenWithoutManager_SkipsPerManagerWiring" => new NativeDockingCoverageFloatingFixtures.FloatingWindow_OpenWithoutManager_SkipsPerManagerWiring(harness),
         "FloatCov_Router_RegisterUnregister_AndEmptyHitTest" => new NativeDockingCoverageFloatingFixtures.FloatingRouter_RegisterUnregister_AndEmptyHitTest(harness),
         "FloatCov_BuildFloatingRoot_ProducesTabbedChrome" => new NativeDockingCoverageFloatingFixtures.FloatingWindow_BuildFloatingRoot_ProducesTabbedChrome(harness),
+        "FloatCov_Close_ThreadsCloseReason" => new NativeDockingCoverageFloatingFixtures.FloatingWindow_Close_ThreadsCloseReason(harness),
 
         "OverlayCov_HostMode_EdgesVisible_InnerHidden" => new NativeDockingCoverageOverlayFixtures.Overlay_HostMode_EdgesVisible_InnerHidden(harness),
         "OverlayCov_GroupInnerMode_ModeSwitch_AppliesVisibility" => new NativeDockingCoverageOverlayFixtures.Overlay_GroupInnerMode_ModeSwitch_AppliesVisibility(harness),

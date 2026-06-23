@@ -368,6 +368,25 @@ public sealed record DockHost(...) : Element
 
 Reactor-idiomatic delivery: events are `Action<TArgs>?` props on the record. Apps can compose them with their own state hooks. The `IDockBehavior` interface from phase 1 collapses into these (its three methods map to `OnContentDocked`, `OnContentFloating`, and the per-group docked variant).
 
+**`OnFloatingWindowClosed` close-reason discriminator (issue #417).** A floating window's `Window.Closed` fires for *both* a genuine user close (X / Alt+F4 / app-driven `Close()` / host-unmount / last tab closed) and the *synthetic* close that Reactor itself triggers right after a cross-window dock-back — where the pane is alive in its new dock position and the app must **not** release per-document resources. `DockFloatingWindowClosedEventArgs` carries a `required DockFloatingCloseReason Reason` to tell them apart:
+
+```csharp
+public enum DockFloatingCloseReason
+{
+    UserClosed,      // true close — safe to release resources tied to Content
+    MigratedToHost,  // last pane dock-backed into another host — Content alive
+    MigratedToFloat, // last pane re-torn-out / dropped into another float — Content alive
+}
+
+public sealed class DockFloatingWindowClosedEventArgs
+{
+    public DockableContent? Content { get; init; }
+    public required DockFloatingCloseReason Reason { get; init; }
+}
+```
+
+Apps write `if (e.Reason == DockFloatingCloseReason.UserClosed) { /* release */ }`. The reason is stashed on the window holder (`DockFloatingTracker.SetPendingClose`) immediately before the synthetic `Close()` and read once by the `Closed` handler; a window with no stashed reason reports `UserClosed`. The migrated reason is scoped to the **specific** pane that was consumed (`DockDragSession.LastConsumedPane`) — a multi-pane float that loses one tab to a dock-back keeps `Consumed == true`, but a later genuine user close of its surviving tabs still reports `UserClosed`.
+
 #### 5.3.6 Insertion-policy hook (`IDockLayoutStrategy`)
 
 Adopts AvalonDock's `ILayoutUpdateStrategy` model. An app-supplied strategy intercepts new-content insertion to override the default "go to active pane / right side / first available" heuristics.

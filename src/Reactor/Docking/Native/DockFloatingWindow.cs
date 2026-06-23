@@ -155,17 +155,25 @@ public static class DockFloatingWindow
         });
         window.Closed += (_, _) =>
         {
+            // Read the stashed close cause BEFORE Unregister clears it.
+            // A window closed by the user / OS (no stash) reports
+            // UserClosed; a synthetic dock-back / re-tear-out close stashed
+            // its reason + the migrated pane right before Close() (issue #417).
+            var pending = DockFloatingTracker.TakePendingClose(window);
             DockFloatingTracker.Unregister(window);
             if (manager is not null) DockFloatingTracker.UnregisterFor(manager, window);
             // Spec 045 §2.6 — paired OnFloatingWindowClosed event. Fires
             // for both user-initiated close and host-unmount close
             // (DockingNativeInterop iterates DockFloatingTracker.SnapshotFor
-            // and calls Close() on each); the pane content reference may
-            // be stale after a cross-window dock-back already migrated it
-            // to another host.
+            // and calls Close() on each) with Reason=UserClosed; the
+            // synthetic cross-window dock-back close instead carries
+            // Reason=MigratedToHost (or MigratedToFloat) so handlers can
+            // tell a true close apart from a migration whose Content is
+            // still alive in its new dock position.
             manager?.OnFloatingWindowClosed?.Invoke(new DockFloatingWindowClosedEventArgs
             {
-                Content = pane,
+                Content = pending.Content ?? pane,
+                Reason = pending.Reason,
             });
         };
         return window;
@@ -189,11 +197,14 @@ public static class DockFloatingWindow
                 // overrides this with state-driven removal logic.
                 windowHolder[0]?.Close();
             },
-            onTabDragCompleted: (_, _) =>
+            onTabDragCompleted: (dragged, _) =>
             {
                 if (DockDragSession.Consumed)
                 {
-                    windowHolder[0]?.Close();
+                    var w = windowHolder[0];
+                    if (w is not null)
+                        DockFloatingTracker.SetPendingClose(w, MigratedReasonFor(dragged), dragged);
+                    w?.Close();
                     return;
                 }
                 DockDragSession.Current?.Cancel();
@@ -366,6 +377,29 @@ public static class DockFloatingWindow
             if (panes[i] is not Document) return DockGroupRole.General;
         return DockGroupRole.DocumentArea;
     }
+
+    /// <summary>
+    /// Maps the active drag-session consume state to a
+    /// <see cref="DockFloatingCloseReason"/> scoped to a specific pane
+    /// (issue #417). Returns <see cref="DockFloatingCloseReason.UserClosed"/>
+    /// unless THIS pane was the one consumed by the current drag — a
+    /// multi-pane float that lost an earlier tab to a dock-back keeps
+    /// <see cref="DockDragSession.Consumed"/> true, but a genuine user close
+    /// of the surviving tabs must not inherit that migration. When the pane
+    /// was consumed, distinguishes a dock-back into a host
+    /// (<see cref="DockFloatingCloseReason.MigratedToHost"/>) from a drop
+    /// into another float (<see cref="DockFloatingCloseReason.MigratedToFloat"/>).
+    /// </summary>
+    internal static DockFloatingCloseReason MigratedReasonFor(DockableContent pane)
+    {
+        if (!DockDragSession.Consumed) return DockFloatingCloseReason.UserClosed;
+        var consumed = DockDragSession.LastConsumedPane;
+        if (consumed is not null && !ReferenceEquals(consumed, pane))
+            return DockFloatingCloseReason.UserClosed;
+        return DockDragSession.LastConsumedToFloat
+            ? DockFloatingCloseReason.MigratedToFloat
+            : DockFloatingCloseReason.MigratedToHost;
+    }
 }
 
 /// <summary>
@@ -479,7 +513,7 @@ internal sealed class DockFloatingWindowComponent : Component<DockFloatingWindow
 
         var currentPanes = panes;
 
-        void RemoveLocal(DockableContent pane)
+        void RemoveLocal(DockableContent pane, DockFloatingCloseReason closeReason = DockFloatingCloseReason.UserClosed)
         {
             // Filter by reference (Key equality is unreliable — apps
             // can ship multiple panes with the same Key). When the
@@ -505,7 +539,15 @@ internal sealed class DockFloatingWindowComponent : Component<DockFloatingWindow
             });
             if (willEmpty)
             {
-                holder[0]?.Close();
+                // Stash the close cause so the window.Closed handler can
+                // report Reason on OnFloatingWindowClosed. A migration-driven
+                // empty (last tab dock-backed / re-torn-out) carries
+                // Migrated*; an ordinary last-tab close stays UserClosed.
+                // Issue #417.
+                var w = holder[0];
+                if (w is not null && closeReason != DockFloatingCloseReason.UserClosed)
+                    DockFloatingTracker.SetPendingClose(w, closeReason, pane);
+                w?.Close();
                 return;
             }
             if (newTitle is not null)
@@ -662,7 +704,11 @@ internal sealed class DockFloatingWindowComponent : Component<DockFloatingWindow
                     ownWindow.SetOpacity(0.9999);
                 ownWindow.SetIgnorePointerInput(true);
             }
-            RemoveLocal(pane);
+            // Tearing this pane out into the new preview window. If it was
+            // the source window's last tab, RemoveLocal closes the source
+            // with MigratedToFloat — the pane is alive in the dragged
+            // preview, not genuinely closed (issue #417).
+            RemoveLocal(pane, DockFloatingCloseReason.MigratedToFloat);
 
             if (manager is not null)
             {
@@ -755,7 +801,7 @@ internal sealed class DockFloatingWindowComponent : Component<DockFloatingWindow
             currentPanes,
             holder,
             manager,
-            onTabClosing: RemoveLocal,
+            onTabClosing: pane => RemoveLocal(pane),
             onTabImmediateTearOff: BeginFloatingTearOff,
             onTabDragCompleted: (pane, wasOutside) =>
             {
@@ -765,8 +811,8 @@ internal sealed class DockFloatingWindowComponent : Component<DockFloatingWindow
                     // host's per-group overlay, another floating
                     // window's CenterOnly overlay, etc.). Remove it
                     // from us; if it was the only tab, the window
-                    // closes itself.
-                    RemoveLocal(pane);
+                    // closes itself with a migration reason (issue #417).
+                    RemoveLocal(pane, DockFloatingWindow.MigratedReasonFor(pane));
                     return;
                 }
                 // §4.2 cross-window dock-in (Center only): if the
@@ -784,8 +830,11 @@ internal sealed class DockFloatingWindowComponent : Component<DockFloatingWindow
                     {
                         if (DockFloatingPaneRouter.TryAppendUnderCursor(pane))
                         {
-                            RemoveLocal(pane);
-                            DockDragSession.MarkConsumed();
+                            // Float→float migration: mark consumed BEFORE
+                            // RemoveLocal so the close (if this empties the
+                            // window) carries MigratedToFloat. Issue #417.
+                            DockDragSession.MarkConsumed(pane, toFloat: true);
+                            RemoveLocal(pane, DockFloatingCloseReason.MigratedToFloat);
                             DockDragSession.Current?.End();
                             return;
                         }
@@ -846,7 +895,63 @@ internal static class DockFloatingTracker
     private static readonly object _lock = new();
     private static readonly HashSet<ReactorWindow> _open = new();
     private static readonly Dictionary<ReactorWindow, Entry> _entries = new();
+    private static readonly Dictionary<object, PendingClose> _pendingClose = new();
     private static readonly ConditionalWeakTable<DockManager, HashSet<ReactorWindow>> _byManager = new();
+
+    /// <summary>
+    /// Stashed close cause for a floating window, set right before a
+    /// programmatic <c>Close()</c> and read once by the <c>window.Closed</c>
+    /// handler. Lets the synthetic dock-back close carry a
+    /// <see cref="DockFloatingCloseReason"/> + the migrated pane through the
+    /// WinUI Closed event, which otherwise has no payload (issue #417).
+    /// </summary>
+    internal readonly record struct PendingClose(DockFloatingCloseReason Reason, DockableContent? Content);
+
+    /// <summary>
+    /// Records why <paramref name="window"/> is about to close. Call
+    /// immediately before <c>window.Close()</c> on any synthetic
+    /// (migration-driven) path. A window with no stashed reason defaults to
+    /// <see cref="DockFloatingCloseReason.UserClosed"/> when read.
+    /// </summary>
+    public static void SetPendingClose(ReactorWindow window, DockFloatingCloseReason reason, DockableContent? content)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        SetPendingCloseCore(window, reason, content);
+    }
+
+    /// <summary>
+    /// Reads and clears the stashed close cause for <paramref name="window"/>.
+    /// Returns <see cref="DockFloatingCloseReason.UserClosed"/> with a null
+    /// content when nothing was stashed — i.e. a genuine OS / user close.
+    /// </summary>
+    public static PendingClose TakePendingClose(ReactorWindow window)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        return TakePendingCloseCore(window);
+    }
+
+    // Object-keyed core so the stash round-trip is unit-testable without a
+    // real (WinUI-backed) ReactorWindow; the window's reference identity is
+    // all the dictionary needs.
+    internal static void SetPendingCloseCore(object key, DockFloatingCloseReason reason, DockableContent? content)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        lock (_lock) { _pendingClose[key] = new PendingClose(reason, content); }
+    }
+
+    internal static PendingClose TakePendingCloseCore(object key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        lock (_lock)
+        {
+            if (_pendingClose.TryGetValue(key, out var pc))
+            {
+                _pendingClose.Remove(key);
+                return pc;
+            }
+            return new PendingClose(DockFloatingCloseReason.UserClosed, null);
+        }
+    }
 
     public static void Register(ReactorWindow window)
     {
@@ -877,6 +982,7 @@ internal static class DockFloatingTracker
         {
             _open.Remove(window);
             _entries.Remove(window);
+            _pendingClose.Remove(window);
         }
     }
 

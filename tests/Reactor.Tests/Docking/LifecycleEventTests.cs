@@ -61,6 +61,33 @@ public class LifecycleEventTests
         Assert.Null(args.PreviousContent);
     }
 
+    [Fact]
+    public void DockFloatingWindowClosedEventArgs_CarriesReasonAndContent()
+    {
+        // Issue #417 — Reason discriminates a true user close from the
+        // synthetic close that pairs a cross-window dock-back / re-tear-out.
+        var pane = new DockableContent("Doc");
+        var user = new DockFloatingWindowClosedEventArgs { Content = pane, Reason = DockFloatingCloseReason.UserClosed };
+        Assert.Same(pane, user.Content);
+        Assert.Equal(DockFloatingCloseReason.UserClosed, user.Reason);
+
+        var migrated = new DockFloatingWindowClosedEventArgs { Content = pane, Reason = DockFloatingCloseReason.MigratedToHost };
+        Assert.Equal(DockFloatingCloseReason.MigratedToHost, migrated.Reason);
+
+        // Content stays optional (best-effort) even with Reason required.
+        var noContent = new DockFloatingWindowClosedEventArgs { Reason = DockFloatingCloseReason.MigratedToFloat };
+        Assert.Null(noContent.Content);
+        Assert.Equal(DockFloatingCloseReason.MigratedToFloat, noContent.Reason);
+    }
+
+    [Fact]
+    public void DockFloatingCloseReason_HasUserClosedAsDefault()
+    {
+        // UserClosed == 0 so it is the natural default and the value the
+        // tracker falls back to when no synthetic reason was stashed.
+        Assert.Equal(0, (int)DockFloatingCloseReason.UserClosed);
+    }
+
     // ── Cancel only exists on *ing variants ─────────────────────────────
 
     [Fact]
