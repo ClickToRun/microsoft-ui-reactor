@@ -24,15 +24,22 @@ internal static class CallbacksMemoSkipFixtures
 {
     private sealed record ChildCallbacks(Action OnTap);
 
-    private sealed record MemoChildProps(string Data, Callbacks<ChildCallbacks> Cb);
+    // A reference-stable render tally the parent owns and the child writes to. It is
+    // a data prop, but its identity never changes across renders (same instance), so
+    // it compares reference-equal and never drives a re-render — it just lets the test
+    // observe how many times the child actually rendered, without static mutable state.
+    private sealed class RenderTally
+    {
+        public int Count;
+    }
+
+    private sealed record MemoChildProps(string Data, RenderTally Tally, Callbacks<ChildCallbacks> Cb);
 
     private sealed class MemoChild : Component<MemoChildProps>
     {
-        public static int RenderCount;
-
         public override Element Render()
         {
-            RenderCount++;
+            Props.Tally.Count++;
             return VStack(
                 TextBlock($"child-data:{Props.Data}"),
                 // Reads the live callback off Props at *dispatch* time — the button
@@ -44,14 +51,14 @@ internal static class CallbacksMemoSkipFixtures
 
     /// <summary>
     /// Parent bumps a counter that its child-callback closes over, while the child's
-    /// data stays constant. The child must memo-skip (RenderCount stays 1) yet, when
-    /// tapped, fire the delegate that captured the latest counter value.
+    /// data stays constant. The child must memo-skip (tally stays 1) yet, when tapped,
+    /// fire the delegate that captured the latest counter value.
     /// </summary>
     internal class SkipRefreshesLiveDelegate(Harness h) : SelfTestFixtureBase(h)
     {
         public override async Task RunAsync()
         {
-            MemoChild.RenderCount = 0;
+            var tally = new RenderTally();
 
             var host = H.CreateHost();
             host.Mount(ctx =>
@@ -68,18 +75,18 @@ internal static class CallbacksMemoSkipFixtures
                     TextBlock($"fired:{fired}"),
                     Button("BumpTick", () => setTick(tick + 1)),
                     Component<MemoChild, MemoChildProps>(
-                        new MemoChildProps("constant", childCb)));
+                        new MemoChildProps("constant", tally, childCb)));
             });
 
             await Harness.Render();
-            H.Check("MemoSkip_ChildRenderedOnce", MemoChild.RenderCount == 1);
+            H.Check("MemoSkip_ChildRenderedOnce", tally.Count == 1);
             H.Check("MemoSkip_FiredInitial", H.FindText("fired:-1") is not null);
 
             // Parent re-renders with a NEW delegate (captures tick=1); child data is
             // unchanged so the real reconciler memo-skips the child render...
             H.ClickButton("BumpTick");
             await Harness.Render();
-            H.Check("MemoSkip_ChildDidNotReRender", MemoChild.RenderCount == 1);
+            H.Check("MemoSkip_ChildDidNotReRender", tally.Count == 1);
 
             // ...but dispatching from the (un-re-rendered) child must invoke the
             // CURRENT delegate (tick=1 → fired:1), proving the skip branch refreshed
