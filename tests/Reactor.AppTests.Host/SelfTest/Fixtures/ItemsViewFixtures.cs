@@ -508,23 +508,20 @@ internal static class ItemsViewFixtures
             return false;
 
         var groups = Microsoft.UI.Xaml.VisualStateManager.GetVisualStateGroups(root);
-        foreach (var group in groups)
+        foreach (var group in groups.Where(group => group.Name == "MultiSelectStates"))
         {
-            if (group.Name != "MultiSelectStates") continue;
-            foreach (var state in group.States)
+            foreach (var state in group.States.Where(
+                state => state.Name == "Multiple" && state.Storyboard is not null))
             {
-                if (state.Name != "Multiple" || state.Storyboard is null) continue;
                 bool sawKeyframe = false;
-                foreach (var child in state.Storyboard.Children)
+                foreach (var kf in state.Storyboard!.Children
+                    .OfType<Microsoft.UI.Xaml.Media.Animation.DoubleAnimationUsingKeyFrames>())
                 {
-                    if (child is Microsoft.UI.Xaml.Media.Animation.DoubleAnimationUsingKeyFrames kf)
+                    foreach (var f in kf.KeyFrames)
                     {
-                        foreach (var f in kf.KeyFrames)
-                        {
-                            sawKeyframe = true;
-                            if (f.KeyTime.TimeSpan != global::System.TimeSpan.Zero)
-                                return false;
-                        }
+                        sawKeyframe = true;
+                        if (f.KeyTime.TimeSpan != global::System.TimeSpan.Zero)
+                            return false;
                     }
                 }
                 return sawKeyframe;
