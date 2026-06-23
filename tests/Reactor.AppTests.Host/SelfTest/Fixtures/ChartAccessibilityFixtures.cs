@@ -4,6 +4,7 @@ using Microsoft.UI.Reactor.Charting.Accessibility;
 using Microsoft.UI.Reactor.Charting.D3;
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Reactor.Hosting;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Automation.Provider;
@@ -1223,6 +1224,199 @@ internal static class ChartAccessibilityFixtures
             try { point.SetValue("nope"); }
             catch (InvalidOperationException) { setValueThrows = true; }
             H.Check("ChartA11y_PeerProvider_SetValueThrows", setValueThrows);
+
+            await Task.CompletedTask;
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  Issue #162 — custom LabelView / TickLabelView peer-subtree hiding
+    // ════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Composite label component: a focusable child (Button) + a TextBlock, exactly the
+    /// structured peer shape that the issue warns can leak inner peers / focus stops past
+    /// an outer-wrapper-only <c>AccessibilityView.Raw</c>.
+    /// </summary>
+    private sealed class CompositeSliceLabel : Component<string>
+    {
+        public override Element Render() =>
+            VStack(
+                TextBlock(Props),
+                Button("b-" + Props, () => { }));
+    }
+
+    private record A11ySlice(string Label, double Value);
+
+    private static readonly A11ySlice[] NonInteractiveSlices =
+        [new("niA", 30), new("niB", 20)];
+    private static readonly A11ySlice[] InteractiveSlices =
+        [new("intA", 30), new("intB", 20)];
+
+    /// <summary>
+    /// Default (non-interactive) custom <c>LabelView</c>: the chart must force
+    /// <c>AccessibilityView.Raw</c> on the <em>entire</em> realized subtree (so no inner peer
+    /// surfaces to UIA) and clear <c>IsTabStop</c> on inner focusable children (so they leave the
+    /// keyboard tab order). The opt-in <c>interactive: true</c> overload must leave both intact.
+    /// </summary>
+    internal class LabelViewSubtreeA11y(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            XamlInterop.Register(host.Reconciler);
+            host.Mount(ctx =>
+                VStack(
+                    // Reference focusable control the chart never touches — its untouched
+                    // AccessibilityView default + IsTabStop=true anchor the interactive asserts.
+                    Button("RefBtn", () => { }),
+                    Charts.PieChart(NonInteractiveSlices, d => d.Value, d => d.Label)
+                        .Width(360).Height(360)
+                        .LabelView((d, _) => Component<CompositeSliceLabel, string>(d.Label))
+                        .ToElement(),
+                    Charts.PieChart(InteractiveSlices, d => d.Value, d => d.Label)
+                        .Width(360).Height(360)
+                        .LabelView((d, _) => Component<CompositeSliceLabel, string>(d.Label), interactive: true)
+                        .ToElement()));
+
+            await Harness.Render();
+
+            var refBtn = H.FindControl<Button>(b => b.Content is string s && s == "RefBtn");
+            H.Check("ChartA11y_LabelView_RefButtonMounted", refBtn is not null);
+            if (refBtn is null) return;
+            var defaultView = AutomationProperties.GetAccessibilityView(refBtn);
+
+            // ── Non-interactive: subtree must be Raw + out of tab order ──
+            var niButtons = H.FindAllControls<Button>(b => b.Content is string s && s.StartsWith("b-ni"));
+            H.Check("ChartA11y_LabelView_NonInteractiveButtonsMounted", niButtons.Count == 2);
+            H.Check("ChartA11y_LabelView_NonInteractiveButtonsRaw",
+                niButtons.Count == 2 && niButtons.TrueForAll(b =>
+                    AutomationProperties.GetAccessibilityView(b) == AccessibilityView.Raw));
+            H.Check("ChartA11y_LabelView_NonInteractiveButtonsNotTabStop",
+                niButtons.Count == 2 && niButtons.TrueForAll(b => !b.IsTabStop));
+
+            var niText = H.FindText("niA");
+            H.Check("ChartA11y_LabelView_NonInteractiveTextMounted", niText is not null);
+            H.Check("ChartA11y_LabelView_NonInteractiveTextRaw",
+                niText is not null && AutomationProperties.GetAccessibilityView(niText) == AccessibilityView.Raw);
+
+            // Outer wrapper (the composite host the chart wraps) is hit-test invisible —
+            // pointer-invisibility propagates to the whole subtree — and every ancestor up to
+            // it is Raw, so no inner peer surfaces to UIA.
+            bool hitTestBlocked = false;
+            bool ancestorsAllRaw = true;
+            DependencyObject? node = niText is null
+                ? null
+                : Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(niText);
+            while (node is FrameworkElement feNode)
+            {
+                if (AutomationProperties.GetAccessibilityView(feNode) != AccessibilityView.Raw)
+                    ancestorsAllRaw = false;
+                if (!feNode.IsHitTestVisible)
+                {
+                    hitTestBlocked = true;
+                    break;
+                }
+                node = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(feNode);
+            }
+            H.Check("ChartA11y_LabelView_WrapperHitTestInvisible", hitTestBlocked);
+            H.Check("ChartA11y_LabelView_SubtreeAncestorsRaw", ancestorsAllRaw);
+
+            // ── Interactive opt-in: subtree must stay exposed + focusable ──
+            var intButtons = H.FindAllControls<Button>(b => b.Content is string s && s.StartsWith("b-int"));
+            H.Check("ChartA11y_LabelView_InteractiveButtonsMounted", intButtons.Count == 2);
+            H.Check("ChartA11y_LabelView_InteractiveButtonsTabStop",
+                intButtons.Count == 2 && intButtons.TrueForAll(b => b.IsTabStop));
+            H.Check("ChartA11y_LabelView_InteractiveButtonsNotForcedRaw",
+                intButtons.Count == 2 && intButtons.TrueForAll(b =>
+                    AutomationProperties.GetAccessibilityView(b) == defaultView));
+        }
+    }
+
+    /// <summary>
+    /// Same peer-subtree hiding for the axis-tick path (<c>D3Axes</c> custom tick label):
+    /// a non-interactive composite tick label is fully Raw + out of tab order; the
+    /// <c>interactive: true</c> overload leaves it exposed.
+    /// </summary>
+    internal class TickLabelViewSubtreeA11y(Harness h) : SelfTestFixtureBase(h)
+    {
+        private record P(double X, double Y);
+
+        public override async Task RunAsync()
+        {
+            P[] data = [new(0, 10), new(1, 20), new(2, 15)];
+
+            var host = H.CreateHost();
+            XamlInterop.Register(host.Reconciler);
+            host.Mount(ctx =>
+                VStack(
+                    Button("TickRef", () => { }),
+                    Charts.LineChart(data, d => d.X, d => d.Y)
+                        .Width(360).Height(260)
+                        .XTickLabelView(t => VStack(TextBlock("tx" + (int)t), Button("tb-ni" + (int)t, () => { })))
+                        .ToElement(),
+                    Charts.LineChart(data, d => d.X, d => d.Y)
+                        .Width(360).Height(260)
+                        .XTickLabelView(t => VStack(TextBlock("ix" + (int)t), Button("tb-int" + (int)t, () => { })),
+                            interactive: true)
+                        .ToElement()));
+
+            await Harness.Render();
+
+            var refBtn = H.FindControl<Button>(b => b.Content is string s && s == "TickRef");
+            H.Check("ChartA11y_TickView_RefMounted", refBtn is not null);
+            if (refBtn is null) return;
+            var defaultView = AutomationProperties.GetAccessibilityView(refBtn);
+
+            var niButtons = H.FindAllControls<Button>(b => b.Content is string s && s.StartsWith("tb-ni"));
+            H.Check("ChartA11y_TickView_NonInteractiveMounted", niButtons.Count > 0);
+            H.Check("ChartA11y_TickView_NonInteractiveRaw",
+                niButtons.Count > 0 && niButtons.TrueForAll(b =>
+                    AutomationProperties.GetAccessibilityView(b) == AccessibilityView.Raw));
+            H.Check("ChartA11y_TickView_NonInteractiveNotTabStop",
+                niButtons.Count > 0 && niButtons.TrueForAll(b => !b.IsTabStop));
+
+            var intButtons = H.FindAllControls<Button>(b => b.Content is string s && s.StartsWith("tb-int"));
+            H.Check("ChartA11y_TickView_InteractiveMounted", intButtons.Count > 0);
+            H.Check("ChartA11y_TickView_InteractiveTabStop",
+                intButtons.Count > 0 && intButtons.TrueForAll(b => b.IsTabStop));
+            H.Check("ChartA11y_TickView_InteractiveNotForcedRaw",
+                intButtons.Count > 0 && intButtons.TrueForAll(b =>
+                    AutomationProperties.GetAccessibilityView(b) == defaultView));
+        }
+    }
+
+    /// <summary>
+    /// Name projection: a <c>LabelView</c> supplied without a string label / DataLabel must let
+    /// the caller's <c>name</c> projection drive the chart's own descriptor — and therefore the
+    /// realized <see cref="ChartPointProvider"/> accessible name — instead of falling back to
+    /// "Slice N".
+    /// </summary>
+    internal class LabelViewNameProjection(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            string[] browsers = ["Chrome", "Edge", "Firefox"];
+
+            var pie = Charts.PieChart(browsers, _ => 1.0)
+                .Title("Browser share")
+                .LabelView((s, _) => TextBlock(s), name: s => s);
+
+            // Descriptor seam: name projection becomes the slice's accessible label.
+            var points = ((IChartAccessibilityData)pie).Series[0].Points;
+            H.Check("ChartA11y_NameProj_DescriptorMatchesProjection",
+                points.Count == 3 && points[0].XLabel == "Chrome"
+                    && points[1].XLabel == "Edge" && points[2].XLabel == "Firefox");
+            H.Check("ChartA11y_NameProj_NoSliceNFallback",
+                points.All(p => !p.XLabel.StartsWith("Slice ")));
+
+            // Realized peer seam: the same names flow through ChartPointProvider.GetName().
+            var owner = new Border();
+            var peer = new ChartAutomationPeer(owner, (IChartAccessibilityData)pie);
+            var names = peer.GetChildren().OfType<ChartPointProvider>()
+                .Select(p => p.GetName()).ToList();
+            H.Check("ChartA11y_NameProj_PeerNamesUseProjection",
+                names.Any(n => n.Contains("Chrome")) && names.All(n => !n.Contains("Slice ")));
 
             await Task.CompletedTask;
         }

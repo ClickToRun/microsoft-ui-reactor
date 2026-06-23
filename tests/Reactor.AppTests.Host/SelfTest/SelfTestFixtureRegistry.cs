@@ -138,6 +138,9 @@ internal static class SelfTestFixtureRegistry
         "ChartA11y_OnDemandAnnounce",
         "ChartA11y_FullIntegration",
         "ChartA11y_AutomationPeerProviderExercise",
+        "ChartA11y_LabelViewSubtreeA11y",
+        "ChartA11y_TickLabelViewSubtreeA11y",
+        "ChartA11y_LabelViewNameProjection",
 
         "MdHtml_HtmlGeneration",
         "MdHtml_HtmlInWebView2",
@@ -1544,6 +1547,9 @@ internal static class SelfTestFixtureRegistry
         "ChartA11y_OnDemandAnnounce" => new ChartAccessibilityFixtures.OnDemandAnnounce(harness),
         "ChartA11y_FullIntegration" => new ChartAccessibilityFixtures.FullIntegration(harness),
         "ChartA11y_AutomationPeerProviderExercise" => new ChartAccessibilityFixtures.AutomationPeerProviderExercise(harness),
+        "ChartA11y_LabelViewSubtreeA11y" => new ChartAccessibilityFixtures.LabelViewSubtreeA11y(harness),
+        "ChartA11y_TickLabelViewSubtreeA11y" => new ChartAccessibilityFixtures.TickLabelViewSubtreeA11y(harness),
+        "ChartA11y_LabelViewNameProjection" => new ChartAccessibilityFixtures.LabelViewNameProjection(harness),
 
         "Win2D_Canvas_Mount" => new Win2DCanvasFixtures.CanvasMount(harness),
         "Win2D_AnimatedCanvas_Mount" => new Win2DCanvasFixtures.AnimatedCanvasMount(harness),
