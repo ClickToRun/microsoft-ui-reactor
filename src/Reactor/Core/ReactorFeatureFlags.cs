@@ -52,4 +52,22 @@ public static class ReactorFeatureFlags
     /// the reconciler skips all collection work so there is zero overhead.
     /// </remarks>
     public static bool HighlightReconcileChanges { get; set; }
+
+    /// <summary>
+    /// When true, the reconciler emits a one-time diagnostic warning at first mount
+    /// for layout "footguns" that silently collapse to <c>0×0</c> — most notably an
+    ///     <c>HStack</c>/<c>VStack</c> placed in a <c>Grid</c> <see cref="GridSize.Auto"/>
+    /// track with no explicit size and no explicitly-sized children (issue #345). The
+    /// warning is routed through
+    /// <see cref="Microsoft.UI.Reactor.Diagnostics.LayoutFootgunDetector"/> (and <c>Debug.WriteLine</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>Default: <c>false</c>. In <c>DEBUG</c> builds the detection is always on
+    /// regardless of this flag — the flag is the opt-in switch for <c>Release</c>
+    /// builds. When off in <c>Release</c> the detection call is elided to a single
+    /// flag read per <c>Grid</c> mount, so it is effectively free.</para>
+    /// <para>Each distinct offending placement warns at most once per process; see
+    /// <see cref="Microsoft.UI.Reactor.Diagnostics.LayoutFootgunDetector"/>.</para>
+    /// </remarks>
+    public static bool WarnLayoutFootguns { get; set; }
 }
