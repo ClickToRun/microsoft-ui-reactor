@@ -28,6 +28,18 @@ Conventions for contributors:
 
 ### Added
 
+- **Command debouncing: `Command.DebounceMs` (issue #136).**
+  Commands can declare a leading-edge debounce window via `DebounceMs` (default
+  `0` = off) to absorb double-clicks without reaching for `Task.Delay`. When
+  routed through `UseCommand`, the first fire is accepted and any subsequent fire
+  within the window is dropped; `IsDebouncing` drives `IsEnabled = false` so the
+  bound control visibly disables and then re-enables when the window elapses. For
+  async commands the disabled window is the longer of the lambda's lifetime
+  (`IsExecuting`) and `DebounceMs`. Debounce state lives in the `UseCommand` hook
+  store, so a raw `new Command { DebounceMs = … }` bound directly (not through
+  `UseCommand`) is inert. `UseCommand` now consumes a stable hook shape regardless
+  of the command's sync/async/debounce shape.
+
 - **`Callbacks<T>` — keep delegate props out of memo comparison (issue #151).**
   An opt-in, always-equal wrapper record (`Equals` returns `true`, `GetHashCode`
   returns `0`) for the delegate (callback) portion of a component's props. Because
