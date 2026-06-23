@@ -1299,6 +1299,7 @@ internal static class SelfTestFixtureRegistry
         // surface is sufficient for external authors.
         "Spec047ExternalProof_Marquee_MountUpdate",
         "Spec047ExternalProof_Marquee_WriteSuppressed",
+        "Spec047ExternalProof_Gauge_WriteSuppressed",
         "Spec047ExternalProof_Marquee_ModifierChain",
         "Spec047ExternalProof_Marquee_SetterChain",
         "Spec047ExternalProof_Marquee_PoolRent",
@@ -2666,6 +2667,7 @@ internal static class SelfTestFixtureRegistry
         // Spec 047 §14 Phase 1 (1.16) — external-assembly proof fixtures.
         "Spec047ExternalProof_Marquee_MountUpdate" => new Spec047ExternalProofFixtures.MarqueeMountUpdate(harness),
         "Spec047ExternalProof_Marquee_WriteSuppressed" => new Spec047ExternalProofFixtures.MarqueeWriteSuppressedEcho(harness),
+        "Spec047ExternalProof_Gauge_WriteSuppressed" => new Spec047ExternalProofFixtures.GaugeWriteSuppressedEcho(harness),
         "Spec047ExternalProof_Marquee_ModifierChain" => new Spec047ExternalProofFixtures.MarqueeModifierChain(harness),
         "Spec047ExternalProof_Marquee_SetterChain" => new Spec047ExternalProofFixtures.MarqueeSetterChain(harness),
         "Spec047ExternalProof_Marquee_PoolRent" => new Spec047ExternalProofFixtures.MarqueePoolRentReturn(harness),
