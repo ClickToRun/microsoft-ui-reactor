@@ -230,7 +230,7 @@ Same shape as Boundary A: loopback-only HTTP (`http://127.0.0.1:<port>/mcp`) wit
 
 ### 7.5 SVG path data parser
 
-**File:** `src/Reactor/Charting/PathDataParser.cs`.
+**File:** `src/Reactor/Core/PathDataParser.cs`.
 **Activation:** chart authors pass SVG-mini-language path strings.
 
 **Mitigations:** pure managed code; bounds-checked indexing via `Span<char>`; no unsafe memory access. Same SharpFuzz follow-up applies.

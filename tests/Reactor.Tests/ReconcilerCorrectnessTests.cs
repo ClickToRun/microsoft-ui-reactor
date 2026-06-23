@@ -1,3 +1,4 @@
+using Microsoft.UI.Reactor.Charting.Accessibility;
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Reactor.Core.V1Protocol;
 using Microsoft.UI.Xaml;
@@ -469,10 +470,25 @@ public class ReconcilerCorrectnessTests
     {
         // Chart accessibility flags must round-trip through Update so the
         // keyboard wrapper and scanner hint stay in sync with the element state.
+        // The flags now live in an attached ChartA11yData payload (issue #498)
+        // rather than typed slots on CanvasElement, so they participate in
+        // shallow equality via the Attached dictionary.
         var children = new Element[] { new TextBlockElement("a") };
-        var a = new CanvasElement(children) { Width = 400, IsInteractive = false };
-        var b = new CanvasElement(children) { Width = 400, IsInteractive = true };
+        var data = new InteractiveMockChartData();
+        var a = (CanvasElement)new CanvasElement(children) { Width = 400 }
+            .SetAttached(new ChartA11yData(data) { IsInteractive = false });
+        var b = (CanvasElement)new CanvasElement(children) { Width = 400 }
+            .SetAttached(new ChartA11yData(data) { IsInteractive = true });
         Assert.False(Element.ShallowEquals(a, b));
+    }
+
+    private sealed class InteractiveMockChartData : IChartAccessibilityData
+    {
+        public string? Name => "Mock";
+        public string? Description => null;
+        public IReadOnlyList<ChartSeriesDescriptor> Series => [];
+        public IReadOnlyList<ChartAxisDescriptor> Axes => [];
+        public ChartViewport? Viewport => null;
     }
 
     // TransformsEqual is exercised in tests/Reactor.AppTests.Host/SelfTest/Fixtures/

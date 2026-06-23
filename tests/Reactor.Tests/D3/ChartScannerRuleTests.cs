@@ -9,6 +9,14 @@ namespace Microsoft.UI.Reactor.Tests.D3;
 
 public class ChartScannerRuleTests
 {
+    static ChartScannerRuleTests()
+    {
+        // The chart accessibility rules now live in the Charting subsystem and are
+        // contributed to the core scanner via registration (issue #498). Install
+        // the checker so these unit tests exercise the chart rules.
+        AccessibilityScanner.RegisterScanExtension(ChartAccessibilityChecker.Instance);
+    }
+
     private record DataPoint(double X, double Y);
 
     private static readonly DataPoint[] SampleData =
@@ -34,16 +42,22 @@ public class ChartScannerRuleTests
         {
             Width = 400,
             Height = 300,
-            ChartData = chartData,
-            IsColorOnly = isColorOnly,
-            IsRawColors = isRawColors,
-            CustomPalette = customPalette,
-            IsInteractive = isInteractive,
-            IsKeyboardDisabled = isKeyboardDisabled,
-            IsTightHitTest = isTightHitTest,
-            CustomFocusColor = customFocusColor,
-            IsAnnounceEveryFrame = isAnnounceEveryFrame,
         };
+
+        if (chartData != null)
+        {
+            canvas = (CanvasElement)canvas.SetAttached(new ChartA11yData(chartData)
+            {
+                IsColorOnly = isColorOnly,
+                IsRawColors = isRawColors,
+                CustomPalette = customPalette,
+                IsInteractive = isInteractive,
+                IsKeyboardDisabled = isKeyboardDisabled,
+                IsTightHitTest = isTightHitTest,
+                CustomFocusColor = customFocusColor,
+                IsAnnounceEveryFrame = isAnnounceEveryFrame,
+            });
+        }
 
         if (automationName != null)
             canvas = (CanvasElement)(canvas as Element).AutomationName(automationName);
@@ -204,14 +218,17 @@ public class ChartScannerRuleTests
     [Fact]
     public void A11Y_CHART_010_ColorblindUnsafePalette_Processed()
     {
+        // Two near-identical colors have a colorblind ΔE well under the 10.0
+        // minimum, so the rule must fire. Asserting the specific rule ID (rather
+        // than just NotNull(findings)) ensures the rule can't be silently deleted.
         var palette = ChartPalette.FromColors(
-            new D3Color(180, 60, 60),
-            new D3Color(60, 160, 60));
+            new D3Color(100, 100, 100),
+            new D3Color(101, 100, 100));
         var canvas = MakeChartCanvas(chartData: DataWithSeries(name: "Revenue"), customPalette: palette);
         var tree = VStack(canvas);
 
         var findings = AccessibilityScanner.Scan(tree);
-        Assert.NotNull(findings);
+        Assert.Contains(findings, f => f.Id == "A11Y_CHART_010");
     }
 
     // ── A11Y_CHART_011: Background contrast ─────────────────────────

@@ -31,6 +31,13 @@ internal sealed record DockSplitterElement(
     public Action<string>? DiagnosticSink { get; init; }
 
     internal override bool HasCallbacks => true;
+
+    // Spec 045 §2.1 — own-props (dev highlight overlay) equality. The OnDelta
+    // closure is freshly captured each parent render but doesn't touch the
+    // realized control's visible properties; only Direction does. Authored
+    // here so the core never statically references this docking type.
+    internal override bool? OwnPropsEqualOverride(Element other)
+        => other is DockSplitterElement db ? Direction == db.Direction : null;
 }
 
 /// <summary>

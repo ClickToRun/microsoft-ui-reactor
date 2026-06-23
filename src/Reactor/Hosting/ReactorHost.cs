@@ -62,7 +62,10 @@ public sealed class ReactorHost : IDisposable
     private global::Windows.UI.ViewManagement.UISettings? _uiSettings;
     private volatile bool _isForcedColors;
     private volatile bool _isReducedMotion;
-    private Charting.ForcedColorsTheme? _forcedColorsTheme;
+    // Opaque forced-colors theme payload produced by the charting bridge
+    // (issue #498). Typed as object so the host never statically references
+    // Charting.ForcedColorsTheme — keeping it out of chart-free AOT binaries.
+    private object? _forcedColorsTheme;
     // 0 = inactive, 1 = activation in flight or done. Flipped atomically
     // via Interlocked.CompareExchange so concurrent chart-element creation
     // from background threads can't double-subscribe HighContrastChanged.
@@ -239,7 +242,7 @@ public sealed class ReactorHost : IDisposable
     /// Called by chart elements (via <see cref="ChartingActivation.RequestActivation"/>)
     /// the first time a chart appears in the tree. Lazily allocates the WinRT
     /// accessibility settings, reads their initial values, subscribes for change
-    /// notifications, and pushes the values into <see cref="Charting.D3Charts"/>'s
+    /// notifications, and pushes the values into <c>Charting.D3Charts</c>'s
     /// thread-statics so the about-to-mount chart sees correct forced-colors /
     /// reduced-motion state.
     /// <para>
@@ -271,7 +274,7 @@ public sealed class ReactorHost : IDisposable
             _accessibilitySettings = new global::Windows.UI.ViewManagement.AccessibilitySettings();
             _isForcedColors = _accessibilitySettings.HighContrast;
             if (_isForcedColors)
-                _forcedColorsTheme = Charting.ForcedColorsTheme.FromSystem();
+                _forcedColorsTheme = s_chartingBridge?.CaptureForcedColorsTheme();
         }
         catch { /* headless / unit-test host — no accessibility settings */ }
 
@@ -288,16 +291,26 @@ public sealed class ReactorHost : IDisposable
         PushChartingState();
     }
 
-    // Kept in a separate method so the JIT doesn't resolve Charting.D3Charts
-    // when Render() is compiled — D3Charts only loads (and runs its cctor)
-    // the first time PushChartingState is actually invoked, which only
-    // happens for apps that use charts.
+    // Registered by the Charting subsystem (issue #498) the first time a chart
+    // element activates. Null in chart-free apps, so the trimmer never roots
+    // the concrete Charting bridge implementation or its D3Color/ForcedColorsTheme
+    // /D3Charts dependency chain.
+    private static IChartingHostBridge? s_chartingBridge;
+
+    /// <summary>
+    /// Internal registration hook for the Charting subsystem to install its
+    /// host bridge. Idempotent at the call site (Charting registers once on
+    /// first chart activation). See <see cref="IChartingHostBridge"/>.
+    /// </summary>
+    internal static void RegisterChartingBridge(IChartingHostBridge bridge)
+        => s_chartingBridge = bridge;
+
+    // Kept in a separate method so the JIT doesn't resolve the charting bridge
+    // when Render() is compiled — the bridge only loads (and runs the D3Charts
+    // static cctor cascade) the first time PushChartingState is actually
+    // invoked, which only happens for apps that use charts.
     private void PushChartingState()
-    {
-        Charting.D3Charts.IsForcedColors = _isForcedColors;
-        Charting.D3Charts.IsReducedMotion = _isReducedMotion;
-        Charting.D3Charts.ForcedColors = _forcedColorsTheme;
-    }
+        => s_chartingBridge?.PushAccessibilityState(_isForcedColors, _isReducedMotion, _forcedColorsTheme);
 
     public void Mount(Component component)
     {
@@ -784,7 +797,7 @@ public sealed class ReactorHost : IDisposable
         if (_accessibilitySettings is { } a11y)
         {
             _isForcedColors = a11y.HighContrast;
-            _forcedColorsTheme = _isForcedColors ? Charting.ForcedColorsTheme.FromSystem() : null;
+            _forcedColorsTheme = _isForcedColors ? s_chartingBridge?.CaptureForcedColorsTheme() : null;
         }
         RequestRender();
     }

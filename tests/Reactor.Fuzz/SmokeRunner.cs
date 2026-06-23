@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using Microsoft.UI.Reactor.Charting;
+using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Reactor.Markdown;
 
 namespace Microsoft.UI.Reactor.Fuzz;
