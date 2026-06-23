@@ -173,13 +173,18 @@ internal static class Phase7WindowingFixtures
         {
             EnsureUIDispatcher();
             var win = await OpenAndSettle(new WindowSpec { Title = "Explicit False", Width = 320, Height = 220, ExtendsContentIntoTitleBar = false }, () => new TitleBarComponent());
+            // Issue #537 regression: a window with ExtendsContentIntoTitleBar=false
+            // that still renders a TitleBar element must close cleanly. The WinUI
+            // TitleBar control corrupts the heap (STATUS_HEAP_CORRUPTION) on
+            // teardown unless the window is in content-extended mode, so Reactor
+            // flips ExtendsContentIntoTitleBar=true just before the native close
+            // (ReactorWindow.PrepareTitleBarForClose). Closing through the normal
+            // Close() path — no Hide/UnregisterWindowMonitor mitigation — is itself
+            // the assertion: without the fix this process terminates with
+            // STATUS_HEAP_CORRUPTION instead of reaching the check. The assertion
+            // still observes false because the flip happens only at close.
             try { H.Check("TitleBar_ExplicitFalseOverrides", !win.NativeWindow.ExtendsContentIntoTitleBar); }
-            finally
-            {
-                win.Hide();
-                ReactorDisplay.UnregisterWindowMonitor(win);
-                await Harness.Render(50);
-            }
+            finally { await CloseAndSettle(win); }
         }
     }
 

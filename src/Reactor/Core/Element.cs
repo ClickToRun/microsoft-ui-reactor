@@ -4255,7 +4255,15 @@ public partial record TitleBarElement(
     {
         if (global::Microsoft.UI.Reactor.ReactorApp.ActiveHostInternal is { } host)
         {
-            var explicitValue = host.OwningWindow?.Spec.ExtendsContentIntoTitleBar;
+            var owningWindow = host.OwningWindow;
+            // Record that a WinUI TitleBar control is mounted in this window —
+            // including the explicit-false case below where we skip SetTitleBar.
+            // The control corrupts the heap on teardown when the window is NOT in
+            // content-extended mode, so the window flips ExtendsContentIntoTitleBar
+            // back to true just before native close. (issue #537)
+            owningWindow?.MarkTitleBarControlPresent();
+
+            var explicitValue = owningWindow?.Spec.ExtendsContentIntoTitleBar;
             if (explicitValue == false) return;
             if (explicitValue is null)
                 host.Window.ExtendsContentIntoTitleBar = true;
