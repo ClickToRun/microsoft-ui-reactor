@@ -1396,9 +1396,10 @@ public sealed class ReactorWindow : IDisposable
                 child._closingReason = WindowCloseReason.OwnerClosed;
                 // Children close via the programmatic Window.Close() path,
                 // which does not raise AppWindow.Closing — so make each child's
-                // mounted WinUI TitleBar safe to tear down here, before the
-                // native close, mirroring ReactorWindow.Close(). Idempotent. (#537)
-                child.PrepareTitleBarForClose();
+                // (and every nested owned descendant's) mounted WinUI TitleBar
+                // safe to tear down here, before the native close, mirroring
+                // ReactorWindow.Close(). Idempotent. (#537)
+                child.PrepareTitleBarTreeForClose();
                 try { child._window.Close(); }
                 // Iteration sibling-independence (spec 044 §6.7.3): one
                 // failing child must not abort the cascade across its
@@ -1479,6 +1480,33 @@ public sealed class ReactorWindow : IDisposable
         try { _window.ExtendsContentIntoTitleBar = true; }
         catch (COMException ex) when (HResults.IsTeardownReentry(ex.HResult))
         { DiagnosticLog.SwallowedError(LogCategory.Hosting, "ReactorWindow.TitleBarClosePrep", ex); }
+    }
+
+    /// <summary>
+    /// Make this window and every owned descendant's mounted WinUI
+    /// <c>TitleBar</c> control safe to tear down, depth-first, before a native
+    /// close. (issue #537)
+    /// <para>
+    /// The owner-close cascade and programmatic <see cref="Close"/> close owned
+    /// children via the raw <c>Window.Close()</c> path, which does not raise
+    /// <c>AppWindow.Closing</c> on the child — so the child's own cascade never
+    /// runs and a grandchild's TitleBar would otherwise reach the unsafe
+    /// teardown unprepared. Walking the owned tree here prepares every level.
+    /// Idempotent per window (see <see cref="PrepareTitleBarForClose"/>), so
+    /// overlapping close paths can't double-flip.
+    /// </para>
+    /// </summary>
+    internal void PrepareTitleBarTreeForClose()
+    {
+        PrepareTitleBarForClose();
+
+        var owned = OwnedWindows;
+        for (int i = 0; i < owned.Count; i++)
+        {
+            var child = owned[i];
+            if (child._disposed) continue;
+            child.PrepareTitleBarTreeForClose();
+        }
     }
 
     // ── UseClosingGuard registration ──────────────────────────────────
@@ -1772,8 +1800,10 @@ public sealed class ReactorWindow : IDisposable
         // the AppWindow is still alive: a WinUI TitleBar mounted in an
         // ExtendsContentIntoTitleBar=false window corrupts the heap during its
         // teardown unless the window is flipped back into content-extended mode
-        // first. Idempotent. (issue #537)
-        PrepareTitleBarForClose();
+        // first. Prepare the owned tree too — closing this window can tear down
+        // owned descendants that likewise never see their own AppWindow.Closing.
+        // Idempotent. (issue #537)
+        PrepareTitleBarTreeForClose();
         try { _window.Close(); }
         catch (COMException ex) when (HResults.IsTeardownReentry(ex.HResult))
         { DiagnosticLog.SwallowedError(LogCategory.Hosting, "ReactorWindow.Close", ex); }
@@ -2411,6 +2441,13 @@ public sealed class ReactorWindow : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+
+        // Non-close teardown path: a direct Dispose() (not preceded by a
+        // Close()/cascade) still tears down the content, including any mounted
+        // WinUI TitleBar control. Make it safe first, while the window is still
+        // alive. Idempotent and a no-op when a close path already prepared it
+        // (the usual order: Window.Closed → Dispose). (issue #537)
+        PrepareTitleBarForClose();
 
         _embedWatchdog?.Stop();
         DetachBackgroundDragRoot();

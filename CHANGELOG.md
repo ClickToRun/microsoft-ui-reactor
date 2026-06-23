@@ -291,6 +291,22 @@ Conventions for contributors:
 
 ### Fixed
 
+- **TitleBar in a non-content-extended window no longer corrupts the heap on
+  close (issue #537).** A window whose `WindowSpec` set
+  `ExtendsContentIntoTitleBar = false` while its content still rendered a
+  `TitleBar(...)` element could terminate the process with
+  `STATUS_HEAP_CORRUPTION` when the window closed: the WinUI
+  `Microsoft.UI.Xaml.Controls.TitleBar` control only releases its caption-button
+  / AppWindow interop cleanly in content-extended mode, but Reactor allows that
+  combination (skipping `SetTitleBar`). Reactor now flips the window back into
+  content-extended mode just before the native close, while the AppWindow is
+  still alive, so the control tears down via its safe path. The flip is
+  idempotent and runs on every teardown path — `Close()`, the owner-close
+  cascade (including nested owned descendants), the chrome/Alt+F4 close, a direct
+  `Dispose()`, and `ReactorApp.Exit()` / shutdown-policy exit — so still-open
+  windows are covered no matter how the process winds down. The
+  `ExtendsContentIntoTitleBar` value observed while the window is alive is
+  unchanged; the flip happens only at close.
 - **Virtualized rows now reset per-item component state on recycle when keyed
   (issue #326).** `LazyVStack` / `LazyHStack` / `ItemsRepeater<T>` / `ItemsView<T>`
   now propagate the `keySelector` projection onto each realized row's top-level

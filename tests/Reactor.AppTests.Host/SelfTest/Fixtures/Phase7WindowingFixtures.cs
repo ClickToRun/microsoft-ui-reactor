@@ -188,6 +188,47 @@ internal static class Phase7WindowingFixtures
         }
     }
 
+    internal class TitleBarOwnedChildClosesClean(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            EnsureUIDispatcher();
+            // Issue #537 (multi-window coverage): an OWNED child window with
+            // ExtendsContentIntoTitleBar=false that renders a TitleBar element
+            // must close cleanly — the same heap-corruption hazard as the
+            // top-level case (#537), verified here for an owned window in a
+            // parent/child relationship. The child closes through the normal
+            // Close() path, which walks the owned tree
+            // (PrepareTitleBarTreeForClose) and flips it back into
+            // content-extended mode first; reaching the final check without a
+            // STATUS_HEAP_CORRUPTION is the regression proof.
+            //
+            // Note: the parent-driven owner-close *cascade* — a still-open owned
+            // TitleBar child torn down by closing its owner — is exercised by the
+            // chrome/Alt+F4 path (E2E tier). It is intentionally NOT reproduced
+            // here: closing an owner while it still owns a live child trips a
+            // separate, pre-existing multi-window teardown access violation in
+            // BackdropApplier.Reset (0xC0000005) that is unrelated to #537 and
+            // confirmed independent of this fix (it reproduces with a
+            // non-TitleBar child). The existing owner/child fixtures likewise
+            // close the child first for this reason.
+            var parent = await OpenAndSettle(
+                new WindowSpec { Title = "Owner", Width = 320, Height = 220 },
+                () => new PlainComponent());
+            var child = await OpenAndSettle(
+                new WindowSpec { Title = "Owned TitleBar Child", Width = 280, Height = 180, Owner = parent, ExtendsContentIntoTitleBar = false },
+                () => new TitleBarComponent());
+
+            H.Check("TitleBar_OwnedChild_Owned",
+                parent.OwnedWindows.Contains(child) && !child.NativeWindow.ExtendsContentIntoTitleBar);
+
+            // Child-first is the harness-stable close order for owned windows.
+            await CloseAndSettle(child);
+            await CloseAndSettle(parent);
+            H.Check("TitleBar_OwnedChild_ClosesClean", true);
+        }
+    }
+
     internal class TitleBarNoElementNullStaysFalse(Harness h) : SelfTestFixtureBase(h)
     {
         public override async Task RunAsync()

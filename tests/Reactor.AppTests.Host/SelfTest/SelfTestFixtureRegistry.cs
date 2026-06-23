@@ -1070,6 +1070,7 @@ internal static class SelfTestFixtureRegistry
         // Spec 054 Phase 7 — title-bar inference, transparent backdrop, picker hooks.
         "TitleBar_ImplicitExtends",
         "TitleBar_ExplicitFalseOverrides",
+        "TitleBar_OwnedChild",
         "TitleBar_NoElement_NullStaysFalse",
         "BackdropTransparent_Apply",
         "FilePicker_InitializesWithWindow",
@@ -2471,6 +2472,7 @@ internal static class SelfTestFixtureRegistry
         // Spec 054 Phase 7 — title-bar inference, transparent backdrop, picker hooks.
         "TitleBar_ImplicitExtends" => new Phase7WindowingFixtures.TitleBarImplicitExtends(harness),
         "TitleBar_ExplicitFalseOverrides" => new Phase7WindowingFixtures.TitleBarExplicitFalseOverrides(harness),
+        "TitleBar_OwnedChild" => new Phase7WindowingFixtures.TitleBarOwnedChildClosesClean(harness),
         "TitleBar_NoElement_NullStaysFalse" => new Phase7WindowingFixtures.TitleBarNoElementNullStaysFalse(harness),
         "BackdropTransparent_Apply" => new Phase7WindowingFixtures.BackdropTransparentApply(harness),
         "FilePicker_InitializesWithWindow" => new Phase7WindowingFixtures.FilePickerInitializesWithWindow(harness),

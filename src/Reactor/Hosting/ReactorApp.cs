@@ -571,6 +571,7 @@ public static class ReactorApp
     public static void Exit(int exitCode = 0)
     {
         ThreadAffinity.ThrowIfNotOnUIThread(nameof(Exit));
+        PrepareOpenWindowsForExit();
         try { Application.Current?.Exit(); }
         catch { /* best effort */ }
         if (exitCode != 0)
@@ -690,8 +691,29 @@ public static class ReactorApp
 
     private static void SafeExit()
     {
+        PrepareOpenWindowsForExit();
         try { Application.Current?.Exit(); }
         catch (Exception ex) { global::System.Diagnostics.Debug.WriteLine($"[Reactor] Application.Exit threw: {ex.Message}"); }
+    }
+
+    // Issue #537 — Application.Exit() tears down every open window's native
+    // surface without routing through ReactorWindow.Close()/OnAppWindowClosing,
+    // so a still-open window with a mounted WinUI TitleBar in an
+    // ExtendsContentIntoTitleBar=false mode would reach the unsafe teardown and
+    // corrupt the heap. (This is reachable under the default
+    // OnPrimaryWindowClosed policy: closing the primary fires SafeExit() while
+    // secondary ECITB=false TitleBar windows are still open.) Flip each live
+    // window — and its owned descendants — back into content-extended mode
+    // first, while their AppWindows are still alive. Idempotent per window, so
+    // windows already prepared by a close path are no-ops.
+    private static void PrepareOpenWindowsForExit()
+    {
+        var snapshot = Windows;
+        for (int i = 0; i < snapshot.Count; i++)
+        {
+            try { snapshot[i].PrepareTitleBarTreeForClose(); }
+            catch (Exception ex) { global::System.Diagnostics.Debug.WriteLine($"[Reactor] PrepareOpenWindowsForExit threw: {ex.Message}"); }
+        }
     }
 
     // Internal accessor for ReactorApplication.OnLaunched and tests.

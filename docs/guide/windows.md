@@ -199,6 +199,14 @@ VStack(
 
 Caveats:
 
+- Setting `ExtendsContentIntoTitleBar = false` while still rendering a `TitleBar(...)`
+  element is allowed (Reactor skips `SetTitleBar` in that case), but prior to the
+  #537 fix this combination crashed the process with `STATUS_HEAP_CORRUPTION` when
+  the window closed — the WinUI title-bar control only tears down safely in
+  content-extended mode. Reactor now flips the window back into content-extended
+  mode just before the native close, so the close is safe; the value you observe
+  while the window is alive is unchanged. New code can simply omit `TitleBar(...)`
+  when you genuinely want the system title bar.
 - `WindowStyle.None` without `IsMovableByBackground` can strand the user; Reactor
   warns but does not throw.
 - `WindowStyle.ToolWindow` defaults to hidden from the taskbar unless
