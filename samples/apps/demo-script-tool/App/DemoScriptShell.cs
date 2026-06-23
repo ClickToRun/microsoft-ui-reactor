@@ -635,11 +635,12 @@ public sealed class DemoScriptShell : Component
                     ? InlineBanner.Render($"demo-script.md parse error — {parseError}", BannerKind.Error)
                     : Empty()),
             Component<DemoPromptPanel, DemoPromptPanelProps>(
-                new DemoPromptPanelProps(model, OnDemoPromptChanged, OnDemoTitleChanged))
+                new DemoPromptPanelProps(model, new DemoPromptPanelCallbacks(OnDemoPromptChanged, OnDemoTitleChanged)))
                 .Margin(0, banner is null && parseError is null ? 0 : 12, 0, 0),
             (parseError is null
                 ? (Element)Component<StepsPanel, StepsPanelProps>(
-                    new StepsPanelProps(model, isGenerating, OnPromptChanged, OnTitleChanged, OnRunStep, OnCopyDelta, OnAddStep, OnDeleteStep, OnRegenFromStep))
+                    new StepsPanelProps(model, isGenerating, new StepsPanelCallbacks(
+                        OnPromptChanged, OnTitleChanged, OnRunStep, OnCopyDelta, OnAddStep, OnDeleteStep, OnRegenFromStep)))
                     .Flex(grow: 1, basis: 0)
                 : Empty()))
             with { RowGap = 0 })

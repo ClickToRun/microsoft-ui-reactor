@@ -557,7 +557,7 @@ LineChart(...).SeriesColors(
 Checks run:
 
 - Pairwise WCAG non-text contrast (every series vs. every other) ≥ 3:1.
-- Each series vs. `ChartBackground` (both light and dark) ≥ 3:1.
+- Each series vs. `ChartBackground` (light or dark) ≥ 3:1.
 - Pairwise ΔE ≥ 10 under deuteranopia, protanopia, tritanopia simulation.
 
 Violations emit scanner rules `A11Y_CHART_009`–`011` (see Layer 8) with the offending hex
@@ -653,7 +653,7 @@ JSON shape as existing A11Y_001–008:
 | `A11Y_CHART_007` | `.AnnounceEveryFrame()` used — floods live region | Remove; defaults are debounced for a reason. |
 | `A11Y_CHART_009` | Custom palette fails pairwise WCAG 3:1 non-text contrast | Run `ChartPalette.Harden(...)` — fix suggestion embeds hardened hex values. |
 | `A11Y_CHART_010` | Custom palette fails colorblind simulation (ΔE < 10 under deut/prot/trit) | Same: hardened alternative provided inline. |
-| `A11Y_CHART_011` | Custom palette fails 3:1 contrast against `ChartBackground` (light or dark) | Hardened alternative adjusts lightness away from background. |
+| `A11Y_CHART_011` | Custom palette would fail 3:1 contrast against `ChartBackground` (light or dark) | Informational (the static scanner is theme-agnostic and cannot know the active background, so it flags either-theme risk without blocking). Hardened alternative adjusts lightness away from the failing background. |
 | `A11Y_CHART_012` | `.RawColors()` escape hatch used | Informational; no blocking. Recorded for audit. Consider moving to `.Palette()` or `.SeriesColors()`. |
 
 *(A11Y_CHART_008 for a missing data-table fallback is intentionally absent: the fallback is

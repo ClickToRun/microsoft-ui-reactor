@@ -6,39 +6,27 @@ using static Microsoft.UI.Reactor.Factories;
 
 namespace DemoScriptTool.App.Components;
 
-public sealed record StepCardProps(
-    StepModel Step,
-    StepModel? PriorStep,
-    int TotalSteps,
-    bool IsGenerating,
+/// <summary>
+/// The per-card callbacks, grouped so they ride along in props inside a
+/// <see cref="Callbacks{T}"/> wrapper (issue #151). The wrapper is always-equal,
+/// so these freshly-allocated delegates never force the card to re-render — only
+/// the data fields on <see cref="StepCardProps"/> drive the memo decision. Read
+/// them live off <c>Props.Cb.Value</c> at dispatch time.
+/// </summary>
+public sealed record StepCardCallbacks(
     Action<int, string> OnPromptChanged,
     Action<int, string> OnTitleChanged,
     Action<StepModel> OnRun,
     Action<StepModel> OnCopyDelta,
     Action<StepModel> OnDelete,
-    Action<StepModel> OnRegenFromHere)
-{
-    // Manual Equals: callback delegates are excluded from memo equality. They
-    // get a fresh delegate identity each parent render (local functions in
-    // DemoScriptShell.Render), and including them here would re-render every
-    // card on every shell render. SAFETY CONTRACT: when memo decides "skip
-    // render", Reactor does NOT refresh Props on the child, so the child
-    // continues to dispatch through the *prior* delegates. That's only safe
-    // when the callbacks' captured state doesn't change between renders, OR
-    // when any state they capture is also reflected in one of the data
-    // fields below (so a meaningful change forces a refresh). Both hold for
-    // these callbacks today: they close over `model` (UseRef-stable identity)
-    // and per-step actions; per-step state changes show up via Step / PriorStep
-    // identity. Framework-level fix tracked at #151.
-    public bool Equals(StepCardProps? other) =>
-        other is not null
-        && ReferenceEquals(Step, other.Step)
-        && ReferenceEquals(PriorStep, other.PriorStep)
-        && TotalSteps == other.TotalSteps
-        && IsGenerating == other.IsGenerating;
-    public override int GetHashCode() =>
-        HashCode.Combine(Step, PriorStep, TotalSteps, IsGenerating);
-}
+    Action<StepModel> OnRegenFromHere);
+
+public sealed record StepCardProps(
+    StepModel Step,
+    StepModel? PriorStep,
+    int TotalSteps,
+    bool IsGenerating,
+    Callbacks<StepCardCallbacks> Cb);
 
 /// <summary>
 /// One step rendered as a three-column card: prompt | code | actions
@@ -116,7 +104,7 @@ public sealed class StepCard : Component<StepCardProps>
                 v =>
                 {
                     setLocalPrompt(v);
-                    Props.OnPromptChanged(step.Number, v);
+                    Props.Cb.Value.OnPromptChanged(step.Number, v);
                 },
                 placeholderText: "What should this step do?")
                 with { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap })
@@ -225,7 +213,7 @@ public sealed class StepCard : Component<StepCardProps>
         {
             Label = "Run",
             CanExecute = canRun,
-            Execute = () => Props.OnRun(step),
+            Execute = () => Props.Cb.Value.OnRun(step),
             DebounceMs = 1500,
         });
 
@@ -233,7 +221,7 @@ public sealed class StepCard : Component<StepCardProps>
         {
             Label = "Re-gen",
             CanExecute = !Props.IsGenerating,
-            Execute = () => Props.OnRegenFromHere(step),
+            Execute = () => Props.Cb.Value.OnRegenFromHere(step),
             DebounceMs = 250,
         });
 
@@ -248,13 +236,13 @@ public sealed class StepCard : Component<StepCardProps>
         {
             Label = "Copy notes",
             CanExecute = hasDelta,
-            Execute = () => Props.OnCopyDelta(step),
+            Execute = () => Props.Cb.Value.OnCopyDelta(step),
         };
 
         var deleteCmd = new Command
         {
             Label = "Delete",
-            Execute = () => Props.OnDelete(step),
+            Execute = () => Props.Cb.Value.OnDelete(step),
         };
 
         var actions = VStack(6,
@@ -290,7 +278,7 @@ public sealed class StepCard : Component<StepCardProps>
                 v =>
                 {
                     setLocalTitle(v);
-                    Props.OnTitleChanged(step.Number, v);
+                    Props.Cb.Value.OnTitleChanged(step.Number, v);
                 },
                 placeholderText: "Step title")
                 with { AcceptsReturn = false })

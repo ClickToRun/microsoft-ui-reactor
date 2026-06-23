@@ -227,7 +227,7 @@ internal sealed class ChartAccessibilityChecker : IScanExtension
         }
     }
 
-    /// <summary>A11Y_CHART_011: Custom palette fails background contrast.</summary>
+    /// <summary>A11Y_CHART_011: Custom palette would fail background contrast (informational — the scanner cannot know the active theme).</summary>
     private static void CheckChartPaletteBackground(CanvasElement canvas, ChartA11yData cd, IScanContext ctx, List<A11yDiagnostic> findings)
     {
         if (cd.CustomPalette is not { } palette) return;
@@ -240,16 +240,38 @@ internal sealed class ChartAccessibilityChecker : IScanExtension
             double lightContrast = ChartPalette.ContrastRatio(palette[i], lightBg);
             double darkContrast = ChartPalette.ContrastRatio(palette[i], darkBg);
 
-            if (lightContrast < 3.0 && darkContrast < 3.0)
+            bool failsLight = lightContrast < 3.0;
+            bool failsDark = darkContrast < 3.0;
+
+            // A theme-agnostic chart palette must render legibly under whichever
+            // background is active, so a color is flagged when it fails 3:1 contrast
+            // against *either* the light or dark background (per spec 026). Requiring
+            // failure against both is mathematically unreachable: a color light enough
+            // to fail vs white can never also be dark enough to fail vs near-black.
+            //
+            // The scanner is a static, theme-agnostic tree walk (issue #498) and has
+            // no access to the chart's effective rendered background, so it cannot
+            // know which theme is actually active. A color flagged here only fails if
+            // the chart renders on the matching background — hence this is emitted as
+            // an informational finding, not a warning, to avoid alert fatigue on
+            // palettes that are fine for the theme they actually run under. See the
+            // "scope to active background" follow-up tracked for spec 026.
+            if (failsLight || failsDark)
             {
                 var hardenResult = ChartPalette.Harden(
                     Enumerable.Range(0, palette.Count).Select(k => palette[k]).ToArray());
 
+                // failsLight and failsDark are mutually exclusive: a color light enough
+                // to fail vs white can never also be dark enough to fail vs near-black.
+                string failedBackground = failsLight
+                    ? $"a light ({lightContrast:F1}:1) background"
+                    : $"a dark ({darkContrast:F1}:1) background";
+
                 findings.Add(new A11yDiagnostic
                 {
                     Id = "A11Y_CHART_011",
-                    Severity = "warning",
-                    Message = $"Custom palette: color {i} fails background contrast on both light ({lightContrast:F1}:1) and dark ({darkContrast:F1}:1) backgrounds",
+                    Severity = "info",
+                    Message = $"Custom palette: color {i} would fail 3:1 contrast if rendered on {failedBackground}",
                     WcagCriterion = "1.4.11",
                     ElementType = "CanvasElement (Chart)",
                     AutomationId = ctx.GetAutomationId(canvas),

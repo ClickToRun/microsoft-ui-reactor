@@ -165,6 +165,56 @@ Even with 50 items in the list, `LazyVStack` only materializes the rows
 you can see. As you scroll, it creates new rows and recycles old ones. This
 keeps memory usage constant regardless of list size.
 
+### Per-item Component state resets on recycle
+
+When a row builder returns a stateful `Component<T>` — one that holds its own
+`UseState` / `UseEffect` (an inline editor's "dirty" flag, an expand/collapse
+toggle, a per-row animation) — that state is **per logical item**, not per
+recycled control. `LazyVStack<T>` (and `LazyHStack<T>`, `ItemsRepeater<T>`,
+`ItemsView<T>`) propagate your `keySelector` projection onto each row's
+top-level `Element.Key`. When a realized row is recycled for a *different*
+item while scrolling, the new key forces a clean remount of the row, so the
+inner component starts from its initial state instead of inheriting the
+previous item's:
+
+```csharp
+// Each row owns edit state. Scrolling row 5 (dirty) onto row 12 must NOT
+// carry the dirty flag — keySelector identity guarantees a fresh mount.
+LazyVStack<Note>(notes, n => n.Id, (note, i) =>
+    Component<NoteEditor, Note>(note));
+```
+
+Re-rendering the **same** item in place (its data changed but its key did not)
+preserves that state — the row diffs in place rather than remounting. If you
+deliberately want a hand-picked identity, an explicit `.WithKey(...)` on the
+row element always wins over the implicit `keySelector` key:
+
+```csharp
+LazyVStack<Note>(notes, n => n.Id, (note, i) =>
+    Component<NoteEditor, Note>(note)
+        .WithKey($"{note.Id}:{note.Revision}")); // remount on every revision
+```
+
+Conversely, if you *want* a row's component state to survive recycling — a
+deliberately durable cache, a long-running per-row animation, or state you've
+hoisted so it should outlive any single logical item — opt out by giving every
+row the **same constant key** so the recycle reuse never trips a remount:
+
+```csharp
+// Durable carry-over: a constant key disables the per-item reset, so the
+// recycled control keeps its component state across logical items.
+LazyVStack<Note>(notes, n => n.Id, (note, i) =>
+    Component<NoteEditor, Note>(note).WithKey("note-row"));
+```
+
+The more common way to keep state across recycles is to **hoist it above the
+row** — store it in the parent component (keyed by item id) and pass it down as
+props — so the row stays a pure function of its data and recycling never loses
+anything.
+
+> `ListView<T>` / `GridView<T>` already mount each container fresh on
+> realization, so per-item state resets there without any extra keying.
+
 When to use which:
 
 | Collection | Virtualized | Best for |

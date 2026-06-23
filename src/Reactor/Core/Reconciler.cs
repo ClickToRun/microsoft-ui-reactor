@@ -771,6 +771,22 @@ public sealed partial class Reconciler : IDisposable
     /// (throw on duplicate, no base-class fallback, no open generics) tightens
     /// previously-undefined behavior; it does not change the shape of this API.
     /// </summary>
+    /// <remarks>
+    /// A value-bearing custom control (one that raises the same change event for
+    /// a programmatic write as for a user edit) must suppress its own write echo
+    /// from the <c>update</c> callback. Use the supported public primitive
+    /// <see cref="ReactorBinding"/>'s
+    /// <c>WriteSuppressed</c> method — wrap the programmatic write, gate it on an
+    /// equality check, and pair it 1:1 with the write. For new controls prefer
+    /// the V1 path: a <see cref="V1Protocol.Descriptor.ControlDescriptor{TElement,TControl}"/>
+    /// (the primary, descriptor-first authoring shape — its <c>.Controlled</c> /
+    /// <c>.HandCodedControlled</c> handle echo suppression for you), or a
+    /// hand-coded <see cref="V1Protocol.IElementHandler{TElement,TControl}"/> via
+    /// <see cref="RegisterHandler{TElement,TControl}"/> only for irregular
+    /// controls (its <see cref="V1Protocol.ReactorBinding{TElement}"/> wraps the
+    /// same primitive). See <c>docs/guide/extending-reactor-controls.md</c>
+    /// (issue #206).
+    /// </remarks>
     public void RegisterType<TElement, TControl>(
         Func<Reconciler, TElement, Action, TControl> mount,
         Func<Reconciler, TElement, TElement, TControl, Action, UIElement?> update,
@@ -826,6 +842,16 @@ public sealed partial class Reconciler : IDisposable
     /// (including across registries) and on open-generic element types
     /// (spec §13 Q17).
     /// </summary>
+    /// <remarks>
+    /// Value-bearing handlers (a control whose programmatic property write
+    /// raises the same change event as a user edit) must suppress their own
+    /// write echo with the supported public primitive
+    /// <see cref="V1Protocol.ReactorBinding{TElement}"/>'s <c>WriteSuppressed</c>
+    /// method (or the static <see cref="ReactorBinding"/>); descriptor authors get it
+    /// via <c>.Controlled</c> / <c>.HandCodedControlled</c>. See
+    /// <see cref="V1Protocol.IElementHandler{TElement,TControl}"/> and
+    /// <c>docs/guide/extending-reactor-controls.md</c> (issue #206).
+    /// </remarks>
     public void RegisterHandler<TElement, TControl>(V1Protocol.IElementHandler<TElement, TControl> handler)
         where TElement : Element
         where TControl : UIElement
@@ -1539,6 +1565,51 @@ public sealed partial class Reconciler : IDisposable
         return Mount(newElement, requestRerender);
     }
 
+    /// <summary>
+    /// Issue #326 (pr-review H1) — adopt a freshly-mounted <paramref name="replacement"/>
+    /// into an already-realized, still-parented wrapper so an out-of-band refresh
+    /// (<see cref="ElementFactory{T}.RefreshRealizedItems"/>) whose row key changed
+    /// (<see cref="CanUpdate"/> == false → <see cref="ReconcileImperative"/> returned a
+    /// brand-new control) can reset per-item component state without reparenting.
+    ///
+    /// <para>The WinUI ItemsRepeater that owns realized rows is NOT a Panel, so its
+    /// children cannot be replaced from managed code — there is no Children collection
+    /// to assign into the way the normal Reconcile contract
+    /// (<c>g.Children[i] = replacement</c>) or the framework's GetElement return-channel
+    /// relies on. When both the realized control and the replacement are
+    /// component-wrapper Borders (the dominant case: authors put per-item state in a
+    /// Component and key it with <c>.WithKey($"{id}:{rev}")</c>), keep the parented
+    /// wrapper in place and move the fresh component subtree plus its
+    /// <see cref="_componentNodes"/> entry onto it. The discarded replacement wrapper is
+    /// left empty for GC.</para>
+    ///
+    /// <para>Returns false when the shapes don't permit an in-place adopt (e.g. a root
+    /// TYPE change where neither side is a component wrapper); the caller then falls
+    /// back to tracking-only reconciliation.</para>
+    /// </summary>
+    internal bool TryAdoptRealizedReplacement(UIElement realized, UIElement replacement)
+    {
+        if (realized is not Border realizedWrapper || replacement is not Border replacementWrapper)
+            return false;
+        if (!_componentNodes.TryGetValue(replacement, out var freshNode))
+            return false;
+
+        // Migrate the fresh component node onto the still-parented wrapper. The old
+        // node keyed on `realized` was already torn down + removed by the Unmount
+        // inside ReconcileImperative; overwrite defensively regardless.
+        _componentNodes.Remove(replacement);
+        _componentNodes[realized] = freshNode;
+
+        // Move the fresh visual subtree into the parented wrapper. Assigning
+        // Border.Child detaches it from `replacementWrapper` first (and detaches the
+        // old, already-unmounted subtree from `realizedWrapper`), leaving the
+        // replacement wrapper empty + unreferenced.
+        var freshChild = replacementWrapper.Child;
+        replacementWrapper.Child = null;
+        realizedWrapper.Child = freshChild;
+        return true;
+    }
+
     // ════════════════════════════════════════════════════════════════════
     //  Component reconciliation
     // ════════════════════════════════════════════════════════════════════
@@ -1602,6 +1673,23 @@ public sealed partial class Reconciler : IDisposable
             {
                 // Still update the element reference (modifiers may have changed on the ComponentElement itself)
                 node.Element = newEl;
+
+                // Stale-delegate guard (issue #151): even though we skip re-rendering,
+                // refresh the live Props on the instance so any handler that reads
+                // Props.X at *dispatch* time invokes the CURRENT delegate rather than the
+                // one captured when the child last rendered. This is what makes an
+                // always-equal callbacks slot (Callbacks<T>) safe: data fields drive the
+                // memo decision, but the latest callbacks are still reachable off Props.
+                // Mirrors the leaf-level Tag-trampoline refresh (Element.cs HasCallbacks).
+                // The skipped data fields are equal by construction, so refreshing them is
+                // a no-op for the rendered subtree; only the excluded slots (callbacks)
+                // actually change. PreviousProps is kept in sync as the next baseline.
+                if (node.Component is IPropsReceiver skipReceiver
+                    && newEl is ComponentElement skipCompEl && skipCompEl.Props is not null)
+                {
+                    skipReceiver.SetProps(skipCompEl.Props);
+                    node.PreviousProps = skipCompEl.Props;
+                }
                 return;
             }
         }
