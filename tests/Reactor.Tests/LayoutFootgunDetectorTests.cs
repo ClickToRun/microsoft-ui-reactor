@@ -177,4 +177,100 @@ public sealed class LayoutFootgunDetectorTests : IDisposable
 
         Assert.Single(_warnings);
     }
+
+    // ── Update path (dynamic / state-driven placements) ────────────────────
+
+    [Fact]
+    public void HStack_StarColumn_ThenFlippedToAuto_WarnsAfterFlip()
+    {
+        // Models a state-driven `columns:` change on an already-mounted Grid: the first render is
+        // safe (Star), a later render flips the track to Auto. The runtime warning's whole point
+        // over a static analyzer is catching this dynamic case — the detector must fire on the
+        // second pass. Goes through Inspect() so the DEBUG/flag gate + `is GridElement` filter run.
+        var keyedHStack = HStack(TextBlock("A"), TextBlock("B")).WithKey("toolbar").Grid(row: 0, column: 0);
+
+        var safe = Grid(
+            columns: new[] { GridSize.Star(), GridSize.Star() },
+            rows: new[] { GridSize.Star() },
+            keyedHStack);
+        LayoutFootgunDetector.Inspect(safe);
+        Assert.Empty(_warnings);
+
+        var collapsing = Grid(
+            columns: new[] { GridSize.Auto, GridSize.Star() },
+            rows: new[] { GridSize.Star() },
+            keyedHStack);
+        LayoutFootgunDetector.Inspect(collapsing);
+
+        var msg = Assert.Single(_warnings);
+        Assert.Contains("column 0 (Auto)", msg);
+    }
+
+    [Fact]
+    public void HStack_ExplicitWidth_ThenWidthRemoved_WarnsAfterRemoval()
+    {
+        // Models the explicit size being dropped on a re-render (e.g. a conditional .Width()).
+        var sized = Grid(
+            columns: new[] { GridSize.Auto, GridSize.Star() },
+            rows: new[] { GridSize.Star() },
+            HStack(TextBlock("A"), TextBlock("B")).WithKey("toolbar").Width(200).Grid(row: 0, column: 0));
+        LayoutFootgunDetector.Inspect(sized);
+        Assert.Empty(_warnings);
+
+        var unsized = Grid(
+            columns: new[] { GridSize.Auto, GridSize.Star() },
+            rows: new[] { GridSize.Star() },
+            HStack(TextBlock("A"), TextBlock("B")).WithKey("toolbar").Grid(row: 0, column: 0));
+        LayoutFootgunDetector.Inspect(unsized);
+
+        Assert.Single(_warnings);
+    }
+
+    // ── Dedup keyed on identity, not message (L1) ──────────────────────────
+
+    [Fact]
+    public void TwoDistinctOffenders_SameStackTypeAndTrackIndex_BothWarn()
+    {
+        // Two different HStacks both land in column 0 (Auto) but at different rows. They are
+        // distinct offending placements and must each warn — dedup keys on element identity /
+        // grid position, not on the (identical) message text.
+        var grid = Grid(
+            columns: new[] { GridSize.Auto, GridSize.Star() },
+            rows: new[] { GridSize.Star(), GridSize.Star() },
+            HStack(TextBlock("A")).Grid(row: 0, column: 0),
+            HStack(TextBlock("B")).Grid(row: 1, column: 0));
+
+        LayoutFootgunDetector.InspectGrid(grid);
+
+        Assert.Equal(2, _warnings.Count);
+    }
+
+    // ── Hook wiring: gate + `is GridElement` filter + Sink (L4) ────────────
+
+    [Fact]
+    public void Inspect_NonGridElement_DoesNotWarn()
+    {
+        // The Reconciler calls Inspect() on every mounted/updated element; only GridElement should
+        // be considered. A bare HStack (not inside a Grid) must be ignored by the `is GridElement`
+        // filter even though it is a stack.
+        LayoutFootgunDetector.Inspect(HStack(TextBlock("A"), TextBlock("B")));
+
+        Assert.Empty(_warnings);
+    }
+
+    [Fact]
+    public void Inspect_OffendingGridElement_RoutesThroughGateAndSink()
+    {
+        // Exercises the exact entry point the Reconciler Mount/Update tail calls: the DEBUG/flag
+        // gate is satisfied (tests run under DEBUG), the `is GridElement` filter passes, and the
+        // warning reaches the Sink — pinning the hook wiring, not just InspectGrid() detection.
+        var grid = Grid(
+            columns: new[] { GridSize.Auto, GridSize.Star() },
+            rows: new[] { GridSize.Star() },
+            HStack(TextBlock("A"), TextBlock("B")).Grid(row: 0, column: 0));
+
+        LayoutFootgunDetector.Inspect(grid);
+
+        Assert.Single(_warnings);
+    }
 }

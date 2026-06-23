@@ -39,7 +39,7 @@ namespace Microsoft.UI.Reactor.Diagnostics;
 /// realized control dimensions, so it stays cheap and side-effect free.
 /// </para>
 /// </remarks>
-public static class LayoutFootgunDetector
+internal static class LayoutFootgunDetector
 {
     /// <summary>
     /// <c>true</c> when compiled in a <c>DEBUG</c> configuration. A compile-time constant so the
@@ -155,14 +155,18 @@ public static class LayoutFootgunDetector
             if (!TrackIsAuto(columns, col)) return;
             if (chainHasWidth) return;
             if (AnyChildHasExplicitWidth(stackChildren)) return;
-            Emit(BuildMessage("HStack", axisIsColumn: true, index: col, locationKey: locationKey));
+            Emit(
+                BuildDedupKey("HStack", row, col, locationKey),
+                BuildMessage("HStack", axisIsColumn: true, index: col, locationKey: locationKey));
         }
         else
         {
             if (!TrackIsAuto(rows, row)) return;
             if (chainHasHeight) return;
             if (AnyChildHasExplicitHeight(stackChildren)) return;
-            Emit(BuildMessage("VStack", axisIsColumn: false, index: row, locationKey: locationKey));
+            Emit(
+                BuildDedupKey("VStack", row, col, locationKey),
+                BuildMessage("VStack", axisIsColumn: false, index: row, locationKey: locationKey));
         }
     }
 
@@ -190,6 +194,18 @@ public static class LayoutFootgunDetector
         return track is not null && string.Equals(track.Trim(), "Auto", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Builds the emit-once dedup key for an offending placement. Keyed on element identity
+    /// (the author-supplied <see cref="Element.Key"/> when present) or, for unkeyed elements, on
+    /// the stack type plus its concrete grid placement (row/column). This keeps two <em>distinct</em>
+    /// offending placements that merely share a stack type + track from collapsing into a single
+    /// warning, while staying stable across re-renders (records produce fresh-but-equal instances).
+    /// </summary>
+    private static string BuildDedupKey(string stackName, int row, int col, string? locationKey)
+        => locationKey is { Length: > 0 }
+            ? $"key:{locationKey}"
+            : string.Format(CultureInfo.InvariantCulture, "{0}@r{1}c{2}", stackName, row, col);
+
     private static string BuildMessage(string stackName, bool axisIsColumn, int index, string? locationKey)
     {
         string axis = axisIsColumn ? "column" : "row";
@@ -204,11 +220,11 @@ public static class LayoutFootgunDetector
             stackName, location, axis, index, sizeModifier, starTrack);
     }
 
-    private static void Emit(string message)
+    private static void Emit(string dedupKey, string message)
     {
         lock (s_gate)
         {
-            if (!s_warned.Add(message))
+            if (!s_warned.Add(dedupKey))
                 return;
         }
 
