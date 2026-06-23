@@ -253,17 +253,17 @@ internal sealed class ChartAccessibilityChecker : IScanExtension
                 var hardenResult = ChartPalette.Harden(
                     Enumerable.Range(0, palette.Count).Select(k => palette[k]).ToArray());
 
-                string failedBackgrounds = failsLight && failsDark
-                    ? $"both light ({lightContrast:F1}:1) and dark ({darkContrast:F1}:1) backgrounds"
-                    : failsLight
-                        ? $"the light ({lightContrast:F1}:1) background"
-                        : $"the dark ({darkContrast:F1}:1) background";
+                // failsLight and failsDark are mutually exclusive: a color light enough
+                // to fail vs white can never also be dark enough to fail vs near-black.
+                string failedBackground = failsLight
+                    ? $"the light ({lightContrast:F1}:1) background"
+                    : $"the dark ({darkContrast:F1}:1) background";
 
                 findings.Add(new A11yDiagnostic
                 {
                     Id = "A11Y_CHART_011",
                     Severity = "warning",
-                    Message = $"Custom palette: color {i} fails 3:1 background contrast on {failedBackgrounds}",
+                    Message = $"Custom palette: color {i} fails 3:1 background contrast on {failedBackground}",
                     WcagCriterion = "1.4.11",
                     ElementType = "CanvasElement (Chart)",
                     AutomationId = ctx.GetAutomationId(canvas),

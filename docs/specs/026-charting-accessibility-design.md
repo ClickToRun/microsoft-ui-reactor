@@ -557,7 +557,7 @@ LineChart(...).SeriesColors(
 Checks run:
 
 - Pairwise WCAG non-text contrast (every series vs. every other) ≥ 3:1.
-- Each series vs. `ChartBackground` (both light and dark) ≥ 3:1.
+- Each series vs. `ChartBackground` (light or dark) ≥ 3:1.
 - Pairwise ΔE ≥ 10 under deuteranopia, protanopia, tritanopia simulation.
 
 Violations emit scanner rules `A11Y_CHART_009`–`011` (see Layer 8) with the offending hex

@@ -64,6 +64,36 @@ public class ChartPaletteTests
         }
     }
 
+    // ── Harden: failing background contrast ─────────────────────────
+
+    [Fact]
+    public void Harden_FailingBackgroundContrast_OutputPasses()
+    {
+        // A near-white color fails 3:1 against the light (255,255,255) background;
+        // a near-black color fails against the dark (32,32,32) background. Harden
+        // must adjust each so it clears 3:1 against the background it failed —
+        // proving the A11Y_CHART_011 fix suggestion is a real remediation, not a
+        // no-op that echoes the failing color back (issue #628).
+        var lightBg = new D3Color(255, 255, 255);
+        var darkBg = new D3Color(32, 32, 32);
+
+        var nearWhite = new D3Color(255, 255, 200);
+        Assert.True(ChartPalette.ContrastRatio(nearWhite, lightBg) < 3.0);
+        var hardenedWhite = ChartPalette.Harden(new[] { nearWhite });
+        Assert.True(
+            ChartPalette.ContrastRatio(hardenedWhite.Palette[0], lightBg) >= 3.0,
+            $"Hardened near-white {hardenedWhite.Palette[0].ToHex()} still fails light bg " +
+            $"({ChartPalette.ContrastRatio(hardenedWhite.Palette[0], lightBg):F2}:1)");
+
+        var nearBlack = new D3Color(28, 28, 28);
+        Assert.True(ChartPalette.ContrastRatio(nearBlack, darkBg) < 3.0);
+        var hardenedBlack = ChartPalette.Harden(new[] { nearBlack });
+        Assert.True(
+            ChartPalette.ContrastRatio(hardenedBlack.Palette[0], darkBg) >= 3.0,
+            $"Hardened near-black {hardenedBlack.Palette[0].ToHex()} still fails dark bg " +
+            $"({ChartPalette.ContrastRatio(hardenedBlack.Palette[0], darkBg):F2}:1)");
+    }
+
     // ── Harden: colorblind-unsafe palette ───────────────────────────
 
     [Fact]
@@ -94,11 +124,14 @@ public class ChartPaletteTests
     [Fact]
     public void Harden_AlreadySafe_PassedWithoutChanges()
     {
-        // Black and white — maximum contrast
+        // A single mid-tone gray needs no pairwise/colorblind separation and keeps
+        // ≥3:1 against both the light (255,255,255) and dark (32,32,32) backgrounds,
+        // so it is already safe. (Pure black/white are NOT background-safe — white is
+        // illegible on a light background and black on a dark one — so a multi-color
+        // palette spread for pairwise contrast can never satisfy every background.)
         var input = new D3Color[]
         {
-            new(0, 0, 0),
-            new(255, 255, 255),
+            new(128, 128, 128),
         };
 
         var result = ChartPalette.Harden(input);
