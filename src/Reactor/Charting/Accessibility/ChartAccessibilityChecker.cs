@@ -240,16 +240,30 @@ internal sealed class ChartAccessibilityChecker : IScanExtension
             double lightContrast = ChartPalette.ContrastRatio(palette[i], lightBg);
             double darkContrast = ChartPalette.ContrastRatio(palette[i], darkBg);
 
-            if (lightContrast < 3.0 && darkContrast < 3.0)
+            bool failsLight = lightContrast < 3.0;
+            bool failsDark = darkContrast < 3.0;
+
+            // A theme-agnostic chart palette must render legibly under whichever
+            // background is active, so a color is flagged when it fails 3:1 contrast
+            // against *either* the light or dark background (per spec 026). Requiring
+            // failure against both is mathematically unreachable: a color light enough
+            // to fail vs white can never also be dark enough to fail vs near-black.
+            if (failsLight || failsDark)
             {
                 var hardenResult = ChartPalette.Harden(
                     Enumerable.Range(0, palette.Count).Select(k => palette[k]).ToArray());
+
+                string failedBackgrounds = failsLight && failsDark
+                    ? $"both light ({lightContrast:F1}:1) and dark ({darkContrast:F1}:1) backgrounds"
+                    : failsLight
+                        ? $"the light ({lightContrast:F1}:1) background"
+                        : $"the dark ({darkContrast:F1}:1) background";
 
                 findings.Add(new A11yDiagnostic
                 {
                     Id = "A11Y_CHART_011",
                     Severity = "warning",
-                    Message = $"Custom palette: color {i} fails background contrast on both light ({lightContrast:F1}:1) and dark ({darkContrast:F1}:1) backgrounds",
+                    Message = $"Custom palette: color {i} fails 3:1 background contrast on {failedBackgrounds}",
                     WcagCriterion = "1.4.11",
                     ElementType = "CanvasElement (Chart)",
                     AutomationId = ctx.GetAutomationId(canvas),
