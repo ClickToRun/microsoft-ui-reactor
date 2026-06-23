@@ -1514,6 +1514,15 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
+### record Callbacks<T>
+new(T Value)
+T Value { get; init; }
+Deconstruct(ref T Value) → void
+Equals(Callbacks<T> other) → bool
+Equals(object obj) → bool
+GetHashCode() → int
+ToString() → string
+
 ### record CanvasAttached
 new(double Left = 0, double Top = 0)
 double AnchorX { get; init; }

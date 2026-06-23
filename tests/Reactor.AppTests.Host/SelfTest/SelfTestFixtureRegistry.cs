@@ -359,6 +359,7 @@ internal static class SelfTestFixtureRegistry
         "ComponentHook_UseWindowSize",
         "ComponentHook_UseBreakpoint",
         "ComponentHook_MultipleComponents",
+        "ComponentMemo_SkipRefreshesLiveDelegate",
         "HotReload_ChildHookOrderRecovery",
         "HotReload_ComponentMigratesState",
         // DSL and extension tests
@@ -1741,6 +1742,7 @@ internal static class SelfTestFixtureRegistry
         "ComponentHook_UseWindowSize" => new ComponentHookFixtures.UseWindowSizeHook(harness),
         "ComponentHook_UseBreakpoint" => new ComponentHookFixtures.UseBreakpointHook(harness),
         "ComponentHook_MultipleComponents" => new ComponentHookFixtures.MultipleComponents(harness),
+        "ComponentMemo_SkipRefreshesLiveDelegate" => new CallbacksMemoSkipFixtures.SkipRefreshesLiveDelegate(harness),
         "HotReload_ChildHookOrderRecovery" => new HotReloadRecoveryFixtures.ChildRecoversAndSiblingStateSurvives(harness),
         "HotReload_ComponentMigratesState" => new HotReloadComponentMigrationFixtures.MigratesPreservingState(harness),
         // DSL and extension tests
