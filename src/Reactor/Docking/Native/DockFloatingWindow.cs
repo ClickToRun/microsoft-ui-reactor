@@ -567,13 +567,23 @@ internal sealed class DockFloatingWindowComponent : Component<DockFloatingWindow
             });
             if (willEmpty)
             {
-                // Stash the close cause so the window.Closed handler can
-                // report Reason on OnFloatingWindowClosed. A migration-driven
-                // empty (last tab dock-backed / re-torn-out) carries
-                // Migrated*; an ordinary last-tab close stays ContentClosed.
-                // Issue #417.
+                // Stash the close cause AND the actual closing pane so the
+                // window.Closed handler reports the truthful Reason *and*
+                // Content on OnFloatingWindowClosed. We stash for EVERY reason,
+                // including a plain last-tab ContentClosed close — NOT just
+                // migrations. The handler's Content fallback is the Open()-time
+                // pane (`pending.Content ?? pane`), which goes stale once any
+                // pane has migrated into/out of this multi-pane float: e.g.
+                // open [A], dock B in (→ [A,B]), migrate A to a host (→ [B]),
+                // then genuinely close B. Without pinning the real closing pane
+                // here, that close would report the already-migrated sibling A
+                // (still alive in the host) instead of B — the exact #417
+                // hazard, resurfacing through Content. Stashed inline +
+                // synchronous Close() (rather than the deferred
+                // StashReasonAndClose helper) to preserve the drag-complete
+                // interleaving the float→float migration branch relies on.
                 var w = holder[0];
-                if (w is not null && closeReason != DockFloatingCloseReason.ContentClosed)
+                if (w is not null)
                     DockFloatingTracker.SetPendingClose(w, closeReason, pane);
                 w?.Close();
                 return;

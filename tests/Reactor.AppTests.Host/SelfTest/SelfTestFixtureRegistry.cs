@@ -1149,6 +1149,7 @@ internal static class SelfTestFixtureRegistry
         "NativeDockingTearOff_T11_FloatingTabPress_HidesSource_AndStartsTracker",
         "NativeDockingTearOff_T12_FloatingTearOff_DropOnHostTarget_DocksToHost",
         "NativeDockingTearOff_T12b_FloatingTearOff_DropOnHostTarget_ReportsMigratedToHost",
+        "NativeDockingTearOff_T12c_FloatingMultiPane_CloseLastTab_AfterSiblingLeft_ReportsClosingPane",
         "NativeDockingTearOff_T13_FloatingTearOff_DropOutside_RetainsPreview",
         "NativeDockingTearOff_T14_FloatingTearOff_StaleTrackerForceCleaned",
         "NativeDockingMatrix_DragToCenterSameGroup_NoOp",
@@ -2544,6 +2545,7 @@ internal static class SelfTestFixtureRegistry
         "NativeDockingTearOff_T11_FloatingTabPress_HidesSource_AndStartsTracker" => new NativeDockingTearOffFixtures.T11_FloatingTabPress_HidesSource_AndStartsTracker(harness),
         "NativeDockingTearOff_T12_FloatingTearOff_DropOnHostTarget_DocksToHost" => new NativeDockingTearOffFixtures.T12_FloatingTearOff_DropOnHostTarget_DocksToHost(harness),
         "NativeDockingTearOff_T12b_FloatingTearOff_DropOnHostTarget_ReportsMigratedToHost" => new NativeDockingTearOffFixtures.T12b_FloatingTearOff_DropOnHostTarget_ReportsMigratedToHost(harness),
+        "NativeDockingTearOff_T12c_FloatingMultiPane_CloseLastTab_AfterSiblingLeft_ReportsClosingPane" => new NativeDockingTearOffFixtures.T12c_FloatingMultiPane_CloseLastTab_AfterSiblingLeft_ReportsClosingPane(harness),
         "NativeDockingTearOff_T13_FloatingTearOff_DropOutside_RetainsPreview" => new NativeDockingTearOffFixtures.T13_FloatingTearOff_DropOutside_RetainsPreview(harness),
         "NativeDockingTearOff_T14_FloatingTearOff_StaleTrackerForceCleaned" => new NativeDockingTearOffFixtures.T14_FloatingTearOff_StaleTrackerForceCleaned(harness),
         // Spec 045 §2.4 drag/drop matrix
