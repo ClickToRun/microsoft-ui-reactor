@@ -60,8 +60,11 @@ public static partial class ReactorApp
     /// catalog, so a NativeAOT/trimmed build that calls it keeps every built-in
     /// handler and WinUI control. Apps that want a minimal trimmed binary should
     /// <i>not</i> call this and instead let each factory register only the
-    /// controls it uses (or register specific controls with
-    /// <see cref="Core.V1Protocol.ControlRegistry.Register{TElement,TControl}"/>).
+    /// controls it uses — or register specific controls explicitly:
+    /// <see cref="Core.V1Protocol.ControlRegistry.Register{TElement,TControl}"/>
+    /// for control-backed handlers, or
+    /// <see cref="Core.V1Protocol.ControlRegistry.RegisterDecorator{TElement}"/>
+    /// for decorator-backed elements (overlays, validation, composite wrappers).
     /// Because this is an ordinary method (not a <c>[ModuleInitializer]</c>),
     /// the trimmer removes it — and everything it names — when it is unreachable.</para>
     ///

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Reactor.Core.V1Protocol;
+using Reactor.Tests.Bootstrap;
 using ValidationNs = Microsoft.UI.Reactor.Controls.Validation;
 using HooksNs = Microsoft.UI.Reactor.Hooks;
 using HostingNs = Microsoft.UI.Reactor.Hosting;
@@ -70,16 +71,19 @@ public sealed class UnregisteredHandlerAndRegisterAllBuiltInsTests
     // base type for the base-derived `RegisterForDerivedTypes` registrations).
     // The guards make drift fail the build, not pass silently:
     //   (1) RegisterAllBuiltIns_Registers_Exactly_The_Mirror_Catalog — the real
-    //       production-drift guard. It asks ControlRegistry which element types
-    //       `RegisterAllBuiltIns()` *actually* registered (exact + base entries,
-    //       restricted to the Reactor assembly so unrelated test registrations
-    //       can't leak in) and asserts that set equals this mirror. Adding a new
-    //       built-in to ReactorApp.BuiltIns.cs without updating the mirror, or
-    //       removing one from production while the mirror still lists it, fails
-    //       loudly with the exact symmetric difference. This is robust because
-    //       component-style built-ins (DataGrid, PropertyGrid, MaskedTextBox,
-    //       VirtualList, …) render via Component and are never registered, so the
-    //       registry contains *only* handler-backed built-ins.
+    //       production-drift guard. It compares this mirror against the set of
+    //       built-in element types `RegisterAllBuiltIns()` *actually* registered,
+    //       as captured by the test bootstrap at module-init time
+    //       (BuiltInHandlerBootstrap.RegisteredBuiltInElementTypes). That snapshot
+    //       is taken immediately after the single bulk-registration call and
+    //       before any test runs, so a later factory touch can't backfill a
+    //       dropped built-in and mask the drift. Adding a new built-in to
+    //       ReactorApp.BuiltIns.cs without updating the mirror, or removing one
+    //       from production while the mirror still lists it, fails loudly with the
+    //       exact symmetric difference. The registry holds only handler-backed
+    //       built-ins — component-style built-ins (DataGrid, PropertyGrid,
+    //       MaskedTextBox, VirtualList, …) render via Component and are never
+    //       registered — so the comparison is exact.
     //   (2) RegisterAllBuiltIns_Registers_Every_Catalog_Entry — every mirror
     //       entry must resolve a handler through some dispatch arm (exercises the
     //       base-walk resolution semantics, not just registry presence), so a
@@ -204,24 +208,19 @@ public sealed class UnregisteredHandlerAndRegisterAllBuiltInsTests
     [Fact]
     public void RegisterAllBuiltIns_Registers_Exactly_The_Mirror_Catalog()
     {
-        // Idempotent + process-wide: safe to call (the test bootstrap already
-        // called it once via [ModuleInitializer]).
-        ReactorApp.RegisterAllBuiltIns();
-
         // The mirror must have no accidental duplicate entries.
         Assert.Equal(ExpectedBuiltInCatalog.Length, ExpectedBuiltInCatalog.Distinct().Count());
 
-        // Ask the registry what RegisterAllBuiltIns() *actually* registered, then
-        // restrict to the Reactor assembly so registrations made by unrelated
-        // tests (whose element types live in test assemblies) can't leak in.
-        // Component-style built-ins render via Component and never register, so
-        // this set is exactly the handler-backed built-in catalog.
-        var reactorAssembly = typeof(TextBlockElement).Assembly;
-        var actual = ControlRegistry.RegisteredElementTypes
-            .Concat(ControlRegistry.RegisteredBaseElementTypes)
-            .Where(t => t.Assembly == reactorAssembly)
-            .ToHashSet();
-
+        // Compare the mirror against what RegisterAllBuiltIns() actually
+        // registered, as snapshotted by the test bootstrap at module-init time —
+        // before any test exercised a factory. Reading that early snapshot
+        // (instead of the live process-wide registry at test-run time) is what
+        // closes the masking gap: a built-in dropped from RegisterAllBuiltIns()
+        // can't be hidden by an unrelated test having since lazily registered the
+        // same built-in via its factory. Component-style built-ins render via
+        // Component and never register, so the snapshot is exactly the
+        // handler-backed built-in catalog.
+        var actual = BuiltInHandlerBootstrap.RegisteredBuiltInElementTypes.ToHashSet();
         var expected = ExpectedBuiltInCatalog.ToHashSet();
 
         // Surface the exact drift so a failure is self-explaining.

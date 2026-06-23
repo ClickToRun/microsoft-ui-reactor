@@ -20,13 +20,41 @@
 // the spec only forbids `[ModuleInitializer]` in the shipping `Reactor.dll`,
 // where it would unconditionally root every handler and defeat trimming.
 
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using Microsoft.UI.Reactor;
+using Microsoft.UI.Reactor.Core.V1Protocol;
 
 namespace Reactor.Tests.Bootstrap;
 
 internal static class BuiltInHandlerBootstrap
 {
+    /// <summary>
+    /// Snapshot of every Reactor-assembly built-in element type that
+    /// <see cref="ReactorApp.RegisterAllBuiltIns"/> registered, captured here at
+    /// module-init time — immediately after the single bulk-registration call and
+    /// <i>before</i> any test exercises a factory. The catalog-drift guard
+    /// (<c>UnregisteredHandlerAndRegisterAllBuiltInsTests</c>) compares this
+    /// against its expected mirror. Capturing the snapshot at this point — rather
+    /// than reading the live, process-wide registry at test-run time — is what
+    /// makes the guard sound: a built-in dropped from <c>RegisterAllBuiltIns()</c>
+    /// can no longer be masked by some unrelated test having lazily registered the
+    /// same built-in through its factory, because nothing else has run yet.
+    /// </summary>
+    internal static IReadOnlyCollection<Type> RegisteredBuiltInElementTypes { get; private set; }
+        = Array.Empty<Type>();
+
     [ModuleInitializer]
-    internal static void Initialize() => ReactorApp.RegisterAllBuiltIns();
+    internal static void Initialize()
+    {
+        ReactorApp.RegisterAllBuiltIns();
+
+        var reactorAssembly = typeof(ReactorApp).Assembly;
+        RegisteredBuiltInElementTypes = ControlRegistry.RegisteredElementTypes
+            .Concat(ControlRegistry.RegisteredBaseElementTypes)
+            .Where(t => t.Assembly == reactorAssembly)
+            .ToArray();
+    }
 }
