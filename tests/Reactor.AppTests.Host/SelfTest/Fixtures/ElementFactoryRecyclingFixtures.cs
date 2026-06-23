@@ -358,4 +358,132 @@ internal static class ElementFactoryRecyclingFixtures
             H.Check($"EFR_LazyStackUnmount_AtLeastOneCleanup_after={after}", after >= 1);
         }
     }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #326 — per-item identity reset on recycle.
+    //  The ElementFactory recycle path (#324) retains the realized WinUI tree
+    //  and Reconciles-on-reuse. Without propagating the keySelector key to the
+    //  row's top-level Element.Key, reusing a realized container for a DIFFERENT
+    //  logical item diffs the inner Component in place and CARRIES its
+    //  UseState/UseEffect state from item A into item B. The fix propagates the
+    //  per-item key (issue #326), so cross-item reuse fails CanUpdate and the
+    //  row remounts → fresh hook cells. Same-item reuse keeps the key and stays
+    //  in place → state preserved.
+    //
+    //  These drive a standalone ElementFactory through the spec-042 ReactorRow
+    //  keyed path (args.Data is ReactorRow), the same path every live
+    //  LazyVStack/LazyHStack/ItemsRepeater<T> uses. A per-Component constructor
+    //  count is a deterministic proxy for "fresh hook state": a new Component
+    //  instance means new UseState/UseEffect cells. The UseEffect mount/cleanup
+    //  counters corroborate it (effects flush synchronously on the render path).
+    // ────────────────────────────────────────────────────────────────────
+
+    private static int s_rowCtorCount;
+    private static int s_rowEffectMountCount;
+    private static int s_rowEffectCleanupCount;
+
+    private class IdentityRowComponent : Microsoft.UI.Reactor.Core.Component
+    {
+        public IdentityRowComponent() => global::System.Threading.Interlocked.Increment(ref s_rowCtorCount);
+
+        public override Microsoft.UI.Reactor.Core.Element Render()
+        {
+            // A per-item state cell + a per-item effect. If the row's identity
+            // is correctly reset on cross-item reuse, both are re-initialized
+            // (fresh cell, effect re-runs). If it leaks, the same instance —
+            // and therefore the same cell/effect — is reused across items.
+            var (_, _) = UseState(0);
+            UseEffect(() =>
+            {
+                global::System.Threading.Interlocked.Increment(ref s_rowEffectMountCount);
+                return () => global::System.Threading.Interlocked.Increment(ref s_rowEffectCleanupCount);
+            });
+            return TextBlock("row");
+        }
+    }
+
+    private static ElementFactoryGetArgs MakeRowGetArgs(int index, string key)
+        // Spec-042 ReactorRow path — args.Data carries both the stable key
+        // (keySelector projection) and the data index. This is the path the
+        // issue #326 fix gates on; the legacy int path is intentionally left
+        // unkeyed so the bounded-working-set fixtures above keep passing.
+        => new() { Data = new ReactorRow { Index = index, Key = key } };
+
+    internal class Factory_KeyChangeRecycle_ResetsRowComponentState(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            s_rowCtorCount = 0;
+            s_rowEffectMountCount = 0;
+            s_rowEffectCleanupCount = 0;
+
+            var items = new[] { new Item("a", "A"), new Item("b", "B") };
+            var reconciler = new Reconciler();
+            var factory = new ElementFactory<Item>(
+                items,
+                // No explicit .WithKey on the row root — the implicit per-item
+                // key is what must drive the reset.
+                (_, _) => Component<IdentityRowComponent>(),
+                reconciler,
+                requestRerender: static () => { },
+                pool: null);
+            var ifactory = (IElementFactory)factory;
+
+            // Realize logical item "a" → one Component instance mounts.
+            var ctlA = ifactory.GetElement(MakeRowGetArgs(0, "a"));
+            H.Check($"EFR326_KeyChange_FirstRealizeMountsOne_ctor={s_rowCtorCount}", s_rowCtorCount == 1);
+            H.Check($"EFR326_KeyChange_FirstRealizeEffectRan_mount={s_rowEffectMountCount}", s_rowEffectMountCount == 1);
+
+            // Recycle it so the container is pool-available, then realize a
+            // DIFFERENT logical item ("b") that reuses the pooled container.
+            ifactory.RecycleElement(MakeRecycleArgs(ctlA));
+            ifactory.GetElement(MakeRowGetArgs(1, "b"));
+
+            // Key "a" → "b" differs → CanUpdate false → the old Component is
+            // unmounted (cleanup runs) and a fresh one is mounted (new hook
+            // cells). Pre-fix this was an in-place diff → ctor stays 1, state
+            // leaks. Post-fix: ctor == 2.
+            H.Check($"EFR326_KeyChange_FreshComponentInstance_ctor={s_rowCtorCount}", s_rowCtorCount == 2);
+            H.Check($"EFR326_KeyChange_NewEffectMounted_mount={s_rowEffectMountCount}", s_rowEffectMountCount == 2);
+            H.Check($"EFR326_KeyChange_OldEffectCleanedUp_cleanup={s_rowEffectCleanupCount}", s_rowEffectCleanupCount >= 1);
+
+            return Task.CompletedTask;
+        }
+    }
+
+    internal class Factory_SameItemReuse_PreservesRowComponentState(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            s_rowCtorCount = 0;
+            s_rowEffectMountCount = 0;
+            s_rowEffectCleanupCount = 0;
+
+            var items = new[] { new Item("a", "A"), new Item("b", "B") };
+            var reconciler = new Reconciler();
+            var factory = new ElementFactory<Item>(
+                items,
+                (_, _) => Component<IdentityRowComponent>(),
+                reconciler,
+                requestRerender: static () => { },
+                pool: null);
+            var ifactory = (IElementFactory)factory;
+
+            // Realize "a", recycle, then realize the SAME logical item "a"
+            // again reusing the pooled container.
+            var ctlA = ifactory.GetElement(MakeRowGetArgs(0, "a"));
+            ifactory.RecycleElement(MakeRecycleArgs(ctlA));
+            ifactory.GetElement(MakeRowGetArgs(0, "a"));
+
+            // Same key → CanUpdate true → in-place reuse → the same Component
+            // instance is preserved (no remount). State for the unchanged
+            // logical item is retained — exactly the non-reset half of the
+            // contract.
+            H.Check($"EFR326_SameItem_PreservesComponentInstance_ctor={s_rowCtorCount}", s_rowCtorCount == 1);
+            H.Check($"EFR326_SameItem_NoExtraEffectMount_mount={s_rowEffectMountCount}", s_rowEffectMountCount == 1);
+            H.Check($"EFR326_SameItem_NoCleanup_cleanup={s_rowEffectCleanupCount}", s_rowEffectCleanupCount == 0);
+
+            return Task.CompletedTask;
+        }
+    }
 }

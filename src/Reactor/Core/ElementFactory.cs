@@ -100,8 +100,15 @@ public sealed partial class ElementFactory<T> : IElementFactory
     /// Resolve the viewBuilder output for a (key, item, index) tuple,
     /// memoized by reference identity of <paramref name="item"/>. See
     /// <see cref="_viewBuilderCache"/> for the rationale.
+    /// <para><c>keyed</c> is true on the spec-042 <see cref="ReactorRow"/>
+    /// path, where <paramref name="key"/> is the author's <c>keySelector</c>
+    /// projection (a stable per-item identity). When set, the projection is
+    /// propagated to the row's top-level <see cref="Element.Key"/> — see
+    /// <see cref="ApplyItemIdentityKey"/> (issue #326). It is false on the
+    /// legacy int-index path, where the "key" is just the realized index and
+    /// propagating it would force a control swap on every scroll.</para>
     /// </summary>
-    private Element BuildOrCache(string key, T item, int index)
+    private Element BuildOrCache(string key, T item, int index, bool keyed)
     {
         if (_viewBuilderCache.TryGetValue(key, out var cached)
             && ReferenceEquals(cached.Item, item)
@@ -110,9 +117,34 @@ public sealed partial class ElementFactory<T> : IElementFactory
             return cached.Built;
         }
         var built = _viewBuilder(item, index);
+        if (keyed)
+            built = ApplyItemIdentityKey(built, key);
         _viewBuilderCache[key] = new ViewBuilderCacheEntry(item, index, built);
         return built;
     }
+
+    /// <summary>
+    /// Issue #326 — propagate the author's per-item <c>keySelector</c>
+    /// projection onto the row's top-level <see cref="Element.Key"/> so the
+    /// recycle-on-reuse <see cref="Reconciler.Reconcile"/> path (see
+    /// <see cref="GetElement"/>) observes a different key when a realized
+    /// container is reused for a <em>different</em> logical item. That flips
+    /// <see cref="Reconciler.CanUpdate"/> to false → Reactor takes its
+    /// keyed-replacement path (unmount + fresh mount) instead of an in-place
+    /// property diff, which resets the row's per-item Component
+    /// <c>UseState</c> / <c>UseEffect</c> state. Without this, post-#324
+    /// recycling reuses the same realized inner <c>Component&lt;T&gt;</c>
+    /// across logical items and carries hook state from item A into item B.
+    ///
+    /// <para>An explicit author-supplied key (<c>row.WithKey(...)</c> inside
+    /// the row builder) always wins: it is only applied when the built row's
+    /// <see cref="Element.Key"/> is still null. Same-item re-renders
+    /// (RefreshRealizedItems) keep the same key on both old and new elements,
+    /// so <see cref="Reconciler.CanUpdate"/> stays true and the row diffs in
+    /// place — state is preserved exactly when the logical item is unchanged.</para>
+    /// </summary>
+    internal static Element ApplyItemIdentityKey(Element built, string key)
+        => built.Key is null ? built with { Key = key } : built;
 
     public ElementFactory(
         IReadOnlyList<T> items,
@@ -228,7 +260,7 @@ public sealed partial class ElementFactory<T> : IElementFactory
             if (!_mountedElements.TryGetValue(key, out var oldElement)) continue;
             if (currentIndex < 0 || currentIndex >= _items.Count) continue;
 
-            var newElement = BuildOrCache(key, _items[currentIndex], currentIndex);
+            var newElement = BuildOrCache(key, _items[currentIndex], currentIndex, keyed: _listState is not null);
             _mountedElements[key] = newElement;
             // Keep the per-control "last element" tracking in lockstep with
             // _mountedElements. Without this, a later RecycleElement→GetElement
@@ -250,19 +282,23 @@ public sealed partial class ElementFactory<T> : IElementFactory
         //   3. Fallback: unknown shape, treat as index 0.
         string key;
         int index;
+        bool keyed;
         switch (args.Data)
         {
             case ReactorRow row:
                 key = row.Key;
                 index = row.Index;
+                keyed = true;
                 break;
             case int i:
                 index = i;
                 key = i.ToString(global::System.Globalization.CultureInfo.InvariantCulture);
+                keyed = false;
                 break;
             default:
                 index = 0;
                 key = "0";
+                keyed = false;
                 break;
         }
 
@@ -270,7 +306,7 @@ public sealed partial class ElementFactory<T> : IElementFactory
             return new TextBlock { Text = "" };
 
         var item = _items[index];
-        var element = BuildOrCache(key, item, index);
+        var element = BuildOrCache(key, item, index, keyed);
 
         UIElement? control;
         if (_recyclePool.Count > 0)
