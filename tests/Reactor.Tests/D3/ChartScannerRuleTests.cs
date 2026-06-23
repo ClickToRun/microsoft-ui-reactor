@@ -336,6 +336,60 @@ public class ChartScannerRuleTests
     }
 
     [Fact]
+    public void A11Y_CHART_011_KnownDarkBackground_FailingColor_FiresWarningWithRealFix()
+    {
+        // A near-black series fails 3:1 against the dark #202020 background it actually renders
+        // on, so the scanner fires a WARNING (issue #633 M4). Critically, the suggested fix must
+        // be a REAL remediation — colors that genuinely clear 3:1 against that dark background —
+        // not an echo of the still-failing near-black color. Darkening can never satisfy a
+        // near-black background, so a direction rule that always darkens would echo a failing
+        // color (the #628/#629 bad-fix-suggestion defect class, #633 M2). This assertion fails
+        // against the pre-M2 darken-only Harden, so it is the load-bearing guard.
+        var darkBg = new D3Color(32, 32, 32);
+        var palette = ChartPalette.FromColors(new D3Color(28, 28, 28));
+        var canvas = MakeChartCanvas(
+            chartData: DataWithSeries(name: "Revenue"),
+            customPalette: palette,
+            chartBackground: darkBg);
+        var tree = VStack(canvas);
+
+        var findings = AccessibilityScanner.Scan(tree);
+        var finding = Assert.Single(findings, f => f.Id == "A11Y_CHART_011");
+        Assert.Equal("warning", finding.Severity);
+
+        // The fix's suggested value must parse to a palette whose every color clears 3:1
+        // against the active dark background (M1 + M2 together: a verified, non-echo fix).
+        var fixedColors = finding.Fix!.SuggestedValue!
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Select(D3Color.Parse)
+            .ToArray();
+        Assert.NotEmpty(fixedColors);
+        Assert.All(fixedColors, c => Assert.True(
+            ChartPalette.ContrastRatio(c, darkBg) >= 3.0,
+            $"Suggested color {c.ToHex()} still fails 3:1 against dark background {darkBg.ToHex()}"));
+    }
+
+    [Fact]
+    public void A11Y_CHART_011_ChartBackgroundDslModifier_FlowsIntoScan()
+    {
+        // Drives the actual .ChartBackground(...) DSL modifier (string overload) through the
+        // real AttachChartData wiring into ChartA11yData, then scans — pinning the modifier→
+        // attach path itself rather than setting ChartA11yData.ChartBackground directly via
+        // MakeChartCanvas (issue #633 L1; also exercises the L2 string→D3Color overload). We
+        // attach to a bare CanvasElement to stay headless: the real D3Canvas builds a
+        // SolidColorBrush and would need WinUI COM.
+        var chart = Charts.LineChart(Array.Empty<DataPoint>(), d => d.X, d => d.Y)
+            .SeriesColors(new D3Color(255, 255, 200)) // near-white: fails the light background
+            .ChartBackground("#FFFFFF");              // string overload → light (255,255,255)
+        var canvas = chart.AttachChartDataForTest(new CanvasElement([]) { Width = 400, Height = 300 });
+        var tree = VStack(canvas);
+
+        var findings = AccessibilityScanner.Scan(tree);
+        var finding = Assert.Single(findings, f => f.Id == "A11Y_CHART_011");
+        Assert.Equal("warning", finding.Severity);
+    }
+
+    [Fact]
     public void A11Y_CHART_012_RawColors_EmittedAsInfo()
     {
         var canvas = MakeChartCanvas(

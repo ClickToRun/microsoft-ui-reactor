@@ -318,9 +318,22 @@ internal sealed class ChartAccessibilityChecker : IScanExtension
             double contrast = ChartPalette.ContrastRatio(palette[i], activeBg);
             if (contrast >= 3.0) continue;
 
-            var hardenResult = ChartPalette.Harden(
-                Enumerable.Range(0, palette.Count).Select(k => palette[k]).ToArray(),
-                new HardenOptions { Background = activeBg });
+            var original = Enumerable.Range(0, palette.Count).Select(k => palette[k]).ToArray();
+            var hardened = ChartPalette.Harden(original, new HardenOptions { Background = activeBg }).Palette;
+
+            // Only offer the hardened palette as a concrete fix when it ACTUALLY changed
+            // AND every color now clears 3:1 against the active background. The pairwise
+            // distinguishability guard can legitimately leave a color un-nudged; echoing the
+            // unchanged (still-failing) palette back as the "fix" would reintroduce the
+            // bad-fix-suggestion defect of #628/#629 (issue #633 M1). Fall back to a textual
+            // instruction when we cannot prove the suggestion is real.
+            bool changed = Enumerable.Range(0, Math.Min(hardened.Count, original.Length))
+                .Any(k => !string.Equals(hardened[k].ToHex(), original[k].ToHex(), StringComparison.OrdinalIgnoreCase));
+            bool allPass = hardened.Count == original.Length
+                && Enumerable.Range(0, hardened.Count).All(k => ChartPalette.ContrastRatio(hardened[k], activeBg) >= 3.0);
+            string suggestedValue = changed && allPass
+                ? string.Join(", ", hardened.Colors.Select(c => c.ToHex()))
+                : $"Adjust palette colors to ≥3:1 contrast against {activeBg.ToHex()}";
 
             findings.Add(new A11yDiagnostic
             {
@@ -334,7 +347,7 @@ internal sealed class ChartAccessibilityChecker : IScanExtension
                 Fix = new A11yFixSuggestion
                 {
                     Modifier = "SeriesColors",
-                    SuggestedValue = string.Join(", ", hardenResult.Palette.Colors.Select(c => c.ToHex())),
+                    SuggestedValue = suggestedValue,
                     CodeSnippet = "Adjust color lightness to ensure ≥3:1 contrast against the chart background",
                 },
                 Context = ctx.BuildContext(canvas),

@@ -746,6 +746,9 @@ Force graph physics is decorative; accessibility ships as structure, not motion.
 .Palette(ChartPalette)                  // Tier 1 — curated, pre-vetted (default: OkabeIto)
 .SeriesColors(params Color[])           // Tier 3 — scanner-validated raw colors
 .RawColors(params Color[])              // Tier 4 — unchecked escape hatch (A11Y_CHART_012)
+.ChartBackground(Color)                 // declare rendered background → scopes A11Y_CHART_011
+                                        //   to that single active background (warning) instead
+                                        //   of either fixed light/dark background (info)
 ChartPalette.Harden(Color[])            // utility — returns nearest safe palette + diffs
 
 // Escape hatches (scanner warns on each)

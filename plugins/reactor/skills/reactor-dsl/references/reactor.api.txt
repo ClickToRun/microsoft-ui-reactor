@@ -1581,7 +1581,9 @@ new()
 AlternateView(Element view) → ChartElement<T>
 AnnounceEveryFrame() → ChartElement<T>
 AxisLabel(ChartAxisType axis, string label) → ChartElement<T>
+ChartBackground(Color background) → ChartElement<T>
 ChartBackground(D3Color background) → ChartElement<T>
+ChartBackground(string background) → ChartElement<T>
 ColorOnly() → ChartElement<T>
 DataLabel(Func<T, int, string> labeller) → ChartElement<T>
 Description(string description) → ChartElement<T>
@@ -5054,7 +5056,9 @@ ToString() → string
 ### class PieChartElement<T>
 new()
 AlternateView(Element view) → PieChartElement<T>
+ChartBackground(Color background) → PieChartElement<T>
 ChartBackground(D3Color background) → PieChartElement<T>
+ChartBackground(string background) → PieChartElement<T>
 ColorOnly() → PieChartElement<T>
 DataLabel(Func<T, int, string> labeller) → PieChartElement<T>
 Description(string description) → PieChartElement<T>

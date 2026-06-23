@@ -134,6 +134,28 @@ public class ChartPaletteTests
     }
 
     [Fact]
+    public void Harden_KnownDarkBackground_NearBlack_OutputPassesThatBackground()
+    {
+        // A near-black color fails 3:1 against the dark #202020 background. Scoping Harden to
+        // that dark background MUST lighten it so it actually clears 3:1 — darkening can never
+        // satisfy a near-black background (you can't get darker than black), so a luminance-
+        // ordering direction rule would echo a still-failing color (issue #633 M2 — the same
+        // bad-fix-suggestion class as #628/#629). This is the load-bearing guard: it fails
+        // against the pre-M2 darken-only nudge.
+        var darkBg = new D3Color(32, 32, 32);
+        var nearBlack = new D3Color(28, 28, 28);
+        Assert.True(ChartPalette.ContrastRatio(nearBlack, darkBg) < 3.0);
+
+        var hardened = ChartPalette.Harden(
+            new[] { nearBlack },
+            new HardenOptions { Background = darkBg });
+        Assert.True(
+            ChartPalette.ContrastRatio(hardened.Palette[0], darkBg) >= 3.0,
+            $"Hardened near-black {hardened.Palette[0].ToHex()} still fails dark bg " +
+            $"({ChartPalette.ContrastRatio(hardened.Palette[0], darkBg):F2}:1)");
+    }
+
+    [Fact]
     public void Harden_FailsBothBackgrounds_ImprovesWorseSide()
     {
         // When MinBackgroundContrast is raised, a mid-tone can fail the minimum

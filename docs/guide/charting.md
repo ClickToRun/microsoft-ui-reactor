@@ -427,6 +427,9 @@ class AccessibleChartDemo : Component
 | `.OnPointInvoke(handler)` | Callback when Enter/Space pressed on a point |
 | `.AlternateView(element)` | Toggle between chart and data table (T key) |
 | `.Palette(palette)` | Curated colorblind-safe palette |
+| `.SeriesColors(colors)` | Custom series colors (scanner-validated) |
+| `.RawColors(colors)` | Raw series colors — escape hatch, no validation (Tier 4) |
+| `.ChartBackground(color)` | Declare the rendered background so palette-contrast (A11Y_CHART_011) is checked against that single active background (warning) instead of either fixed light/dark background (info) |
 | `.SeriesShapes(shapes)` | Marker shapes for double-encoding |
 | `.SeriesDashes(dashes)` | Dash patterns for double-encoding |
 
