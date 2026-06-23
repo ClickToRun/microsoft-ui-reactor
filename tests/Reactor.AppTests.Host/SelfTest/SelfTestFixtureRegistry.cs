@@ -858,6 +858,12 @@ internal static class SelfTestFixtureRegistry
         "Commanding_ToggleButtonCommandReappliesIsEnabledOnUpdate",
         "Commanding_CommandDisabledFocusableStaysFocusable",
         "Commanding_CommandDisabledFocusableStaysFocusableReverseOrder",
+        "Commanding_BoundButtonCommandChangeUpdatesMetadata",
+        "Commanding_BoundButtonUnchangedCommandSkipsReapply",
+        "Commanding_BoundButtonSetterOverridesCommandMetadata",
+        "Commanding_BoundSplitButtonCommandChangeUpdatesMetadata",
+        "Commanding_BoundToggleSplitButtonCommandChangeUpdatesMetadata",
+        "Commanding_BoundButtonCommandClearedWhenRemoved",
 
         // Drag-and-drop — spec 027 Tier 6 (Phase 6a)
         "DragDrop_OnDragStartAutoSetsCanDrag",
@@ -2252,6 +2258,12 @@ internal static class SelfTestFixtureRegistry
         "Commanding_ToggleButtonCommandReappliesIsEnabledOnUpdate" => new CommandingCoverageFixtures.ToggleButtonCommandReappliesIsEnabledOnUpdate(harness),
         "Commanding_CommandDisabledFocusableStaysFocusable" => new CommandingCoverageFixtures.CommandDisabledFocusableStaysFocusable(harness),
         "Commanding_CommandDisabledFocusableStaysFocusableReverseOrder" => new CommandingCoverageFixtures.CommandDisabledFocusableStaysFocusableReverseOrder(harness),
+        "Commanding_BoundButtonCommandChangeUpdatesMetadata" => new CommandingCoverageFixtures.BoundButtonCommandChangeUpdatesMetadata(harness),
+        "Commanding_BoundButtonUnchangedCommandSkipsReapply" => new CommandingCoverageFixtures.BoundButtonUnchangedCommandSkipsReapply(harness),
+        "Commanding_BoundButtonSetterOverridesCommandMetadata" => new CommandingCoverageFixtures.BoundButtonSetterOverridesCommandMetadata(harness),
+        "Commanding_BoundSplitButtonCommandChangeUpdatesMetadata" => new CommandingCoverageFixtures.BoundSplitButtonCommandChangeUpdatesMetadata(harness),
+        "Commanding_BoundToggleSplitButtonCommandChangeUpdatesMetadata" => new CommandingCoverageFixtures.BoundToggleSplitButtonCommandChangeUpdatesMetadata(harness),
+        "Commanding_BoundButtonCommandClearedWhenRemoved" => new CommandingCoverageFixtures.BoundButtonCommandClearedWhenRemoved(harness),
 
         // Drag-and-drop — spec 027 Tier 6 (Phase 6a)
         "DragDrop_OnDragStartAutoSetsCanDrag" => new DragDropFixtures.OnDragStartAutoSetsCanDrag(harness),

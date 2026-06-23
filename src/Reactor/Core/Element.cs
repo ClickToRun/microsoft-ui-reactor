@@ -385,23 +385,44 @@ public abstract record Element
                 ba.Label == bb.Label
                 && ba.IsEnabled == bb.IsEnabled
                 && ba.ContentElement is null && bb.ContentElement is null
+                && CommandBindings.CommandsEqual(ba.Command, bb.Command)
                 && ReferenceEquals(ba.Setters, bb.Setters),
 
             (HyperlinkButtonElement ha, HyperlinkButtonElement hb) =>
                 ha.Content == hb.Content
                 && ha.NavigateUri == hb.NavigateUri
+                && CommandBindings.CommandsEqual(ha.Command, hb.Command)
                 && ReferenceEquals(ha.Setters, hb.Setters),
 
             (RepeatButtonElement ra, RepeatButtonElement rb) =>
                 ra.Label == rb.Label
                 && ra.Delay == rb.Delay
                 && ra.Interval == rb.Interval
+                && CommandBindings.CommandsEqual(ra.Command, rb.Command)
                 && ReferenceEquals(ra.Setters, rb.Setters),
 
             (ToggleButtonElement ta, ToggleButtonElement tb) =>
                 ta.Label == tb.Label
                 && ta.IsChecked == tb.IsChecked
+                && CommandBindings.CommandsEqual(ta.Command, tb.Command)
                 && ReferenceEquals(ta.Setters, tb.Setters),
+
+            // issue #153 (L1) — extend the command fast-path arm to Split / ToggleSplit so all six
+            // command-capable buttons memoize consistently. Flyout uses reference-equality (matches
+            // the descriptor's ElementReferenceComparer); null == null lets flyout-less command split
+            // buttons fast-path too.
+            (SplitButtonElement sa, SplitButtonElement sb) =>
+                sa.Label == sb.Label
+                && ReferenceEquals(sa.Flyout, sb.Flyout)
+                && CommandBindings.CommandsEqual(sa.Command, sb.Command)
+                && ReferenceEquals(sa.Setters, sb.Setters),
+
+            (ToggleSplitButtonElement tsa, ToggleSplitButtonElement tsb) =>
+                tsa.Label == tsb.Label
+                && tsa.IsChecked == tsb.IsChecked
+                && ReferenceEquals(tsa.Flyout, tsb.Flyout)
+                && CommandBindings.CommandsEqual(tsa.Command, tsb.Command)
+                && ReferenceEquals(tsa.Setters, tsb.Setters),
 
             (SliderElement sa, SliderElement sb) =>
                 sa.Value == sb.Value
@@ -2501,6 +2522,7 @@ public record RichTextInlineUIContainer : RichTextInline
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("Label")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("IsEnabled")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("IsDisabledFocusable")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Command")]
 public partial record ButtonElement(string Label, Action? OnClick = null) : Element
 {
     public bool IsEnabled { get; init; } = true;
@@ -2517,6 +2539,17 @@ public partial record ButtonElement(string Label, Action? OnClick = null) : Elem
     /// </summary>
     public bool IsDisabledFocusable { get; init; }
     public Element? ContentElement { get; init; }
+    /// <summary>
+    /// The <see cref="Command"/> bound to this button via the <c>Button(Command)</c> factory
+    /// or the <c>.Command()</c> modifier (issue #153). Carries the command so the reconciler can
+    /// compare it field-aware in <see cref="Element.ShallowEquals"/> and apply its metadata through
+    /// a descriptor entry — no per-render <see cref="Setters"/> lambda. The <c>init</c> accessor is
+    /// <c>internal</c> on purpose: this property only carries command <em>metadata</em>; the click
+    /// trampoline (<c>Execute</c>) and the coerced <c>IsEnabled</c> wiring live in the factory /
+    /// modifier, so the supported way to bind a command is <c>Button(cmd)</c> / <c>.Command(cmd)</c>,
+    /// not a direct <c>new ButtonElement { Command = cmd }</c> (which would not invoke the command).
+    /// </summary>
+    public Command? Command { get; internal init; }
     internal Action<WinUI.Button>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnClick is not null;
 
@@ -2568,26 +2601,46 @@ public partial record ButtonElement(string Label, Action? OnClick = null) : Elem
                 callbackPresent:  static e => e.OnClick,
                 trampoline:       __ClickTrampoline,
                 slotIsNull:       static p => p.ClickTrampoline is null,
-                setSlot:          static (p, h) => p.ClickTrampoline = h);
+                setSlot:          static (p, h) => p.ClickTrampoline = h)
+            // issue #153 — command metadata (tooltip / accelerator / access key) applied
+            // field-aware. applyIsEnabled:false: the IsEnabled OneWayConditional above already
+            // drives the control (gated on !IsDisabledFocusable), so the command must not
+            // clobber the disabled-focusable coercion. Re-applied only when the Command
+            // changes in a rendered field (delegates ignored — CommandModuloDelegatesComparer).
+            .OneWayCommand(static e => e.Command, applyIsEnabled: false);
     }
 }
 
 [global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.HyperlinkButton))]  // spec 058 §15 (P5.4)
 [global::Microsoft.UI.Reactor.Wrappers.WrapAlias("Content", "Content")]  // Content as value (not child slot)
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Command")]
 public partial record HyperlinkButtonElement(string Content, Uri? NavigateUri = null, Action? OnClick = null) : Element
 {
+    /// <summary>The command metadata bound via <c>HyperlinkButton(Command)</c> / <c>.Command()</c> (issue #153). <c>internal init</c>: bind via the factory/modifier, not direct record init. See <see cref="ButtonElement.Command"/>.</summary>
+    public Command? Command { get; internal init; }
     internal Action<WinUI.HyperlinkButton>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnClick is not null;
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<HyperlinkButtonElement, WinUI.HyperlinkButton> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<HyperlinkButtonElement, WinUI.HyperlinkButton> d)
+        => d.OneWayCommand(static e => e.Command);  // issue #153 — command metadata + IsEnabled applied field-aware
 }
 
 [global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinPrim.RepeatButton))]  // spec 058 §15 (P5.4)
 [global::Microsoft.UI.Reactor.Wrappers.WrapAlias("Label", "Content")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Command")]
 public partial record RepeatButtonElement(string Label, Action? OnClick = null) : Element
 {
     public int Delay { get; init; } = 250;
     public int Interval { get; init; } = 50;
+    /// <summary>The command metadata bound via <c>RepeatButton(Command)</c> / <c>.Command()</c> (issue #153). <c>internal init</c>: bind via the factory/modifier, not direct record init. See <see cref="ButtonElement.Command"/>.</summary>
+    public Command? Command { get; internal init; }
     internal Action<WinPrim.RepeatButton>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnClick is not null;
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<RepeatButtonElement, WinPrim.RepeatButton> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<RepeatButtonElement, WinPrim.RepeatButton> d)
+        => d.OneWayCommand(static e => e.Command);  // issue #153 — command metadata + IsEnabled applied field-aware
 }
 
 // Spec 058 §15 (P5.22) — Label→Content ([WrapAlias]). IsThreeState/IsChecked/CheckedState +
@@ -2599,6 +2652,7 @@ public partial record RepeatButtonElement(string Label, Action? OnClick = null) 
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("IsThreeState")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("IsChecked")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("CheckedState")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Command")]
 public partial record ToggleButtonElement(string Label, bool IsChecked = false, Action<bool>? OnIsCheckedChanged = null) : Element
 {
     /// <summary>
@@ -2612,6 +2666,8 @@ public partial record ToggleButtonElement(string Label, bool IsChecked = false, 
     public bool? CheckedState { get; init; }
     /// <summary>Three-state change handler. Receives <c>null</c> for indeterminate.</summary>
     public Action<bool?>? OnCheckedStateChanged { get; init; }
+    /// <summary>The command metadata bound via <c>ToggleButton(Command)</c> / <c>.Command()</c> (issue #153). <c>internal init</c>: bind via the factory/modifier, not direct record init. See <see cref="ButtonElement.Command"/>.</summary>
+    public Command? Command { get; internal init; }
     internal Action<WinPrim.ToggleButton>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnIsCheckedChanged is not null || OnCheckedStateChanged is not null;
 
@@ -2636,7 +2692,8 @@ public partial record ToggleButtonElement(string Label, bool IsChecked = false, 
                 callbackPresent:  static e => (Delegate?)e.OnIsCheckedChanged ?? e.OnCheckedStateChanged,
                 trampoline:       __ClickTrampoline,
                 slotIsNull:       static p => p.ClickTrampoline is null,
-                setSlot:          static (p, h) => p.ClickTrampoline = h);
+                setSlot:          static (p, h) => p.ClickTrampoline = h)
+            .OneWayCommand(static e => e.Command);  // issue #153 — command metadata + IsEnabled applied field-aware
 }
 
 // Spec 058 §15 (P5.22) — Label→Content ([WrapAlias], which also suppresses the auto content slot
@@ -2664,8 +2721,11 @@ public partial record DropDownButtonElement(string Label, Element? Flyout = null
 [global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.SplitButton), Exclude = new[] { "Click" })]
 [global::Microsoft.UI.Reactor.Wrappers.WrapAlias("Label", "Content")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("Flyout")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Command")]
 public partial record SplitButtonElement(string Label, Action? OnClick = null, Element? Flyout = null) : Element
 {
+    /// <summary>The command metadata bound via <c>SplitButton(Command)</c> / <c>.Command()</c> (issue #153). <c>internal init</c>: bind via the factory/modifier, not direct record init. See <see cref="ButtonElement.Command"/>.</summary>
+    public Command? Command { get; internal init; }
     internal Action<WinUI.SplitButton>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnClick is not null;
 
@@ -2684,7 +2744,8 @@ public partial record SplitButtonElement(string Label, Action? OnClick = null, E
                 get:         static e => e.Flyout,
                 set:         static (c, v, rec, rr) => c.Flyout = rec.CreateFlyoutForDescriptor(v, rr),
                 shouldWrite: static e => e.Flyout is not null,
-                comparer:    global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.Descriptors.ElementReferenceComparer.Instance);
+                comparer:    global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.Descriptors.ElementReferenceComparer.Instance)
+            .OneWayCommand(static e => e.Command);  // issue #153 — command metadata + IsEnabled applied field-aware
 }
 
 // Spec 058 §15 (P5.22) — Label→Content ([WrapAlias], suppresses the auto content slot). IsChecked
@@ -2694,8 +2755,11 @@ public partial record SplitButtonElement(string Label, Action? OnClick = null, E
 [global::Microsoft.UI.Reactor.Wrappers.WrapAlias("Label", "Content")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("IsChecked")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("Flyout")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Command")]
 public partial record ToggleSplitButtonElement(string Label, Optional<bool> IsChecked = default, Action<bool>? OnIsCheckedChanged = null, Element? Flyout = null) : Element
 {
+    /// <summary>The command metadata bound via <c>ToggleSplitButton(Command)</c> / <c>.Command()</c> (issue #153). <c>internal init</c>: bind via the factory/modifier, not direct record init. See <see cref="ButtonElement.Command"/>.</summary>
+    public Command? Command { get; internal init; }
     internal Action<WinUI.ToggleSplitButton>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnIsCheckedChanged is not null;
 
@@ -2712,7 +2776,8 @@ public partial record ToggleSplitButtonElement(string Label, Optional<bool> IsCh
                 get:         static e => e.Flyout,
                 set:         static (c, v, rec, rr) => c.Flyout = rec.CreateFlyoutForDescriptor(v, rr),
                 shouldWrite: static e => e.Flyout is not null,
-                comparer:    global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.Descriptors.ElementReferenceComparer.Instance);
+                comparer:    global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.Descriptors.ElementReferenceComparer.Instance)
+            .OneWayCommand(static e => e.Command);  // issue #153 — command metadata + IsEnabled applied field-aware
 }
 
 // ════════════════════════════════════════════════════════════════════════

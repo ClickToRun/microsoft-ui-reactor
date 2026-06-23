@@ -47,16 +47,18 @@ public class CommandModifierTests
     }
 
     [Fact]
-    public void Command_Appends_CommandBindings_Setter()
+    public void Command_Sets_Typed_Command_Without_Appending_Setter()
     {
         var cmd = new Command { Label = "Run", Execute = () => { } };
 
         var before = Button(TextBlock("Run"));
         var after = before.Command(cmd);
 
-        // The ApplyButtonBaseCommon setter is appended; it runs on every reconcile
-        // pass (mount AND update) which is what re-applies IsEnabled to the control.
-        Assert.Equal(before.Setters.Length + 1, after.Setters.Length);
+        // issue #153 — the modifier lifts Command to a typed property instead of
+        // appending a per-render Setters lambda. The reconciler applies the command's
+        // metadata field-aware from the typed Command property.
+        Assert.Equal(before.Setters.Length, after.Setters.Length);
+        Assert.Same(cmd, after.Command);
     }
 
     // ── (b) IsEnabled is re-applied on update when command flips ─────
@@ -77,18 +79,26 @@ public class CommandModifierTests
     }
 
     [Fact]
-    public void Command_Produces_Fresh_Setters_So_Reconciler_Reapplies()
+    public void Command_Modifier_Reapplies_On_Change_Via_Typed_Property()
     {
-        // Element equality short-circuits Update when Setters are reference-equal
-        // (see Element.cs ButtonElement equality). Each .Command() render allocates a
-        // fresh Setters array, so the reconciler never skips re-applying the command's
-        // IsEnabled — the crux of the bug, where the custom-content path captured state once.
-        var cmd = new Command { Label = "Run", Execute = () => { } };
+        // issue #153 — the modifier no longer allocates a fresh Setters array each
+        // render (the per-render ApplyButtonBaseCommon lambda is gone). Re-application
+        // on update is driven by the typed Command property + the descriptor's
+        // modulo-delegates comparer: a changed command (e.g. a CanExecute flip) is not
+        // ShallowEqual, so the reconciler still re-applies IsEnabled. (For custom-content
+        // buttons ContentElement is non-null, which already forces ShallowEquals false.)
+        var enabled = new Command { Label = "Run", Execute = () => { }, CanExecute = true };
+        var disabled = new Command { Label = "Run", Execute = () => { }, CanExecute = false };
 
-        var first = Button(TextBlock("Run")).Command(cmd);
-        var second = Button(TextBlock("Run")).Command(cmd);
+        var first = Button(TextBlock("Run")).Command(enabled);
+        var second = Button(TextBlock("Run")).Command(disabled);
 
-        Assert.False(ReferenceEquals(first.Setters, second.Setters));
+        // The modifier does not allocate fresh Setters (both share Array.Empty).
+        Assert.Same(first.Setters, second.Setters);
+        // A flipped command is not ShallowEqual, so the reconciler re-applies the effects.
+        Assert.False(Element.ShallowEquals(first, second));
+        Assert.True(first.IsEnabled);
+        Assert.False(second.IsEnabled);
     }
 
     // ── (c) Clicking invokes the command ────────────────────────────
