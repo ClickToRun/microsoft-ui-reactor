@@ -117,4 +117,41 @@ internal static class CommandBindings
         if (cmd.Execute is not null) cmd.Execute();
         else if (cmd.ExecuteAsync is not null) _ = cmd.ExecuteAsync();
     }
+
+    /// <summary>
+    /// Structural equality for two <see cref="Command"/> values that <b>ignores</b> the
+    /// <see cref="Command.Execute"/> / <see cref="Command.ExecuteAsync"/> delegate fields
+    /// (issue #153, same rationale as #151). Dispatch goes through the click trampoline,
+    /// which reads the latest <see cref="Command"/> off the element Tag at invoke time, so
+    /// delegate identity is irrelevant to dispatch correctness — only the rendered metadata
+    /// (label, enabled state, tooltip, accelerator, access key) determines whether the
+    /// command-applied control state must be re-written. Two commands that differ only in
+    /// their delegates therefore produce identical visuals and can skip reconcile entirely.
+    /// </summary>
+    internal static bool CommandsEqual(Command? a, Command? b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+        return a.Label == b.Label
+            && a.CanExecute == b.CanExecute
+            && a.IsExecuting == b.IsExecuting
+            && a.Description == b.Description
+            && a.AccessKey == b.AccessKey
+            && Equals(a.Icon, b.Icon)
+            && Equals(a.Accelerator, b.Accelerator);
+    }
+
+    /// <summary>
+    /// <see cref="IEqualityComparer{T}"/> wrapper over <see cref="CommandsEqual"/> for the
+    /// descriptor's <c>OneWay&lt;Command?&gt;</c> diff: the command-apply entry only re-runs
+    /// <see cref="ApplyButtonBaseCommon"/> when the command changed in a rendered field, never
+    /// when only its delegates changed across renders.
+    /// </summary>
+    internal sealed class CommandModuloDelegatesComparer : IEqualityComparer<Command?>
+    {
+        internal static readonly CommandModuloDelegatesComparer Instance = new();
+        public bool Equals(Command? a, Command? b) => CommandsEqual(a, b);
+        public int GetHashCode(Command? c) =>
+            c is null ? 0 : global::System.HashCode.Combine(c.Label, c.CanExecute, c.IsExecuting, c.Description, c.AccessKey);
+    }
 }

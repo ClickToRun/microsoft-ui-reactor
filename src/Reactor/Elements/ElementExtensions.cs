@@ -990,31 +990,31 @@ public static partial class ElementExtensions
     // (Description / Accelerator / AccessKey) onto an already-built clickable
     // element. This closes the custom-content gap: the Button(Command) factory
     // only accepts a vanilla label, so icon-plus-label buttons previously had to
-    // re-thread `.IsEnabled(command.IsEnabled)` by hand. The CommandBindings
-    // setter runs on every reconcile pass, so IsEnabled is re-applied whenever the
-    // command's state flips (e.g. UseCommand toggling IsExecuting) — not captured
+    // re-thread `.IsEnabled(command.IsEnabled)` by hand. Issue #153 lifts Command to
+    // a typed property: the reconciler applies the command metadata field-aware from
+    // that property (no per-render Setters lambda), and re-applies IsEnabled whenever
+    // the command's state flips (e.g. UseCommand toggling IsExecuting) — not captured
     // once at construction. Place `.Command(cmd)` before per-site overrides so the
     // usual modifier-after-command ordering still lets later calls win.
 
     /// <summary>
     /// Binds a <see cref="Core.Command"/> to a custom-content <see cref="ButtonElement"/>:
     /// wires Execute → Click, applies <see cref="Core.Command.IsEnabled"/> (re-applied on
-    /// every update), and flows Description / Accelerator / AccessKey via a setter. Pairs
-    /// with <c>Button(content)</c> so icon-plus-label buttons auto-disable like the
-    /// <c>Button(Command)</c> factory. (issue #133)
+    /// every update), and flows Description / Accelerator / AccessKey via the typed
+    /// <see cref="ButtonElement.Command"/> property. Pairs with <c>Button(content)</c> so
+    /// icon-plus-label buttons auto-disable like the <c>Button(Command)</c> factory.
+    /// (issue #133, lifted to a typed property in issue #153)
     /// </summary>
     public static ButtonElement Command(this ButtonElement el, Core.Command command) =>
         el with
         {
             OnClick = () => Core.CommandBindings.Invoke(command),
             IsEnabled = command.IsEnabled,
-            // applyIsEnabled: false — the record IsEnabled prop above already drives the
-            // control through ButtonElement's descriptor, which gates IsEnabled on
-            // !IsDisabledFocusable and coerces a disabled-focusable button back to
-            // IsEnabled=true. Writing IsEnabled from the setter too would override that
-            // coercion and silently drop a disabled-command + .IsDisabledFocusable() button
-            // out of the tab order. (issue #133, PR review M1)
-            Setters = [.. el.Setters, b => Core.CommandBindings.ApplyButtonBaseCommon(b, command, applyIsEnabled: false)],
+            // issue #153 — Command lifted to a typed property; the reconciler applies its
+            // metadata field-aware (applyIsEnabled:false, since the IsEnabled prop above already
+            // drives the control through ButtonElement's !IsDisabledFocusable-gated descriptor).
+            // No per-render Setters lambda. (supersedes the #133 setter wiring)
+            Command = command,
         };
 
     /// <summary>
@@ -1025,7 +1025,7 @@ public static partial class ElementExtensions
         el with
         {
             OnClick = () => Core.CommandBindings.Invoke(command),
-            Setters = [.. el.Setters, b => Core.CommandBindings.ApplyButtonBaseCommon(b, command)],
+            Command = command,  // issue #153 — typed property, no per-render Setters lambda
         };
 
     /// <summary>
@@ -1036,7 +1036,7 @@ public static partial class ElementExtensions
         el with
         {
             OnClick = () => Core.CommandBindings.Invoke(command),
-            Setters = [.. el.Setters, b => Core.CommandBindings.ApplyButtonBaseCommon(b, command)],
+            Command = command,  // issue #153 — typed property, no per-render Setters lambda
         };
 
     /// <summary>
@@ -1048,7 +1048,7 @@ public static partial class ElementExtensions
         el with
         {
             OnIsCheckedChanged = _ => Core.CommandBindings.Invoke(command),
-            Setters = [.. el.Setters, b => Core.CommandBindings.ApplyButtonBaseCommon(b, command)],
+            Command = command,  // issue #153 — typed property, no per-render Setters lambda
         };
 
     /// <summary>

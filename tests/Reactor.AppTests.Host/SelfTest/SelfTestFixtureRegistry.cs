@@ -854,6 +854,8 @@ internal static class SelfTestFixtureRegistry
         "Commanding_ToggleButtonCommandReappliesIsEnabledOnUpdate",
         "Commanding_CommandDisabledFocusableStaysFocusable",
         "Commanding_CommandDisabledFocusableStaysFocusableReverseOrder",
+        "Commanding_BoundButtonCommandChangeUpdatesMetadata",
+        "Commanding_BoundButtonUnchangedCommandSkipsReapply",
 
         // Drag-and-drop — spec 027 Tier 6 (Phase 6a)
         "DragDrop_OnDragStartAutoSetsCanDrag",
@@ -2243,6 +2245,8 @@ internal static class SelfTestFixtureRegistry
         "Commanding_ToggleButtonCommandReappliesIsEnabledOnUpdate" => new CommandingCoverageFixtures.ToggleButtonCommandReappliesIsEnabledOnUpdate(harness),
         "Commanding_CommandDisabledFocusableStaysFocusable" => new CommandingCoverageFixtures.CommandDisabledFocusableStaysFocusable(harness),
         "Commanding_CommandDisabledFocusableStaysFocusableReverseOrder" => new CommandingCoverageFixtures.CommandDisabledFocusableStaysFocusableReverseOrder(harness),
+        "Commanding_BoundButtonCommandChangeUpdatesMetadata" => new CommandingCoverageFixtures.BoundButtonCommandChangeUpdatesMetadata(harness),
+        "Commanding_BoundButtonUnchangedCommandSkipsReapply" => new CommandingCoverageFixtures.BoundButtonUnchangedCommandSkipsReapply(harness),
 
         // Drag-and-drop — spec 027 Tier 6 (Phase 6a)
         "DragDrop_OnDragStartAutoSetsCanDrag" => new DragDropFixtures.OnDragStartAutoSetsCanDrag(harness),
