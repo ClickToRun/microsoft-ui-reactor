@@ -18,6 +18,7 @@ public sealed class UiElement
     private readonly WinAppUi _app;
     private readonly IUiaPropertyReader _uia;
     private readonly long _hwnd;
+    private readonly UiRect? _cachedBounds;
 
     /// <summary>The selector used to address this element (AutomationId when available).</summary>
     public string Selector { get; }
@@ -25,13 +26,15 @@ public sealed class UiElement
     /// <summary>The AutomationId, when this handle was resolved from one (enables UIA fallback).</summary>
     public string? AutomationId { get; }
 
-    internal UiElement(WinAppUi app, IUiaPropertyReader uia, string selector, string? automationId, long hwnd)
+    internal UiElement(WinAppUi app, IUiaPropertyReader uia, string selector, string? automationId, long hwnd,
+        UiRect? cachedBounds = null)
     {
         _app = app;
         _uia = uia;
         Selector = selector;
         AutomationId = automationId;
         _hwnd = hwnd;
+        _cachedBounds = cachedBounds;
     }
 
     /// <summary>Activate the element (UIA invoke patterns, falling back to a real click).</summary>
@@ -61,7 +64,14 @@ public sealed class UiElement
     {
         get
         {
-            var b = _app.GetBounds(Selector, _hwnd)
+            // Prefer bounds captured at resolution time. Elements resolved by Name (FindByName)
+            // are addressed by winapp's volatile semantic slug (e.g. "lbl-right-4732"), which
+            // winapp cannot re-resolve as a search selector — the hash is a display hint, not a
+            // stable handle — so a fresh GetBounds would return "not found". Caching the bounds
+            // from the original search keeps drag-target resolution stable. Elements resolved by
+            // a stable AutomationId have no cached bounds and re-resolve live (always findable).
+            var b = _cachedBounds
+                ?? _app.GetBounds(Selector, _hwnd)
                 ?? throw new WinAppException($"Element '{Selector}' has no bounds (not found).");
             return new Rectangle(b.X, b.Y, b.Width, b.Height);
         }
@@ -75,7 +85,53 @@ public sealed class UiElement
     {
         InputInjector.Foreground(_hwnd == 0 ? _app.HostHwnd : _hwnd);
         TryFocus();
+
+        // UIA SetFocus select-alls the control's existing text. When two SUCCESSIVE SendKeys
+        // calls target the SAME already-focused field, the second call's re-focus re-selects
+        // everything typed so far, so the next characters overwrite instead of append — that is
+        // the "typed '2' then '5', only '5' landed" failure. Collapse the selection to the end
+        // (press End) before typing so consecutive sends append like a real user.
+        //
+        // This is gated to consecutive same-selector sends rather than applied to every text
+        // send, because injecting End in the MIDDLE of a single multi-character send corrupts
+        // it: an Immediate NumberBox re-renders mid-stream and a stray End reorders the digits
+        // (a lone SendKeys("25") came out "52"). A single send — even multi-char — must be left
+        // untouched; only a repeat send into the same field needs the leading collapse.
+        //
+        // The discriminator is the selector of the previous text send (not a winapp get-value
+        // emptiness check): composite editors such as NumberBox expose their value via
+        // RangeValuePattern, which winapp get-value cannot read, so a value-based guard is
+        // unreliable for exactly the NumberBox case this protects.
+        //
+        // TODO: once winappCli #562 (native send-keys) ships, the focus/echo handling moves
+        // into winapp and this collapse step can be dropped with the SendInput fallback.
+        if (ContainsTypedText(keys))
+        {
+            if (_lastTextSendSelector == Selector)
+                InputInjector.CollapseSelectionToEnd();
+            _lastTextSendSelector = Selector;
+        }
+
         InputInjector.TypeKeys(keys);
+    }
+
+    // Selector of the most recent literal-text SendKeys, used to detect consecutive sends into
+    // the same already-focused field (the only case that needs collapse-to-end). Reset on
+    // fixture navigation so equality can't leak across fixtures. Sentinel-only sends (Tab/Enter)
+    // leave it unchanged — they carry no text and don't re-select.
+    private static string? _lastTextSendSelector;
+
+    /// <summary>Clears the consecutive-send tracking; call when navigating to a fresh fixture.</summary>
+    internal static void ResetTypingContext() => _lastTextSendSelector = null;
+
+    // True when the payload contains at least one literal character to type (as opposed to
+    // only Keys.* sentinels, which live in the Unicode Private Use Area, e.g. Tab = '\ue004').
+    private static bool ContainsTypedText(string keys)
+    {
+        foreach (var ch in keys)
+            if (ch < '\ue000' || ch > '\ue0ff')
+                return true;
+        return false;
     }
 
     /// <summary>Clear the editable control (select-all + delete via injected keys).</summary>

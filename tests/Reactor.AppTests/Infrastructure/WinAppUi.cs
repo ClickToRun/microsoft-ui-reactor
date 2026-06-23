@@ -24,7 +24,9 @@ public sealed record UiMatch(
     bool IsOffscreen,
     int X, int Y, int Width, int Height,
     string Selector,
-    bool IsInvokable);
+    bool IsInvokable,
+    string? InvokableAncestorType = null,
+    string? InvokableAncestorSelector = null);
 
 /// <summary>A visible top-level window returned by <c>winapp ui list-windows</c>.</summary>
 public sealed record UiWindow(long Hwnd, int ProcessId, string? Title, string? ClassName, bool IsForeground);
@@ -223,11 +225,23 @@ public sealed class WinAppUi
             return matches;
         foreach (var m in arr.EnumerateArray())
         {
+            // winapp reports, in the SAME search call, the nearest invokable ancestor of a
+            // non-invokable match (e.g. a tab caption TextBlock → its owning TabItem). Capturing
+            // it here lets callers resolve the tab without a second `inspect` call — which would
+            // open a re-render race window where the caption's hash slug can go stale (exactly
+            // what broke SelectTab on an inactive pinnable docking tab).
+            string? ancType = null, ancSel = null;
+            if (m.TryGetProperty("invokableAncestor", out var anc) && anc.ValueKind == JsonValueKind.Object)
+            {
+                ancType = GetString(anc, "type");
+                ancSel = GetString(anc, "selector");
+            }
             matches.Add(new UiMatch(
                 GetString(m, "type"), GetString(m, "name"), GetString(m, "automationId"),
                 GetString(m, "className"), GetBool(m, "isEnabled"), GetBool(m, "isOffscreen"),
                 (int)GetLong(m, "x"), (int)GetLong(m, "y"), (int)GetLong(m, "width"), (int)GetLong(m, "height"),
-                GetString(m, "selector") ?? selector, GetBool(m, "isInvokable")));
+                GetString(m, "selector") ?? selector, GetBool(m, "isInvokable"),
+                ancType, ancSel));
         }
         return matches;
     }
@@ -264,6 +278,46 @@ public sealed class WinAppUi
         if (matches.Count == 0) return null;
         var m = matches[0];
         return new UiRect(m.X, m.Y, m.Width, m.Height);
+    }
+
+    /// <summary>
+    /// Walks up the UIA tree from <paramref name="childSelector"/> and returns the slug of the
+    /// nearest ancestor whose control type is <c>TabItem</c> (a WinUI <c>TabViewItem</c>), or
+    /// null if none is found. Used to resolve a tab from its caption: a docking tab with a pin
+    /// affordance renders a composite (StackPanel) header, so the <c>TabViewItem</c> itself has
+    /// no Name and is not returned by a text search for the caption — but its caption TextBlock
+    /// child is, and the TabItem is its ancestor. The returned slug invokes the tab's
+    /// SelectionItemPattern (selects the tab) without colliding with the pin button that a plain
+    /// caption-text Invoke would hit.
+    /// </summary>
+    public string? ResolveAncestorTab(string childSelector, long? hwnd = null)
+    {
+        var r = Run(15000, Args("inspect", hwnd ?? HostHwnd, childSelector, "--ancestors"));
+        if (r.ExitCode != 0 || r.StdOut.Trim().Length == 0) return null;
+        using var doc = Parse(r);
+        if (!doc.RootElement.TryGetProperty("windows", out var windows) ||
+            windows.ValueKind != JsonValueKind.Array)
+            return null;
+        // --ancestors emits the root→target lineage as a nested children chain; the deepest
+        // TabItem on the path is the tab that owns this caption.
+        string? found = null;
+        foreach (var win in windows.EnumerateArray())
+            if (win.TryGetProperty("elements", out var els))
+                WalkForTab(els, ref found);
+        return found;
+    }
+
+    private static void WalkForTab(JsonElement nodes, ref string? found)
+    {
+        if (nodes.ValueKind != JsonValueKind.Array) return;
+        foreach (var n in nodes.EnumerateArray())
+        {
+            if (string.Equals(GetString(n, "type"), "TabItem", StringComparison.OrdinalIgnoreCase) &&
+                GetString(n, "selector") is { } sel)
+                found = sel; // keep the deepest TabItem on the lineage
+            if (n.TryGetProperty("children", out var kids))
+                WalkForTab(kids, ref found);
+        }
     }
 
     // ─── Actions ─────────────────────────────────────────────────────────────
@@ -309,6 +363,32 @@ public sealed class WinAppUi
         var r = Run(15000, Args("focus", hwnd ?? HostHwnd, selector));
         if (r.ExitCode != 0)
             throw new WinAppException($"winapp ui focus '{selector}' failed: {r.StdErr.Trim()} {r.StdOut.Trim()}");
+    }
+
+    /// <summary>
+    /// Selector (volatile slug) of the first editable text control — UIA type <c>Edit</c> — in the
+    /// window. Used to locate the DataGrid inline editor, which renders without an AutomationId and so
+    /// can only be addressed by winapp's semantic slug. The slug must be consumed immediately (focus /
+    /// type) before the next re-render, since it is a display hint, not a stable handle.
+    /// </summary>
+    public string? FindFirstEditableSelector(long? hwnd = null)
+    {
+        var r = Run(15000, Args("inspect", hwnd ?? HostHwnd, "-i"));
+        if (r.ExitCode != 0 || r.StdOut.Trim().Length == 0) return null;
+        using var doc = Parse(r);
+        if (!doc.RootElement.TryGetProperty("windows", out var wins) || wins.ValueKind != JsonValueKind.Array)
+            return null;
+        foreach (var w in wins.EnumerateArray())
+        {
+            if (!w.TryGetProperty("elements", out var els) || els.ValueKind != JsonValueKind.Array)
+                continue;
+            foreach (var e in els.EnumerateArray())
+            {
+                if (GetString(e, "type") == "Edit")
+                    return GetString(e, "selector");
+            }
+        }
+        return null;
     }
 
     // ─── Waits (winapp-internal polling) ─────────────────────────────────────

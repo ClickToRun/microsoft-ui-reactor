@@ -25,8 +25,9 @@ public class AppTestBase
     protected static long HostHwnd => TestSession.HostHwnd;
 
     /// <summary>Build a <see cref="UiElement"/> handle for a selector against the host window.</summary>
-    protected static UiElement Element(string selector, string? automationId = null, long hwnd = 0) =>
-        new(App, Uia, selector, automationId ?? selector, hwnd == 0 ? TestSession.HostHwnd : hwnd);
+    protected static UiElement Element(string selector, string? automationId = null, long hwnd = 0,
+        UiRect? cachedBounds = null) =>
+        new(App, Uia, selector, automationId ?? selector, hwnd == 0 ? TestSession.HostHwnd : hwnd, cachedBounds);
 
     // Per-test interactivity preflight — bails out as Inconclusive (not Failed)
     // when the workstation is locked or the session is disconnected, so flake
@@ -67,6 +68,9 @@ public class AppTestBase
     {
         if (_currentFixture == name)
             return;
+
+        // Navigating to a different fixture breaks any consecutive-send chain.
+        UiElement.ResetTypingContext();
 
         var expected = $"Loaded: {name}";
 
@@ -133,6 +137,66 @@ public class AppTestBase
     }
 
     /// <summary>
+    /// Selects (activates) a tab in a WinUI <c>TabView</c> by its visible header title.
+    /// WinUI surfaces only the *selected* tab's content to UI Automation — an inactive tab's
+    /// content subtree is not in the tree (verified: only the active tab's content elements
+    /// resolve via <c>winapp ui search</c>). Tab *headers*, however, are always present (verified
+    /// on a 3-tab group: inactive tabs still expose their TabItem + caption), so a test that
+    /// needs to read an inactive tab's content activates that tab first.
+    ///
+    /// Resolution is deliberately indirect. The title is an ambiguous text selector — it
+    /// substring-matches the caption TextBlock, the pane Group, and (for pinnable docking tabs)
+    /// the pin button, whose AutomationId embeds the pane key (e.g. <c>pin:dock-input:right</c>).
+    /// Worse, a pinnable tab renders a composite (StackPanel) header, so the <c>TabViewItem</c>
+    /// itself has no Name and is NOT returned by a text search for the title — a direct "find the
+    /// TabItem named X" lookup finds nothing, and a plain Invoke(title) toggles the pin button.
+    /// So resolve the tab from its caption's owning <c>TabItem</c>.
+    ///
+    /// Prefer the <c>invokableAncestor</c> that <c>search</c> already computes in the SAME call:
+    /// resolving via a second <c>inspect --ancestors</c> opens a re-render race (selecting the
+    /// previous tab re-renders the strip and stales the caption's hash slug) — that race is why
+    /// SelectTab worked for the first tab but threw "No tab header found" for the second. The
+    /// inspect walk remains a fallback for older winapp builds that don't emit invokableAncestor.
+    /// </summary>
+    protected void SelectTab(string title)
+    {
+        var matches = App.Search(title);
+
+        // A directly-named TabItem (string-header / non-pinnable tabs) can be invoked as-is.
+        var namedTab = matches.FirstOrDefault(m =>
+            string.Equals(m.Type, "TabItem", StringComparison.OrdinalIgnoreCase) && m.Name == title);
+        if (namedTab is not null)
+        {
+            App.Invoke(namedTab.Selector);
+            return;
+        }
+
+        // Composite/pinnable header: the caption TextBlock (exact Name==title) carries its owning
+        // TabItem as invokableAncestor — race-free, from this one search call.
+        var captionWithTab = matches.FirstOrDefault(m =>
+            m.Name == title &&
+            string.Equals(m.InvokableAncestorType, "TabItem", StringComparison.OrdinalIgnoreCase) &&
+            m.InvokableAncestorSelector is not null);
+        if (captionWithTab is not null)
+        {
+            App.Invoke(captionWithTab.InvokableAncestorSelector!);
+            return;
+        }
+
+        // Fallback (older winapp without invokableAncestor): caption Text → inspect-ancestors walk.
+        var caption = matches.FirstOrDefault(m =>
+                          string.Equals(m.Type, "Text", StringComparison.OrdinalIgnoreCase) && m.Name == title)
+                      ?? matches.FirstOrDefault(m => m.Name == title && !m.IsInvokable);
+        if (caption is not null && App.ResolveAncestorTab(caption.Selector) is { } tabSelector)
+        {
+            App.Invoke(tabSelector);
+            return;
+        }
+
+        throw new WinAppException($"No tab header found for title '{title}'.");
+    }
+
+    /// <summary>
     /// Finds an element by its AutomationId (UIA accessibility identifier).
     /// Throws when no element matches, mirroring the former FindElement contract.
     /// </summary>
@@ -153,8 +217,13 @@ public class AppTestBase
         var exact = matches.FirstOrDefault(m => m.Name == name) ?? matches.FirstOrDefault();
         if (exact is null)
             throw new WinAppException($"No element found with Name '{name}'.");
-        var selector = !string.IsNullOrEmpty(exact.AutomationId) ? exact.AutomationId! : exact.Selector;
-        return Element(selector, exact.AutomationId);
+        var hasAutomationId = !string.IsNullOrEmpty(exact.AutomationId);
+        var selector = hasAutomationId ? exact.AutomationId! : exact.Selector;
+        // Elements without an AutomationId are addressed by winapp's volatile semantic slug,
+        // which can't be re-resolved later (see UiElement.Rect). Cache the bounds from this
+        // search so callers like drag-target resolution don't re-query the slug.
+        UiRect? bounds = hasAutomationId ? null : new UiRect(exact.X, exact.Y, exact.Width, exact.Height);
+        return Element(selector, exact.AutomationId, cachedBounds: bounds);
     }
 
     /// <summary>

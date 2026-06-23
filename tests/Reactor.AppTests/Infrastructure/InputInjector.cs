@@ -19,6 +19,28 @@ namespace Microsoft.UI.Reactor.AppTests.Infrastructure;
 /// </summary>
 public static class InputInjector
 {
+    /// <summary>Last window passed to <see cref="Foreground"/> — the window injected input targets.</summary>
+    private static IntPtr _foregroundTarget;
+
+    /// <summary>
+    /// Mark the test process Per-Monitor-V2 DPI aware as early as possible (assembly load).
+    ///
+    /// winapp (UIA) reports element bounds in PHYSICAL screen pixels. If this process is
+    /// DPI-unaware on a mixed-DPI multi-monitor desktop, GetSystemMetrics/GetCursorPos report
+    /// a VIRTUALIZED virtual-screen (e.g. 6400×3612 instead of the real 7680×4332), so the
+    /// SendInput absolute-coordinate normalization maps winapp's physical target onto the wrong
+    /// physical pixel — the cursor lands off-target and clicks/gestures miss, even though
+    /// GetCursorPos (also virtualized) reports the target as reached. Becoming PMv2-aware makes
+    /// our metrics true physical pixels, matching winapp, so injection lands correctly. On an
+    /// all-100%-scale desktop (e.g. CI) virtualized == physical, so this is a no-op there.
+    /// </summary>
+    [System.Runtime.CompilerServices.ModuleInitializer]
+    internal static void EnsureProcessDpiAware()
+    {
+        try { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); }
+        catch { /* older OS without the API — best effort */ }
+    }
+
     /// <summary>Bring the target window to the foreground so injected input is routed to it.</summary>
     public static void Foreground(long hwnd)
     {
@@ -28,9 +50,52 @@ public static class InputInjector
         SessionInteractivityGuard.EnsureInputInjectable($"foreground+inject on hwnd {hwnd:X}");
 
         var h = (IntPtr)hwnd;
+        _foregroundTarget = h;
         ShowWindow(h, SW_RESTORE);
-        SetForegroundWindow(h);
-        Thread.Sleep(120); // let the activation settle before injecting input
+
+        // SendInput routes to the FOREGROUND window's thread input queue, so the Host MUST be
+        // foreground before we inject — otherwise the input lands on whatever else is foreground
+        // (the vstest host, a previously-activated Host window) and the test sees nothing.
+        //
+        // A bare SetForegroundWindow is unreliable here: Windows' foreground lock makes it a
+        // silent no-op when the caller doesn't already own the foreground, which is exactly the
+        // case in a batch run where focus drifts between sequential Host windows. The documented
+        // workaround is to ATTACH our input queue to the target window's thread for the duration
+        // of the activation calls, which lets SetForegroundWindow/BringWindowToTop/SetActiveWindow
+        // actually take effect. We then VERIFY the window really became foreground before
+        // returning, and fail fast (diagnosable) if it never does.
+        uint targetThread = GetWindowThreadProcessId(h, out _);
+        uint thisThread = GetCurrentThreadId();
+        bool attached = targetThread != 0 && targetThread != thisThread &&
+                        AttachThreadInput(thisThread, targetThread, true);
+        try
+        {
+            SetForegroundWindow(h);
+            BringWindowToTop(h);
+            SetActiveWindow(h);
+        }
+        finally
+        {
+            if (attached)
+                AttachThreadInput(thisThread, targetThread, false);
+        }
+
+        // Verify the activation actually took, polling up to ~1s so a slightly-delayed activation
+        // still passes without a fixed worst-case sleep.
+        for (int i = 0; i < 10; i++)
+        {
+            if (GetForegroundWindow() == h)
+                return;
+            Thread.Sleep(100);
+        }
+
+        if (GetForegroundWindow() == h)
+            return;
+
+        throw new WinAppException(
+            $"could not bring Host window to foreground for input injection; hwnd=0x{hwnd:X}. " +
+            "Injected input would be routed to the wrong window. This usually means another " +
+            "window holds the foreground lock (e.g. a batch run where focus drifted).");
     }
 
     // ─── Keyboard ────────────────────────────────────────────────────────────
@@ -70,6 +135,17 @@ public static class InputInjector
         KeyUp(VK_CONTROL);
         Thread.Sleep(15);
         PressVirtualKey(VK_DELETE);
+    }
+
+    /// <summary>
+    /// Press End to collapse any active text selection to the end of the field, without
+    /// adding or removing content. Used before re-typing into a control that a UIA SetFocus
+    /// just select-all'd, so consecutive SendKeys calls append instead of overwrite.
+    /// </summary>
+    public static void CollapseSelectionToEnd()
+    {
+        PressVirtualKey(VK_END);
+        Thread.Sleep(15);
     }
 
     private static bool TryMapSentinel(char ch, out ushort vk)
@@ -148,6 +224,53 @@ public static class InputInjector
         {
             MoveTo(screenPath[i].X, screenPath[i].Y);
             Thread.Sleep(60);
+        }
+
+        Thread.Sleep(80);
+        MouseLeft(MOUSEEVENTF_LEFTUP);
+        Thread.Sleep(60);
+    }
+
+    /// <summary>
+    /// Drag for the dock tear-off→merge pipeline: press at <paramref name="grab"/> (a tab header),
+    /// move past WinUI's drag-detection threshold to fire the IMMEDIATE tear-off — the dragged pane
+    /// floats off and the dock layout settles — then, with the button still held, move to
+    /// <paramref name="drop"/>, dwell so the merge overlay's hit-test latches its "Add as tab"
+    /// target, and release.
+    ///
+    /// <para>The approach-from-above plus the pulsed dwell at <paramref name="drop"/> matter: the
+    /// drop overlay only exists mid-drag and arms the hovered target from repeated pointer-move
+    /// events, so the cursor must cross and settle on the target before the button-up rather than
+    /// release the instant it arrives.</para>
+    /// </summary>
+    public static void DragTearOffMerge((int X, int Y) grab, (int X, int Y) drop, int dwellBeforeReleaseMs = 350)
+    {
+        MoveTo(grab.X, grab.Y);
+        Thread.Sleep(60);
+        MouseLeft(MOUSEEVENTF_LEFTDOWN);
+        Thread.Sleep(80);
+
+        // Clear the drag threshold to fire the immediate tear-off, then settle so the layout has
+        // stabilised before moving to the drop target.
+        MoveTo(grab.X - 8, grab.Y); Thread.Sleep(60);
+        MoveTo(grab.X - 16, grab.Y); Thread.Sleep(60);
+        MoveTo(grab.X - 36, grab.Y); Thread.Sleep(150);
+
+        // Approach the merge target from above so the cursor crosses it before settling, giving the
+        // overlay repeated pointer-move events to latch "Add as tab".
+        MoveTo(drop.X, drop.Y - 24); Thread.Sleep(60);
+        MoveTo(drop.X, drop.Y - 8); Thread.Sleep(60);
+        MoveTo(drop.X, drop.Y); Thread.Sleep(60);
+
+        if (dwellBeforeReleaseMs > 0)
+        {
+            const int pulses = 4;
+            var slice = Math.Max(1, dwellBeforeReleaseMs / pulses);
+            for (int i = 0; i < pulses; i++)
+            {
+                MoveTo(drop.X, drop.Y);
+                Thread.Sleep(slice);
+            }
         }
 
         Thread.Sleep(80);
@@ -257,6 +380,7 @@ public static class InputInjector
     private const ushort VK_CONTROL = 0x11;
     private const ushort VK_ESCAPE = 0x1B;
     private const ushort VK_SPACE = 0x20;
+    private const ushort VK_END = 0x23;
     private const ushort VK_DELETE = 0x2E;
     private const ushort VK_A = 0x41;
 
@@ -313,6 +437,32 @@ public static class InputInjector
     private static extern bool SetForegroundWindow(IntPtr hWnd);
 
     [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool BringWindowToTop(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetActiveWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    private static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = (IntPtr)(-4);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetProcessDpiAwarenessContext(IntPtr value);
 }

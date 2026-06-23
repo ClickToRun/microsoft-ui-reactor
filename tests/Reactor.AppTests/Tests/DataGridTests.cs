@@ -36,14 +36,14 @@ public class DataGridTests : AppTestBase
         Assert.IsNotNull(FindByName("Smith"), "'Smith' should be visible");
 
         // 2. Click "Alice" to start editing FirstName in row 1
-        FindByName("Alice").Click();
+        TapCell("Alice");
 
         // 3. Clear and type new value into the now-focused inline editor
         TypeIntoFocusedEditor("Alicia");
 
         // 4. Click "Bob" (different row) to commit the FirstName edit
         Assert.IsNotNull(FindByName("Bob"), "'Bob' should be visible while editing");
-        FindByName("Bob").Click();
+        TapCell("Bob");
 
         // 5. Verify first edit committed
         WaitForText("EditStatus", "Last edit: 1:Alicia,Smith");
@@ -51,7 +51,7 @@ public class DataGridTests : AppTestBase
 
         // 6. Click "Smith" to edit LastName in row 1
         Assert.IsNotNull(WaitForName("Smith"), "'Smith' should be visible");
-        FindByName("Smith").Click();
+        TapCell("Smith");
 
         // 7. Clear and type, 8. press Enter to commit
         TypeIntoFocusedEditor("Johnson", commitWithEnter: true);
@@ -63,18 +63,43 @@ public class DataGridTests : AppTestBase
     }
 
     /// <summary>
-    /// Replace the contents of the inline editor that received focus when its cell was clicked.
-    /// The editor has no AutomationId, so we clear + type into whatever control currently holds
-    /// keyboard focus (the cell click puts the editor in focus).
+    /// Tap a DataGrid cell by its visible text to enter/commit cell edit. The cells are
+    /// display-only TextBlocks (no InvokePattern), and a WinUI <c>Tapped</c> only fires on an
+    /// ACTIVE window, so winapp's UIA invoke/click can't drive them. We foreground the host and
+    /// inject a real pointer click at the cell centre — the same proven path the gesture tests use.
+    /// </summary>
+    private void TapCell(string name)
+    {
+        var r = FindByName(name).Rect;
+        InputInjector.Foreground(HostHwnd);
+        InputInjector.Click(r.X + r.Width / 2, r.Y + r.Height / 2);
+    }
+
+    /// <summary>
+    /// Replace the contents of the inline editor that appears after a cell tap. The editor is a
+    /// TextBox with no AutomationId, so we locate it by UIA control type, then clear + type through
+    /// <see cref="UiElement"/> (which foregrounds the host, focuses the editor via UIA SetFocus,
+    /// and injects real keystrokes — winapp ui has no keyboard typing).
     /// </summary>
     private void TypeIntoFocusedEditor(string value, bool commitWithEnter = false)
     {
-        Thread.Sleep(300); // let the editor mount + take focus after the cell click
-        InputInjector.Foreground(HostHwnd);
-        InputInjector.ClearViaKeyboard();
-        InputInjector.TypeKeys(value);
-        if (commitWithEnter)
-            InputInjector.TypeKeys(Keys.Enter);
+        var editor = WaitForEditor();
+        editor.Clear();
+        editor.SendKeys(commitWithEnter ? value + "\ue007" : value); // \ue007 = Enter
+    }
+
+    /// <summary>Wait for the DataGrid inline editor (a UIA <c>Edit</c> control) to mount.</summary>
+    private UiElement WaitForEditor(int timeoutMs = 5000)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < deadline)
+        {
+            var selector = App.FindFirstEditableSelector();
+            if (selector is not null)
+                return Element(selector);
+            Thread.Sleep(100);
+        }
+        throw new WinAppException("DataGrid inline editor (Edit control) did not appear after the cell tap.");
     }
 
     private UiElement? WaitForName(string name, int timeoutMs = 5000)

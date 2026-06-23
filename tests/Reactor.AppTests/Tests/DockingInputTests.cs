@@ -30,17 +30,35 @@ public class DockingInputTests : AppTestBase
 
     private static (int X, int Y) Center(Rectangle r) => (r.X + r.Width / 2, r.Y + r.Height / 2);
 
-    /// <summary>Drag one tab header onto another to merge the panes into one tab group.</summary>
+    /// <summary>
+    /// Drag one tab header onto another pane to merge the two panes into one tab group.
+    /// <para>
+    /// The dragged tab is grabbed by its HEADER caption (a user picks up a tab by its header). The
+    /// host TabViews are <c>CanDragTabs=false</c>, so the merge runs through the IMMEDIATE tear-off
+    /// pipeline (spec 045 §2.6): crossing the drag threshold tears the "from" pane off into a float,
+    /// and settling the cursor on the "to" pane's merge zone latches the overlay's "Add as tab"
+    /// target so the float merges back in.
+    /// </para>
+    /// <para>
+    /// The drop target is computed PRE-DRAG and is stable — this custom tear-off drag does NOT
+    /// reflow the surviving pane, so the merge zone stays at the "to" pane's original position. It
+    /// is the X of the "to" tab caption (<see cref="AppTestBase.FindByName"/>, over the tab header)
+    /// combined with the vertical CENTRE of the "to" pane body (<c>pane:dock-input:&lt;to&gt;</c>
+    /// bounds) — the header X alone aims too high, at the caption row.
+    /// </para>
+    /// </summary>
     private void DragTabOnto(string fromName, string toName)
     {
-        var f = Center(FindByName(fromName).Rect);
-        var t = Center(FindByName(toName).Rect);
+        var grab = Center(FindByName(fromName).Rect);
+
+        var headerRect = FindByName(toName).Rect;
+        var paneId = $"pane:dock-input:{toName.ToLowerInvariant()}";
+        var paneRect = App.GetBounds(paneId)
+            ?? throw new WinAppException($"Target pane '{paneId}' not found pre-drag for drag-merge.");
+        var drop = (X: headerRect.X + headerRect.Width / 2, Y: paneRect.Y + paneRect.Height / 2);
+
         InputInjector.Foreground(HostHwnd);
-        InputInjector.Drag(new[]
-        {
-            f, (f.X - 8, f.Y), (f.X - 16, f.Y), (f.X - 36, f.Y),
-            ((f.X + t.X) / 2, (f.Y + t.Y) / 2), t,
-        });
+        InputInjector.DragTearOffMerge(grab, drop);
     }
 
     /// <summary>
@@ -146,20 +164,23 @@ public class DockingInputTests : AppTestBase
         // motion (matches the DragDrop test convention).
         DragTabOnto("Right", "Left");
 
-        // After the drag, both panes are tabs in the same group.
-        // Verify that typing into the post-merge active tab still works.
-        InputInjector.Foreground(HostHwnd);
-        InputInjector.TypeKeys("X");
+        // After the drag, both panes are tabs in the same group. The drag ended on the tab
+        // HEADER, so keyboard focus sits on the tab, not an editable field — click the active
+        // pane's input box first (what a user would do), then type.
+        //
+        // WinUI TabView surfaces only the SELECTED tab's content to UIA, so only the active
+        // pane's DockEditor_* elements are in the tree; address whichever is realized.
+        var activeInputId = App.Exists("DockEditor_Left") ? "DockEditor_Left" : "DockEditor_Right";
+        var activeInput = FindById(activeInputId);
+        activeInput.Click();
+        activeInput.SendKeys("X");
         Thread.Sleep(250);
 
-        // One of the two state TextBlocks must end in "X" (whichever
-        // pane is active after the merge).
-        var leftAfter = FindById("DockEditor_Left_State").Text ?? "";
-        var rightAfter = FindById("DockEditor_Right_State").Text ?? "";
+        var activeState = App.GetValue(activeInputId + "_State") ?? "";
         Assert.IsTrue(
-            leftAfter.EndsWith("X") || rightAfter.EndsWith("X"),
-            $"Typing into the post-merge active tab should append 'X' to one of the " +
-            $"state labels. Left='{leftAfter}', Right='{rightAfter}'.");
+            activeState.EndsWith("X"),
+            $"Typing into the post-merge active tab should append 'X' to its " +
+            $"state label. {activeInputId}_State='{activeState}'.");
     }
 
     /// <summary>
@@ -186,7 +207,13 @@ public class DockingInputTests : AppTestBase
         DragTabOnto("Right", "Left");
         Thread.Sleep(500);
 
+        // After the merge both panes are tabs in one TabView. WinUI surfaces only the
+        // SELECTED tab's content to UIA, so the other pane's state TextBlock is not in the
+        // tree until its tab is activated — select each tab before asserting its (preserved)
+        // pre-drag state value.
+        SelectTab("Left");
         WaitForText("DockEditor_Left_State", "Left state: alpha", timeoutMs: 5000);
+        SelectTab("Right");
         WaitForText("DockEditor_Right_State", "Right state: beta", timeoutMs: 5000);
     }
 }
