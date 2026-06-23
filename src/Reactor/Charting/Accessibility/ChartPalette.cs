@@ -293,8 +293,18 @@ public sealed class ChartPalette
                 // that fails the dark background must get lighter.
                 if (!failsLight && !failsDark) continue;
 
+                // At the default 3:1 threshold failsLight and failsDark are mutually
+                // exclusive, but MinBackgroundContrast is configurable: a high threshold
+                // (e.g. >~4:1) lets a mid-tone fail against *both* fixed backgrounds. In
+                // that case darkening improves light contrast while lightening improves
+                // dark contrast, so move toward the worse (lower) of the two ratios to
+                // maximize the attainable minimum rather than always darkening.
+                bool darken = failsLight && failsDark
+                    ? lightContrast <= darkContrast
+                    : failsLight;
+
                 var (l, c, h) = RgbToLch(adjusted[i]);
-                l = failsLight ? Math.Max(5, l - 15) : Math.Min(95, l + 15);
+                l = darken ? Math.Max(5, l - 15) : Math.Min(95, l + 15);
                 var candidate = LchToRgb(l, c, h);
 
                 // Series distinguishability takes priority: a color and its background

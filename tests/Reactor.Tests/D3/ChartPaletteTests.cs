@@ -94,8 +94,40 @@ public class ChartPaletteTests
             $"({ChartPalette.ContrastRatio(hardenedBlack.Palette[0], darkBg):F2}:1)");
     }
 
-    // ── Harden: colorblind-unsafe palette ───────────────────────────
+    [Fact]
+    public void Harden_FailsBothBackgrounds_ImprovesWorseSide()
+    {
+        // When MinBackgroundContrast is raised, a mid-tone can fail the minimum
+        // against BOTH the light (255,255,255) and dark (32,32,32) fixed backgrounds
+        // at once. Darkening improves light contrast while lightening improves dark
+        // contrast, so the nudge must move toward the worse (lower) of the two ratios
+        // to maximize the attainable minimum — not blindly darken (PR #629 review).
+        var lightBg = new D3Color(255, 255, 255);
+        var darkBg = new D3Color(32, 32, 32);
+        var midTone = new D3Color(128, 128, 128);
 
+        double inLight = ChartPalette.ContrastRatio(midTone, lightBg);
+        double inDark = ChartPalette.ContrastRatio(midTone, darkBg);
+
+        var opts = new HardenOptions { MinBackgroundContrast = 4.5, MaxPasses = 1 };
+        Assert.True(inLight < opts.MinBackgroundContrast && inDark < opts.MinBackgroundContrast,
+            $"mid-tone should fail both backgrounds at this threshold (light {inLight:F2}, dark {inDark:F2})");
+
+        var result = ChartPalette.Harden(new[] { midTone }, opts);
+        var outColor = result.Palette[0];
+        double outLight = ChartPalette.ContrastRatio(outColor, lightBg);
+        double outDark = ChartPalette.ContrastRatio(outColor, darkBg);
+
+        // The worse of the two sides before hardening must improve, not regress.
+        if (inLight <= inDark)
+            Assert.True(outLight > inLight,
+                $"worse (light) side should improve: {inLight:F2} -> {outLight:F2}");
+        else
+            Assert.True(outDark > inDark,
+                $"worse (dark) side should improve: {inDark:F2} -> {outDark:F2}");
+    }
+
+    // ── Harden: colorblind-unsafe palette ───────────────────────────
     [Fact]
     public void Harden_ColorblindUnsafe_OutputImproved()
     {
