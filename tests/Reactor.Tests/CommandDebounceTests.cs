@@ -96,7 +96,7 @@ public class CommandDebounceTests
     public async Task Async_Command_DebounceMs_Extends_Window_Past_Lambda_Return()
     {
         var time = new FakeTimeProvider();
-        var stateChanged = new SemaphoreSlim(0);
+        using var stateChanged = new SemaphoreSlim(0);
         var ctx = new RenderContext { TimeProvider = time };
         ctx.BeginRender(() => stateChanged.Release());
 
@@ -205,7 +205,7 @@ public class CommandDebounceTests
     public async Task Parameterized_Async_Command_Debounces_And_Forwards_Arg()
     {
         var time = new FakeTimeProvider();
-        var stateChanged = new SemaphoreSlim(0);
+        using var stateChanged = new SemaphoreSlim(0);
         var ctx = new RenderContext { TimeProvider = time };
         ctx.BeginRender(() => stateChanged.Release());
 
@@ -254,7 +254,7 @@ public class CommandDebounceTests
         ctx.BeginRender(() => { });
 
         int runs = 0;
-        var started = new SemaphoreSlim(0);
+        using var started = new SemaphoreSlim(0);
         var release = new TaskCompletionSource();
         var cmd = new Command
         {
@@ -355,11 +355,12 @@ public class CommandDebounceTests
 
         for (int i = 0; i < 5; i++)
         {
-            result.Execute!();                              // arm window i (prior fired timer disposed)
-            Assert.Equal(1, time.ActiveTimerCount);
-            time.Advance(TimeSpan.FromMilliseconds(100));   // window elapses
+            result.Execute!();                              // arm window i
+            Assert.Equal(1, time.ActiveTimerCount);         // exactly one live timer
+            time.Advance(TimeSpan.FromMilliseconds(100));   // window elapses → timer fires
+            Assert.Equal(0, time.ActiveTimerCount);         // fired timer disposes itself, not retained
         }
-        Assert.Equal(1, time.ActiveTimerCount);             // never accumulates
+        Assert.Equal(0, time.ActiveTimerCount);             // never accumulates
 
         ctx.RunCleanups();
         Assert.Equal(0, time.ActiveTimerCount);

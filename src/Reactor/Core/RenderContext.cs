@@ -1133,7 +1133,9 @@ public sealed class RenderContext
             // here and the InWindow check, so the control can't be left wrongly enabled.
             setIsDebouncing(true);
         }
-        // Dispose the previous (already-fired, inert) timer outside the lock.
+        // Defensive: the re-enable callback now disposes its own timer when it clears the window,
+        // so by the time we re-arm (InWindow was false) slot.Timer is normally already null. Keep
+        // this as belt-and-suspenders in case a prior timer was left installed (e.g. epoch races).
         prior?.Dispose();
 
         var timer = TimeProvider.CreateTimer(
@@ -1148,6 +1150,12 @@ public sealed class RenderContext
                     if (slot.Epoch != epoch || !slot.InWindow) return;
                     slot.InWindow = false;
                     setIsDebouncing(false);
+                    // Dispose this now-inert one-shot timer immediately (atomic with the clear, so
+                    // slot.Timer is still us) rather than retaining it until the next accepted fire
+                    // or unmount — otherwise a fire-once debounced command on a long-lived component
+                    // would keep a dead timer object alive indefinitely.
+                    slot.Timer?.Dispose();
+                    slot.Timer = null;
                 }
             },
             null,

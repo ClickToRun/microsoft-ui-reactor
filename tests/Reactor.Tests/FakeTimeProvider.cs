@@ -87,10 +87,9 @@ internal sealed class FakeTimeProvider : TimeProvider
         public void Fire()
         {
             // One-shot unless a finite period was supplied (not used by the debounce path).
-            if (_period == Timeout.InfiniteTimeSpan || _period <= TimeSpan.Zero)
-                _fireAt = null;
-            else
-                _fireAt = (_fireAt ?? _owner.GetUtcNow()) + _period;
+            _fireAt = _period == Timeout.InfiniteTimeSpan || _period <= TimeSpan.Zero
+                ? null
+                : (_fireAt ?? _owner.GetUtcNow()) + _period;
             _callback(_state);
         }
 
