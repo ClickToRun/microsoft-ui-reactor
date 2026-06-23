@@ -365,4 +365,37 @@ public class CommandDebounceTests
         ctx.RunCleanups();
         Assert.Equal(0, time.ActiveTimerCount);
     }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Time-based acceptance: a fire after DebounceMs has elapsed is accepted
+    //  even if the re-enable timer callback is delayed (threadpool starvation),
+    //  honoring the fixed-duration semantics instead of dropping until the
+    //  callback runs.
+    // ════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Fire_After_Deadline_Is_Accepted_Even_If_Timer_Callback_Is_Delayed()
+    {
+        var time = new FakeTimeProvider();
+        var ctx = CreateContext(time);
+        int fires = 0;
+        var cmd = new Command { Label = "Run", Execute = () => fires++, DebounceMs = 1000 };
+
+        var result = ctx.UseCommand(cmd);
+
+        result.Execute!();                 // accepted, window armed for 1000ms
+        Assert.Equal(1, fires);
+
+        // Advance the clock PAST the deadline but DON'T let the re-enable timer fire (simulates the
+        // callback being delayed under load). The window flag is still set, but it has logically
+        // expired — a fire now must be accepted, not dropped.
+        time.AdvanceWithoutFiring(TimeSpan.FromMilliseconds(1001));
+        result.Execute!();
+        Assert.Equal(2, fires);
+
+        // And a fire still inside the freshly re-armed window is dropped as usual.
+        time.AdvanceWithoutFiring(TimeSpan.FromMilliseconds(500));
+        result.Execute!();
+        Assert.Equal(2, fires);
+    }
 }

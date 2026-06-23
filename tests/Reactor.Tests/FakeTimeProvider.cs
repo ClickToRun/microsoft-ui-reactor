@@ -45,6 +45,14 @@ internal sealed class FakeTimeProvider : TimeProvider
         foreach (var t in due) t.Fire();
     }
 
+    /// <summary>Moves the clock forward WITHOUT firing any due timers — simulates a re-enable
+    /// timer callback delayed past its deadline (threadpool starvation/suspension), so tests can
+    /// prove acceptance is time-based rather than purely timer-callback-driven.</summary>
+    public void AdvanceWithoutFiring(TimeSpan delta)
+    {
+        lock (_gate) _now += delta;
+    }
+
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
     {
         var timer = new FakeTimer(this, callback, state);

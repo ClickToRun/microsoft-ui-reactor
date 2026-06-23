@@ -1011,13 +1011,13 @@ public sealed class RenderContext
     /// <c>setIsDebouncing</c> / request a re-render against a torn-down context. These hooks are
     /// allocated unconditionally so the hook order is identical regardless of the command's shape.
     /// </summary>
-    private (Ref<bool> GuardRef, Ref<DebounceSlot?> DebounceRef,
+    private (Ref<AsyncReentryGuard?> GuardRef, Ref<DebounceSlot?> DebounceRef,
              bool IsExecuting, Action<bool> SetIsExecuting,
              bool IsDebouncing, Action<bool> SetIsDebouncing) UseCommandState()
     {
         var (isExecuting, setIsExecuting) = UseState(false, threadSafe: true);
         var (isDebouncing, setIsDebouncing) = UseState(false, threadSafe: true);
-        var guardRef = UseRef(false);
+        var guardRef = UseRef<AsyncReentryGuard?>(null);
         var debounceRef = UseRef<DebounceSlot?>(null);
 
         // Mount-once effect: on unmount, dispose the live re-enable timer (if any) so a pending
@@ -1049,17 +1049,26 @@ public sealed class RenderContext
         Func<Task>? asyncAction,
         Action? syncAction,
         int debounceMs,
-        Ref<bool> guardRef,
+        Ref<AsyncReentryGuard?> guardRef,
         Ref<DebounceSlot?> debounceRef,
         Action<bool> setIsExecuting,
         Action<bool> setIsDebouncing)
     {
         if (asyncAction is not null)
         {
-            // Re-entrance guard using ref for live value (not stale closure capture).
-            if (guardRef.Current) return false;
-            if (!TryEnterDebounceWindow(debounceMs, debounceRef, setIsDebouncing)) return false;
-            guardRef.Current = true;
+            var guard = guardRef.Current ??= new AsyncReentryGuard();
+            // Atomic test-and-set re-entrance guard, checked BEFORE arming the window so a fire
+            // blocked because the async action is still running doesn't arm the window for nothing.
+            // The guard is acquired here (the dispatcher/UI thread) and released in the Task.Run
+            // finally (a threadpool thread); Interlocked.CompareExchange + Volatile.Write give the
+            // cross-thread release proper visibility, so the next invoke always observes a completed
+            // action's release (a plain field could in principle read a stale "busy").
+            if (global::System.Threading.Interlocked.CompareExchange(ref guard.Busy, 1, 0) != 0) return false;
+            if (!TryEnterDebounceWindow(debounceMs, debounceRef, setIsDebouncing))
+            {
+                global::System.Threading.Volatile.Write(ref guard.Busy, 0);
+                return false;
+            }
             setIsExecuting(true);
             // try/finally — NOT try/catch. The user's command throw becomes a faulted Task; the
             // framework's reentry-guard and IsExecuting state still get restored. We deliberately
@@ -1074,7 +1083,7 @@ public sealed class RenderContext
                 }
                 finally
                 {
-                    guardRef.Current = false;
+                    global::System.Threading.Volatile.Write(ref guard.Busy, 0);
                     setIsExecuting(false);
                 }
             });
@@ -1089,14 +1098,20 @@ public sealed class RenderContext
     }
 
     /// <summary>
-    /// Per-command leading-edge debounce state: the in-window flag, an epoch token, and the
-    /// one-shot re-enable timer. Lives in a <see cref="UseRef{T}"/> slot so it persists across
-    /// renders (the <see cref="Command"/> record itself is reconstructed every render).
+    /// Per-command leading-edge debounce state: the in-window flag, the absolute window deadline,
+    /// an epoch token, and the one-shot re-enable timer. Lives in a <see cref="UseRef{T}"/> slot so
+    /// it persists across renders (the <see cref="Command"/> record itself is reconstructed every
+    /// render).
     /// </summary>
     private sealed class DebounceSlot
     {
         public readonly object Gate = new();
         public bool InWindow;
+        /// <summary>Absolute time (per the context's <see cref="TimeProvider"/>) at which the
+        /// current window expires. Acceptance is decided against this deadline rather than purely on
+        /// <see cref="InWindow"/>, so a delayed re-enable timer callback can never drop a fire that
+        /// is genuinely past <c>DebounceMs</c>.</summary>
+        public DateTimeOffset WindowEndsAt;
         /// <summary>Incremented for every accepted fire. The re-enable timer captures the epoch
         /// it was created for and only clears the window if it still owns the current epoch — so a
         /// stale timer (a newer accepted fire already re-armed the window) is a no-op.</summary>
@@ -1104,27 +1119,47 @@ public sealed class RenderContext
         public global::System.Threading.ITimer? Timer;
     }
 
+    /// <summary>Atomic re-entrance guard for an async command's in-flight window. Stored in a
+    /// <see cref="UseRef{T}"/> slot; <see cref="Busy"/> is mutated via <c>Interlocked</c>/
+    /// <c>Volatile</c> because it is acquired on the dispatcher thread and released on the Task.Run
+    /// worker thread.</summary>
+    private sealed class AsyncReentryGuard
+    {
+        public int Busy;
+    }
+
     /// <summary>Stable non-null stand-in for a null delegate in a <see cref="UseMemo{T}"/>
     /// dependency array (keeps the comparison meaningful without tripping nullable warnings).</summary>
     private static readonly object NullDep = new();
 
     /// <summary>
-    /// Leading-edge gate. Returns true if this fire is accepted (window was open); arms the
-    /// window for <paramref name="debounceMs"/> and schedules a re-enable that clears
+    /// Leading-edge gate. Returns true if this fire is accepted; arms the window for
+    /// <paramref name="debounceMs"/> and schedules a re-enable that clears
     /// <see cref="DebounceSlot.InWindow"/> and re-renders so the control comes back. Returns
-    /// false if a prior accepted fire is still inside its window (drop this fire).
+    /// false only while a prior accepted fire is genuinely still inside its window.
+    /// <para>Acceptance is <b>time-based</b>: it is decided against the absolute
+    /// <see cref="DebounceSlot.WindowEndsAt"/> deadline (via the injected <see cref="TimeProvider"/>),
+    /// not purely on the <see cref="DebounceSlot.InWindow"/> flag. The one-shot timer only exists to
+    /// trigger the re-render/re-enable; if it is delayed (threadpool starvation/suspension) a fire
+    /// arriving after the deadline is still accepted and re-arms, honoring the fixed-duration
+    /// semantics rather than dropping until the callback eventually runs.</para>
     /// </summary>
     private bool TryEnterDebounceWindow(int debounceMs, Ref<DebounceSlot?> slotRef, Action<bool> setIsDebouncing)
     {
         if (debounceMs <= 0) return true;
 
         var slot = slotRef.Current ??= new DebounceSlot();
+        var now = TimeProvider.GetUtcNow();
         global::System.Threading.ITimer? prior;
         long epoch;
         lock (slot.Gate)
         {
-            if (slot.InWindow) return false;
+            // Drop only while we are genuinely still inside the window. If the re-enable timer
+            // callback is delayed past the deadline, InWindow may still be set — but the window has
+            // logically expired, so fall through and accept + re-arm rather than wrongly drop.
+            if (slot.InWindow && now < slot.WindowEndsAt) return false;
             slot.InWindow = true;
+            slot.WindowEndsAt = now + TimeSpan.FromMilliseconds(debounceMs);
             epoch = ++slot.Epoch;
             prior = slot.Timer;
             slot.Timer = null;
@@ -1133,9 +1168,8 @@ public sealed class RenderContext
             // here and the InWindow check, so the control can't be left wrongly enabled.
             setIsDebouncing(true);
         }
-        // Defensive: the re-enable callback now disposes its own timer when it clears the window,
-        // so by the time we re-arm (InWindow was false) slot.Timer is normally already null. Keep
-        // this as belt-and-suspenders in case a prior timer was left installed (e.g. epoch races).
+        // Dispose the superseded timer (the re-enable callback normally disposes its own when it
+        // clears the window, so on a clean re-arm this is already null; covers the expiry/race path).
         prior?.Dispose();
 
         var timer = TimeProvider.CreateTimer(
