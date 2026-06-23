@@ -291,6 +291,26 @@ Conventions for contributors:
 
 ### Fixed
 
+- **Virtualized rows now reset per-item component state on recycle when keyed
+  (issue #326).** `LazyVStack` / `LazyHStack` / `ItemsRepeater<T>` / `ItemsView<T>`
+  now propagate the `keySelector` projection onto each realized row's top-level
+  `Element.Key`. Post-#324 the ItemsRepeater recycle path reuses a realized
+  inner `Component<T>` across logical items as you scroll, which carried that
+  component's `UseState` / `UseEffect` state from one item to another (e.g. an
+  editor row left "dirty" for item 5 stayed dirty when its container was reused
+  for item 12). With the per-item key in place, reusing a container for a
+  *different* logical item fails `CanUpdate` and the row remounts with fresh
+  hook cells; same-item re-renders keep the key and diff in place, preserving
+  state. An explicit `.WithKey(...)` in the row builder still wins. This is a
+  user-visible behavior change for code that (intentionally or not) relied on
+  cross-item state carry-over — use a stable constant key, or hoist the state
+  above the row, to opt back into durable carry-over. The shared
+  `RefreshRealizedItems` refresh path now also handles a same-slot key change
+  (the documented `.WithKey($"{id}:{rev}")` revision-bump pattern) by adopting
+  the freshly-mounted subtree into the still-parented row wrapper, so the old
+  control is no longer orphaned and the per-control tracking stays consistent.
+  `ListView<T>` / `GridView<T>` already remount per realize and are unaffected.
+
 - **`UseAnnounce().Announce(...)` now marshals to the UI thread automatically.**
   Previously, calling `Announce` off the UI thread (e.g. from a `Task.Run`
   continuation) threw `RPC_E_WRONG_THREAD` (0x8001010E) — the underlying WinUI
