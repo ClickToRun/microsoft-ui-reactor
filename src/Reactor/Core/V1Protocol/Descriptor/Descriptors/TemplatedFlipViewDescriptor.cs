@@ -50,8 +50,9 @@ internal static class TemplatedFlipViewDescriptor
     private static readonly WinUI.SelectionChangedEventHandler SelectionChangedTrampoline = (s, _) =>
     {
         var f = (WinUI.FlipView)s!;
-        if (ChangeEchoSuppressor.ShouldSuppressEcho(f, f.SelectedIndex)) return;
-        (Reconciler.GetElementTag(f) as TemplatedFlipViewElementBase)?.InvokeSelectionChanged(f.SelectedIndex);
+        if (!Reconciler.TryGetReactorState(f, out var state)) return;
+        if (ChangeEchoSuppressor.ShouldSuppressEcho(state, f.SelectedIndex)) return;
+        (state.Element as TemplatedFlipViewElementBase)?.InvokeSelectionChanged(f.SelectedIndex);
     };
 
     public static readonly ControlDescriptor<TemplatedFlipViewElementBase, WinUI.FlipView> Descriptor =

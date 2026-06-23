@@ -121,9 +121,12 @@ internal static class FixtureRegistry
         "EventHandler_Typography",
         "EventHandler_UseReducer",
 
+        // [WrapElementSlot] secondary element slot (E2E validation of the generated
+        // ImperativeBridged bridge writing TabView.TabStripHeader)
+        "WrapElementSlot_TabStripHeader",
+
         // Validation pit-of-success (NumberBox.Immediate + Button.DisabledFocusable)
         "Validation_ImmediateAndDisabledFocusable",
-
         // Accessibility (validated via out-of-process UIA tests)
         "Accessibility_Showcase",
         "Accessibility_KeyboardNav",
@@ -270,6 +273,9 @@ internal static class FixtureRegistry
         "EventHandler_KeyDown" => EventHandlerFixtures.KeyDownTest(ctx),
         "EventHandler_Typography" => EventHandlerFixtures.TypographyTest(ctx),
         "EventHandler_UseReducer" => EventHandlerFixtures.ReducerTest(ctx),
+
+        // [WrapElementSlot] secondary element slot
+        "WrapElementSlot_TabStripHeader" => WrapElementSlotE2EFixtures.TabStripHeaderSlot(ctx),
 
         // Validation pit-of-success
         "Validation_ImmediateAndDisabledFocusable" => ImmediateAndDisabledFocusableFixtures.Demo(ctx),

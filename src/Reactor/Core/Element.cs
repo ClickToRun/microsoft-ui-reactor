@@ -314,6 +314,17 @@ public abstract record Element
     internal virtual bool HasCallbacks => false;
 
     /// <summary>
+    /// Per-type override hook for <see cref="OwnPropsEqual"/> (the dev highlight
+    /// overlay's "modified" determination). Returns <c>true</c>/<c>false</c> when
+    /// this element type wants to author its own own-props comparison, or
+    /// <c>null</c> to defer to the core switch. This lets a control family (e.g.
+    /// Docking) declare its own structural-equality semantics without the core
+    /// statically naming the subsystem's element types. <paramref name="other"/>
+    /// is guaranteed to be the same runtime type as <c>this</c>.
+    /// </summary>
+    internal virtual bool? OwnPropsEqualOverride(Element other) => null;
+
+    /// <summary>
     /// Returns true if two elements are structurally identical AND the child can be
     /// completely skipped during reconciliation (no need to call Update at all).
     /// This is stricter than ShallowEquals: elements with ThemeBindings must still
@@ -374,23 +385,44 @@ public abstract record Element
                 ba.Label == bb.Label
                 && ba.IsEnabled == bb.IsEnabled
                 && ba.ContentElement is null && bb.ContentElement is null
+                && CommandBindings.CommandsEqual(ba.Command, bb.Command)
                 && ReferenceEquals(ba.Setters, bb.Setters),
 
             (HyperlinkButtonElement ha, HyperlinkButtonElement hb) =>
                 ha.Content == hb.Content
                 && ha.NavigateUri == hb.NavigateUri
+                && CommandBindings.CommandsEqual(ha.Command, hb.Command)
                 && ReferenceEquals(ha.Setters, hb.Setters),
 
             (RepeatButtonElement ra, RepeatButtonElement rb) =>
                 ra.Label == rb.Label
                 && ra.Delay == rb.Delay
                 && ra.Interval == rb.Interval
+                && CommandBindings.CommandsEqual(ra.Command, rb.Command)
                 && ReferenceEquals(ra.Setters, rb.Setters),
 
             (ToggleButtonElement ta, ToggleButtonElement tb) =>
                 ta.Label == tb.Label
                 && ta.IsChecked == tb.IsChecked
+                && CommandBindings.CommandsEqual(ta.Command, tb.Command)
                 && ReferenceEquals(ta.Setters, tb.Setters),
+
+            // issue #153 (L1) — extend the command fast-path arm to Split / ToggleSplit so all six
+            // command-capable buttons memoize consistently. Flyout uses reference-equality (matches
+            // the descriptor's ElementReferenceComparer); null == null lets flyout-less command split
+            // buttons fast-path too.
+            (SplitButtonElement sa, SplitButtonElement sb) =>
+                sa.Label == sb.Label
+                && ReferenceEquals(sa.Flyout, sb.Flyout)
+                && CommandBindings.CommandsEqual(sa.Command, sb.Command)
+                && ReferenceEquals(sa.Setters, sb.Setters),
+
+            (ToggleSplitButtonElement tsa, ToggleSplitButtonElement tsb) =>
+                tsa.Label == tsb.Label
+                && tsa.IsChecked == tsb.IsChecked
+                && ReferenceEquals(tsa.Flyout, tsb.Flyout)
+                && CommandBindings.CommandsEqual(tsa.Command, tsb.Command)
+                && ReferenceEquals(tsa.Setters, tsb.Setters),
 
             (SliderElement sa, SliderElement sb) =>
                 sa.Value == sb.Value
@@ -606,15 +638,6 @@ public abstract record Element
                 && ca.Height == cb.Height
                 && BrushesEqual(ca.Background, cb.Background)
                 && ReferenceEquals(ca.Children, cb.Children)
-                && ReferenceEquals(ca.ChartData, cb.ChartData)
-                && ReferenceEquals(ca.CustomPalette, cb.CustomPalette)
-                && ca.IsColorOnly == cb.IsColorOnly
-                && ca.IsRawColors == cb.IsRawColors
-                && ca.IsInteractive == cb.IsInteractive
-                && ca.IsKeyboardDisabled == cb.IsKeyboardDisabled
-                && ca.IsTightHitTest == cb.IsTightHitTest
-                && ca.IsAnnounceEveryFrame == cb.IsAnnounceEveryFrame
-                && ca.CustomFocusColor == cb.CustomFocusColor
                 && ca.Setters.Length == 0 && cb.Setters.Length == 0,
 
             (EmptyElement, EmptyElement) => true,
@@ -639,6 +662,11 @@ public abstract record Element
     {
         if (ReferenceEquals(a, b)) return true;
         if (a.GetType() != b.GetType()) return false;
+
+        // Per-type override hook: control families (e.g. Docking) declare their
+        // own structural-equality semantics without the core statically naming
+        // the subsystem's element types.
+        if (a.OwnPropsEqualOverride(b) is { } overridden) return overridden;
 
         return (a, b) switch
         {
@@ -852,23 +880,6 @@ public abstract record Element
                 && la.EstimatedItemSize == lb.EstimatedItemSize
                 && ReferenceEquals(la.ScrollViewerSetters, lb.ScrollViewerSetters)
                 && ReferenceEquals(la.RepeaterSetters, lb.RepeaterSetters),
-
-            // Spec 045 §2.1 / §2.3 — docking elements use closures for
-            // their callbacks (OnDelta, OnHover, etc.) that are freshly
-            // captured on every parent render. The closures don't touch
-            // the realized WinUI control's visible properties — only
-            // structural fields (Direction, Mode) do — so for the
-            // highlight overlay's purposes these are "equal" when the
-            // structural fields match. Without these arms, every parent
-            // re-render flashes the splitter handles + drop overlay
-            // yellow even though nothing visible changed.
-            (Microsoft.UI.Reactor.Docking.Native.DockSplitterElement da,
-             Microsoft.UI.Reactor.Docking.Native.DockSplitterElement db) =>
-                da.Direction == db.Direction,
-
-            (Microsoft.UI.Reactor.Docking.Native.DockDropTargetOverlayElement oa,
-             Microsoft.UI.Reactor.Docking.Native.DockDropTargetOverlayElement ob) =>
-                oa.Mode == ob.Mode,
 
             // Non-container / leaf types: return false → always captured
             _ => false,
@@ -2511,6 +2522,7 @@ public record RichTextInlineUIContainer : RichTextInline
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("Label")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("IsEnabled")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("IsDisabledFocusable")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Command")]
 public partial record ButtonElement(string Label, Action? OnClick = null) : Element
 {
     public bool IsEnabled { get; init; } = true;
@@ -2527,6 +2539,17 @@ public partial record ButtonElement(string Label, Action? OnClick = null) : Elem
     /// </summary>
     public bool IsDisabledFocusable { get; init; }
     public Element? ContentElement { get; init; }
+    /// <summary>
+    /// The <see cref="Command"/> bound to this button via the <c>Button(Command)</c> factory
+    /// or the <c>.Command()</c> modifier (issue #153). Carries the command so the reconciler can
+    /// compare it field-aware in <see cref="Element.ShallowEquals"/> and apply its metadata through
+    /// a descriptor entry — no per-render <see cref="Setters"/> lambda. The <c>init</c> accessor is
+    /// <c>internal</c> on purpose: this property only carries command <em>metadata</em>; the click
+    /// trampoline (<c>Execute</c>) and the coerced <c>IsEnabled</c> wiring live in the factory /
+    /// modifier, so the supported way to bind a command is <c>Button(cmd)</c> / <c>.Command(cmd)</c>,
+    /// not a direct <c>new ButtonElement { Command = cmd }</c> (which would not invoke the command).
+    /// </summary>
+    public Command? Command { get; internal init; }
     internal Action<WinUI.Button>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnClick is not null;
 
@@ -2578,26 +2601,46 @@ public partial record ButtonElement(string Label, Action? OnClick = null) : Elem
                 callbackPresent:  static e => e.OnClick,
                 trampoline:       __ClickTrampoline,
                 slotIsNull:       static p => p.ClickTrampoline is null,
-                setSlot:          static (p, h) => p.ClickTrampoline = h);
+                setSlot:          static (p, h) => p.ClickTrampoline = h)
+            // issue #153 — command metadata (tooltip / accelerator / access key) applied
+            // field-aware. applyIsEnabled:false: the IsEnabled OneWayConditional above already
+            // drives the control (gated on !IsDisabledFocusable), so the command must not
+            // clobber the disabled-focusable coercion. Re-applied only when the Command
+            // changes in a rendered field (delegates ignored — CommandModuloDelegatesComparer).
+            .OneWayCommand(static e => e.Command, applyIsEnabled: false);
     }
 }
 
 [global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.HyperlinkButton))]  // spec 058 §15 (P5.4)
 [global::Microsoft.UI.Reactor.Wrappers.WrapAlias("Content", "Content")]  // Content as value (not child slot)
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Command")]
 public partial record HyperlinkButtonElement(string Content, Uri? NavigateUri = null, Action? OnClick = null) : Element
 {
+    /// <summary>The command metadata bound via <c>HyperlinkButton(Command)</c> / <c>.Command()</c> (issue #153). <c>internal init</c>: bind via the factory/modifier, not direct record init. See <see cref="ButtonElement.Command"/>.</summary>
+    public Command? Command { get; internal init; }
     internal Action<WinUI.HyperlinkButton>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnClick is not null;
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<HyperlinkButtonElement, WinUI.HyperlinkButton> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<HyperlinkButtonElement, WinUI.HyperlinkButton> d)
+        => d.OneWayCommand(static e => e.Command);  // issue #153 — command metadata + IsEnabled applied field-aware
 }
 
 [global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinPrim.RepeatButton))]  // spec 058 §15 (P5.4)
 [global::Microsoft.UI.Reactor.Wrappers.WrapAlias("Label", "Content")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Command")]
 public partial record RepeatButtonElement(string Label, Action? OnClick = null) : Element
 {
     public int Delay { get; init; } = 250;
     public int Interval { get; init; } = 50;
+    /// <summary>The command metadata bound via <c>RepeatButton(Command)</c> / <c>.Command()</c> (issue #153). <c>internal init</c>: bind via the factory/modifier, not direct record init. See <see cref="ButtonElement.Command"/>.</summary>
+    public Command? Command { get; internal init; }
     internal Action<WinPrim.RepeatButton>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnClick is not null;
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<RepeatButtonElement, WinPrim.RepeatButton> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<RepeatButtonElement, WinPrim.RepeatButton> d)
+        => d.OneWayCommand(static e => e.Command);  // issue #153 — command metadata + IsEnabled applied field-aware
 }
 
 // Spec 058 §15 (P5.22) — Label→Content ([WrapAlias]). IsThreeState/IsChecked/CheckedState +
@@ -2609,6 +2652,7 @@ public partial record RepeatButtonElement(string Label, Action? OnClick = null) 
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("IsThreeState")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("IsChecked")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("CheckedState")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Command")]
 public partial record ToggleButtonElement(string Label, bool IsChecked = false, Action<bool>? OnIsCheckedChanged = null) : Element
 {
     /// <summary>
@@ -2622,6 +2666,8 @@ public partial record ToggleButtonElement(string Label, bool IsChecked = false, 
     public bool? CheckedState { get; init; }
     /// <summary>Three-state change handler. Receives <c>null</c> for indeterminate.</summary>
     public Action<bool?>? OnCheckedStateChanged { get; init; }
+    /// <summary>The command metadata bound via <c>ToggleButton(Command)</c> / <c>.Command()</c> (issue #153). <c>internal init</c>: bind via the factory/modifier, not direct record init. See <see cref="ButtonElement.Command"/>.</summary>
+    public Command? Command { get; internal init; }
     internal Action<WinPrim.ToggleButton>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnIsCheckedChanged is not null || OnCheckedStateChanged is not null;
 
@@ -2646,7 +2692,8 @@ public partial record ToggleButtonElement(string Label, bool IsChecked = false, 
                 callbackPresent:  static e => (Delegate?)e.OnIsCheckedChanged ?? e.OnCheckedStateChanged,
                 trampoline:       __ClickTrampoline,
                 slotIsNull:       static p => p.ClickTrampoline is null,
-                setSlot:          static (p, h) => p.ClickTrampoline = h);
+                setSlot:          static (p, h) => p.ClickTrampoline = h)
+            .OneWayCommand(static e => e.Command);  // issue #153 — command metadata + IsEnabled applied field-aware
 }
 
 // Spec 058 §15 (P5.22) — Label→Content ([WrapAlias], which also suppresses the auto content slot
@@ -2674,8 +2721,11 @@ public partial record DropDownButtonElement(string Label, Element? Flyout = null
 [global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.SplitButton), Exclude = new[] { "Click" })]
 [global::Microsoft.UI.Reactor.Wrappers.WrapAlias("Label", "Content")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("Flyout")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Command")]
 public partial record SplitButtonElement(string Label, Action? OnClick = null, Element? Flyout = null) : Element
 {
+    /// <summary>The command metadata bound via <c>SplitButton(Command)</c> / <c>.Command()</c> (issue #153). <c>internal init</c>: bind via the factory/modifier, not direct record init. See <see cref="ButtonElement.Command"/>.</summary>
+    public Command? Command { get; internal init; }
     internal Action<WinUI.SplitButton>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnClick is not null;
 
@@ -2694,7 +2744,8 @@ public partial record SplitButtonElement(string Label, Action? OnClick = null, E
                 get:         static e => e.Flyout,
                 set:         static (c, v, rec, rr) => c.Flyout = rec.CreateFlyoutForDescriptor(v, rr),
                 shouldWrite: static e => e.Flyout is not null,
-                comparer:    global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.Descriptors.ElementReferenceComparer.Instance);
+                comparer:    global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.Descriptors.ElementReferenceComparer.Instance)
+            .OneWayCommand(static e => e.Command);  // issue #153 — command metadata + IsEnabled applied field-aware
 }
 
 // Spec 058 §15 (P5.22) — Label→Content ([WrapAlias], suppresses the auto content slot). IsChecked
@@ -2704,8 +2755,11 @@ public partial record SplitButtonElement(string Label, Action? OnClick = null, E
 [global::Microsoft.UI.Reactor.Wrappers.WrapAlias("Label", "Content")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("IsChecked")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("Flyout")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Command")]
 public partial record ToggleSplitButtonElement(string Label, Optional<bool> IsChecked = default, Action<bool>? OnIsCheckedChanged = null, Element? Flyout = null) : Element
 {
+    /// <summary>The command metadata bound via <c>ToggleSplitButton(Command)</c> / <c>.Command()</c> (issue #153). <c>internal init</c>: bind via the factory/modifier, not direct record init. See <see cref="ButtonElement.Command"/>.</summary>
+    public Command? Command { get; internal init; }
     internal Action<WinUI.ToggleSplitButton>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnIsCheckedChanged is not null;
 
@@ -2722,7 +2776,8 @@ public partial record ToggleSplitButtonElement(string Label, Optional<bool> IsCh
                 get:         static e => e.Flyout,
                 set:         static (c, v, rec, rr) => c.Flyout = rec.CreateFlyoutForDescriptor(v, rr),
                 shouldWrite: static e => e.Flyout is not null,
-                comparer:    global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.Descriptors.ElementReferenceComparer.Instance);
+                comparer:    global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.Descriptors.ElementReferenceComparer.Instance)
+            .OneWayCommand(static e => e.Command);  // issue #153 — command metadata + IsEnabled applied field-aware
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -2770,8 +2825,9 @@ public partial record TextBoxElement(
     private static readonly WinUI.TextChangedEventHandler __TextChangedTrampoline = (s, _) =>
     {
         var tb = (WinUI.TextBox)s!;
-        if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(tb)) return;
-        (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(tb) as TextBoxElement)?.OnChanged?.Invoke(tb.Text);
+        if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(tb, out var state)) return;
+        if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(state)) return;
+        (state.Element as TextBoxElement)?.OnChanged?.Invoke(tb.Text);
     };
 
     private static readonly global::Microsoft.UI.Xaml.RoutedEventHandler __SelectionChangedTrampoline = (s, _) =>
@@ -2877,8 +2933,9 @@ public partial record NumberBoxElement(
         __ValueChangedTrampoline = (s, _) =>
         {
             var box = (WinUI.NumberBox)s!;
-            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(box)) return;
-            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(box) as NumberBoxElement)?.OnValueChanged?.Invoke(box.Value);
+            if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(box, out var state)) return;
+            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(state)) return;
+            (state.Element as NumberBoxElement)?.OnValueChanged?.Invoke(box.Value);
         };
 
     // Min/Max BEFORE Value (Customize entries emit first) so a fresh in-range Value isn't
@@ -2946,8 +3003,9 @@ public partial record AutoSuggestBoxElement(
         {
             if (args.Reason != WinUI.AutoSuggestionBoxTextChangeReason.UserInput) return;
             var asb = (WinUI.AutoSuggestBox)s!;
-            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(asb)) return;
-            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(asb) as AutoSuggestBoxElement)?.OnTextChanged?.Invoke(asb.Text);
+            if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(asb, out var state)) return;
+            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(state)) return;
+            (state.Element as AutoSuggestBoxElement)?.OnTextChanged?.Invoke(asb.Text);
         };
 
     private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.AutoSuggestBox, WinUI.AutoSuggestBoxQuerySubmittedEventArgs>
@@ -3130,8 +3188,9 @@ public partial record ComboBoxElement(
     private static readonly WinUI.SelectionChangedEventHandler __SelectionChangedTrampoline = (s, _) =>
     {
         var cb = (WinUI.ComboBox)s!;
-        if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppressEcho(cb, cb.SelectedIndex)) return;
-        (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(cb) as ComboBoxElement)
+        if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(cb, out var state)) return;
+        if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppressEcho(state, cb.SelectedIndex)) return;
+        (state.Element as ComboBoxElement)
             ?.OnSelectedIndexChanged?.Invoke(cb.SelectedIndex);
     };
 
@@ -3606,9 +3665,10 @@ public partial record RichEditBoxElement(
     private static readonly global::Microsoft.UI.Xaml.RoutedEventHandler __TextChangedTrampoline = (s, _) =>
     {
         var r = (WinUI.RichEditBox)s!;
-        if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(r)) return;
+        if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(r, out var state)) return;
+        if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(state)) return;
         r.Document.GetText(global::Microsoft.UI.Text.TextGetOptions.None, out var text);
-        (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(r) as RichEditBoxElement)
+        (state.Element as RichEditBoxElement)
             ?.OnTextChanged?.Invoke(text?.TrimEnd('\r') ?? "");
     };
 
@@ -3860,15 +3920,17 @@ public partial record ExpanderElement(
     private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.Expander, WinUI.ExpanderExpandingEventArgs>
         __ExpandingTrampoline = (s, _) =>
         {
-            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(s)) return;
-            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(s) as ExpanderElement)?.OnIsExpandedChanged?.Invoke(true);
+            if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(s, out var state)) return;
+            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(state)) return;
+            (state.Element as ExpanderElement)?.OnIsExpandedChanged?.Invoke(true);
         };
 
     private static readonly global::Windows.Foundation.TypedEventHandler<WinUI.Expander, WinUI.ExpanderCollapsedEventArgs>
         __CollapsedTrampoline = (s, _) =>
         {
-            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(s)) return;
-            (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(s) as ExpanderElement)?.OnIsExpandedChanged?.Invoke(false);
+            if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(s, out var state)) return;
+            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(state)) return;
+            (state.Element as ExpanderElement)?.OnIsExpandedChanged?.Invoke(false);
         };
 
     private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<ExpanderElement, WinUI.Expander> Customize(
@@ -4035,47 +4097,6 @@ public partial record CanvasElement(Element[] Children) : Element
         d.Children = global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.Descriptors.CanvasChildrenStrategy.Strategy;
         return d;
     }
-
-    /// <summary>
-    /// When this Canvas was created by a chart element, carries the chart's
-    /// accessibility data so the scanner can inspect chart-specific properties.
-    /// Null for non-chart canvases.
-    /// </summary>
-    internal Charting.Accessibility.IChartAccessibilityData? ChartData { get; init; }
-
-    /// <summary>
-    /// When set, indicates this chart used <c>.ColorOnly()</c> — scanner flags as A11Y_CHART_004.
-    /// </summary>
-    internal bool IsColorOnly { get; init; }
-
-    /// <summary>
-    /// When set, indicates this chart used <c>.RawColors()</c> — scanner flags as A11Y_CHART_012.
-    /// </summary>
-    internal bool IsRawColors { get; init; }
-
-    /// <summary>Custom palette set on the chart, if any — scanner validates for contrast.</summary>
-    internal Charting.Accessibility.ChartPalette? CustomPalette { get; init; }
-
-    /// <summary>When true, chart is interactive with keyboard navigation enabled.</summary>
-    internal bool IsInteractive { get; init; }
-
-    /// <summary>When true, keyboard navigation is explicitly disabled. Scanner flags as A11Y_CHART_003.</summary>
-    internal bool IsKeyboardDisabled { get; init; }
-
-    /// <summary>When true, hit targets are not expanded to 24×24. Scanner flags as A11Y_CHART_005.</summary>
-    internal bool IsTightHitTest { get; init; }
-
-    /// <summary>
-    /// When set, a custom focus indicator color is used instead of the default double-ring.
-    /// Scanner validates it meets 3:1 contrast (A11Y_CHART_006).
-    /// </summary>
-    internal global::Windows.UI.Color? CustomFocusColor { get; init; }
-
-    /// <summary>
-    /// When true, the chart announces every animation frame via the live region,
-    /// which floods assistive technology. Scanner flags as A11Y_CHART_007.
-    /// </summary>
-    internal bool IsAnnounceEveryFrame { get; init; }
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -4251,8 +4272,8 @@ public partial record TitleBarElement(
 [global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.TabView), Exclude = new[] { "TabCloseRequested", "AddTabButtonClick", "TabDragStarting", "TabDragCompleted" })]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("Tabs")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("SelectedIndex")]
-[global::Microsoft.UI.Reactor.Wrappers.WrapManual("TabStripHeader")]
-[global::Microsoft.UI.Reactor.Wrappers.WrapManual("TabStripFooter")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapElementSlot("TabStripHeader")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapElementSlot("TabStripFooter")]
 public partial record TabViewElement(
     TabViewItemData[] Tabs
 ) : Element
@@ -4353,8 +4374,9 @@ internal override bool HasCallbacks => OnSelectedIndexChanged is not null;
 private static readonly WinUI.SelectionChangedEventHandler __SelectionChangedTrampoline = (s, _) =>
 {
     var p = (WinUI.Pivot)s!;
-    if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppressEcho(p, p.SelectedIndex)) return;
-    (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(p) as PivotElement)?.OnSelectedIndexChanged?.Invoke(p.SelectedIndex);
+    if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(p, out var state)) return;
+    if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppressEcho(state, p.SelectedIndex)) return;
+    (state.Element as PivotElement)?.OnSelectedIndexChanged?.Invoke(p.SelectedIndex);
 };
 
 private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<PivotElement, WinUI.Pivot> Customize(
@@ -5572,7 +5594,7 @@ public partial record PathElement() : Element
         if (e.PathDataString is { Length: > 0 } pdsFallback)
         {
             global::System.Exception? parserError = null;
-            try { c.Data = global::Microsoft.UI.Reactor.Charting.PathDataParser.Parse(pdsFallback); }
+            try { c.Data = PathDataParser.Parse(pdsFallback); }
             catch (global::System.Exception ex) { parserError = ex; }
 
             if (parserError is not null)
@@ -5760,8 +5782,9 @@ public partial record ListBoxElement(string[] Items) : Element
     private static readonly WinUI.SelectionChangedEventHandler __SelectionChangedTrampoline = (s, _) =>
     {
         var lb = (WinUI.ListBox)s!;
-        if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(lb)) return;
-        if (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(lb) is not ListBoxElement el) return;
+        if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(lb, out var state)) return;
+        if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(state)) return;
+        if (state.Element is not ListBoxElement el) return;
         el.OnSelectedIndexChanged?.Invoke(lb.SelectedIndex);
         if (el.OnSelectionChanged is { } h)
         {
@@ -5815,8 +5838,9 @@ public partial record SelectorBarElement(SelectorBarItemData[] Items) : Element
         {
             var bar = (WinUI.SelectorBar)s!;
             var idx = bar.Items.IndexOf(bar.SelectedItem);
-            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppressEcho(bar, idx)) return;
-            if (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(bar) is not SelectorBarElement el) return;
+            if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(bar, out var state)) return;
+            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppressEcho(state, idx)) return;
+            if (state.Element is not SelectorBarElement el) return;
             el.OnSelectedIndexChanged?.Invoke(idx);
         };
 
@@ -5994,8 +6018,9 @@ public partial record CalendarViewElement() : Element
         __SelectedDatesChangedTrampoline = static (s, _) =>
         {
             var c = (WinUI.CalendarView)s!;
-            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(c)) return;
-            if (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag(c) is CalendarViewElement el && el.OnSelectedDatesChanged is { } h)
+            if (!global::Microsoft.UI.Reactor.Core.Reconciler.TryGetReactorState(c, out var state)) return;
+            if (global::Microsoft.UI.Reactor.Core.ChangeEchoSuppressor.ShouldSuppress(state)) return;
+            if (state.Element is CalendarViewElement el && el.OnSelectedDatesChanged is { } h)
                 h(global::System.Linq.Enumerable.ToArray(c.SelectedDates));
         };
 

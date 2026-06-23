@@ -162,17 +162,17 @@ public static partial class Factories
 
     /// <summary>
     /// Creates a Button driven by a Command. Maps Label → Content, Execute → Click,
-    /// IsEnabled → IsEnabled. Description / Accelerator / AccessKey are wired via
-    /// a Setter so per-site overrides win via the normal modifier ordering — e.g.
-    /// <c>Button(saveCommand).IsEnabled(canSave)</c> or
-    /// <c>.Set(b =&gt; b.FlowDirection = FlowDirection.RightToLeft)</c>.
+    /// IsEnabled → IsEnabled. Description / Accelerator / AccessKey are applied by the
+    /// reconciler from the typed <see cref="ButtonElement.Command"/> property (issue #153),
+    /// so no per-render Setters array or lambda is allocated and the reconciler can
+    /// fast-path command-bound buttons whose Command is unchanged across renders.
     /// </summary>
     public static ButtonElement Button(Core.Command command)
     {
         return new ButtonElement(command.Label, () => Core.CommandBindings.Invoke(command))
         {
             IsEnabled = command.IsEnabled,
-            Setters = [b => Core.CommandBindings.ApplyButtonBaseCommon(b, command)],
+            Command = command,
         };
     }
 
@@ -193,7 +193,7 @@ public static partial class Factories
     {
         return new HyperlinkButtonElement(command.Label, null, () => Core.CommandBindings.Invoke(command))
         {
-            Setters = [b => Core.CommandBindings.ApplyButtonBaseCommon(b, command)],
+            Command = command,
         };
     }
 
@@ -207,7 +207,7 @@ public static partial class Factories
     {
         return new RepeatButtonElement(command.Label, () => Core.CommandBindings.Invoke(command))
         {
-            Setters = [b => Core.CommandBindings.ApplyButtonBaseCommon(b, command)],
+            Command = command,
         };
     }
 
@@ -225,7 +225,7 @@ public static partial class Factories
     {
         return new ToggleButtonElement(command.Label, isChecked, _ => Core.CommandBindings.Invoke(command))
         {
-            Setters = [b => Core.CommandBindings.ApplyButtonBaseCommon(b, command)],
+            Command = command,
         };
     }
 
@@ -256,7 +256,7 @@ public static partial class Factories
     {
         return new SplitButtonElement(command.Label, () => Core.CommandBindings.Invoke(command), flyout)
         {
-            Setters = [b => Core.CommandBindings.ApplyButtonBaseCommon(b, command)],
+            Command = command,
         };
     }
 
@@ -276,7 +276,7 @@ public static partial class Factories
     {
         return new ToggleSplitButtonElement(command.Label, isChecked, _ => Core.CommandBindings.Invoke(command), flyout)
         {
-            Setters = [b => Core.CommandBindings.ApplyButtonBaseCommon(b, command)],
+            Command = command,
         };
     }
 
@@ -1155,7 +1155,7 @@ public static partial class Factories
     /// Accelerator, IsEnabled, AccessKey, and Description.
     /// </summary>
     public static AppBarButtonData AppBarButton(Core.Command command) =>
-        new(command.Label, command.Execute)
+        new(command.Label, () => Core.CommandBindings.Invoke(command))
         {
             IsEnabled = command.IsEnabled,
             IconElement = command.Icon,

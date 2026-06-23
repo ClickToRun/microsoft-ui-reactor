@@ -8,11 +8,14 @@ namespace Microsoft.UI.Reactor.Core;
 
 /// <summary>
 /// Shared binding helpers for wiring a <see cref="Command"/> into command-capable
-/// WinUI controls (<see cref="ButtonBase"/> derivatives, <see cref="SwipeItem"/>, …).
-/// Keeps the per-control factory overloads thin: apply label/onClick at construction
-/// time and defer Description / Icon / Accelerator / AccessKey to a mount-time setter
-/// so per-site overrides (e.g. <c>.AccessKey("X")</c> after <c>.Command(cmd)</c>) win
-/// via the normal modifier-after-command ordering.
+/// WinUI controls (<see cref="ButtonBase"/> derivatives, <see cref="SplitButton"/>, …).
+/// Keeps the per-control factory overloads thin: the factory/modifier wires label +
+/// click and stores the command on the element's typed <c>Command</c> property; the
+/// reconciler applies its Description / Icon / Accelerator / AccessKey / enabled metadata
+/// field-aware through the <see cref="OneWayCommand{TElement,TControl}"/> descriptor entry
+/// (issue #153). Raw <c>.Set(...)</c> setters run after every descriptor prop, so an explicit
+/// <c>.Set(b =&gt; b.AccessKey = "X")</c> overrides command-derived metadata regardless of where
+/// it appears in the fluent chain — the documented "<c>.Set</c> wins / applied last" rule.
 /// </summary>
 internal static class CommandBindings
 {
@@ -24,9 +27,19 @@ internal static class CommandBindings
     /// derivatives and WinUI controls that don't derive from ButtonBase
     /// (e.g. <see cref="SplitButton"/>, <see cref="ToggleSplitButton"/>).
     /// </summary>
-    internal static void ApplyButtonBaseCommon(Control btn, Command cmd)
+    /// <param name="btn">The live command-capable control to apply metadata to.</param>
+    /// <param name="cmd">The command whose metadata (enabled state, tooltip, accelerator, access key) is applied.</param>
+    /// <param name="applyIsEnabled">
+    /// When false, the command's <see cref="Command.IsEnabled"/> is NOT written to the
+    /// control. Callers whose element already drives <see cref="Control.IsEnabled"/> through
+    /// a descriptor prop pass false so this setter doesn't clobber descriptor-owned coercion
+    /// — notably <see cref="ButtonElement"/>'s <c>IsDisabledFocusable</c>, which must keep a
+    /// disabled button <see cref="Control.IsEnabled"/>=true (reachable via Tab) even when the
+    /// bound command is disabled. (issue #133, PR review M1)
+    /// </param>
+    internal static void ApplyButtonBaseCommon(Control btn, Command cmd, bool applyIsEnabled = true)
     {
-        btn.IsEnabled = cmd.IsEnabled;
+        if (applyIsEnabled) btn.IsEnabled = cmd.IsEnabled;
         if (cmd.Description is not null)
         {
             ToolTipService.SetToolTip(btn, cmd.Description);
@@ -98,6 +111,28 @@ internal static class CommandBindings
     private static readonly ConditionalWeakTable<Control, KeyboardAccelerator> _commandAccelerators = new();
 
     /// <summary>
+    /// Clears the metadata a prior <see cref="Command"/> applied to <paramref name="btn"/> when the
+    /// element's command transitions to <c>null</c> — either an in-place re-render (e.g.
+    /// <c>Button(cmd)</c> → <c>Button("x")</c>) or a pooled control rented for a command-less button.
+    /// Without this, the previously-set tooltip / UIA HelpText, AccessKey, command-added
+    /// <see cref="KeyboardAccelerator"/>, and placement mode would stick on the live control (issue
+    /// #153, PR review). <see cref="Control.IsEnabled"/> is intentionally NOT reset: the element's
+    /// own IsEnabled descriptor prop drives it.
+    /// </summary>
+    internal static void ClearButtonCommandMetadata(Control btn)
+    {
+        ToolTipService.SetToolTip(btn, null);
+        btn.ClearValue(Microsoft.UI.Xaml.Automation.AutomationProperties.HelpTextProperty);
+        btn.AccessKey = "";
+        if (_commandAccelerators.TryGetValue(btn, out var prior))
+        {
+            btn.KeyboardAccelerators.Remove(prior);
+            _commandAccelerators.Remove(btn);
+        }
+        btn.ClearValue(UIElement.KeyboardAcceleratorPlacementModeProperty);
+    }
+
+    /// <summary>
     /// Invokes <see cref="Command.Execute"/> or fires-and-forgets
     /// <see cref="Command.ExecuteAsync"/>. Used by factory overloads that need to
     /// wire a click handler from a bare <see cref="Command"/>.
@@ -106,5 +141,71 @@ internal static class CommandBindings
     {
         if (cmd.Execute is not null) cmd.Execute();
         else if (cmd.ExecuteAsync is not null) _ = cmd.ExecuteAsync();
+    }
+
+    /// <summary>
+    /// Registers the typed <see cref="Command"/> descriptor entry shared by every
+    /// command-capable button element (issue #153). On mount it applies
+    /// <see cref="ApplyButtonBaseCommon"/>; on update it re-applies only when a rendered
+    /// command field changed (delegate fields ignored via
+    /// <see cref="CommandModuloDelegatesComparer"/>). When the command transitions to <c>null</c>
+    /// (in-place re-render or a pooled control reused without a command) the setter clears the
+    /// stale command metadata via <see cref="ClearButtonCommandMetadata"/>. Pass
+    /// <paramref name="applyIsEnabled"/>=false when the element already drives
+    /// <see cref="Control.IsEnabled"/> through its own descriptor prop (e.g.
+    /// <see cref="ButtonElement"/>'s <c>IsDisabledFocusable</c>-coerced entry), so the command apply
+    /// does not clobber that coercion.
+    /// </summary>
+    internal static global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<TElement, TControl> OneWayCommand<TElement, TControl>(
+        this global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<TElement, TControl> d,
+        Func<TElement, Command?> getCommand,
+        bool applyIsEnabled = true)
+        where TElement : Element
+        where TControl : Control, new()
+        => applyIsEnabled
+            ? d.OneWay<Command?>(
+                getCommand,
+                static (c, cmd) => { if (cmd is not null) ApplyButtonBaseCommon(c, cmd, applyIsEnabled: true); else ClearButtonCommandMetadata(c); },
+                CommandModuloDelegatesComparer.Instance)
+            : d.OneWay<Command?>(
+                getCommand,
+                static (c, cmd) => { if (cmd is not null) ApplyButtonBaseCommon(c, cmd, applyIsEnabled: false); else ClearButtonCommandMetadata(c); },
+                CommandModuloDelegatesComparer.Instance);
+
+    /// <summary>
+    /// Structural equality for two <see cref="Command"/> values that <b>ignores</b> the
+    /// <see cref="Command.Execute"/> / <see cref="Command.ExecuteAsync"/> delegate fields
+    /// (issue #153, same rationale as #151). Dispatch goes through the click trampoline,
+    /// which reads the latest <see cref="Command"/> off the element Tag at invoke time, so
+    /// delegate identity is irrelevant to dispatch correctness — only the rendered metadata
+    /// (label, enabled state, tooltip, accelerator, access key) determines whether the
+    /// command-applied control state must be re-written. Two commands that differ only in
+    /// their delegates therefore produce identical visuals and can skip reconcile entirely.
+    /// </summary>
+    internal static bool CommandsEqual(Command? a, Command? b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+        return a.Label == b.Label
+            && a.CanExecute == b.CanExecute
+            && a.IsExecuting == b.IsExecuting
+            && a.Description == b.Description
+            && a.AccessKey == b.AccessKey
+            && Equals(a.Icon, b.Icon)
+            && Equals(a.Accelerator, b.Accelerator);
+    }
+
+    /// <summary>
+    /// <see cref="IEqualityComparer{T}"/> wrapper over <see cref="CommandsEqual"/> for the
+    /// descriptor's <c>OneWay&lt;Command?&gt;</c> diff: the command-apply entry only re-runs
+    /// <see cref="ApplyButtonBaseCommon"/> when the command changed in a rendered field, never
+    /// when only its delegates changed across renders.
+    /// </summary>
+    internal sealed class CommandModuloDelegatesComparer : IEqualityComparer<Command?>
+    {
+        internal static readonly CommandModuloDelegatesComparer Instance = new();
+        public bool Equals(Command? a, Command? b) => CommandsEqual(a, b);
+        public int GetHashCode(Command? c) =>
+            c is null ? 0 : global::System.HashCode.Combine(c.Label, c.CanExecute, c.IsExecuting, c.Description, c.AccessKey);
     }
 }

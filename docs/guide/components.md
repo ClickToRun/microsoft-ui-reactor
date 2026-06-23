@@ -172,6 +172,48 @@ For propless `Component`, `ShouldUpdate()` returns `false` by default,
 meaning the component only re-renders from its own state changes. Override
 and return `true` to re-render whenever the parent re-renders.
 
+## Callback props and memoization
+
+Memoization compares props with `Equals()`. For records that is a
+field-by-field compare, and **delegate fields (`Action`/`Func`) compare by
+reference**. A parent almost always passes a freshly-allocated callback (a
+lambda or local function) on every render, so a child whose props carry an
+inline `Action` field compares unequal *every* render and re-renders even
+when no observable data changed:
+
+```csharp
+// Re-renders on every parent render — OnChanged is a fresh delegate each time.
+record StepProps(StepModel Step, Action<string> OnChanged);
+```
+
+Wrap the callbacks in `Callbacks<T>` so their identity is excluded from the
+memo comparison. `Callbacks<T>` is an always-equal record (`Equals` returns
+`true`, `GetHashCode` returns `0`), so the owning record's auto-generated
+equality treats the callbacks slot as always-equal — only the data fields
+drive the re-render decision:
+
+```csharp
+record StepCallbacks(Action<string> OnChanged, Action OnRun);
+
+// Only Step drives re-render now; the callbacks slot is ignored by memo.
+record StepProps(StepModel Step, Callbacks<StepCallbacks> Cb);
+
+// Construct it — the payload converts implicitly:
+new StepProps(step, new StepCallbacks(onChanged, onRun));
+```
+
+This replaces the old workaround of hand-writing `Equals`/`GetHashCode` on
+every props record (listing only the data fields), which was ~10 lines of
+boilerplate per record and a silent stale-UI bug if you forgot a field.
+
+**Read callbacks live at dispatch time.** When the reconciler skips a child's
+re-render because the data is unchanged, it still refreshes the child's
+`Props` with the latest values, so a handler that reads
+`Props.Cb.Value.OnChanged` *at event time* always invokes the current
+delegate — never a memoized-stale one. Do read the callback off `Props` when
+the event fires; don't capture `Props.Cb.Value.OnChanged` into a local at
+render time and hold onto it.
+
 ## Function Components
 
 Not everything needs a class. Use `Memo` for lightweight inline components

@@ -31,7 +31,7 @@ public static class D3Charts
     // reads them. See Hosting.ChartingActivation for details.
     static D3Charts()
     {
-        Hosting.ChartingActivation.RequestActivation();
+        ChartingRuntime.Activate();
     }
 
     // ── Color helpers ───────────────────────────────────────────────────

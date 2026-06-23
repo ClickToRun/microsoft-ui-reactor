@@ -244,6 +244,9 @@ internal static class SelfTestFixtureRegistry
         "EFR_Factory_ReplacementOnRootTypeChange_DropsOldControlTracking",
         "EFR_Factory_RefreshRealizedItems_SyncsLastElementByControl",
         "EFR_LazyStack_Unmount_CleansUpAllRecycledRowComponents",
+        "EFR_Factory_KeyChangeRecycle_ResetsRowComponentState",
+        "EFR_Factory_SameItemReuse_PreservesRowComponentState",
+        "EFR_Factory_RefreshKeyChange_RemountsRealizedRow",
         // Spec 042 Phase 3 — Animate(...) ambient end-to-end.
         "AAF_ListView_InsertUnderAnimate_TagsRowWithKind",
         "AAF_ListView_InsertWithoutAnimate_RowNotTagged",
@@ -329,6 +332,7 @@ internal static class SelfTestFixtureRegistry
         "ControlUpdate2_VisibilityModifier",
         "ControlUpdate2_RichEditBox",
         "ControlUpdate2_AutoSuggestBox",
+        "WrapElementSlot_TabStripHeaderMountUpdateRemove",
         // Modifier and event handler tests
         "ModifierEvent_EventHandlers",
         "ModifierEvent_Brushes",
@@ -358,6 +362,7 @@ internal static class SelfTestFixtureRegistry
         "ComponentHook_UseWindowSize",
         "ComponentHook_UseBreakpoint",
         "ComponentHook_MultipleComponents",
+        "ComponentMemo_SkipRefreshesLiveDelegate",
         "HotReload_ChildHookOrderRecovery",
         "HotReload_ComponentMigratesState",
         // DSL and extension tests
@@ -636,6 +641,8 @@ internal static class SelfTestFixtureRegistry
         "EchoSuppress_PasswordBox",
         "EchoSuppress_TextBox",
         "EchoSuppress_ToggleSplitButton",
+        // Issue #207 — single coalesced ReactorState DP read in change handlers.
+        "EchoSuppress_TryGetReactorStateCoalescing",
         // §8.2 setter-suppression scope — Set(c => c.X = ...) must not echo.
         "SettersScope_ToggleSwitch",
         "SettersScope_Slider",
@@ -845,6 +852,18 @@ internal static class SelfTestFixtureRegistry
         "Commanding_ToggleButtonCommandFiresOnToggle",
         "Commanding_RepeatButtonCommandInvokesExecute",
         "Commanding_DisabledCommandDisablesControl",
+        "Commanding_CustomContentCommandReappliesIsEnabledOnUpdate",
+        "Commanding_HyperlinkButtonCommandReappliesIsEnabledOnUpdate",
+        "Commanding_RepeatButtonCommandReappliesIsEnabledOnUpdate",
+        "Commanding_ToggleButtonCommandReappliesIsEnabledOnUpdate",
+        "Commanding_CommandDisabledFocusableStaysFocusable",
+        "Commanding_CommandDisabledFocusableStaysFocusableReverseOrder",
+        "Commanding_BoundButtonCommandChangeUpdatesMetadata",
+        "Commanding_BoundButtonUnchangedCommandSkipsReapply",
+        "Commanding_BoundButtonSetterOverridesCommandMetadata",
+        "Commanding_BoundSplitButtonCommandChangeUpdatesMetadata",
+        "Commanding_BoundToggleSplitButtonCommandChangeUpdatesMetadata",
+        "Commanding_BoundButtonCommandClearedWhenRemoved",
 
         // Drag-and-drop — spec 027 Tier 6 (Phase 6a)
         "DragDrop_OnDragStartAutoSetsCanDrag",
@@ -1290,6 +1309,7 @@ internal static class SelfTestFixtureRegistry
         // surface is sufficient for external authors.
         "Spec047ExternalProof_Marquee_MountUpdate",
         "Spec047ExternalProof_Marquee_WriteSuppressed",
+        "Spec047ExternalProof_Gauge_WriteSuppressed",
         "Spec047ExternalProof_Marquee_ModifierChain",
         "Spec047ExternalProof_Marquee_SetterChain",
         "Spec047ExternalProof_Marquee_PoolRent",
@@ -1616,6 +1636,9 @@ internal static class SelfTestFixtureRegistry
         "EFR_Factory_ReplacementOnRootTypeChange_DropsOldControlTracking" => new ElementFactoryRecyclingFixtures.Factory_ReplacementOnRootTypeChange_DropsOldControlTracking(harness),
         "EFR_Factory_RefreshRealizedItems_SyncsLastElementByControl" => new ElementFactoryRecyclingFixtures.Factory_RefreshRealizedItems_SyncsLastElementByControl(harness),
         "EFR_LazyStack_Unmount_CleansUpAllRecycledRowComponents" => new ElementFactoryRecyclingFixtures.LazyStack_Unmount_CleansUpAllRecycledRowComponents(harness),
+        "EFR_Factory_KeyChangeRecycle_ResetsRowComponentState" => new ElementFactoryRecyclingFixtures.Factory_KeyChangeRecycle_ResetsRowComponentState(harness),
+        "EFR_Factory_SameItemReuse_PreservesRowComponentState" => new ElementFactoryRecyclingFixtures.Factory_SameItemReuse_PreservesRowComponentState(harness),
+        "EFR_Factory_RefreshKeyChange_RemountsRealizedRow" => new ElementFactoryRecyclingFixtures.Factory_RefreshKeyChange_RemountsRealizedRow(harness),
         // Spec 042 Phase 3 — Animate(...) ambient end-to-end.
         "AAF_ListView_InsertUnderAnimate_TagsRowWithKind" => new AnimateAmbientFixtures.ListView_InsertUnderAnimate_TagsRowWithKind(harness),
         "AAF_ListView_InsertWithoutAnimate_RowNotTagged" => new AnimateAmbientFixtures.ListView_InsertWithoutAnimate_RowNotTagged(harness),
@@ -1701,6 +1724,7 @@ internal static class SelfTestFixtureRegistry
         "ControlUpdate2_VisibilityModifier" => new ControlUpdateFixtures2.VisibilityModifier(harness),
         "ControlUpdate2_RichEditBox" => new ControlUpdateFixtures2.RichEditBoxUpdate(harness),
         "ControlUpdate2_AutoSuggestBox" => new ControlUpdateFixtures2.AutoSuggestBoxUpdate(harness),
+        "WrapElementSlot_TabStripHeaderMountUpdateRemove" => new WrapElementSlotFixtures.TabStripHeaderMountUpdateRemove(harness),
         // Modifier and event handler tests
         "ModifierEvent_EventHandlers" => new ModifierEventFixtures.EventHandlerModifiers(harness),
         "ModifierEvent_Brushes" => new ModifierEventFixtures.BrushModifiers(harness),
@@ -1730,6 +1754,7 @@ internal static class SelfTestFixtureRegistry
         "ComponentHook_UseWindowSize" => new ComponentHookFixtures.UseWindowSizeHook(harness),
         "ComponentHook_UseBreakpoint" => new ComponentHookFixtures.UseBreakpointHook(harness),
         "ComponentHook_MultipleComponents" => new ComponentHookFixtures.MultipleComponents(harness),
+        "ComponentMemo_SkipRefreshesLiveDelegate" => new CallbacksMemoSkipFixtures.SkipRefreshesLiveDelegate(harness),
         "HotReload_ChildHookOrderRecovery" => new HotReloadRecoveryFixtures.ChildRecoversAndSiblingStateSurvives(harness),
         "HotReload_ComponentMigratesState" => new HotReloadComponentMigrationFixtures.MigratesPreservingState(harness),
         // DSL and extension tests
@@ -2004,6 +2029,7 @@ internal static class SelfTestFixtureRegistry
         "EchoSuppress_PasswordBox" => new EchoSuppressionFixtures.PasswordBoxNoEcho(harness),
         "EchoSuppress_TextBox" => new EchoSuppressionFixtures.TextBoxNoEcho(harness),
         "EchoSuppress_ToggleSplitButton" => new EchoSuppressionFixtures.ToggleSplitButtonNoEcho(harness),
+        "EchoSuppress_TryGetReactorStateCoalescing" => new EchoSuppressionFixtures.TryGetReactorStateCoalescing(harness),
         "SettersScope_ToggleSwitch" => new EchoSuppressionFixtures.SettersScope_ToggleSwitch_NoEcho(harness),
         "SettersScope_Slider" => new EchoSuppressionFixtures.SettersScope_Slider_NoEcho(harness),
         "SettersScope_NumberBox" => new EchoSuppressionFixtures.SettersScope_NumberBox_NoEcho(harness),
@@ -2226,6 +2252,18 @@ internal static class SelfTestFixtureRegistry
         "Commanding_ToggleButtonCommandFiresOnToggle" => new CommandingCoverageFixtures.ToggleButtonCommandFiresOnToggle(harness),
         "Commanding_RepeatButtonCommandInvokesExecute" => new CommandingCoverageFixtures.RepeatButtonCommandInvokesExecute(harness),
         "Commanding_DisabledCommandDisablesControl" => new CommandingCoverageFixtures.DisabledCommandDisablesControl(harness),
+        "Commanding_CustomContentCommandReappliesIsEnabledOnUpdate" => new CommandingCoverageFixtures.CustomContentCommandReappliesIsEnabledOnUpdate(harness),
+        "Commanding_HyperlinkButtonCommandReappliesIsEnabledOnUpdate" => new CommandingCoverageFixtures.HyperlinkButtonCommandReappliesIsEnabledOnUpdate(harness),
+        "Commanding_RepeatButtonCommandReappliesIsEnabledOnUpdate" => new CommandingCoverageFixtures.RepeatButtonCommandReappliesIsEnabledOnUpdate(harness),
+        "Commanding_ToggleButtonCommandReappliesIsEnabledOnUpdate" => new CommandingCoverageFixtures.ToggleButtonCommandReappliesIsEnabledOnUpdate(harness),
+        "Commanding_CommandDisabledFocusableStaysFocusable" => new CommandingCoverageFixtures.CommandDisabledFocusableStaysFocusable(harness),
+        "Commanding_CommandDisabledFocusableStaysFocusableReverseOrder" => new CommandingCoverageFixtures.CommandDisabledFocusableStaysFocusableReverseOrder(harness),
+        "Commanding_BoundButtonCommandChangeUpdatesMetadata" => new CommandingCoverageFixtures.BoundButtonCommandChangeUpdatesMetadata(harness),
+        "Commanding_BoundButtonUnchangedCommandSkipsReapply" => new CommandingCoverageFixtures.BoundButtonUnchangedCommandSkipsReapply(harness),
+        "Commanding_BoundButtonSetterOverridesCommandMetadata" => new CommandingCoverageFixtures.BoundButtonSetterOverridesCommandMetadata(harness),
+        "Commanding_BoundSplitButtonCommandChangeUpdatesMetadata" => new CommandingCoverageFixtures.BoundSplitButtonCommandChangeUpdatesMetadata(harness),
+        "Commanding_BoundToggleSplitButtonCommandChangeUpdatesMetadata" => new CommandingCoverageFixtures.BoundToggleSplitButtonCommandChangeUpdatesMetadata(harness),
+        "Commanding_BoundButtonCommandClearedWhenRemoved" => new CommandingCoverageFixtures.BoundButtonCommandClearedWhenRemoved(harness),
 
         // Drag-and-drop — spec 027 Tier 6 (Phase 6a)
         "DragDrop_OnDragStartAutoSetsCanDrag" => new DragDropFixtures.OnDragStartAutoSetsCanDrag(harness),
@@ -2649,6 +2687,7 @@ internal static class SelfTestFixtureRegistry
         // Spec 047 §14 Phase 1 (1.16) — external-assembly proof fixtures.
         "Spec047ExternalProof_Marquee_MountUpdate" => new Spec047ExternalProofFixtures.MarqueeMountUpdate(harness),
         "Spec047ExternalProof_Marquee_WriteSuppressed" => new Spec047ExternalProofFixtures.MarqueeWriteSuppressedEcho(harness),
+        "Spec047ExternalProof_Gauge_WriteSuppressed" => new Spec047ExternalProofFixtures.GaugeWriteSuppressedEcho(harness),
         "Spec047ExternalProof_Marquee_ModifierChain" => new Spec047ExternalProofFixtures.MarqueeModifierChain(harness),
         "Spec047ExternalProof_Marquee_SetterChain" => new Spec047ExternalProofFixtures.MarqueeSetterChain(harness),
         "Spec047ExternalProof_Marquee_PoolRent" => new Spec047ExternalProofFixtures.MarqueePoolRentReturn(harness),

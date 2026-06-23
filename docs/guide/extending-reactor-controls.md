@@ -559,6 +559,25 @@ with `binding.WriteSuppressed(() => ctrl.Value = newValue)`.
 Forgetting it is the single most common cause of "the value snaps
 back when I edit it" bugs.
 
+`WriteSuppressed` (`ReactorBinding.WriteSuppressed`, and the
+per-binding `ctx.BindFor(ctrl, el).WriteSuppressed(...)`) is **the
+supported, RCW-safe public extension point** for custom value-bearing
+controls — you never touch the framework's internal echo suppressor
+(issue #206). The controlled-control contract is: pair exactly one
+`WriteSuppressed` with exactly one programmatic write, and gate it on
+a live readback check (`if (ctrl.Value != newEl.Value)`) — comparing
+the control's *current* value against the rendered value, exactly as
+the engine's `ControlledPropEntry.Update` does. Gating on the live
+readback (rather than `oldEl.Value != newEl.Value`) means the write
+also fires when the control has drifted from the rendered value even
+though the element is unchanged — snapping drift back — while still
+ensuring the suppression token is consumed by the engine-provoked echo
+and never strands to swallow the user's next real edit. A worked,
+external-assembly proof of exactly this lives in
+[`tests/external_proof/`](https://github.com/microsoft/microsoft-ui-reactor/tree/main/tests/external_proof)
+(`GaugeHandler` — a Slider-shaped `double Value` control authored
+against the public surface only).
+
 **Stashing per-control state on the descriptor / handler.** The
 descriptor and the handler instance are registered once per host.
 Per-control state needs to live on the **control** — either on the

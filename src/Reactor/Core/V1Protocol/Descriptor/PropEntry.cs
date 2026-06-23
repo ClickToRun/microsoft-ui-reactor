@@ -277,8 +277,12 @@ internal sealed class ControlledPropEntry<TElement, TControl, TValue, TArgs> : P
     private static readonly EventHandler<TArgs> StaticTrampoline = (sender, args) =>
     {
         var fe = (FrameworkElement)sender!;
+        // Issue #207 — single attached-DP read shared by payload lookup,
+        // suppression check, and live-element resolution (was three GetValue
+        // reads: TryGetControlEventPayload + ShouldSuppress + GetElementTag).
+        if (!Reconciler.TryGetReactorState(fe, out var state)) return;
         var payload = Reconciler.TryGetControlEventPayload<
-            DescriptorControlledPayload<TElement, TControl, TValue, TArgs>>(fe);
+            DescriptorControlledPayload<TElement, TControl, TValue, TArgs>>(state);
 
         // Counter / setter-scope suppression still wins on this control: an
         // external ReactorBinding.WriteSuppressed token or an ApplySetters
@@ -286,7 +290,7 @@ internal sealed class ControlledPropEntry<TElement, TControl, TValue, TArgs> : P
         // But if a value-diff echo is also armed and THIS suppressed event is
         // that echo (readback matches), drain it here — otherwise the pending
         // flag would strand and swallow the user's next real interaction.
-        if (ChangeEchoSuppressor.ShouldSuppress(fe))
+        if (ChangeEchoSuppressor.ShouldSuppress(state))
         {
             if (payload is { HasExpectedEcho: true } ps && ps.ReadBack is { } rbs)
             {
@@ -301,7 +305,7 @@ internal sealed class ControlledPropEntry<TElement, TControl, TValue, TArgs> : P
             return;
         }
 
-        if (Reconciler.GetElementTag(fe) is not TElement liveEl) return;
+        if (state.Element is not TElement liveEl) return;
         if (payload is null || payload.ReadBack is not { } rb || payload.GetCallback is not { } gc) return;
 
         var current = rb((TControl)fe);

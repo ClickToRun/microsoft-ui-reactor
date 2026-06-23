@@ -5,6 +5,18 @@ namespace Microsoft.UI.Reactor.Core;
 /// <summary>
 /// Per-control "suppress next change event" counter used by the reconciler.
 ///
+/// <para><b>Custom-control authors: do NOT use this type directly.</b> It is
+/// <c>internal</c> by design (issue #206). The supported, RCW-safe PUBLIC entry
+/// point is <see cref="ReactorBinding"/>'s <c>WriteSuppressed</c> method
+/// (and the per-binding wrapper
+/// <see cref="V1Protocol.ReactorBinding{TElement}"/>,
+/// reached in a handler via <c>ctx.BindFor(ctrl, el).WriteSuppressed(...)</c>),
+/// or — for descriptor
+/// authors — the <c>.Controlled</c> / <c>.HandCodedControlled</c> opt-ins,
+/// which wrap this primitive for you. Those surfaces were deliberately kept as
+/// the only public path so the storage mechanism below can evolve without
+/// breaking external controls.</para>
+///
 /// Background — why this exists:
 ///   A Reactor Update handler that writes a value-bearing DP (<c>cp.Color = ...</c>,
 ///   <c>nb.Value = ...</c>, <c>ts.IsOn = ...</c>) synthesizes a ValueChanged /
@@ -58,6 +70,19 @@ internal static class ChangeEchoSuppressor
         if (control is not FrameworkElement fe) return false;
         if (fe.GetValue(Reconciler.ReactorAttached.StateProperty) is not Reconciler.ReactorState state)
             return false;
+        return ShouldSuppress(state);
+    }
+
+    /// <summary>
+    /// Issue #207 — suppression check for trampolines that already hold the
+    /// control's <see cref="Reconciler.ReactorState"/> (read once via
+    /// <see cref="Reconciler.TryGetReactorState"/>). Identical decrement-and-
+    /// suppress semantics to <see cref="ShouldSuppress(UIElement)"/>; the
+    /// UIElement overload delegates here after a single attached-DP read so a
+    /// change handler pays one DP read instead of two.
+    /// </summary>
+    internal static bool ShouldSuppress(Reconciler.ReactorState state)
+    {
         // §8.2 — setter-suppression scope: drop the echo without consuming a
         // counter token. The scope wraps ApplySetters, where the engine can't
         // predict which value-bearing DPs the user's `.Set(...)` will write.
@@ -76,7 +101,7 @@ internal static class ChangeEchoSuppressor
     /// recognizes the engine-synthesized change event for a programmatic
     /// controlled write by its readback value. Pair with a bare write (no
     /// counter bump). The matching change-event trampoline calls
-    /// <see cref="ShouldSuppressEcho"/> which consumes the arm. Used only on
+    /// <see cref="ShouldSuppressEcho(UIElement, object?)"/> which consumes the arm. Used only on
     /// migrated single-value, exact-comparable, synchronous controlled
     /// round-trips; the counter remains the mechanism everywhere else.
     /// </summary>
@@ -96,7 +121,7 @@ internal static class ChangeEchoSuppressor
     }
 
     /// <summary>
-    /// Value-diff counterpart of <see cref="ShouldSuppress"/> for change-event
+    /// Value-diff counterpart of <see cref="ShouldSuppress(UIElement)"/> for change-event
     /// trampolines. Returns <c>true</c> if this fire is an engine-synthesized
     /// echo that should be dropped.
     ///
@@ -117,7 +142,18 @@ internal static class ChangeEchoSuppressor
         if (control is not FrameworkElement fe) return false;
         if (fe.GetValue(Reconciler.ReactorAttached.StateProperty) is not Reconciler.ReactorState state)
             return false;
+        return ShouldSuppressEcho(state, currentReadback);
+    }
 
+    /// <summary>
+    /// Issue #207 — value-diff counterpart of
+    /// <see cref="ShouldSuppress(Reconciler.ReactorState)"/> for trampolines that
+    /// already hold the control's <see cref="Reconciler.ReactorState"/>. Same
+    /// semantics as <see cref="ShouldSuppressEcho(UIElement, object?)"/>, which
+    /// delegates here after a single attached-DP read.
+    /// </summary>
+    internal static bool ShouldSuppressEcho(Reconciler.ReactorState state, object? currentReadback)
+    {
         if (state.EchoSuppressScopeDepth > 0 || state.EchoSuppressCount > 0)
         {
             // The counter/scope is suppressing THIS event. Any value-diff arm

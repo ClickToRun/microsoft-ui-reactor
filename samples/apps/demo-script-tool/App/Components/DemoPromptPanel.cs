@@ -3,24 +3,18 @@ using static Microsoft.UI.Reactor.Factories;
 
 namespace DemoScriptTool.App.Components;
 
+/// <summary>
+/// The demo-prompt callbacks, wrapped in <see cref="Callbacks{T}"/> so their
+/// per-render delegate identity never re-renders the panel (issue #151). Only
+/// <see cref="DemoPromptPanelProps.Model"/> drives the memo decision.
+/// </summary>
+public sealed record DemoPromptPanelCallbacks(
+    System.Action<string> OnPromptChanged,
+    System.Action<string> OnTitleChanged);
+
 public sealed record DemoPromptPanelProps(
     DemoScriptModel Model,
-    System.Action<string> OnPromptChanged,
-    System.Action<string> OnTitleChanged)
-{
-    // Manual Equals: callback delegates are excluded from memo equality. They
-    // get a fresh delegate identity each parent render. SAFETY CONTRACT: when
-    // memo decides "skip render", Reactor does NOT refresh Props on the child,
-    // so the child continues to dispatch through the *prior* delegates. That's
-    // only safe when the callbacks' captured state doesn't change between
-    // renders, OR any state they capture is reflected in one of the data
-    // fields below. Both hold today: callbacks close over `model` (UseRef-
-    // stable identity); Model changes flow via reference identity below.
-    // Framework-level fix tracked at #151.
-    public bool Equals(DemoPromptPanelProps? other) =>
-        other is not null && ReferenceEquals(Model, other.Model);
-    public override int GetHashCode() => Model.GetHashCode();
-}
+    Callbacks<DemoPromptPanelCallbacks> Cb);
 
 /// <summary>
 /// Top-of-body region binding to <c>## Demo Prompt</c>. The text-area writes
@@ -51,7 +45,7 @@ public sealed class DemoPromptPanel : Component<DemoPromptPanelProps>
         var titleField = (TextBox(title, v =>
         {
             setTitle(v);
-            Props.OnTitleChanged(v);
+            Props.Cb.Value.OnTitleChanged(v);
         }, placeholderText: "Demo title (rendered as # heading in demo-script.md)")
             with { AcceptsReturn = false })
             .FontSize(18)
@@ -61,7 +55,7 @@ public sealed class DemoPromptPanel : Component<DemoPromptPanelProps>
         var promptField = (TextBox(prompt, v =>
         {
             setPrompt(v);
-            Props.OnPromptChanged(v);
+            Props.Cb.Value.OnPromptChanged(v);
         }, placeholderText: "Describe the demo: tech stack, single-file vs multi-file, audience level, constraints…")
             with { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap })
             .MinHeight(96)

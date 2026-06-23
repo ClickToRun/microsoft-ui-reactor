@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.UI.Reactor.Charting;
+using Microsoft.UI.Reactor.Core;
 using SharpFuzz;
 
 namespace Microsoft.UI.Reactor.Fuzz;

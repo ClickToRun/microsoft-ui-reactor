@@ -236,6 +236,7 @@ BreadcrumbBarElement.ItemClicked(Action<BreadcrumbBarItemData> handler) → Brea
 BreadcrumbBarElement.Set(Action<BreadcrumbBar> configure) → BreadcrumbBarElement
 ButtonElement.AccentButton() → ButtonElement
 ButtonElement.Click(Action handler) → ButtonElement
+ButtonElement.Command(Command command) → ButtonElement
 ButtonElement.IsDisabledFocusable(bool disabled = true) → ButtonElement
 ButtonElement.Set(Action<Button> configure) → ButtonElement
 ButtonElement.SubtleButton() → ButtonElement
@@ -350,6 +351,7 @@ GridViewElement.SelectionChanged(Action<IReadOnlyList<int>> handler) → GridVie
 GridViewElement.SelectionMode(ListViewSelectionMode mode) → GridViewElement
 GridViewElement.Set(Action<GridView> configure) → GridViewElement
 HyperlinkButtonElement.Click(Action handler) → HyperlinkButtonElement
+HyperlinkButtonElement.Command(Command command) → HyperlinkButtonElement
 HyperlinkButtonElement.NavigateUri(Uri uri) → HyperlinkButtonElement
 HyperlinkButtonElement.Set(Action<HyperlinkButton> configure) → HyperlinkButtonElement
 HyperlinkButtonElement.TextLink() → HyperlinkButtonElement
@@ -482,6 +484,7 @@ RefreshContainerElement.RefreshRequested(Action handler) → RefreshContainerEle
 RefreshContainerElement.Set(Action<RefreshContainer> configure) → RefreshContainerElement
 RelativePanelElement.Set(Action<RelativePanel> configure) → RelativePanelElement
 RepeatButtonElement.Click(Action handler) → RepeatButtonElement
+RepeatButtonElement.Command(Command command) → RepeatButtonElement
 RepeatButtonElement.Delay(int delay) → RepeatButtonElement
 RepeatButtonElement.Interval(int interval) → RepeatButtonElement
 RepeatButtonElement.Set(Action<RepeatButton> configure) → RepeatButtonElement
@@ -808,6 +811,7 @@ TitleBarElement.Subtitle(string subtitle) → TitleBarElement
 TitleBarElement.WithNavigation<TRoute>(NavigationHandle<TRoute> nav) → TitleBarElement
 ToggleButtonElement.CheckedState(bool? state) → ToggleButtonElement
 ToggleButtonElement.CheckedStateChanged(Action<bool?> handler) → ToggleButtonElement
+ToggleButtonElement.Command(Command command) → ToggleButtonElement
 ToggleButtonElement.IsCheckedChanged(Action<bool> handler) → ToggleButtonElement
 ToggleButtonElement.IsThreeState(bool isThreeState = true) → ToggleButtonElement
 ToggleButtonElement.Set(Action<ToggleButton> configure) → ToggleButtonElement
@@ -1431,6 +1435,7 @@ ToString() → string
 ### record ButtonElement
 new(string Label, Action OnClick = null)
 Action OnClick { get; init; }
+Command Command { get; }
 Element ContentElement { get; init; }
 bool IsDisabledFocusable { get; init; }
 bool IsEnabled { get; init; }
@@ -1506,6 +1511,15 @@ string CalendarIdentifier { get; init; }
 string Language { get; init; }
 Equals(CalendarViewElement other) → bool
 Equals(Element other) → bool
+Equals(object obj) → bool
+GetHashCode() → int
+ToString() → string
+
+### record Callbacks<T>
+new(T Value)
+T Value { get; init; }
+Deconstruct(ref T Value) → void
+Equals(Callbacks<T> other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
@@ -1808,8 +1822,10 @@ Func<Task> ExecuteAsync { get; init; }
 IconData Icon { get; init; }
 KeyboardAcceleratorData Accelerator { get; init; }
 bool CanExecute { get; init; }
+bool IsDebouncing { get; }
 bool IsEnabled { get; }
 bool IsExecuting { get; init; }
+int DebounceMs { get; init; }
 string AccessKey { get; init; }
 string Description { get; init; }
 string Label { get; init; }
@@ -1824,8 +1840,10 @@ Func<T, Task> ExecuteAsync { get; init; }
 IconData Icon { get; init; }
 KeyboardAcceleratorData Accelerator { get; init; }
 bool CanExecute { get; init; }
+bool IsDebouncing { get; }
 bool IsEnabled { get; }
 bool IsExecuting { get; init; }
+int DebounceMs { get; init; }
 string AccessKey { get; init; }
 string Description { get; init; }
 string Label { get; init; }
@@ -3558,6 +3576,7 @@ new(string message)
 ### record HyperlinkButtonElement
 new(string Content, Uri NavigateUri = null, Action OnClick = null)
 Action OnClick { get; init; }
+Command Command { get; }
 Uri NavigateUri { get; init; }
 string Content { get; init; }
 Deconstruct(ref string Content, ref Uri NavigateUri, ref Action OnClick) → void
@@ -5732,6 +5751,7 @@ long TotalRenders { get; init; }
 ### record RepeatButtonElement
 new(string Label, Action OnClick = null)
 Action OnClick { get; init; }
+Command Command { get; }
 int Delay { get; init; }
 int Interval { get; init; }
 string Label { get; init; }
@@ -6251,6 +6271,7 @@ ToString() → string
 ### record SplitButtonElement
 new(string Label, Action OnClick = null, Element Flyout = null)
 Action OnClick { get; init; }
+Command Command { get; }
 Element Flyout { get; init; }
 string Label { get; init; }
 Deconstruct(ref string Label, ref Action OnClick, ref Element Flyout) → void
@@ -6819,6 +6840,7 @@ ToString() → string
 new(string Label, bool IsChecked = false, Action<bool> OnIsCheckedChanged = null)
 Action<bool> OnIsCheckedChanged { get; init; }
 Action<bool?> OnCheckedStateChanged { get; init; }
+Command Command { get; }
 bool IsChecked { get; init; }
 bool IsThreeState { get; init; }
 bool? CheckedState { get; init; }
@@ -6847,6 +6869,7 @@ ToString() → string
 ### record ToggleSplitButtonElement
 new(string Label, Optional<bool> IsChecked = null, Action<bool> OnIsCheckedChanged = null, Element Flyout = null)
 Action<bool> OnIsCheckedChanged { get; init; }
+Command Command { get; }
 Element Flyout { get; init; }
 Optional<bool> IsChecked { get; init; }
 string Label { get; init; }

@@ -6,39 +6,27 @@ using static Microsoft.UI.Reactor.Factories;
 
 namespace DemoScriptTool.App.Components;
 
-public sealed record StepCardProps(
-    StepModel Step,
-    StepModel? PriorStep,
-    int TotalSteps,
-    bool IsGenerating,
+/// <summary>
+/// The per-card callbacks, grouped so they ride along in props inside a
+/// <see cref="Callbacks{T}"/> wrapper (issue #151). The wrapper is always-equal,
+/// so these freshly-allocated delegates never force the card to re-render — only
+/// the data fields on <see cref="StepCardProps"/> drive the memo decision. Read
+/// them live off <c>Props.Cb.Value</c> at dispatch time.
+/// </summary>
+public sealed record StepCardCallbacks(
     Action<int, string> OnPromptChanged,
     Action<int, string> OnTitleChanged,
     Action<StepModel> OnRun,
     Action<StepModel> OnCopyDelta,
     Action<StepModel> OnDelete,
-    Action<StepModel> OnRegenFromHere)
-{
-    // Manual Equals: callback delegates are excluded from memo equality. They
-    // get a fresh delegate identity each parent render (local functions in
-    // DemoScriptShell.Render), and including them here would re-render every
-    // card on every shell render. SAFETY CONTRACT: when memo decides "skip
-    // render", Reactor does NOT refresh Props on the child, so the child
-    // continues to dispatch through the *prior* delegates. That's only safe
-    // when the callbacks' captured state doesn't change between renders, OR
-    // when any state they capture is also reflected in one of the data
-    // fields below (so a meaningful change forces a refresh). Both hold for
-    // these callbacks today: they close over `model` (UseRef-stable identity)
-    // and per-step actions; per-step state changes show up via Step / PriorStep
-    // identity. Framework-level fix tracked at #151.
-    public bool Equals(StepCardProps? other) =>
-        other is not null
-        && ReferenceEquals(Step, other.Step)
-        && ReferenceEquals(PriorStep, other.PriorStep)
-        && TotalSteps == other.TotalSteps
-        && IsGenerating == other.IsGenerating;
-    public override int GetHashCode() =>
-        HashCode.Combine(Step, PriorStep, TotalSteps, IsGenerating);
-}
+    Action<StepModel> OnRegenFromHere);
+
+public sealed record StepCardProps(
+    StepModel Step,
+    StepModel? PriorStep,
+    int TotalSteps,
+    bool IsGenerating,
+    Callbacks<StepCardCallbacks> Cb);
 
 /// <summary>
 /// One step rendered as a three-column card: prompt | code | actions
@@ -116,7 +104,7 @@ public sealed class StepCard : Component<StepCardProps>
                 v =>
                 {
                     setLocalPrompt(v);
-                    Props.OnPromptChanged(step.Number, v);
+                    Props.Cb.Value.OnPromptChanged(step.Number, v);
                 },
                 placeholderText: "What should this step do?")
                 with { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap })
@@ -210,37 +198,32 @@ public sealed class StepCard : Component<StepCardProps>
         // synchronous launcher that flips IsExecuting=true while the action
         // is in flight and back to false on completion — Command.IsEnabled
         // honors that flag, so the button auto-disables for the duration.
-        // - Run: wraps a Task.Delay so the visible disable lasts long enough
-        //   to absorb double-clicks (the spawn itself returns instantly).
-        // - Re-gen: tiny delay so the IsExecuting window overlaps with the
-        //   shell flipping Props.IsGenerating to true on the next render —
-        //   without this the button could re-enable for a frame in between.
+        // - Run: spawning the step exe returns instantly, so there's no async
+        //   work to track. DebounceMs=1500 gives the framework-owned
+        //   leading-edge debounce: the click fires once, the button disables
+        //   for 1.5s, and the rapid re-clicks are dropped (issue #136). No
+        //   more Task.Delay padding a fake async window.
+        // - Re-gen: DebounceMs=250 bridges the gap until the shell flips
+        //   Props.IsGenerating=true on the next render — without it the button
+        //   could re-enable for a frame in between. Sync Execute keeps
+        //   OnRegenFromHere on the UI thread (UseCommand only hops to a
+        //   threadpool thread for ExecuteAsync — see framework #130).
         // - Show / Copy / Delete: plain sync Commands; instant.
         var runCmd = UseCommand(new Command
         {
             Label = "Run",
             CanExecute = canRun,
-            ExecuteAsync = async () =>
-            {
-                Props.OnRun(step);
-                await Task.Delay(1500).ConfigureAwait(false);
-            },
+            Execute = () => Props.Cb.Value.OnRun(step),
+            DebounceMs = 1500,
         });
 
-        // Plain sync Command (no UseCommand). UseCommand's Task.Run wrapper
-        // would put OnRegenFromHere on a threadpool thread, which made the
-        // shell's announce.Announce throw RPC_E_WRONG_THREAD on the
-        // FrameworkElementAutomationPeer call (the exact issue tracked by
-        // framework #130). The 250 ms IsExecuting bridge is no longer needed
-        // either — the shell's lastRegenClickRef debounce (200 ms) covers
-        // the same multi-fire window without crossing threads, and
-        // Props.IsGenerating disables the button on the next render.
-        var regenCmd = new Command
+        var regenCmd = UseCommand(new Command
         {
             Label = "Re-gen",
             CanExecute = !Props.IsGenerating,
-            Execute = () => Props.OnRegenFromHere(step),
-        };
+            Execute = () => Props.Cb.Value.OnRegenFromHere(step),
+            DebounceMs = 250,
+        });
 
         var toggleCmd = new Command
         {
@@ -253,13 +236,13 @@ public sealed class StepCard : Component<StepCardProps>
         {
             Label = "Copy notes",
             CanExecute = hasDelta,
-            Execute = () => Props.OnCopyDelta(step),
+            Execute = () => Props.Cb.Value.OnCopyDelta(step),
         };
 
         var deleteCmd = new Command
         {
             Label = "Delete",
-            Execute = () => Props.OnDelete(step),
+            Execute = () => Props.Cb.Value.OnDelete(step),
         };
 
         var actions = VStack(6,
@@ -295,7 +278,7 @@ public sealed class StepCard : Component<StepCardProps>
                 v =>
                 {
                     setLocalTitle(v);
-                    Props.OnTitleChanged(step.Number, v);
+                    Props.Cb.Value.OnTitleChanged(step.Number, v);
                 },
                 placeholderText: "Step title")
                 with { AcceptsReturn = false })
@@ -406,17 +389,8 @@ public sealed class StepCard : Component<StepCardProps>
             (FlexRow(
                 Image(iconPath).Width(16).Height(16),
                 TextBlock(command.Label).VAlign(VerticalAlignment.Center))
-            with { ColumnGap = 8, AlignItems = FlexAlign.Center }),
-            () =>
-            {
-                // Match the framework's CommandBindings.Invoke contract: prefer
-                // the synchronous Execute (which is what UseCommand sets after
-                // wrapping an async command), fall back to firing ExecuteAsync
-                // for raw async commands that didn't go through UseCommand.
-                if (command.Execute is not null) command.Execute();
-                else if (command.ExecuteAsync is not null) _ = command.ExecuteAsync();
-            })
-        .IsEnabled(command.IsEnabled)
+            with { ColumnGap = 8, AlignItems = FlexAlign.Center }))
+        .Command(command)
         .HAlign(HorizontalAlignment.Stretch)
         .AutomationName(automationName);
 

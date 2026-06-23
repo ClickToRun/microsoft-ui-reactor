@@ -28,6 +28,30 @@ Conventions for contributors:
 
 ### Added
 
+- **Command debouncing: `Command.DebounceMs` (issue #136).**
+  Commands can declare a leading-edge debounce window via `DebounceMs` (default
+  `0` = off) to absorb double-clicks without reaching for `Task.Delay`. When
+  routed through `UseCommand`, the first fire is accepted and any subsequent fire
+  within the window is dropped; `IsDebouncing` drives `IsEnabled = false` so the
+  bound control visibly disables and then re-enables when the window elapses. For
+  async commands the disabled window is the longer of the lambda's lifetime
+  (`IsExecuting`) and `DebounceMs`. Debounce state lives in the `UseCommand` hook
+  store, so a raw `new Command { DebounceMs = … }` bound directly (not through
+  `UseCommand`) is inert. `UseCommand` now consumes a stable hook shape regardless
+  of the command's sync/async/debounce shape.
+
+- **`Callbacks<T>` — keep delegate props out of memo comparison (issue #151).**
+  An opt-in, always-equal wrapper record (`Equals` returns `true`, `GetHashCode`
+  returns `0`) for the delegate (callback) portion of a component's props. Because
+  `Component<TProps>.ShouldUpdate` memoizes on `!Equals(oldProps, newProps)` and
+  `Action`/`Func` fields compare by reference, a parent passing freshly-allocated
+  callbacks each render forced the child to re-render even when no data changed.
+  Declaring `Callbacks<MyCallbacks> Cb` on the props record excludes the callbacks
+  slot from equality, so only data fields drive re-renders — replacing the old
+  hand-written `Equals`/`GetHashCode` workaround. The reconciler still refreshes the
+  child's live `Props` on a memo-skip, so handlers reading `Props.Cb.Value.OnX` at
+  dispatch time always invoke the current delegate, never a stale one.
+
 - New optional package `Microsoft.UI.Reactor.Devtools` for the `--devtools` runtime surface (spec 051 Phase 2).
 
 - **Hot reload: tree-wide hook-order recovery (spec 049 §5, Phase 1).**
@@ -278,6 +302,26 @@ Conventions for contributors:
   (spec 036 §4.3)
 
 ### Fixed
+
+- **Virtualized rows now reset per-item component state on recycle when keyed
+  (issue #326).** `LazyVStack` / `LazyHStack` / `ItemsRepeater<T>` / `ItemsView<T>`
+  now propagate the `keySelector` projection onto each realized row's top-level
+  `Element.Key`. Post-#324 the ItemsRepeater recycle path reuses a realized
+  inner `Component<T>` across logical items as you scroll, which carried that
+  component's `UseState` / `UseEffect` state from one item to another (e.g. an
+  editor row left "dirty" for item 5 stayed dirty when its container was reused
+  for item 12). With the per-item key in place, reusing a container for a
+  *different* logical item fails `CanUpdate` and the row remounts with fresh
+  hook cells; same-item re-renders keep the key and diff in place, preserving
+  state. An explicit `.WithKey(...)` in the row builder still wins. This is a
+  user-visible behavior change for code that (intentionally or not) relied on
+  cross-item state carry-over — use a stable constant key, or hoist the state
+  above the row, to opt back into durable carry-over. The shared
+  `RefreshRealizedItems` refresh path now also handles a same-slot key change
+  (the documented `.WithKey($"{id}:{rev}")` revision-bump pattern) by adopting
+  the freshly-mounted subtree into the still-parented row wrapper, so the old
+  control is no longer orphaned and the per-control tracking stays consistent.
+  `ListView<T>` / `GridView<T>` already remount per realize and are unaffected.
 
 - **`UseAnnounce().Announce(...)` now marshals to the UI thread automatically.**
   Previously, calling `Announce` off the UI thread (e.g. from a `Task.Run`

@@ -126,4 +126,413 @@ internal static class CommandingCoverageFixtures
             H.Check("DisabledCmd_DisablesControl", sb is not null && !sb.IsEnabled);
         }
     }
+
+    /// <summary>
+    /// Issue #133 regression: a custom-content button bound via the
+    /// <c>.Command(command)</c> modifier must re-apply <c>command.IsEnabled</c> to the
+    /// live control on every update — not capture it once at construction. Mounts an
+    /// icon-style (custom content) button whose command flips from enabled to disabled
+    /// across a state-driven re-render and asserts the reused control's IsEnabled tracks it.
+    /// </summary>
+    internal class CustomContentCommandReappliesIsEnabledOnUpdate(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (disabled, setDisabled) = ctx.UseState(false);
+                var cmd = new Command { Label = "Run", Execute = () => { }, CanExecute = !disabled };
+                return VStack(
+                    Button("toggleCmdState", () => setDisabled(true)),
+                    Button(TextBlock("Run")).Command(cmd).Set(b => b.Name = "cmdContentBtn"));
+            });
+            await Harness.Render();
+
+            var btn = H.FindControl<Button>(b => b.Name == "cmdContentBtn");
+            H.Check("CmdContent_Mounted", btn is not null);
+            H.Check("CmdContent_InitiallyEnabled", btn is not null && btn.IsEnabled);
+
+            H.ClickButton("toggleCmdState");
+            await Harness.Render();
+
+            var btn2 = H.FindControl<Button>(b => b.Name == "cmdContentBtn");
+            H.Check("CmdContent_Reused", ReferenceEquals(btn, btn2));
+            H.Check("CmdContent_DisabledAfterUpdate", btn2 is not null && !btn2.IsEnabled);
+        }
+    }
+
+    /// <summary>
+    /// The HyperlinkButton / RepeatButton / ToggleButton <c>.Command()</c> paths apply
+    /// IsEnabled solely through the command-apply descriptor entry (they have no record
+    /// IsEnabled prop like ButtonElement). When the bound command's <c>CanExecute</c> flips
+    /// across a re-render, <see cref="Command"/> is no longer structurally equal modulo
+    /// delegates, so the reconciler runs Update and the <c>OneWay&lt;Command?&gt;</c> entry
+    /// re-applies <c>ApplyButtonBaseCommon</c> (issue #153 — typed Command property; replaces
+    /// the per-render Setters array that previously forced the re-run). Mount each, flip
+    /// CanExecute across a re-render, and assert the reused live control becomes disabled.
+    /// </summary>
+    internal class HyperlinkButtonCommandReappliesIsEnabledOnUpdate(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (disabled, setDisabled) = ctx.UseState(false);
+                var cmd = new Command { Label = "Run", Execute = () => { }, CanExecute = !disabled };
+                return VStack(
+                    Button("toggleHl", () => setDisabled(true)),
+                    HyperlinkButton("Run").Command(cmd).Set(b => b.Name = "hlReapplyBtn"));
+            });
+            await Harness.Render();
+
+            var hb = H.FindControl<HyperlinkButton>(b => b.Name == "hlReapplyBtn");
+            H.Check("HlReapply_InitiallyEnabled", hb is not null && hb.IsEnabled);
+
+            H.ClickButton("toggleHl");
+            await Harness.Render();
+
+            var hb2 = H.FindControl<HyperlinkButton>(b => b.Name == "hlReapplyBtn");
+            H.Check("HlReapply_Reused", ReferenceEquals(hb, hb2));
+            H.Check("HlReapply_DisabledAfterUpdate", hb2 is not null && !hb2.IsEnabled);
+        }
+    }
+
+    internal class RepeatButtonCommandReappliesIsEnabledOnUpdate(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (disabled, setDisabled) = ctx.UseState(false);
+                var cmd = new Command { Label = "Tick", Execute = () => { }, CanExecute = !disabled };
+                return VStack(
+                    Button("toggleRep", () => setDisabled(true)),
+                    RepeatButton("Tick").Command(cmd).Set(b => b.Name = "repReapplyBtn"));
+            });
+            await Harness.Render();
+
+            var rb = H.FindControl<RepeatButton>(b => b.Name == "repReapplyBtn");
+            H.Check("RepReapply_InitiallyEnabled", rb is not null && rb.IsEnabled);
+
+            H.ClickButton("toggleRep");
+            await Harness.Render();
+
+            var rb2 = H.FindControl<RepeatButton>(b => b.Name == "repReapplyBtn");
+            H.Check("RepReapply_Reused", ReferenceEquals(rb, rb2));
+            H.Check("RepReapply_DisabledAfterUpdate", rb2 is not null && !rb2.IsEnabled);
+        }
+    }
+
+    internal class ToggleButtonCommandReappliesIsEnabledOnUpdate(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (disabled, setDisabled) = ctx.UseState(false);
+                var cmd = new Command { Label = "Bold", Execute = () => { }, CanExecute = !disabled };
+                return VStack(
+                    Button("toggleTog", () => setDisabled(true)),
+                    ToggleButton("Bold").Command(cmd).Set(b => b.Name = "togReapplyBtn"));
+            });
+            await Harness.Render();
+
+            var tb = H.FindControl<ToggleButton>(b => b.Name == "togReapplyBtn");
+            H.Check("TogReapply_InitiallyEnabled", tb is not null && tb.IsEnabled);
+
+            H.ClickButton("toggleTog");
+            await Harness.Render();
+
+            var tb2 = H.FindControl<ToggleButton>(b => b.Name == "togReapplyBtn");
+            H.Check("TogReapply_Reused", ReferenceEquals(tb, tb2));
+            H.Check("TogReapply_DisabledAfterUpdate", tb2 is not null && !tb2.IsEnabled);
+        }
+    }
+
+    /// <summary>
+    /// PR review M1: a disabled command bound via <c>.Command()</c> must not override
+    /// <c>.IsDisabledFocusable()</c> — the button stays IsEnabled=true (reachable via Tab,
+    /// click suppressed by the trampoline) and dimmed (Opacity 0.4). Pinned in both modifier
+    /// orderings since the fix is descriptor/record-owned, not capture-order dependent.
+    /// </summary>
+    internal class CommandDisabledFocusableStaysFocusable(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var cmd = new Command { Label = "Submit", Execute = () => { }, CanExecute = false };
+
+            var host = H.CreateHost();
+            host.Mount(ctx => Button(TextBlock("Submit"))
+                .Command(cmd)
+                .IsDisabledFocusable()
+                .Set(b => b.Name = "cmdDfBtn"));
+            await Harness.Render();
+
+            var btn = H.FindControl<Button>(b => b.Name == "cmdDfBtn");
+            H.Check("CmdDf_Mounted", btn is not null);
+            // Disabled command + IsDisabledFocusable: must stay enabled (focusable) despite the
+            // disabled command — the command setter must not clobber the descriptor coercion.
+            H.Check("CmdDf_StaysFocusable", btn is not null && btn.IsEnabled);
+            H.Check("CmdDf_Dimmed", btn is not null && global::System.Math.Abs(btn.Opacity - 0.4) < 0.001);
+        }
+    }
+
+    internal class CommandDisabledFocusableStaysFocusableReverseOrder(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var cmd = new Command { Label = "Submit", Execute = () => { }, CanExecute = false };
+
+            var host = H.CreateHost();
+            host.Mount(ctx => Button(TextBlock("Submit"))
+                .IsDisabledFocusable()
+                .Command(cmd)
+                .Set(b => b.Name = "cmdDfRevBtn"));
+            await Harness.Render();
+
+            var btn = H.FindControl<Button>(b => b.Name == "cmdDfRevBtn");
+            H.Check("CmdDfRev_Mounted", btn is not null);
+            H.Check("CmdDfRev_StaysFocusable", btn is not null && btn.IsEnabled);
+            H.Check("CmdDfRev_Dimmed", btn is not null && global::System.Math.Abs(btn.Opacity - 0.4) < 0.001);
+        }
+    }
+
+    /// <summary>
+    /// Issue #153: the <c>Button(Command)</c> factory lowers Command to a typed property,
+    /// applied by a descriptor entry. When the bound command changes across a re-render, the
+    /// command metadata (AccessKey, IsEnabled) must update on the reused live control.
+    /// </summary>
+    internal class BoundButtonCommandChangeUpdatesMetadata(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (flipped, setFlipped) = ctx.UseState(false);
+                var cmd = flipped
+                    ? new Command { Label = "Open", Execute = () => { }, AccessKey = "D", CanExecute = false }
+                    : new Command { Label = "Open", Execute = () => { }, AccessKey = "S", CanExecute = true };
+                return VStack(
+                    Button("flipCmd", () => setFlipped(true)),
+                    Button(cmd).Set(b => b.Name = "cmdChangeBtn"));
+            });
+            await Harness.Render();
+
+            var btn = H.FindControl<Button>(b => b.Name == "cmdChangeBtn");
+            H.Check("CmdChange_Mounted", btn is not null);
+            H.Check("CmdChange_InitialAccessKey", btn is not null && btn.AccessKey == "S");
+            H.Check("CmdChange_InitiallyEnabled", btn is not null && btn.IsEnabled);
+
+            H.ClickButton("flipCmd");
+            await Harness.Render();
+
+            var btn2 = H.FindControl<Button>(b => b.Name == "cmdChangeBtn");
+            H.Check("CmdChange_Reused", ReferenceEquals(btn, btn2));
+            H.Check("CmdChange_AccessKeyUpdated", btn2 is not null && btn2.AccessKey == "D");
+            H.Check("CmdChange_DisabledAfterUpdate", btn2 is not null && !btn2.IsEnabled);
+        }
+    }
+
+    /// <summary>
+    /// Issue #153 fast-path proof: when a command-bound button re-renders with a Command that
+    /// is structurally equal modulo its Execute/ExecuteAsync delegates (a fresh instance each
+    /// render with identical rendered fields but a new closure), <see cref="Element.ShallowEquals"/>
+    /// returns true and the reconciler skips the command-apply entry entirely. Observable proof:
+    /// <c>ApplyButtonBaseCommon</c> removes+re-adds a NEW <c>KeyboardAccelerator</c> instance when
+    /// it runs, so a reference-equal accelerator across the re-render proves it did NOT run.
+    /// </summary>
+    internal class BoundButtonUnchangedCommandSkipsReapply(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (n, setN) = ctx.UseState(0);
+                // Fresh Command each render: identical rendered fields, brand-new Execute
+                // delegate. Structurally equal modulo delegates ⇒ ShallowEquals fast-paths.
+                var cmd = new Command
+                {
+                    Label = "Open",
+                    Execute = () => { },
+                    Accelerator = new KeyboardAcceleratorData(
+                        global::Windows.System.VirtualKey.O, global::Windows.System.VirtualKeyModifiers.Control),
+                    Description = "Open a file",
+                };
+                return VStack(
+                    Button("bumpFastPath", () => setN(n + 1)),
+                    Button(cmd));  // no .Set — a fresh Setters array each render would defeat ShallowEquals
+            });
+            await Harness.Render();
+
+            var btn = H.FindControl<Button>(b => (b.Content as string) == "Open");
+            H.Check("FastPath_Mounted", btn is not null && btn.KeyboardAccelerators.Count == 1);
+            var accel0 = btn is { KeyboardAccelerators.Count: 1 } ? btn.KeyboardAccelerators[0] : null;
+
+            H.ClickButton("bumpFastPath");
+            await Harness.Render();
+
+            var btn2 = H.FindControl<Button>(b => (b.Content as string) == "Open");
+            H.Check("FastPath_Reused", ReferenceEquals(btn, btn2));
+            H.Check("FastPath_SkippedReapply",
+                btn2 is not null && accel0 is not null
+                && btn2.KeyboardAccelerators.Count == 1
+                && ReferenceEquals(btn2.KeyboardAccelerators[0], accel0));
+        }
+    }
+
+    /// <summary>
+    /// Issue #153 (M1) precedence pin: a raw <c>.Set(...)</c> setter applies after the typed
+    /// Command's descriptor metadata, so it overrides command-derived metadata regardless of where
+    /// it sits in the fluent chain. Both <c>.Set(...).Command(cmd)</c> and <c>.Command(cmd).Set(...)</c>
+    /// must resolve AccessKey to the Setter's value (the documented "Setters apply last / win" rule).
+    /// </summary>
+    internal class BoundButtonSetterOverridesCommandMetadata(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var cmd = new Command { Label = "Save", Execute = () => { }, AccessKey = "S" };
+
+            var host = H.CreateHost();
+            host.Mount(ctx => VStack(
+                // Setter before .Command — Setter must still win (applied last).
+                Button("setThenCmd").Set(b => b.AccessKey = "X").Command(cmd),
+                // .Command before Setter — Setter wins (normal chain order).
+                Button("cmdThenSet").Command(cmd).Set(b => b.AccessKey = "Y")));
+            await Harness.Render();
+
+            var setThenCmd = H.FindControl<Button>(b => (b.Content as string) == "setThenCmd");
+            var cmdThenSet = H.FindControl<Button>(b => (b.Content as string) == "cmdThenSet");
+            H.Check("Precedence_SetThenCmd_Mounted", setThenCmd is not null);
+            H.Check("Precedence_SetThenCmd_SetterWins", setThenCmd is not null && setThenCmd.AccessKey == "X");
+            H.Check("Precedence_CmdThenSet_Mounted", cmdThenSet is not null);
+            H.Check("Precedence_CmdThenSet_SetterWins", cmdThenSet is not null && cmdThenSet.AccessKey == "Y");
+        }
+    }
+
+    /// <summary>
+    /// Issue #153 (M3): the <c>SplitButton(Command)</c> typed property is applied by a descriptor
+    /// entry; when the bound command changes across a re-render, the command metadata (AccessKey,
+    /// IsEnabled) must update on the reused live control. Mirrors
+    /// <see cref="BoundButtonCommandChangeUpdatesMetadata"/>.
+    /// </summary>
+    internal class BoundSplitButtonCommandChangeUpdatesMetadata(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (flipped, setFlipped) = ctx.UseState(false);
+                var cmd = flipped
+                    ? new Command { Label = "Save", Execute = () => { }, AccessKey = "D", CanExecute = false }
+                    : new Command { Label = "Save", Execute = () => { }, AccessKey = "S", CanExecute = true };
+                return VStack(
+                    Button("flipSplitCmd", () => setFlipped(true)),
+                    SplitButton(cmd).Set(b => b.Name = "splitCmdChangeBtn"));
+            });
+            await Harness.Render();
+
+            var sb = H.FindControl<SplitButton>(b => b.Name == "splitCmdChangeBtn");
+            H.Check("SplitCmdChange_Mounted", sb is not null);
+            H.Check("SplitCmdChange_InitialAccessKey", sb is not null && sb.AccessKey == "S");
+            H.Check("SplitCmdChange_InitiallyEnabled", sb is not null && sb.IsEnabled);
+
+            H.ClickButton("flipSplitCmd");
+            await Harness.Render();
+
+            var sb2 = H.FindControl<SplitButton>(b => b.Name == "splitCmdChangeBtn");
+            H.Check("SplitCmdChange_Reused", ReferenceEquals(sb, sb2));
+            H.Check("SplitCmdChange_AccessKeyUpdated", sb2 is not null && sb2.AccessKey == "D");
+            H.Check("SplitCmdChange_DisabledAfterUpdate", sb2 is not null && !sb2.IsEnabled);
+        }
+    }
+
+    /// <summary>
+    /// Issue #153 (M3): same live command-change reapply check as
+    /// <see cref="BoundSplitButtonCommandChangeUpdatesMetadata"/>, for <c>ToggleSplitButton(Command)</c>.
+    /// </summary>
+    internal class BoundToggleSplitButtonCommandChangeUpdatesMetadata(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (flipped, setFlipped) = ctx.UseState(false);
+                var cmd = flipped
+                    ? new Command { Label = "Pin", Execute = () => { }, AccessKey = "D", CanExecute = false }
+                    : new Command { Label = "Pin", Execute = () => { }, AccessKey = "S", CanExecute = true };
+                return VStack(
+                    Button("flipToggleSplitCmd", () => setFlipped(true)),
+                    ToggleSplitButton(cmd).Set(b => b.Name = "toggleSplitCmdChangeBtn"));
+            });
+            await Harness.Render();
+
+            var tsb = H.FindControl<ToggleSplitButton>(b => b.Name == "toggleSplitCmdChangeBtn");
+            H.Check("ToggleSplitCmdChange_Mounted", tsb is not null);
+            H.Check("ToggleSplitCmdChange_InitialAccessKey", tsb is not null && tsb.AccessKey == "S");
+            H.Check("ToggleSplitCmdChange_InitiallyEnabled", tsb is not null && tsb.IsEnabled);
+
+            H.ClickButton("flipToggleSplitCmd");
+            await Harness.Render();
+
+            var tsb2 = H.FindControl<ToggleSplitButton>(b => b.Name == "toggleSplitCmdChangeBtn");
+            H.Check("ToggleSplitCmdChange_Reused", ReferenceEquals(tsb, tsb2));
+            H.Check("ToggleSplitCmdChange_AccessKeyUpdated", tsb2 is not null && tsb2.AccessKey == "D");
+            H.Check("ToggleSplitCmdChange_DisabledAfterUpdate", tsb2 is not null && !tsb2.IsEnabled);
+        }
+    }
+
+    /// <summary>
+    /// Issue #153 (PR review): when a command-bound button is re-rendered <em>without</em> a Command
+    /// (the typed Command transitions to null on the reused live control), the descriptor's command
+    /// entry must clear the stale command metadata — tooltip / UIA HelpText, AccessKey, and the
+    /// command-added <see cref="KeyboardAccelerator"/> — rather than leaving it stuck.
+    /// </summary>
+    internal class BoundButtonCommandClearedWhenRemoved(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (removed, setRemoved) = ctx.UseState(false);
+                return VStack(
+                    Button("removeCmd", () => setRemoved(true)),
+                    removed
+                        ? Button("Open").Set(b => b.Name = "cmdClearBtn")
+                        : Button(new Command
+                        {
+                            Label = "Open",
+                            Execute = () => { },
+                            AccessKey = "S",
+                            Accelerator = new KeyboardAcceleratorData(
+                                global::Windows.System.VirtualKey.O, global::Windows.System.VirtualKeyModifiers.Control),
+                            Description = "Open a file",
+                        }).Set(b => b.Name = "cmdClearBtn"));
+            });
+            await Harness.Render();
+
+            var btn = H.FindControl<Button>(b => b.Name == "cmdClearBtn");
+            H.Check("CmdClear_Mounted", btn is not null);
+            H.Check("CmdClear_InitialAccessKey", btn is not null && btn.AccessKey == "S");
+            H.Check("CmdClear_InitialAccelerator", btn is not null && btn.KeyboardAccelerators.Count == 1);
+            H.Check("CmdClear_InitialToolTip", btn is not null && ToolTipService.GetToolTip(btn) is not null);
+
+            H.ClickButton("removeCmd");
+            await Harness.Render();
+
+            var btn2 = H.FindControl<Button>(b => b.Name == "cmdClearBtn");
+            H.Check("CmdClear_Reused", ReferenceEquals(btn, btn2));
+            H.Check("CmdClear_AccessKeyCleared", btn2 is not null && string.IsNullOrEmpty(btn2.AccessKey));
+            H.Check("CmdClear_AcceleratorCleared", btn2 is not null && btn2.KeyboardAccelerators.Count == 0);
+            H.Check("CmdClear_ToolTipCleared", btn2 is not null && ToolTipService.GetToolTip(btn2) is null);
+        }
+    }
 }

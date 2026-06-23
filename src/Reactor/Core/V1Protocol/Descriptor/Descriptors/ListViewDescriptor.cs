@@ -17,8 +17,9 @@ internal static class ListViewDescriptor
     private static readonly WinUI.SelectionChangedEventHandler SelectionChangedTrampoline = (s, _) =>
     {
         var lv = (WinUI.ListView)s!;
-        if (ChangeEchoSuppressor.ShouldSuppress(lv)) return;
-        if (Reconciler.GetElementTag(lv) is not ListViewElement el) return;
+        if (!Reconciler.TryGetReactorState(lv, out var state)) return;
+        if (ChangeEchoSuppressor.ShouldSuppress(state)) return;
+        if (state.Element is not ListViewElement el) return;
 
         el.OnSelectedIndexChanged?.Invoke(lv.SelectedIndex);
         if (el.OnSelectionChanged is { } h)

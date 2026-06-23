@@ -17,8 +17,17 @@ namespace WctControls;
 // A settings "row": Header + Description + an optional HeaderIcon, with a
 // content child (a control on the right) and an optional whole-card Click.
 // CommandParameter is an inherited ButtonBase prop with no declarative meaning.
+//
+// HeaderIcon is typed IconElement (UIElement-derived), so the generator treats
+// it as a content slot — and a control has only ONE content slot, already taken
+// by Content. [WrapElementSlot("HeaderIcon")] promotes it to a SECONDARY element
+// slot: the generator surfaces the Element? HeaderIcon init prop + factory param
+// and emits the state-preserving mount/reconcile wiring (ctx.MountChild on mount,
+// the public ctx.ReconcileChild on update). Authors pass any Reactor icon element
+// through the generated factory param, e.g. `SettingsCard(header: …, headerIcon: Icon(FontIcon("\uE701")))`.
 [GenerateReactorWrapper(typeof(CommunityToolkit.WinUI.Controls.SettingsCard),
     Exclude = new[] { "CommandParameter" })]
+[WrapElementSlot("HeaderIcon")]
 public partial record SettingsCardElement;
 
 // A settings group that expands to reveal child SettingsCards (its Items).

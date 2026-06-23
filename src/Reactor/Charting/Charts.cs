@@ -257,7 +257,7 @@ public sealed class ChartElement<T> : IChartAccessibilityData
     }
     public static implicit operator Element(ChartElement<T> chart)
     {
-        Hosting.ChartingActivation.RequestActivation();
+        ChartingRuntime.Activate();
         return chart.ToElement();
     }
 
@@ -304,9 +304,8 @@ public sealed class ChartElement<T> : IChartAccessibilityData
     }
 
     private Core.CanvasElement AttachChartData(Core.CanvasElement canvas) =>
-        canvas with
+        (Core.CanvasElement)canvas.SetAttached(new Accessibility.ChartA11yData(this)
         {
-            ChartData = this,
             IsColorOnly = _colorOnly,
             IsRawColors = _rawColors,
             CustomPalette = _palette,
@@ -315,7 +314,7 @@ public sealed class ChartElement<T> : IChartAccessibilityData
             IsTightHitTest = _tightHitTest,
             CustomFocusColor = _customFocusColor,
             IsAnnounceEveryFrame = _announceEveryFrame,
-        };
+        });
 
     private Element[] RenderData(IReadOnlyList<T> data, LinearScale xScale, LinearScale yScale,
         double plotLeft, double plotTop, double plotWidth, double plotHeight)
@@ -541,7 +540,7 @@ public sealed class PieChartElement<T> : IChartAccessibilityData
     }
     public static implicit operator Element(PieChartElement<T> chart)
     {
-        Hosting.ChartingActivation.RequestActivation();
+        ChartingRuntime.Activate();
         return chart.ToElement();
     }
 
@@ -600,12 +599,11 @@ public sealed class PieChartElement<T> : IChartAccessibilityData
     }
 
     private Core.CanvasElement AttachChartData(Core.CanvasElement canvas) =>
-        canvas with
+        (Core.CanvasElement)canvas.SetAttached(new Accessibility.ChartA11yData(this)
         {
-            ChartData = this,
             IsColorOnly = _colorOnly,
             CustomPalette = _palette,
-        };
+        });
 
     // Non-finite offsets would propagate NaN/Infinity into Canvas.Left/Top and
     // can crash WinUI layout — treat them as 0 to match how Width/Height/InnerRadius

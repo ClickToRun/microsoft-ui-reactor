@@ -9,6 +9,14 @@ namespace Microsoft.UI.Reactor.Tests.D3;
 
 public class ChartScannerRuleTests
 {
+    static ChartScannerRuleTests()
+    {
+        // The chart accessibility rules now live in the Charting subsystem and are
+        // contributed to the core scanner via registration (issue #498). Install
+        // the checker so these unit tests exercise the chart rules.
+        AccessibilityScanner.RegisterScanExtension(ChartAccessibilityChecker.Instance);
+    }
+
     private record DataPoint(double X, double Y);
 
     private static readonly DataPoint[] SampleData =
@@ -34,16 +42,22 @@ public class ChartScannerRuleTests
         {
             Width = 400,
             Height = 300,
-            ChartData = chartData,
-            IsColorOnly = isColorOnly,
-            IsRawColors = isRawColors,
-            CustomPalette = customPalette,
-            IsInteractive = isInteractive,
-            IsKeyboardDisabled = isKeyboardDisabled,
-            IsTightHitTest = isTightHitTest,
-            CustomFocusColor = customFocusColor,
-            IsAnnounceEveryFrame = isAnnounceEveryFrame,
         };
+
+        if (chartData != null)
+        {
+            canvas = (CanvasElement)canvas.SetAttached(new ChartA11yData(chartData)
+            {
+                IsColorOnly = isColorOnly,
+                IsRawColors = isRawColors,
+                CustomPalette = customPalette,
+                IsInteractive = isInteractive,
+                IsKeyboardDisabled = isKeyboardDisabled,
+                IsTightHitTest = isTightHitTest,
+                CustomFocusColor = customFocusColor,
+                IsAnnounceEveryFrame = isAnnounceEveryFrame,
+            });
+        }
 
         if (automationName != null)
             canvas = (CanvasElement)(canvas as Element).AutomationName(automationName);
@@ -204,27 +218,62 @@ public class ChartScannerRuleTests
     [Fact]
     public void A11Y_CHART_010_ColorblindUnsafePalette_Processed()
     {
+        // Two near-identical colors have a colorblind ΔE well under the 10.0
+        // minimum, so the rule must fire. Asserting the specific rule ID (rather
+        // than just NotNull(findings)) ensures the rule can't be silently deleted.
         var palette = ChartPalette.FromColors(
-            new D3Color(180, 60, 60),
-            new D3Color(60, 160, 60));
+            new D3Color(100, 100, 100),
+            new D3Color(101, 100, 100));
         var canvas = MakeChartCanvas(chartData: DataWithSeries(name: "Revenue"), customPalette: palette);
         var tree = VStack(canvas);
 
         var findings = AccessibilityScanner.Scan(tree);
-        Assert.NotNull(findings);
+        Assert.Contains(findings, f => f.Id == "A11Y_CHART_010");
     }
 
     // ── A11Y_CHART_011: Background contrast ─────────────────────────
 
     [Fact]
-    public void A11Y_CHART_011_VeryLightColor_FailsDark_PassesLight()
+    public void A11Y_CHART_011_VeryLightColor_FailsLightBackground()
     {
+        // Near-white yellow has ~1:1 contrast against the light (255,255,255)
+        // background, so it would fail the 3:1 minimum if rendered on a light theme
+        // and must be flagged. Asserting the specific rule ID guards against the rule
+        // silently becoming unreachable again (see issue #628). The finding is
+        // informational, not a warning: the scanner is theme-agnostic and cannot know
+        // which background the chart actually renders on (avoids alert fatigue).
         var palette = ChartPalette.FromColors(new D3Color(255, 255, 200));
         var canvas = MakeChartCanvas(chartData: DataWithSeries(name: "Revenue"), customPalette: palette);
         var tree = VStack(canvas);
 
         var findings = AccessibilityScanner.Scan(tree);
-        // Light yellow passes against dark bg (good contrast), so _011 should not fire
+        var finding = Assert.Single(findings, f => f.Id == "A11Y_CHART_011");
+        Assert.Equal("info", finding.Severity);
+    }
+
+    [Fact]
+    public void A11Y_CHART_011_VeryDarkColor_FailsDarkBackground()
+    {
+        // Near-black color has ~1:1 contrast against the dark (32,32,32)
+        // background, so it fails on the dark theme and must be flagged.
+        var palette = ChartPalette.FromColors(new D3Color(28, 28, 28));
+        var canvas = MakeChartCanvas(chartData: DataWithSeries(name: "Revenue"), customPalette: palette);
+        var tree = VStack(canvas);
+
+        var findings = AccessibilityScanner.Scan(tree);
+        Assert.Contains(findings, f => f.Id == "A11Y_CHART_011");
+    }
+
+    [Fact]
+    public void A11Y_CHART_011_MidToneColor_PassesBothBackgrounds()
+    {
+        // A mid-tone gray keeps ≥3:1 contrast against both the light and dark
+        // backgrounds, so the rule should not fire.
+        var palette = ChartPalette.FromColors(new D3Color(128, 128, 128));
+        var canvas = MakeChartCanvas(chartData: DataWithSeries(name: "Revenue"), customPalette: palette);
+        var tree = VStack(canvas);
+
+        var findings = AccessibilityScanner.Scan(tree);
         Assert.DoesNotContain(findings, f => f.Id == "A11Y_CHART_011");
     }
 

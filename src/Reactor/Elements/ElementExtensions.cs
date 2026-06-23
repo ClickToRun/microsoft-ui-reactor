@@ -982,6 +982,97 @@ public static partial class ElementExtensions
     public static ButtonElement DisabledFocusable(this ButtonElement el, bool disabled = true) =>
         el.IsDisabledFocusable(disabled);
 
+    // ── Command binding (.Command) — issue #133 ────────────────────
+    //
+    //   Button(customContent).Command(runCmd)   // disabled while !runCmd.IsEnabled
+    //
+    // Binds a Command's enabled state, click handler, and metadata
+    // (Description / Accelerator / AccessKey) onto an already-built clickable
+    // element. This closes the custom-content gap: the Button(Command) factory
+    // only accepts a vanilla label, so icon-plus-label buttons previously had to
+    // re-thread `.IsEnabled(command.IsEnabled)` by hand. Issue #153 lifts Command to
+    // a typed property: the reconciler applies the command metadata field-aware from
+    // that property (no per-render Setters lambda), and re-applies IsEnabled whenever
+    // the command's state flips (e.g. UseCommand toggling IsExecuting) — not captured
+    // once at construction. Raw `.Set(...)` setters always run after every descriptor
+    // prop (the documented "Setters apply last / win" rule, spec 058), so an explicit
+    // `.Set(b => b.AccessKey = "X")` overrides command-derived metadata regardless of
+    // where it sits in the chain.
+
+    /// <summary>
+    /// Binds a <see cref="Core.Command"/> to a custom-content <see cref="ButtonElement"/>:
+    /// wires Execute → Click, applies <see cref="Core.Command.IsEnabled"/> (re-applied on
+    /// every update), and flows Description / Accelerator / AccessKey via the typed
+    /// <see cref="ButtonElement.Command"/> property. Pairs with <c>Button(content)</c> so
+    /// icon-plus-label buttons auto-disable like the <c>Button(Command)</c> factory.
+    /// A raw <c>.Set(...)</c> setter runs after the command metadata and therefore overrides
+    /// it (e.g. <c>.Command(cmd).Set(b =&gt; b.AccessKey = "X")</c> — or the reverse order — both
+    /// resolve AccessKey to "X").
+    /// (issue #133, lifted to a typed property in issue #153)
+    /// </summary>
+    public static ButtonElement Command(this ButtonElement el, Core.Command command) =>
+        el with
+        {
+            OnClick = () => Core.CommandBindings.Invoke(command),
+            IsEnabled = command.IsEnabled,
+            // issue #153 — Command lifted to a typed property; the reconciler applies its
+            // metadata field-aware (applyIsEnabled:false, since the IsEnabled prop above already
+            // drives the control through ButtonElement's !IsDisabledFocusable-gated descriptor).
+            // No per-render Setters lambda. (supersedes the #133 setter wiring)
+            Command = command,
+        };
+
+    /// <summary>
+    /// Binds a <see cref="Core.Command"/> to a <see cref="HyperlinkButtonElement"/>. See
+    /// <see cref="Command(ButtonElement, Core.Command)"/>. (issue #133)
+    /// </summary>
+    public static HyperlinkButtonElement Command(this HyperlinkButtonElement el, Core.Command command) =>
+        el with
+        {
+            OnClick = () => Core.CommandBindings.Invoke(command),
+            Command = command,  // issue #153 — typed property, no per-render Setters lambda
+        };
+
+    /// <summary>
+    /// Binds a <see cref="Core.Command"/> to a <see cref="RepeatButtonElement"/>. See
+    /// <see cref="Command(ButtonElement, Core.Command)"/>. (issue #133)
+    /// </summary>
+    public static RepeatButtonElement Command(this RepeatButtonElement el, Core.Command command) =>
+        el with
+        {
+            OnClick = () => Core.CommandBindings.Invoke(command),
+            Command = command,  // issue #153 — typed property, no per-render Setters lambda
+        };
+
+    /// <summary>
+    /// Binds a <see cref="Core.Command"/> to a <see cref="ToggleButtonElement"/>. The command
+    /// fires on each toggle (check and uncheck), matching the <c>ToggleButton(Command)</c>
+    /// factory. See <see cref="Command(ButtonElement, Core.Command)"/>. (issue #133)
+    /// </summary>
+    public static ToggleButtonElement Command(this ToggleButtonElement el, Core.Command command) =>
+        el with
+        {
+            OnIsCheckedChanged = _ => Core.CommandBindings.Invoke(command),
+            Command = command,  // issue #153 — typed property, no per-render Setters lambda
+        };
+
+    /// <summary>
+    /// Binds a <see cref="Core.Command"/> to an <see cref="AppBarButtonData"/>: maps Execute,
+    /// IsEnabled, Icon, Accelerator, AccessKey, and Description — the same plumbing as the
+    /// <c>AppBarButton(Command)</c> factory, but usable on a hand-built app-bar button.
+    /// (issue #133)
+    /// </summary>
+    public static AppBarButtonData Command(this AppBarButtonData el, Core.Command command) =>
+        el with
+        {
+            OnClick = () => Core.CommandBindings.Invoke(command),
+            IsEnabled = command.IsEnabled,
+            IconElement = command.Icon,
+            KeyboardAccelerators = command.Accelerator is not null ? [command.Accelerator] : null,
+            AccessKey = command.AccessKey,
+            Description = command.Description,
+        };
+
     // ── Background (Panel, Control, Border) ────────────────────────
 
     /// <summary>
@@ -2378,8 +2469,8 @@ public static partial class ElementExtensions
 
     /// <summary>
     /// Sets UIElement.AccessKey — the Alt+Key shortcut (underlined hint shown on Alt press).
-    /// When used on a button bound to a <see cref="Command"/>, this per-site access key
-    /// overrides <see cref="Command.AccessKey"/> (per-site override always wins).
+    /// When used on a button bound to a <see cref="Core.Command"/>, this per-site access key
+    /// overrides <see cref="Core.Command.AccessKey"/> (per-site override always wins).
     /// </summary>
     /// <example>Button("File", onClick).AccessKey("F")</example>
     public static T AccessKey<T>(this T el, string key) where T : Element =>

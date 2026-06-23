@@ -1,17 +1,18 @@
-using Microsoft.UI.Reactor.Charting.D3;
 // Converts SVG path data strings to WinUI PathGeometry objects.
 // This is a minimal parser that handles the subset of SVG path commands
-// produced by our PathBuilder: M, L, A, Q, C, Z, h, v
+// produced by D3's PathBuilder: M, L, A, Q, C, Z, h, v
 
 using System.Globalization;
 using Microsoft.UI.Xaml.Media;
 using Windows.Foundation;
 
-namespace Microsoft.UI.Reactor.Charting;
+namespace Microsoft.UI.Reactor.Core;
 
 /// <summary>
 /// Parses SVG path data strings into WinUI PathGeometry.
-/// Handles the subset of commands output by D3's PathBuilder.
+/// General-purpose SVG-path parsing — lives in core so the Path control and
+/// other consumers can use it without the core depending on the Charting
+/// subsystem. Handles the subset of commands output by D3's PathBuilder.
 /// </summary>
 public static class PathDataParser
 {

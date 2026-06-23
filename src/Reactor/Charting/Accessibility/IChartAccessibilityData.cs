@@ -88,3 +88,39 @@ public enum ChartAxisType
 /// inner chart canvas without needing to evaluate the render function.
 /// </summary>
 internal record ChartScannerHint(Core.CanvasElement InnerCanvas);
+
+/// <summary>
+/// Accessibility metadata a chart element attaches to its realized
+/// <see cref="Core.CanvasElement"/> (via the element <c>Attached</c> dictionary)
+/// so the accessibility scanner's chart rules can inspect it. Carried out-of-band
+/// in the attached dictionary — rather than as typed slots on
+/// <see cref="Core.CanvasElement"/> — so the core never statically references any
+/// Charting type (issue #498). Read back by
+/// <see cref="ChartAccessibilityChecker"/>.
+/// </summary>
+internal sealed record ChartA11yData(IChartAccessibilityData Data)
+{
+    /// <summary>Chart used <c>.ColorOnly()</c> — scanner flags as A11Y_CHART_004.</summary>
+    public bool IsColorOnly { get; init; }
+
+    /// <summary>Chart used <c>.RawColors()</c> — scanner flags as A11Y_CHART_012 and skips palette checks.</summary>
+    public bool IsRawColors { get; init; }
+
+    /// <summary>Chart is interactive with keyboard navigation enabled.</summary>
+    public bool IsInteractive { get; init; }
+
+    /// <summary>Keyboard navigation explicitly disabled — scanner flags as A11Y_CHART_003.</summary>
+    public bool IsKeyboardDisabled { get; init; }
+
+    /// <summary>Hit targets not expanded to 24×24 — scanner flags as A11Y_CHART_005.</summary>
+    public bool IsTightHitTest { get; init; }
+
+    /// <summary>Chart announces every animation frame — scanner flags as A11Y_CHART_007.</summary>
+    public bool IsAnnounceEveryFrame { get; init; }
+
+    /// <summary>Custom palette set on the chart, if any — scanner validates for contrast.</summary>
+    public ChartPalette? CustomPalette { get; init; }
+
+    /// <summary>Custom focus indicator color, if any — scanner validates 3:1 contrast (A11Y_CHART_006).</summary>
+    public global::Windows.UI.Color? CustomFocusColor { get; init; }
+}
