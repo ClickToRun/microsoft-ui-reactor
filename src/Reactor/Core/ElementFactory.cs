@@ -262,14 +262,47 @@ public sealed partial class ElementFactory<T> : IElementFactory
 
             var newElement = BuildOrCache(key, _items[currentIndex], currentIndex, keyed: _listState is not null);
             _mountedElements[key] = newElement;
-            // Keep the per-control "last element" tracking in lockstep with
-            // _mountedElements. Without this, a later RecycleElement→GetElement
-            // round-trip for the same control would feed the pre-refresh
-            // Element to Reconcile as oldElement and diff against a stale
-            // tree shape. (PR #324 review)
-            _lastElementByControl[child] = newElement;
 
-            _reconciler.Reconcile(oldElement, newElement, child, _requestRerender);
+            var replacement = _reconciler.Reconcile(oldElement, newElement, child, _requestRerender);
+            if (replacement is not null && !ReferenceEquals(replacement, child))
+            {
+                // CanUpdate was false (the row's Element.Key changed — e.g. the
+                // documented .WithKey($"{id}:{rev}") pattern — or a root type
+                // change) → Reconcile unmounted `child` and built a fresh
+                // `replacement`. The ItemsRepeater that still parents `child`
+                // isn't a Panel, so we can't swap the realized slot the way the
+                // GetElement framework return-channel does. Adopt the fresh
+                // subtree into the still-parented wrapper when the shapes allow
+                // it; otherwise keep the maps consistent so no stale entry
+                // survives and the next scroll re-realize fixes the visual.
+                // Without this, the old control was orphaned (stale state still
+                // visible) and _lastElementByControl[child] pointed at an
+                // element the control no longer hosted. (Issue #326 pr-review H1)
+                if (_reconciler.TryAdoptRealizedReplacement(child, replacement))
+                {
+                    // `child` now hosts the fresh component subtree — tracking
+                    // stays anchored on the still-realized `child`.
+                    _lastElementByControl[child] = newElement;
+                }
+                else
+                {
+                    DetachFromParent(child);
+                    _keyByControl.Remove(child);
+                    _lastElementByControl.Remove(child);
+                    _keyByControl[replacement] = key;
+                    _lastElementByControl[replacement] = newElement;
+                }
+            }
+            else
+            {
+                // In-place diff (same key) reused `child`. Keep the per-control
+                // "last element" tracking in lockstep with _mountedElements.
+                // Without this, a later RecycleElement→GetElement round-trip for
+                // the same control would feed the pre-refresh Element to
+                // Reconcile as oldElement and diff against a stale tree shape.
+                // (PR #324 review)
+                _lastElementByControl[child] = newElement;
+            }
         }
     }
 

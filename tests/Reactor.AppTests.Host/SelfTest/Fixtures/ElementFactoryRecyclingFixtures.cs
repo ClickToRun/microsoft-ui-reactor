@@ -486,4 +486,108 @@ internal static class ElementFactoryRecyclingFixtures
             return Task.CompletedTask;
         }
     }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #326 (pr-review H1 + L1) — RefreshRealizedItems must handle a
+    //  same-slot key change end-to-end.
+    //
+    //  The documented `.WithKey($"{id}:{revision}")` pattern bumps a realized
+    //  row's Element.Key on an in-place re-render (no structural list change),
+    //  so the refresh path runs Reconcile with CanUpdate == false → Unmount +
+    //  Mount → a fresh replacement control. RefreshRealizedItems must, exactly
+    //  like GetElement, (a) parent the replacement into the realized slot,
+    //  (b) detach/unmount the old control, and (c) migrate the per-control
+    //  tracking maps so no stale entry survives. It must ALSO reset the inner
+    //  Component's UseState end-to-end (L1): the rendered value returns to its
+    //  initial state.
+    //
+    //  Drives a LIVE LazyVStack + real ItemsRepeater (not a standalone factory)
+    //  because the bug is specifically about the framework-owned realized tree
+    //  and the refresh path that only that wiring exercises.
+    // ────────────────────────────────────────────────────────────────────
+
+    private class StatefulKeyedRow : Microsoft.UI.Reactor.Core.Component
+    {
+        public override Microsoft.UI.Reactor.Core.Element Render()
+        {
+            var (n, setN) = UseState(0);
+            UseEffect(() =>
+            {
+                global::System.Threading.Interlocked.Increment(ref s_keyedRowEffectMount);
+                return () => global::System.Threading.Interlocked.Increment(ref s_keyedRowEffectCleanup);
+            });
+            return VStack(
+                TextBlock($"val:{n}"),
+                Button("incRow", () => setN(n + 1))
+            );
+        }
+    }
+
+    private static int s_keyedRowEffectMount;
+    private static int s_keyedRowEffectCleanup;
+
+    internal class Factory_RefreshKeyChange_RemountsRealizedRow(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            s_keyedRowEffectMount = 0;
+            s_keyedRowEffectCleanup = 0;
+
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (rev, setRev) = ctx.UseState(0);
+                var items = new[] { new Item("a", "A") };
+                return VStack(
+                    Button("BumpRev", () => setRev(rev + 1)),
+                    LazyVStack<Item>(items, i => i.Id, (i, _) =>
+                        Component<StatefulKeyedRow>().WithKey($"{i.Id}:{rev}")).Height(200)
+                );
+            });
+            await Harness.Render();
+
+            var repeater = H.FindControl<WinXC.ItemsRepeater>(_ => true);
+            var factory = repeater?.ItemTemplate as ElementFactory<Item>;
+            H.Check("EFR326_RefreshKey_FactoryFound", factory is not null && repeater is not null);
+            if (factory is null || repeater is null) return;
+
+            H.Check("EFR326_RefreshKey_InitialVal0", H.FindText("val:0") is not null);
+
+            // Make the realized row dirty: val 0 → 1.
+            H.ClickButton("incRow");
+            await Harness.Render();
+            H.Check("EFR326_RefreshKey_DirtyVal1", H.FindText("val:1") is not null);
+
+            var realizedBefore = repeater.TryGetElement(0);
+            int mountBefore = s_keyedRowEffectMount;
+
+            // Bump the outer revision → row key "a:0" → "a:1". Same list slot,
+            // changed Element.Key → RefreshRealizedItems runs Reconcile with
+            // CanUpdate == false → remount.
+            H.ClickButton("BumpRev");
+            await Harness.Render();
+
+            // (L1) End-to-end state reset: the fresh Component renders val:0,
+            // and the dirty val:1 control is gone from the visual tree.
+            bool showsReset = await Harness.WaitFor(() => H.FindText("val:0") is not null);
+            H.Check("EFR326_RefreshKey_StateResetToVal0", showsReset);
+            H.Check("EFR326_RefreshKey_DirtyValGone", H.FindText("val:1") is null);
+
+            // Effect lifecycle: old row's cleanup ran, fresh row's effect mounted.
+            H.Check($"EFR326_RefreshKey_NewEffectMounted_mount={s_keyedRowEffectMount}",
+                s_keyedRowEffectMount > mountBefore);
+            H.Check($"EFR326_RefreshKey_OldEffectCleanedUp_cleanup={s_keyedRowEffectCleanup}",
+                s_keyedRowEffectCleanup >= 1);
+
+            // Tracking maps: the realized control after the bump is tracked,
+            // and the pre-bump control left no stale entry behind.
+            var realizedAfter = repeater.TryGetElement(0);
+            H.Check("EFR326_RefreshKey_RealizedAfterTracked",
+                realizedAfter is not null && factory.DebugTryGetLastElementByControl(realizedAfter, out _));
+            H.Check("EFR326_RefreshKey_NoStaleOldTracking",
+                realizedBefore is null
+                || ReferenceEquals(realizedBefore, realizedAfter)
+                || !factory.DebugTryGetLastElementByControl(realizedBefore, out _));
+        }
+    }
 }

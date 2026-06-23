@@ -1539,6 +1539,51 @@ public sealed partial class Reconciler : IDisposable
         return Mount(newElement, requestRerender);
     }
 
+    /// <summary>
+    /// Issue #326 (pr-review H1) — adopt a freshly-mounted <paramref name="replacement"/>
+    /// into an already-realized, still-parented wrapper so an out-of-band refresh
+    /// (<see cref="ElementFactory{T}.RefreshRealizedItems"/>) whose row key changed
+    /// (<see cref="CanUpdate"/> == false → <see cref="ReconcileImperative"/> returned a
+    /// brand-new control) can reset per-item component state without reparenting.
+    ///
+    /// <para>The WinUI ItemsRepeater that owns realized rows is NOT a Panel, so its
+    /// children cannot be replaced from managed code — there is no Children collection
+    /// to assign into the way the normal Reconcile contract
+    /// (<c>g.Children[i] = replacement</c>) or the framework's GetElement return-channel
+    /// relies on. When both the realized control and the replacement are
+    /// component-wrapper Borders (the dominant case: authors put per-item state in a
+    /// Component and key it with <c>.WithKey($"{id}:{rev}")</c>), keep the parented
+    /// wrapper in place and move the fresh component subtree plus its
+    /// <see cref="_componentNodes"/> entry onto it. The discarded replacement wrapper is
+    /// left empty for GC.</para>
+    ///
+    /// <para>Returns false when the shapes don't permit an in-place adopt (e.g. a root
+    /// TYPE change where neither side is a component wrapper); the caller then falls
+    /// back to tracking-only reconciliation.</para>
+    /// </summary>
+    internal bool TryAdoptRealizedReplacement(UIElement realized, UIElement replacement)
+    {
+        if (realized is not Border realizedWrapper || replacement is not Border replacementWrapper)
+            return false;
+        if (!_componentNodes.TryGetValue(replacement, out var freshNode))
+            return false;
+
+        // Migrate the fresh component node onto the still-parented wrapper. The old
+        // node keyed on `realized` was already torn down + removed by the Unmount
+        // inside ReconcileImperative; overwrite defensively regardless.
+        _componentNodes.Remove(replacement);
+        _componentNodes[realized] = freshNode;
+
+        // Move the fresh visual subtree into the parented wrapper. Assigning
+        // Border.Child detaches it from `replacementWrapper` first (and detaches the
+        // old, already-unmounted subtree from `realizedWrapper`), leaving the
+        // replacement wrapper empty + unreferenced.
+        var freshChild = replacementWrapper.Child;
+        replacementWrapper.Child = null;
+        realizedWrapper.Child = freshChild;
+        return true;
+    }
+
     // ════════════════════════════════════════════════════════════════════
     //  Component reconciliation
     // ════════════════════════════════════════════════════════════════════
