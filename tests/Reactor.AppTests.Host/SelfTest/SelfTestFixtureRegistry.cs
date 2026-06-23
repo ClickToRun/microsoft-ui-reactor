@@ -141,6 +141,9 @@ internal static class SelfTestFixtureRegistry
         "ChartA11y_LabelViewSubtreeA11y",
         "ChartA11y_TickLabelViewSubtreeA11y",
         "ChartA11y_LabelViewNameProjection",
+        "ChartA11y_LabelViewPoolReset",
+        "ChartA11y_LabelViewInteractiveToggle",
+        "ChartA11y_TickLabelViewNameProjection",
 
         "MdHtml_HtmlGeneration",
         "MdHtml_HtmlInWebView2",
@@ -1550,6 +1553,9 @@ internal static class SelfTestFixtureRegistry
         "ChartA11y_LabelViewSubtreeA11y" => new ChartAccessibilityFixtures.LabelViewSubtreeA11y(harness),
         "ChartA11y_TickLabelViewSubtreeA11y" => new ChartAccessibilityFixtures.TickLabelViewSubtreeA11y(harness),
         "ChartA11y_LabelViewNameProjection" => new ChartAccessibilityFixtures.LabelViewNameProjection(harness),
+        "ChartA11y_LabelViewPoolReset" => new ChartAccessibilityFixtures.LabelViewPoolReset(harness),
+        "ChartA11y_LabelViewInteractiveToggle" => new ChartAccessibilityFixtures.LabelViewInteractiveToggle(harness),
+        "ChartA11y_TickLabelViewNameProjection" => new ChartAccessibilityFixtures.TickLabelViewNameProjection(harness),
 
         "Win2D_Canvas_Mount" => new Win2DCanvasFixtures.CanvasMount(harness),
         "Win2D_AnimatedCanvas_Mount" => new Win2DCanvasFixtures.AnimatedCanvasMount(harness),

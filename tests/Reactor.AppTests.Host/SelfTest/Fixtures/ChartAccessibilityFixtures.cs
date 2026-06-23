@@ -1421,4 +1421,127 @@ internal static class ChartAccessibilityFixtures
             await Task.CompletedTask;
         }
     }
+
+    /// <summary>
+    /// Issue #162 H1 — the subtree-hide sets <c>IsTabStop=false</c> / <c>IsHitTestVisible=false</c>
+    /// imperatively on inner controls. Those controls are poolable, so the pool's
+    /// <c>CleanElement</c> must restore both on return — otherwise a hidden inner control would
+    /// poison the next unrelated renter with non-tabbable / non-hit-testable state.
+    /// </summary>
+    internal class LabelViewPoolReset(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var pool = new ElementPool();
+            var btn = new Button { Content = "pool-reset-probe" };
+
+            // Mimic exactly what ChartLabelA11y.HideSubtree does to an inner control.
+            btn.IsTabStop = false;
+            btn.IsHitTestVisible = false;
+            AutomationProperties.SetAccessibilityView(btn, AccessibilityView.Raw);
+
+            pool.Return(btn);
+            var rented = pool.TryRent(typeof(Button)) as Button;
+
+            H.Check("ChartA11y_PoolReset_ReusedInstance", ReferenceEquals(btn, rented));
+            H.Check("ChartA11y_PoolReset_IsTabStopRestored", rented is not null && rented.IsTabStop);
+            H.Check("ChartA11y_PoolReset_IsHitTestVisibleRestored", rented is not null && rented.IsHitTestVisible);
+            H.Check("ChartA11y_PoolReset_AccessibilityViewCleared",
+                rented is not null && AutomationProperties.GetAccessibilityView(rented) != AccessibilityView.Raw);
+
+            await Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Issue #162 H2 — the hide is a mount-time side effect, so toggling <c>interactive</c> at
+    /// runtime must force a remount (the label element is keyed by the flag) for the peers/focus
+    /// to actually hide and un-hide. Combined with the H1 pool reset, flipping the flag yields a
+    /// clean realized control each time.
+    /// </summary>
+    internal class LabelViewInteractiveToggle(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            XamlInterop.Register(host.Reconciler);
+            host.Mount(ctx =>
+            {
+                var (interactive, setInteractive) = ctx.UseState(false);
+                return VStack(
+                    Button("ToggleInteractive", () => setInteractive(!interactive)),
+                    Charts.PieChart(NonInteractiveSlices, d => d.Value, d => d.Label)
+                        .Width(360).Height(360)
+                        .LabelView((d, _) => Component<CompositeSliceLabel, string>(d.Label), interactive: interactive)
+                        .ToElement());
+            });
+
+            await Harness.Render();
+
+            // Phase 0 — non-interactive: inner buttons hidden + out of tab order.
+            var b0 = H.FindAllControls<Button>(b => b.Content is string s && s.StartsWith("b-ni"));
+            H.Check("ChartA11y_Toggle_Phase0_Mounted", b0.Count == 2);
+            H.Check("ChartA11y_Toggle_Phase0_Raw",
+                b0.Count == 2 && b0.TrueForAll(b => AutomationProperties.GetAccessibilityView(b) == AccessibilityView.Raw));
+            H.Check("ChartA11y_Toggle_Phase0_NotTabStop",
+                b0.Count == 2 && b0.TrueForAll(b => !b.IsTabStop));
+
+            // Toggle → interactive: keyed remount drops the hide, so peers/focus come back.
+            H.ClickButton("ToggleInteractive");
+            await Harness.Render();
+            var b1 = H.FindAllControls<Button>(b => b.Content is string s && s.StartsWith("b-ni"));
+            H.Check("ChartA11y_Toggle_Phase1_Mounted", b1.Count == 2);
+            H.Check("ChartA11y_Toggle_Phase1_TabStop",
+                b1.Count == 2 && b1.TrueForAll(b => b.IsTabStop));
+            H.Check("ChartA11y_Toggle_Phase1_NotRaw",
+                b1.Count == 2 && b1.TrueForAll(b => AutomationProperties.GetAccessibilityView(b) != AccessibilityView.Raw));
+
+            // Toggle back → hidden again (proves the transition is symmetric, not one-way).
+            H.ClickButton("ToggleInteractive");
+            await Harness.Render();
+            var b2 = H.FindAllControls<Button>(b => b.Content is string s && s.StartsWith("b-ni"));
+            H.Check("ChartA11y_Toggle_Phase2_NotTabStop",
+                b2.Count == 2 && b2.TrueForAll(b => !b.IsTabStop));
+            H.Check("ChartA11y_Toggle_Phase2_Raw",
+                b2.Count == 2 && b2.TrueForAll(b => AutomationProperties.GetAccessibilityView(b) == AccessibilityView.Raw));
+        }
+    }
+
+    /// <summary>
+    /// Issue #162 M2 — the axis-tick <c>name</c> projection must reach the realized element's
+    /// <c>AutomationName</c> for both the X and Y tick paths (the pie name projection is covered
+    /// separately by <see cref="LabelViewNameProjection"/>).
+    /// </summary>
+    internal class TickLabelViewNameProjection(Harness h) : SelfTestFixtureBase(h)
+    {
+        private record P(double X, double Y);
+
+        public override async Task RunAsync()
+        {
+            P[] data = [new(0, 10), new(1, 20), new(2, 15)];
+
+            var host = H.CreateHost();
+            XamlInterop.Register(host.Reconciler);
+            host.Mount(ctx =>
+                Charts.LineChart(data, d => d.X, d => d.Y)
+                    .Width(400).Height(300)
+                    // Render text and the name projection encode the same value, so an
+                    // applied projection means GetName(tb) == tb.Text.
+                    .XTickLabelView(t => TextBlock("TX" + t), name: t => "TX" + t, interactive: true)
+                    .YTickLabelView(t => TextBlock("TY" + t), name: t => "TY" + t, interactive: true)
+                    .ToElement());
+
+            await Harness.Render();
+
+            var xTicks = H.FindAllControls<TextBlock>(tb => tb.Text != null && tb.Text.StartsWith("TX"));
+            var yTicks = H.FindAllControls<TextBlock>(tb => tb.Text != null && tb.Text.StartsWith("TY"));
+
+            H.Check("ChartA11y_TickName_XTicksMounted", xTicks.Count > 0);
+            H.Check("ChartA11y_TickName_YTicksMounted", yTicks.Count > 0);
+            H.Check("ChartA11y_TickName_XNameMatchesProjection",
+                xTicks.Count > 0 && xTicks.TrueForAll(tb => AutomationProperties.GetName(tb) == tb.Text));
+            H.Check("ChartA11y_TickName_YNameMatchesProjection",
+                yTicks.Count > 0 && yTicks.TrueForAll(tb => AutomationProperties.GetName(tb) == tb.Text));
+        }
+    }
 }

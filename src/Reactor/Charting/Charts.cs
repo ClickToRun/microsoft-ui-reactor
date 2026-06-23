@@ -143,7 +143,9 @@ public sealed class ChartElement<T> : IChartAccessibilityData
     /// Optional accessible-name projection applied as the rendered element's
     /// <c>AutomationName</c>. Only observable when <paramref name="interactive"/> is
     /// <see langword="true"/> — non-interactive ticks are hidden from UIA, so the chart's own
-    /// descriptor remains the single source of truth.
+    /// descriptor remains the single source of truth. (Unlike <see cref="PieChartElement{T}.LabelView"/>,
+    /// an axis tick has no per-tick descriptor for the projection to feed, so it never affects a
+    /// hidden tick's accessible name.)
     /// </param>
     /// <param name="interactive">
     /// Opt-in escape hatch. When <see langword="true"/>, the chart does <b>not</b> force
@@ -564,7 +566,11 @@ public sealed class PieChartElement<T> : IChartAccessibilityData
     /// Optional accessible-name projection. When neither a string <c>label</c> accessor nor
     /// <see cref="DataLabel"/> is supplied, this becomes the slice's accessible name in the
     /// chart's descriptor (instead of falling back to <c>"Slice {i+1}"</c>), so screen-reader
-    /// users get the same meaningful label the visual shows.
+    /// users get the same meaningful label the visual shows. Note the deliberate asymmetry with
+    /// the axis-tick <c>*TickLabelView(name:)</c> overloads: a pie slice <em>has</em> a per-slice
+    /// descriptor, so <paramref name="name"/> feeds that descriptor even for non-interactive
+    /// labels; an axis tick has no per-tick descriptor, so there the projection only sets
+    /// <c>AutomationName</c> and is observable only when <c>interactive: true</c>.
     /// </param>
     /// <param name="interactive">
     /// Opt-in escape hatch. When <see langword="true"/>, the chart does <b>not</b> force
@@ -743,7 +749,10 @@ public sealed class PieChartElement<T> : IChartAccessibilityData
             // single OnMountAction, so plain `.OnMount(…)` would silently
             // overwrite the caller's hook.
             var labelElement = _labelView!(arc.Data, layout)
-                .CenterAt(labelX, labelY);
+                .CenterAt(labelX, labelY)
+                // Issue #162: key by the interactive flag so toggling it forces a remount
+                // (the hide is a mount-time side effect; in-place update can't undo it).
+                .WithKey($"__pielabel{arc.Index}_{(_labelViewInteractive ? 1 : 0)}");
 
             // interactive opt-in (issue #162): caller owns a11y, leave peers intact.
             if (_labelViewInteractive)
