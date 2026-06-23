@@ -240,6 +240,125 @@ internal static class Phase7WindowingFixtures
         }
     }
 
+    internal class TitleBarDisposeWithoutClose(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            EnsureUIDispatcher();
+            // Issue #537 (Dispose-path coverage): a direct Dispose() that is NOT
+            // preceded by Close() still tears down the mounted WinUI TitleBar
+            // control — Dispose() disposes the host, which unmounts the content
+            // and the TitleBar with it. ReactorWindow.Dispose() runs
+            // PrepareTitleBarForClose() first so an ExtendsContentIntoTitleBar=false
+            // window flips back into content-extended mode before that teardown.
+            // Disposing without a prior Close() is the assertion: without the prep
+            // this process terminates with STATUS_HEAP_CORRUPTION instead of
+            // reaching the checks. A single top-level window (no owner) avoids the
+            // unrelated multi-window BackdropApplier teardown AV (#647).
+            var win = await OpenAndSettle(
+                new WindowSpec { Title = "Dispose No Close", Width = 320, Height = 220, ExtendsContentIntoTitleBar = false },
+                () => new TitleBarComponent());
+            H.Check("TitleBar_DisposeNoClose_BeforeFalse", !win.NativeWindow.ExtendsContentIntoTitleBar);
+
+            // Direct dispose — bypasses Close()/the Window.Closed -> Unregister ->
+            // Dispose flow. The prep runs first, so the flip is observable after.
+            win.Dispose();
+            await Harness.Render(50);
+
+            H.Check("TitleBar_DisposeNoClose_Flipped", win.NativeWindow.ExtendsContentIntoTitleBar);
+
+            // Dispose() alone does not unregister (the normal flow is
+            // Window.Closed -> UnregisterWindow -> Dispose). Clean up the
+            // registration and the still-live native window for harness hygiene
+            // since we bypassed Close().
+            ReactorApp.UnregisterWindow(win);
+            try { win.NativeWindow.Close(); } catch { }
+            await CollectWindowResources();
+            H.Check("TitleBar_DisposeNoClose_Clean", true);
+        }
+    }
+
+    internal class TitleBarOwnedTreeFlipsRecursively(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            EnsureUIDispatcher();
+            // Issue #537 (recursive owned-tree coverage): PrepareTitleBarTreeForClose
+            // must flip every owned DESCENDANT — not just direct children — back
+            // into content-extended mode before a native close, because owned
+            // windows close via the raw Window.Close() path and never raise their
+            // own AppWindow.Closing. Build a parent -> child -> grandchild tree
+            // where the child and grandchild are ExtendsContentIntoTitleBar=false
+            // TitleBar windows, drive the recursive prep the owner-close cascade
+            // and Close() use, and assert the flip reached BOTH levels.
+            //
+            // This exercises the prep STEP of the owner-close cascade directly. The
+            // full parent-driven native cascade (closing the owner while it still
+            // owns live children) stays at the E2E tier: it trips the separate,
+            // pre-existing multi-window teardown access violation in
+            // BackdropApplier.Reset (0xC0000005, #647), unrelated to #537 and
+            // independent of this fix. So we drive the prep here and close
+            // leaf-first.
+            var parent = await OpenAndSettle(
+                new WindowSpec { Title = "Tree Owner", Width = 320, Height = 220 },
+                () => new PlainComponent());
+            var child = await OpenAndSettle(
+                new WindowSpec { Title = "Tree Child", Width = 300, Height = 200, Owner = parent, ExtendsContentIntoTitleBar = false },
+                () => new TitleBarComponent());
+            var grandchild = await OpenAndSettle(
+                new WindowSpec { Title = "Tree Grandchild", Width = 260, Height = 160, Owner = child, ExtendsContentIntoTitleBar = false },
+                () => new TitleBarComponent());
+
+            H.Check("TitleBar_OwnedTree_Shape",
+                parent.OwnedWindows.Contains(child)
+                && child.OwnedWindows.Contains(grandchild)
+                && !child.NativeWindow.ExtendsContentIntoTitleBar
+                && !grandchild.NativeWindow.ExtendsContentIntoTitleBar);
+
+            // Drive the recursive prep the cascade/Close paths use.
+            parent.PrepareTitleBarTreeForClose();
+
+            H.Check("TitleBar_OwnedTree_ChildFlipped", child.NativeWindow.ExtendsContentIntoTitleBar);
+            H.Check("TitleBar_OwnedTree_GrandchildFlipped", grandchild.NativeWindow.ExtendsContentIntoTitleBar);
+
+            // Close leaf-first — the harness-stable order for owned windows.
+            await CloseAndSettle(grandchild);
+            await CloseAndSettle(child);
+            await CloseAndSettle(parent);
+            H.Check("TitleBar_OwnedTree_ClosesClean", true);
+        }
+    }
+
+    internal class TitleBarExitPrepFlipsOpenWindows(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            EnsureUIDispatcher();
+            // Issue #537 (app-exit prep coverage): ReactorApp.Exit()/SafeExit()
+            // prepares every still-open window's TitleBar before
+            // Application.Current.Exit() tears them down natively. This is
+            // reachable under the default OnPrimaryWindowClosed policy — closing
+            // the primary fires SafeExit() while a secondary
+            // ExtendsContentIntoTitleBar=false TitleBar window is still open. We
+            // can't call Application.Exit() in-process (it would end the selftest
+            // run), so drive the same per-window prep loop the exit path uses
+            // (ReactorApp.PrepareOpenWindowsForExit) and assert the open
+            // ECITB=false TitleBar window was flipped into content-extended mode.
+            var win = await OpenAndSettle(
+                new WindowSpec { Title = "Exit Prep Secondary", Width = 320, Height = 220, ExtendsContentIntoTitleBar = false },
+                () => new TitleBarComponent());
+            try
+            {
+                H.Check("TitleBar_ExitPrep_BeforeFalse", !win.NativeWindow.ExtendsContentIntoTitleBar);
+
+                ReactorApp.PrepareOpenWindowsForExit();
+
+                H.Check("TitleBar_ExitPrep_Flipped", win.NativeWindow.ExtendsContentIntoTitleBar);
+            }
+            finally { await CloseAndSettle(win); }
+        }
+    }
+
     internal class BackdropTransparentApply(Harness h) : SelfTestFixtureBase(h)
     {
         public override async Task RunAsync()

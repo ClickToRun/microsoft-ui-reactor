@@ -1467,19 +1467,38 @@ public sealed class ReactorWindow : IDisposable
     /// </para>
     /// <para>
     /// Idempotent (guarded by <see cref="_titleBarTeardownPrepared"/>) so the
-    /// three close paths that call it — <see cref="Close"/>, the owner-close
-    /// cascade, and the <see cref="OnAppWindowClosing"/> chrome/Alt+F4 path —
-    /// are all safe, and best-effort so a teardown-reentry COM throw is swallowed.
+    /// many teardown paths that call it — <see cref="Close"/>, the owner-close
+    /// cascade, the <see cref="OnAppWindowClosing"/> chrome/Alt+F4 path,
+    /// <see cref="Dispose()"/>, and the <c>ReactorApp</c> exit prep — are all
+    /// safe and never double-flip. The guard is only latched <em>after</em> a
+    /// successful flip (or one mooted by an in-flight native teardown); any
+    /// other flip failure leaves the window un-prepared so a later
+    /// close/exit/dispose path retries rather than reaching the unsafe native
+    /// teardown believing the prep is already done.
     /// </para>
     /// </summary>
     private void PrepareTitleBarForClose()
     {
         if (!_titleBarControlPresent || _titleBarTeardownPrepared) return;
-        _titleBarTeardownPrepared = true;
 
-        try { _window.ExtendsContentIntoTitleBar = true; }
+        try
+        {
+            _window.ExtendsContentIntoTitleBar = true;
+        }
         catch (COMException ex) when (HResults.IsTeardownReentry(ex.HResult))
-        { DiagnosticLog.SwallowedError(LogCategory.Hosting, "ReactorWindow.TitleBarClosePrep", ex); }
+        {
+            // The native teardown is already in flight: the TitleBar control is
+            // no longer reachable and the flip is moot. Fall through and latch
+            // the guard so overlapping paths don't retry into the same reentry.
+            DiagnosticLog.SwallowedError(LogCategory.Hosting, "ReactorWindow.TitleBarClosePrep", ex);
+        }
+
+        // Latch only after the flip actually succeeded (or was mooted by an
+        // in-flight teardown above). A flip that throws any *other* exception
+        // skips this line, leaving the window un-prepared so a later
+        // close/exit/dispose path retries rather than reaching the unsafe native
+        // teardown believing the prep is already done. (issue #537)
+        _titleBarTeardownPrepared = true;
     }
 
     /// <summary>

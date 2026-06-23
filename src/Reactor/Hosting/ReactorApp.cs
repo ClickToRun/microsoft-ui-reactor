@@ -706,7 +706,16 @@ public static class ReactorApp
     // window — and its owned descendants — back into content-extended mode
     // first, while their AppWindows are still alive. Idempotent per window, so
     // windows already prepared by a close path are no-ops.
-    private static void PrepareOpenWindowsForExit()
+    //
+    // This is the terminal exit boundary: Exit()/SafeExit() call this OUTSIDE
+    // any surrounding try, and there is no later path that could retry, so the
+    // per-window prep is wrapped best-effort and isolated — one window's
+    // unexpected teardown-race throw is logged and the loop continues so the
+    // remaining windows are still prepared (narrowing the catch here would let
+    // a single window abort the prep of every other open window). `internal`
+    // for selftest visibility — Application.Exit() cannot run in-process, so the
+    // TitleBar exit-prep fixture drives this loop directly.
+    internal static void PrepareOpenWindowsForExit()
     {
         var snapshot = Windows;
         for (int i = 0; i < snapshot.Count; i++)
