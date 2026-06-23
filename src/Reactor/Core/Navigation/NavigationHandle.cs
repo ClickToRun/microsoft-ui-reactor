@@ -62,14 +62,43 @@ internal interface INavigationHandle
 /// Public API for controlling navigation. Wraps a <see cref="NavigationStack{TRoute}"/>
 /// with a safe, read-heavy interface. Obtained via <c>UseNavigation</c> hook.
 /// </summary>
+/// <remarks>
+/// <para><b>Thread safety (issue #234).</b> The mutating methods
+/// (<see cref="Navigate"/>, <see cref="GoBack"/>, <see cref="GoForward"/>,
+/// <see cref="Replace"/>, <see cref="Reset"/>, <see cref="PopTo"/>,
+/// <see cref="SetState"/>) are thread-safe by default. When called from the UI
+/// thread the cost is a single thread-id compare. When called off-thread (e.g.
+/// from <c>Task.Run</c> or after <c>await … ConfigureAwait(false)</c>) the whole
+/// mutation &#8212; stack edit, <see cref="Navigated"/>/<c>RouteChanged</c>
+/// events, and the component re-render &#8212; is auto-marshaled onto the captured
+/// UI dispatcher, mirroring the <c>UseState</c>/<c>UseReducer</c> contract from
+/// issue #212. If no UI dispatcher is available (unit-test / headless contexts)
+/// an off-thread call throws <see cref="InvalidOperationException"/> loudly
+/// rather than corrupting the back/forward stacks. The bool-returning mutators
+/// return <see langword="true"/> when an off-thread call is accepted and
+/// scheduled; the actual guard/empty-stack outcome is then resolved on the UI
+/// thread.</para>
+/// </remarks>
 public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : notnull
 {
     private readonly NavigationStack<TRoute> _stack;
+
+    // Captured at construction. UseNavigation creates the handle during render on
+    // the UI thread, so this is the render/UI thread id used by the marshal gate.
+    private readonly int _uiThreadId = global::System.Environment.CurrentManagedThreadId;
 
     internal NavigationHandle(NavigationStack<TRoute> stack)
     {
         _stack = stack;
     }
+
+    // True when the caller is off the UI thread captured at construction. Kept as a
+    // tiny helper so the per-mutator gate reads cleanly; the marshaling closure is
+    // only allocated when this returns true (see UIThreadMarshal remarks).
+    private bool IsOffUIThread => Core.UIThreadMarshal.IsOffUIThread(_uiThreadId);
+
+    private bool MarshalOff(string operation, global::System.Action work)
+        => Core.UIThreadMarshal.MarshalOffUIThread(_uiThreadId, $"NavigationHandle.{operation}", work);
 
     /// <summary>
     /// Non-generic route change notification for NavigationHost.
@@ -131,6 +160,8 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
     /// </summary>
     public bool Navigate(TRoute route, NavigateOptions? options = null)
     {
+        if (IsOffUIThread && MarshalOff(nameof(Navigate), () => Navigate(route, options))) return true;
+
         var previous = _stack.Current;
         _pendingTransitionOverride = options?.Transition;
         bool success;
@@ -167,6 +198,8 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
     /// </summary>
     public bool GoBack()
     {
+        if (IsOffUIThread && MarshalOff(nameof(GoBack), () => GoBack())) return true;
+
         var previous = _stack.Current;
         if (!_stack.Pop())
             return false;
@@ -181,6 +214,8 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
     /// </summary>
     public bool GoForward()
     {
+        if (IsOffUIThread && MarshalOff(nameof(GoForward), () => GoForward())) return true;
+
         var previous = _stack.Current;
         if (!_stack.Forward())
             return false;
@@ -195,6 +230,8 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
     /// </summary>
     public bool Replace(TRoute route)
     {
+        if (IsOffUIThread && MarshalOff(nameof(Replace), () => Replace(route))) return true;
+
         var previous = _stack.Current;
         if (!_stack.Replace(route))
             return false;
@@ -209,6 +246,8 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
     /// </summary>
     public bool Reset(TRoute route)
     {
+        if (IsOffUIThread && MarshalOff(nameof(Reset), () => Reset(route))) return true;
+
         var previous = _stack.Current;
         if (!_stack.Reset(route))
             return false;
@@ -224,6 +263,8 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
     /// </summary>
     public bool PopTo(Func<TRoute, bool> predicate)
     {
+        if (IsOffUIThread && MarshalOff(nameof(PopTo), () => PopTo(predicate))) return true;
+
         var previous = _stack.Current;
         if (!_stack.PopTo(predicate))
             return false;
@@ -265,6 +306,7 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
     public void SetState(NavigationState<TRoute> state)
     {
         ArgumentNullException.ThrowIfNull(state);
+        if (IsOffUIThread && MarshalOff(nameof(SetState), () => SetState(state))) return;
         if (state.Current is null)
             throw new ArgumentException("Navigation state must include a non-null Current route.", nameof(state));
 
