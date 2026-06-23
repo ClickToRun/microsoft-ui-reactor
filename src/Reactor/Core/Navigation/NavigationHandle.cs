@@ -164,6 +164,13 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
     /// Navigate to a new route. By default pushes the current route onto the back stack.
     /// If <see cref="NavigateOptions.PushToBackStack"/> is false, replaces the current route instead.
     /// </summary>
+    /// <returns>
+    /// On the UI thread, <see langword="true"/> if the navigation succeeded, or
+    /// <see langword="false"/> if a guard cancelled it. When called off the UI thread,
+    /// <see langword="true"/> means the call was marshaled and scheduled onto the UI
+    /// dispatcher &#8212; not that it succeeded; the real outcome is resolved later on the
+    /// UI thread (see the type-level thread-safety remarks).
+    /// </returns>
     public bool Navigate(TRoute route, NavigateOptions? options = null)
     {
         if (IsOffUIThread && MarshalOff(nameof(Navigate), () => Navigate(route, options))) return true;
@@ -200,8 +207,15 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
     }
 
     /// <summary>
-    /// Go back to the previous route. Returns false if back stack is empty or guard cancels.
+    /// Go back to the previous route.
     /// </summary>
+    /// <returns>
+    /// On the UI thread, <see langword="true"/> if navigation succeeded, or
+    /// <see langword="false"/> if the back stack is empty or a guard cancelled it. When
+    /// called off the UI thread, <see langword="true"/> means the call was marshaled and
+    /// scheduled onto the UI dispatcher &#8212; not that it succeeded; the empty-stack/guard
+    /// outcome is resolved later on the UI thread (see the type-level thread-safety remarks).
+    /// </returns>
     public bool GoBack()
     {
         if (IsOffUIThread && MarshalOff(nameof(GoBack), () => GoBack())) return true;
@@ -216,8 +230,15 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
     }
 
     /// <summary>
-    /// Go forward to the next route in the forward stack. Returns false if forward stack is empty or guard cancels.
+    /// Go forward to the next route in the forward stack.
     /// </summary>
+    /// <returns>
+    /// On the UI thread, <see langword="true"/> if navigation succeeded, or
+    /// <see langword="false"/> if the forward stack is empty or a guard cancelled it. When
+    /// called off the UI thread, <see langword="true"/> means the call was marshaled and
+    /// scheduled onto the UI dispatcher &#8212; not that it succeeded; the empty-stack/guard
+    /// outcome is resolved later on the UI thread (see the type-level thread-safety remarks).
+    /// </returns>
     public bool GoForward()
     {
         if (IsOffUIThread && MarshalOff(nameof(GoForward), () => GoForward())) return true;
@@ -234,6 +255,13 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
     /// <summary>
     /// Replace the current route without modifying back/forward stacks.
     /// </summary>
+    /// <returns>
+    /// On the UI thread, <see langword="true"/> if the route was replaced, or
+    /// <see langword="false"/> if a guard cancelled it. When called off the UI thread,
+    /// <see langword="true"/> means the call was marshaled and scheduled onto the UI
+    /// dispatcher &#8212; not that it succeeded; the real outcome is resolved later on the
+    /// UI thread (see the type-level thread-safety remarks).
+    /// </returns>
     public bool Replace(TRoute route)
     {
         if (IsOffUIThread && MarshalOff(nameof(Replace), () => Replace(route))) return true;
@@ -250,6 +278,13 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
     /// <summary>
     /// Reset the entire stack to a single root route. Clears back and forward stacks.
     /// </summary>
+    /// <returns>
+    /// On the UI thread, <see langword="true"/> if the stack was reset, or
+    /// <see langword="false"/> if a guard cancelled it. When called off the UI thread,
+    /// <see langword="true"/> means the call was marshaled and scheduled onto the UI
+    /// dispatcher &#8212; not that it succeeded; the real outcome is resolved later on the
+    /// UI thread (see the type-level thread-safety remarks).
+    /// </returns>
     public bool Reset(TRoute route)
     {
         if (IsOffUIThread && MarshalOff(nameof(Reset), () => Reset(route))) return true;
@@ -265,8 +300,14 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
 
     /// <summary>
     /// Pop entries from the back stack until the predicate matches.
-    /// Returns false if no match or guard cancels.
     /// </summary>
+    /// <returns>
+    /// On the UI thread, <see langword="true"/> if a matching entry was popped to, or
+    /// <see langword="false"/> if no back-stack entry matches the predicate or a guard
+    /// cancelled it. When called off the UI thread, <see langword="true"/> means the call
+    /// was marshaled and scheduled onto the UI dispatcher &#8212; not that it succeeded; the
+    /// real outcome is resolved later on the UI thread (see the type-level thread-safety remarks).
+    /// </returns>
     public bool PopTo(Func<TRoute, bool> predicate)
     {
         if (IsOffUIThread && MarshalOff(nameof(PopTo), () => PopTo(predicate))) return true;

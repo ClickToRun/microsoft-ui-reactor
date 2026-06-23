@@ -100,4 +100,102 @@ internal static class ThreadSafeNavigationFixtures
             H.Check("NavMarshal_ReplaceRerendered", H.FindText("Route: Settings") is not null);
         }
     }
+
+    /// <summary>
+    /// Companion to <see cref="NavigateOffThreadMarshals"/> that drives the <em>remaining</em>
+    /// thread-safe mutators &#8212; <c>GoBack</c>, <c>GoForward</c>, <c>PopTo</c>, <c>Reset</c>,
+    /// and <c>SetState</c> &#8212; off the UI thread under a real pumped <c>DispatcherQueue</c>.
+    /// Each one's marshal gate is mechanically identical, but proving the happy path
+    /// end-to-end (store mutates + component re-renders) for every mutator closes the
+    /// coverage gap left by only exercising Navigate/Replace.
+    /// </summary>
+    internal class MutatorsOffThreadMarshal(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            NavigationHandle<NavRoute>? nav = null;
+
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var handle = ctx.UseNavigation(NavRoute.Home);
+                nav = handle;
+                return TextBlock($"Route: {handle.CurrentRoute}");
+            });
+
+            await Harness.Render();
+
+            // Build a back stack on the UI thread: Home -> Detail -> Settings.
+            nav!.Navigate(NavRoute.Detail);
+            nav!.Navigate(NavRoute.Settings);
+            for (int i = 0; i < 2; i++) await Harness.Render();
+            H.Check("NavMutators_Setup",
+                nav!.CurrentRoute.Equals(NavRoute.Settings) && nav.BackStack.Count == 2);
+
+            // GoBack off-thread: current rewinds to Detail, Settings moves to forward stack.
+            await RunOffThread("GoBack", () => nav!.GoBack());
+            H.Check("NavMutators_GoBackCurrent", nav!.CurrentRoute.Equals(NavRoute.Detail));
+            H.Check("NavMutators_GoBackForward", nav!.CanGoForward);
+            H.Check("NavMutators_GoBackRerendered", H.FindText("Route: Detail") is not null);
+
+            // GoForward off-thread: current advances back to Settings.
+            await RunOffThread("GoForward", () => nav!.GoForward());
+            H.Check("NavMutators_GoForwardCurrent", nav!.CurrentRoute.Equals(NavRoute.Settings));
+            H.Check("NavMutators_GoForwardRerendered", H.FindText("Route: Settings") is not null);
+
+            // PopTo off-thread: pop back to Home, draining the back stack.
+            await RunOffThread("PopTo", () => nav!.PopTo(r => r == NavRoute.Home));
+            H.Check("NavMutators_PopToCurrent", nav!.CurrentRoute.Equals(NavRoute.Home));
+            H.Check("NavMutators_PopToBackEmpty", nav!.BackStack.Count == 0);
+            H.Check("NavMutators_PopToRerendered", H.FindText("Route: Home") is not null);
+
+            // Rebuild a back entry, then Reset off-thread: single root, both stacks cleared.
+            nav!.Navigate(NavRoute.Detail);
+            await Harness.Render();
+            await RunOffThread("Reset", () => nav!.Reset(NavRoute.Settings));
+            H.Check("NavMutators_ResetCurrent", nav!.CurrentRoute.Equals(NavRoute.Settings));
+            H.Check("NavMutators_ResetCleared", nav!.BackStack.Count == 0 && !nav.CanGoForward);
+            H.Check("NavMutators_ResetRerendered", H.FindText("Route: Settings") is not null);
+
+            // SetState off-thread: restore a captured snapshot wholesale.
+            var snapshot = new NavigationState<NavRoute>(
+                BackStack: new[] { NavRoute.Home },
+                Current: NavRoute.Detail,
+                ForwardStack: new[] { NavRoute.Settings });
+            await RunOffThread("SetState", () => nav!.SetState(snapshot));
+            H.Check("NavMutators_SetStateCurrent", nav!.CurrentRoute.Equals(NavRoute.Detail));
+            H.Check("NavMutators_SetStateBackStack",
+                nav!.BackStack.Count == 1 && nav.BackStack[0].Equals(NavRoute.Home));
+            H.Check("NavMutators_SetStateForwardStack",
+                nav!.ForwardStack.Count == 1 && nav.ForwardStack[0].Equals(NavRoute.Settings));
+            H.Check("NavMutators_SetStateRerendered", H.FindText("Route: Detail") is not null);
+        }
+
+        // Runs a mutator from a background Task.Run, waits for it to be accepted (the
+        // off-thread call returns once the work is scheduled), then pumps the dispatcher
+        // so the marshaled mutation + the rerender it requests actually apply.
+        private async Task RunOffThread(string label, Action mutate)
+        {
+            var done = new TaskCompletionSource();
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    mutate();
+                    done.TrySetResult();
+                }
+                catch (InvalidOperationException ex)
+                {
+                    done.TrySetException(ex);
+                }
+            });
+
+            var winner = await Task.WhenAny(done.Task, Task.Delay(TimeSpan.FromSeconds(10)));
+            H.Check($"NavMutators_{label}Completed", winner == done.Task);
+            if (winner == done.Task) await done.Task; // surface any captured exception
+
+            // Drain the marshaled mutation + the rerender it requests.
+            for (int i = 0; i < 4; i++) await Harness.Render();
+        }
+    }
 }
