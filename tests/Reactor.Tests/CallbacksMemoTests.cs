@@ -80,15 +80,6 @@ public class CallbacksMemoTests
     }
 
     [Fact]
-    public void Callbacks_Factory_Of_Infers_Type()
-    {
-        var payload = new Cbs(() => { });
-        var wrapped = Callbacks.Of(payload);
-        Assert.IsType<Callbacks<Cbs>>(wrapped);
-        Assert.Same(payload, wrapped.Value);
-    }
-
-    [Fact]
     public void Owning_Record_Equality_Ignores_Callbacks_Slot()
     {
         // Same data, totally different callbacks => records are equal.

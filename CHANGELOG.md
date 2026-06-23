@@ -28,6 +28,18 @@ Conventions for contributors:
 
 ### Added
 
+- **`Callbacks<T>` — keep delegate props out of memo comparison (issue #151).**
+  An opt-in, always-equal wrapper record (`Equals` returns `true`, `GetHashCode`
+  returns `0`) for the delegate (callback) portion of a component's props. Because
+  `Component<TProps>.ShouldUpdate` memoizes on `!Equals(oldProps, newProps)` and
+  `Action`/`Func` fields compare by reference, a parent passing freshly-allocated
+  callbacks each render forced the child to re-render even when no data changed.
+  Declaring `Callbacks<MyCallbacks> Cb` on the props record excludes the callbacks
+  slot from equality, so only data fields drive re-renders — replacing the old
+  hand-written `Equals`/`GetHashCode` workaround. The reconciler still refreshes the
+  child's live `Props` on a memo-skip, so handlers reading `Props.Cb.Value.OnX` at
+  dispatch time always invoke the current delegate, never a stale one.
+
 - New optional package `Microsoft.UI.Reactor.Devtools` for the `--devtools` runtime surface (spec 051 Phase 2).
 
 - **Hot reload: tree-wide hook-order recovery (spec 049 §5, Phase 1).**

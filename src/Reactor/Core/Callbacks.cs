@@ -64,20 +64,9 @@ public sealed record Callbacks<T>(T Value)
 
     /// <summary>
     /// Wraps a callbacks payload so it can be assigned directly to a
-    /// <see cref="Callbacks{T}"/> props field without calling the constructor.
+    /// <see cref="Callbacks{T}"/> props field without calling the constructor — the
+    /// payload type is inferred from the target field, so authors just write
+    /// <c>new StepProps(step, new StepCallbacks(...))</c>.
     /// </summary>
     public static implicit operator Callbacks<T>(T value) => new(value);
-}
-
-/// <summary>
-/// Factory helpers for <see cref="Callbacks{T}"/> that allow the payload type to be
-/// inferred at the call site.
-/// </summary>
-public static class Callbacks
-{
-    /// <summary>
-    /// Creates a <see cref="Callbacks{T}"/> wrapper with <typeparamref name="T"/> inferred
-    /// from <paramref name="value"/>.
-    /// </summary>
-    public static Callbacks<T> Of<T>(T value) => new(value);
 }
