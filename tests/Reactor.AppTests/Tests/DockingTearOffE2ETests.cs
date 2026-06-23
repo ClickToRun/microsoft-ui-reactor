@@ -141,15 +141,10 @@ public class DockingTearOffE2ETests : AppTestBase
     /// <summary>Dump the fixture's UIA-visible diagnostic surface to the test log.</summary>
     private void DumpDiagnostics(string label)
     {
-        string Read(string id)
-        {
-            foreach (var w in App.ListWindows())
-            {
-                var t = App.GetValue(id, w.Hwnd);
-                if (t is not null) return t;
-            }
-            return "<not found>";
-        }
+        string Read(string id) =>
+            App.ListWindows()
+               .Select(w => App.GetValue(id, w.Hwnd))
+               .FirstOrDefault(t => t is not null) ?? "<not found>";
         Console.WriteLine($"[{label}] summary='{Read("TearOff_Layout_Summary")}'");
         Console.WriteLine($"[{label}] counters='{Read("TearOff_Event_Counters")}'");
         Console.WriteLine($"[{label}] trace='{Read("TearOff_Trace")}'");

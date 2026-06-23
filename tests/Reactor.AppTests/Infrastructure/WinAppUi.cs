@@ -80,9 +80,13 @@ public sealed class WinAppUi
 
     private readonly record struct RunResult(int ExitCode, string StdOut, string StdErr);
 
+    // Bumps the process-global spawn counter from a static scope, keeping the mutation off the
+    // instance Run path while still aggregating across the many short-lived WinAppUi instances.
+    private static void RecordInvocation() => Interlocked.Increment(ref InvocationCount);
+
     private RunResult Run(int processTimeoutMs, params string[] args)
     {
-        Interlocked.Increment(ref InvocationCount);
+        RecordInvocation();
 
         var psi = new ProcessStartInfo(WinAppExe)
         {
@@ -164,12 +168,10 @@ public sealed class WinAppUi
         {
             try
             {
-                foreach (var w in ui.ListWindowsForPid())
-                {
-                    if (w.ProcessId == pid &&
-                        (w.Title?.Contains(title, StringComparison.OrdinalIgnoreCase) ?? false))
-                        return w.Hwnd;
-                }
+                foreach (var w in ui.ListWindowsForPid()
+                             .Where(w => w.ProcessId == pid &&
+                                         (w.Title?.Contains(title, StringComparison.OrdinalIgnoreCase) ?? false)))
+                    return w.Hwnd;
             }
             catch (Exception ex) { last = ex; }
             Thread.Sleep(200);
@@ -382,11 +384,8 @@ public sealed class WinAppUi
         {
             if (!w.TryGetProperty("elements", out var els) || els.ValueKind != JsonValueKind.Array)
                 continue;
-            foreach (var e in els.EnumerateArray())
-            {
-                if (GetString(e, "type") == "Edit")
-                    return GetString(e, "selector");
-            }
+            foreach (var e in els.EnumerateArray().Where(e => GetString(e, "type") == "Edit"))
+                return GetString(e, "selector");
         }
         return null;
     }

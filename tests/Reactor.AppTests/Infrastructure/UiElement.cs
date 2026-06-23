@@ -107,9 +107,8 @@ public sealed class UiElement
         // into winapp and this collapse step can be dropped with the SendInput fallback.
         if (ContainsTypedText(keys))
         {
-            if (_lastTextSendSelector == Selector)
+            if (RememberTextSendAndWasRepeat(Selector))
                 InputInjector.CollapseSelectionToEnd();
-            _lastTextSendSelector = Selector;
         }
 
         InputInjector.TypeKeys(keys);
@@ -124,15 +123,20 @@ public sealed class UiElement
     /// <summary>Clears the consecutive-send tracking; call when navigating to a fresh fixture.</summary>
     internal static void ResetTypingContext() => _lastTextSendSelector = null;
 
+    // Records this send's selector and reports whether it repeats the previous one (the only case
+    // that needs collapse-to-end). Encapsulating the static read+write keeps the mutation off the
+    // instance SendKeys path while preserving the process-global "last send" semantics.
+    private static bool RememberTextSendAndWasRepeat(string selector)
+    {
+        var repeat = _lastTextSendSelector == selector;
+        _lastTextSendSelector = selector;
+        return repeat;
+    }
+
     // True when the payload contains at least one literal character to type (as opposed to
     // only Keys.* sentinels, which live in the Unicode Private Use Area, e.g. Tab = '\ue004').
-    private static bool ContainsTypedText(string keys)
-    {
-        foreach (var ch in keys)
-            if (ch < '\ue000' || ch > '\ue0ff')
-                return true;
-        return false;
-    }
+    private static bool ContainsTypedText(string keys) =>
+        keys.Any(ch => ch < '\ue000' || ch > '\ue0ff');
 
     /// <summary>Clear the editable control (select-all + delete via injected keys).</summary>
     public void Clear()
