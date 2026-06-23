@@ -16,12 +16,18 @@ namespace Microsoft.UI.Reactor.Tests;
 /// the element tree — no WinUI control mount is required, so they stay in the headless unit
 /// tier.</para>
 /// </summary>
+[Collection("LayoutFootgunDetector")]
 public sealed class LayoutFootgunDetectorTests : IDisposable
 {
     private readonly List<string> _warnings = new();
+    private readonly bool _originalFlag;
 
     public LayoutFootgunDetectorTests()
     {
+        // Enable the flag explicitly rather than relying on DEBUG-always-on, so the tests behave
+        // identically under Release configurations.
+        _originalFlag = ReactorFeatureFlags.WarnLayoutFootguns;
+        ReactorFeatureFlags.WarnLayoutFootguns = true;
         LayoutFootgunDetector.ResetForTests();
         LayoutFootgunDetector.Sink = _warnings.Add;
     }
@@ -30,6 +36,7 @@ public sealed class LayoutFootgunDetectorTests : IDisposable
     {
         LayoutFootgunDetector.Sink = null;
         LayoutFootgunDetector.ResetForTests();
+        ReactorFeatureFlags.WarnLayoutFootguns = _originalFlag;
     }
 
     // ── Should warn ────────────────────────────────────────────────────────
@@ -114,6 +121,47 @@ public sealed class LayoutFootgunDetectorTests : IDisposable
             columns: new[] { GridSize.Auto, GridSize.Star() },
             rows: new[] { GridSize.Star() },
             HStack(TextBlock("A").Width(120), TextBlock("B")).Grid(row: 0, column: 0));
+
+        LayoutFootgunDetector.InspectGrid(grid);
+
+        Assert.Empty(_warnings);
+    }
+
+    [Fact]
+    public void HStack_InAutoColumn_WithMinWidth_DoesNotWarn()
+    {
+        // MinWidth clamps the Measure pass, so the stack cannot collapse to 0 — no warning.
+        var grid = Grid(
+            columns: new[] { GridSize.Auto, GridSize.Star() },
+            rows: new[] { GridSize.Star() },
+            HStack(TextBlock("A"), TextBlock("B")).MinWidth(80).Grid(row: 0, column: 0));
+
+        LayoutFootgunDetector.InspectGrid(grid);
+
+        Assert.Empty(_warnings);
+    }
+
+    [Fact]
+    public void HStack_InAutoColumn_WithChildMinWidth_DoesNotWarn()
+    {
+        // A child's MinWidth also prevents the stretch→0 desired-size case during Measure.
+        var grid = Grid(
+            columns: new[] { GridSize.Auto, GridSize.Star() },
+            rows: new[] { GridSize.Star() },
+            HStack(TextBlock("A").MinWidth(40), TextBlock("B")).Grid(row: 0, column: 0));
+
+        LayoutFootgunDetector.InspectGrid(grid);
+
+        Assert.Empty(_warnings);
+    }
+
+    [Fact]
+    public void VStack_InAutoRow_WithMinHeight_DoesNotWarn()
+    {
+        var grid = Grid(
+            columns: new[] { GridSize.Star() },
+            rows: new[] { GridSize.Star(), GridSize.Auto },
+            VStack(TextBlock("A"), TextBlock("B")).MinHeight(50).Grid(row: 1, column: 0));
 
         LayoutFootgunDetector.InspectGrid(grid);
 
@@ -245,7 +293,22 @@ public sealed class LayoutFootgunDetectorTests : IDisposable
         Assert.Equal(2, _warnings.Count);
     }
 
-    // ── Hook wiring: gate + `is GridElement` filter + Sink (L4) ────────────
+    [Fact]
+    public void TwoOffenders_ReusingSameKeyAtDifferentPlacements_BothWarn()
+    {
+        // Element.Key uniqueness is only guaranteed among siblings, so the same key can legitimately
+        // appear at distinct grid placements. Each is a distinct offender and must warn — the dedup
+        // key folds in the grid placement, not just the author key.
+        var grid = Grid(
+            columns: new[] { GridSize.Auto, GridSize.Star() },
+            rows: new[] { GridSize.Star(), GridSize.Star() },
+            HStack(TextBlock("A")).WithKey("row").Grid(row: 0, column: 0),
+            HStack(TextBlock("B")).WithKey("row").Grid(row: 1, column: 0));
+
+        LayoutFootgunDetector.InspectGrid(grid);
+
+        Assert.Equal(2, _warnings.Count);
+    }
 
     [Fact]
     public void Inspect_NonGridElement_DoesNotWarn()

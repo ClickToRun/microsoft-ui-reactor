@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using Microsoft.UI.Reactor.Core;
 using WinUI = Microsoft.UI.Xaml.Controls;
 
@@ -22,15 +23,18 @@ namespace Microsoft.UI.Reactor.Diagnostics;
 /// <para>
 /// Reactor can detect it because it holds the declarative tree: it can correlate "an <c>HStack</c>
 /// was just placed at <c>Grid</c> column N" with "column N's track is <c>Auto</c>". This detector
-/// runs at first mount (see <c>Reconciler.Mount</c>) and emits a one-time warning when <b>all</b>
+/// runs at mount <em>and</em> update (see <c>Reconciler.Mount</c> / <c>Reconciler.Update</c>, so a
+/// dynamic track or size change can still be caught) and emits a one-time warning when <b>all</b>
 /// of the following hold for a stack child:
 /// </para>
 /// <list type="bullet">
 ///   <item>it lands in a <c>Grid</c> track that is <c>Auto</c> on the stacking axis (column for
 ///   <c>HStack</c>, row for <c>VStack</c>),</item>
 ///   <item>neither the stack nor any single-child wrapper (e.g. a <c>Border</c>) around it carries
-///   an explicit size on that axis, and</item>
-///   <item>none of the stack's first-generation children carry an explicit size on that axis.</item>
+///   an explicit size on that axis (a fixed <c>Width</c>/<c>Height</c> or a <c>MinWidth</c>/
+///   <c>MinHeight</c>, both of which clamp the Measure pass), and</item>
+///   <item>none of the stack's first-generation children carry an explicit size (fixed or minimum)
+///   on that axis.</item>
 /// </list>
 /// <para>
 /// Detection is gated by <see cref="ReactorFeatureFlags.WarnLayoutFootguns"/> (always on in
@@ -92,11 +96,8 @@ internal static class LayoutFootgunDetector
         var columns = grid.Definition?.Columns;
         var rows = grid.Definition?.Rows;
 
-        foreach (var child in children)
+        foreach (var child in children.Where(static c => c is not null))
         {
-            if (child is null)
-                continue;
-
             // Walk down through single-child wrappers (e.g. Border) to the stack, accumulating any
             // explicit size seen along the way. Wrapping a collapsing stack in a Border does NOT
             // fix the collapse (the Border sizes to its 0-sized child), so we keep descending.
@@ -109,8 +110,11 @@ internal static class LayoutFootgunDetector
             {
                 locationKey ??= current.Key;
                 var mods = current.Modifiers;
-                if (mods?.Width is not null) chainHasWidth = true;
-                if (mods?.Height is not null) chainHasHeight = true;
+                // MinWidth/MinHeight clamp the desired size during Measure too, so an explicit
+                // minimum on the stack (or any wrapper) prevents the stretch→0 collapse just like
+                // a fixed Width/Height does. Treat both as an explicit size to avoid false warnings.
+                if (mods?.Width is not null || mods?.MinWidth is not null) chainHasWidth = true;
+                if (mods?.Height is not null || mods?.MinHeight is not null) chainHasHeight = true;
 
                 if (current is StackElement stack)
                 {
@@ -171,20 +175,12 @@ internal static class LayoutFootgunDetector
     }
 
     private static bool AnyChildHasExplicitWidth(Element[] children)
-    {
-        foreach (var c in children)
-            if (c?.Modifiers?.Width is not null)
-                return true;
-        return false;
-    }
+        // MinWidth also prevents the stretch→0 desired-size case during Measure, so it counts.
+        => children.Any(static c => c?.Modifiers?.Width is not null || c?.Modifiers?.MinWidth is not null);
 
     private static bool AnyChildHasExplicitHeight(Element[] children)
-    {
-        foreach (var c in children)
-            if (c?.Modifiers?.Height is not null)
-                return true;
-        return false;
-    }
+        // MinHeight also clamps the desired size during Measure, so it counts as an explicit size.
+        => children.Any(static c => c?.Modifiers?.Height is not null || c?.Modifiers?.MinHeight is not null);
 
     private static bool TrackIsAuto(string[]? tracks, int index)
     {
@@ -195,15 +191,18 @@ internal static class LayoutFootgunDetector
     }
 
     /// <summary>
-    /// Builds the emit-once dedup key for an offending placement. Keyed on element identity
-    /// (the author-supplied <see cref="Element.Key"/> when present) or, for unkeyed elements, on
-    /// the stack type plus its concrete grid placement (row/column). This keeps two <em>distinct</em>
-    /// offending placements that merely share a stack type + track from collapsing into a single
-    /// warning, while staying stable across re-renders (records produce fresh-but-equal instances).
+    /// Builds the emit-once dedup key for an offending placement. The key always encodes the stack
+    /// type plus its concrete grid placement (row/column); the author-supplied
+    /// <see cref="Element.Key"/> is appended as an extra discriminator when present. Because
+    /// <see cref="Element.Key"/> uniqueness is only guaranteed among siblings, keying on it alone
+    /// could wrongly collapse distinct offenders (the same key reused under different grids, or a
+    /// keyed stack that moves to a new row/column). Including the placement keeps each distinct
+    /// position warning once while staying stable across re-renders (records produce
+    /// fresh-but-equal instances).
     /// </summary>
     private static string BuildDedupKey(string stackName, int row, int col, string? locationKey)
         => locationKey is { Length: > 0 }
-            ? $"key:{locationKey}"
+            ? string.Format(CultureInfo.InvariantCulture, "{0}@r{1}c{2}|key:{3}", stackName, row, col, locationKey)
             : string.Format(CultureInfo.InvariantCulture, "{0}@r{1}c{2}", stackName, row, col);
 
     private static string BuildMessage(string stackName, bool axisIsColumn, int index, string? locationKey)
