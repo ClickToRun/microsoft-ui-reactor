@@ -223,9 +223,14 @@ public sealed partial class Reconciler
             "`Microsoft.UI.Reactor.ReactorApp.RegisterAllBuiltIns()` (spec-048 " +
             "§3.4 option A) so every built-in element record mounts regardless " +
             "of how it was constructed.\n" +
-            "  (3) Register the handler explicitly up front: " +
+            "  (3) Register the handler explicitly up front. For a value control " +
+            "with its own WinUI control, use " +
             $"`Microsoft.UI.Reactor.Core.V1Protocol.ControlRegistry.Register" +
-            $"<{element.GetType().Name}, TControl>(static () => new YourHandler())`.\n" +
+            $"<{element.GetType().Name}, TControl>(static () => new YourHandler())`; " +
+            "for a decorator-backed element (one that wraps/forwards to a child " +
+            "rather than owning a leaf control) use " +
+            $"`ControlRegistry.RegisterDecorator<{element.GetType().Name}>" +
+            "(static () => new YourDecoratorHandler())`.\n" +
             "  (4) For custom controls authored by your project, follow the " +
             "Pattern A factory-as-registration recipe in " +
             "docs/guide/extending-reactor-controls.md.\n\n" +

@@ -68,17 +68,24 @@ public sealed class UnregisteredHandlerAndRegisterAllBuiltInsTests
     // `ExpectedBuiltInCatalog` below is the explicit, reviewed mirror of that
     // catalog: one entry per registration touch (element record type, or the
     // base type for the base-derived `RegisterForDerivedTypes` registrations).
-    // The two guards make drift fail the build, not pass silently:
-    //   (1) the count must equal `ExpectedCatalogSize` — adding/removing a
-    //       catalog entry without updating this list fails loudly, forcing a
-    //       deliberate, reviewed test edit;
-    //   (2) after `RegisterAllBuiltIns()`, every listed type must resolve a
-    //       handler through some dispatch arm — a registration that silently
-    //       stops firing fails loudly.
+    // The guards make drift fail the build, not pass silently:
+    //   (1) RegisterAllBuiltIns_Registers_Exactly_The_Mirror_Catalog — the real
+    //       production-drift guard. It asks ControlRegistry which element types
+    //       `RegisterAllBuiltIns()` *actually* registered (exact + base entries,
+    //       restricted to the Reactor assembly so unrelated test registrations
+    //       can't leak in) and asserts that set equals this mirror. Adding a new
+    //       built-in to ReactorApp.BuiltIns.cs without updating the mirror, or
+    //       removing one from production while the mirror still lists it, fails
+    //       loudly with the exact symmetric difference. This is robust because
+    //       component-style built-ins (DataGrid, PropertyGrid, MaskedTextBox,
+    //       VirtualList, …) render via Component and are never registered, so the
+    //       registry contains *only* handler-backed built-ins.
+    //   (2) RegisterAllBuiltIns_Registers_Every_Catalog_Entry — every mirror
+    //       entry must resolve a handler through some dispatch arm (exercises the
+    //       base-walk resolution semantics, not just registry presence), so a
+    //       registration that records but fails to resolve also fails loudly.
     //
     // Keep this list in lockstep with `ReactorApp.BuiltIns.cs`.
-
-    private const int ExpectedCatalogSize = 95;
 
     private static readonly Type[] ExpectedBuiltInCatalog =
     {
@@ -195,16 +202,45 @@ public sealed class UnregisteredHandlerAndRegisterAllBuiltInsTests
         => ExpectedBuiltInCatalog.Select(static t => new object[] { t });
 
     [Fact]
-    public void RegisterAllBuiltIns_Catalog_List_Has_No_Drift_In_Size()
+    public void RegisterAllBuiltIns_Registers_Exactly_The_Mirror_Catalog()
     {
-        // The explicit list and the catalog must move together. If this fails,
-        // a control was added to / removed from ReactorApp.BuiltIns.cs without
-        // updating ExpectedBuiltInCatalog (or ExpectedCatalogSize) — update both
-        // deliberately so the drift guard keeps covering the real catalog.
-        Assert.Equal(ExpectedCatalogSize, ExpectedBuiltInCatalog.Length);
+        // Idempotent + process-wide: safe to call (the test bootstrap already
+        // called it once via [ModuleInitializer]).
+        ReactorApp.RegisterAllBuiltIns();
 
-        // No accidental duplicate entries in the mirror.
+        // The mirror must have no accidental duplicate entries.
         Assert.Equal(ExpectedBuiltInCatalog.Length, ExpectedBuiltInCatalog.Distinct().Count());
+
+        // Ask the registry what RegisterAllBuiltIns() *actually* registered, then
+        // restrict to the Reactor assembly so registrations made by unrelated
+        // tests (whose element types live in test assemblies) can't leak in.
+        // Component-style built-ins render via Component and never register, so
+        // this set is exactly the handler-backed built-in catalog.
+        var reactorAssembly = typeof(TextBlockElement).Assembly;
+        var actual = ControlRegistry.RegisteredElementTypes
+            .Concat(ControlRegistry.RegisteredBaseElementTypes)
+            .Where(t => t.Assembly == reactorAssembly)
+            .ToHashSet();
+
+        var expected = ExpectedBuiltInCatalog.ToHashSet();
+
+        // Surface the exact drift so a failure is self-explaining.
+        var missingFromMirror = actual.Except(expected)
+            .Select(t => t.FullName).OrderBy(n => n, StringComparer.Ordinal).ToArray();
+        var staleInMirror = expected.Except(actual)
+            .Select(t => t.FullName).OrderBy(n => n, StringComparer.Ordinal).ToArray();
+
+        Assert.True(
+            missingFromMirror.Length == 0,
+            "ReactorApp.RegisterAllBuiltIns() registered built-in element type(s) not listed in " +
+            "ExpectedBuiltInCatalog — a new built-in was added to ReactorApp.BuiltIns.cs without " +
+            "updating this mirror. Add:\n  " + string.Join("\n  ", missingFromMirror));
+
+        Assert.True(
+            staleInMirror.Length == 0,
+            "ExpectedBuiltInCatalog lists element type(s) that RegisterAllBuiltIns() no longer " +
+            "registers — a built-in was removed/renamed in ReactorApp.BuiltIns.cs without updating " +
+            "this mirror. Remove:\n  " + string.Join("\n  ", staleInMirror));
     }
 
     [Theory]
