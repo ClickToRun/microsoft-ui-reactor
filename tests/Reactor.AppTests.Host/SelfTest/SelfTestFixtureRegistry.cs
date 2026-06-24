@@ -437,6 +437,7 @@ internal static class SelfTestFixtureRegistry
         // Thread-safe navigation (#234) — off-thread marshal on a real dispatcher
         "ThreadSafeNav_NavigateOffThreadMarshals",
         "ThreadSafeNav_MutatorsOffThreadMarshal",
+        "ThreadSafeNav_SetStateOffThreadFreezesSnapshot",
         // Animation system — Curve & Easing
         "Curve_RecordEquality",
         "Curve_PresetValues",
@@ -1829,6 +1830,7 @@ internal static class SelfTestFixtureRegistry
         "ThreadSafe_NonThreadSafeAutoMarshal" => new ThreadSafeHookFixtures.NonThreadSafeAutoMarshal(harness),
         "ThreadSafeNav_NavigateOffThreadMarshals" => new ThreadSafeNavigationFixtures.NavigateOffThreadMarshals(harness),
         "ThreadSafeNav_MutatorsOffThreadMarshal" => new ThreadSafeNavigationFixtures.MutatorsOffThreadMarshal(harness),
+        "ThreadSafeNav_SetStateOffThreadFreezesSnapshot" => new ThreadSafeNavigationFixtures.SetStateOffThreadFreezesSnapshot(harness),
         // Animation system — Curve & Easing
         "Curve_RecordEquality" => new CurveTests.RecordEquality(harness),
         "Curve_PresetValues" => new CurveTests.PresetValues(harness),

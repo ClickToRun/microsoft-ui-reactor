@@ -364,7 +364,17 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
             throw new ArgumentException("Navigation state must include a non-null BackStack.", nameof(state));
         if (state.ForwardStack is null)
             throw new ArgumentException("Navigation state must include a non-null ForwardStack.", nameof(state));
-        if (IsOffUIThread && MarshalOff(nameof(SetState), () => SetState(state))) return;
+        if (IsOffUIThread)
+        {
+            // Freeze the caller-supplied lists into arrays before the dispatcher hop. The
+            // marshaled restore runs later on the UI thread; without this copy a caller could
+            // mutate their original List<T> in the meantime and the applied history would no
+            // longer match the snapshot validated here. Symmetric with GetState, which hands
+            // out arrays so a snapshot can't alias — or be aliased into — the live stack.
+            var frozen = new NavigationState<TRoute>(
+                state.BackStack.ToArray(), state.Current, state.ForwardStack.ToArray());
+            if (MarshalOff(nameof(SetState), () => SetState(frozen))) return;
+        }
 
         var previous = _stack.Current;
         _stack.RestoreState(state.BackStack, state.Current, state.ForwardStack);

@@ -206,4 +206,73 @@ internal static class ThreadSafeNavigationFixtures
             for (int i = 0; i < 4; i++) await Harness.Render();
         }
     }
+
+    /// <summary>
+    /// Regression for the off-thread <c>SetState</c> snapshot-aliasing race (issue #234
+    /// review): <c>NavigationState&lt;TRoute&gt;</c> accepts arbitrary <c>IReadOnlyList</c>
+    /// stacks, so a caller can hand in a live <c>List&lt;T&gt;</c>. The off-thread call
+    /// marshals the restore onto the dispatcher and returns immediately; if the caller then
+    /// mutates that original list before the dispatcher runs, the applied history must still
+    /// match the snapshot validated at call time — <c>SetState</c> freezes the stacks into
+    /// arrays before the hop. This fixture corrupts the caller's lists inside the marshal
+    /// window and asserts the restored state is the call-time snapshot, not the corruption.
+    /// </summary>
+    internal class SetStateOffThreadFreezesSnapshot(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            NavigationHandle<NavRoute>? nav = null;
+
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var handle = ctx.UseNavigation(NavRoute.Home);
+                nav = handle;
+                return TextBlock($"Route: {handle.CurrentRoute}");
+            });
+
+            await Harness.Render();
+
+            // Caller-owned MUTABLE lists handed to SetState as the snapshot's stacks.
+            var backStack = new List<NavRoute> { NavRoute.Home };
+            var forwardStack = new List<NavRoute> { NavRoute.Settings };
+            var snapshot = new NavigationState<NavRoute>(
+                BackStack: backStack, Current: NavRoute.Detail, ForwardStack: forwardStack);
+
+            // Off the UI thread: call SetState (which marshals the restore), then immediately
+            // corrupt the caller's lists BEFORE the dispatcher applies it. The freeze happens
+            // synchronously inside SetState, so these mutations must not leak into the restore.
+            var done = new TaskCompletionSource();
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    nav!.SetState(snapshot);
+                    backStack.Clear();
+                    backStack.Add(NavRoute.Settings);
+                    forwardStack.Clear();
+                    done.TrySetResult();
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+                {
+                    done.TrySetException(ex);
+                }
+            });
+
+            var winner = await Task.WhenAny(done.Task, Task.Delay(TimeSpan.FromSeconds(10)));
+            H.Check("NavFreeze_Completed", winner == done.Task);
+            if (winner == done.Task) await done.Task;
+
+            // Drain the marshaled restore + the rerender it requests.
+            for (int i = 0; i < 4; i++) await Harness.Render();
+
+            // The applied history matches the call-time snapshot, not the corrupted lists.
+            H.Check("NavFreeze_Current", nav!.CurrentRoute.Equals(NavRoute.Detail));
+            H.Check("NavFreeze_BackStack",
+                nav!.BackStack.Count == 1 && nav.BackStack[0].Equals(NavRoute.Home));
+            H.Check("NavFreeze_ForwardStack",
+                nav!.ForwardStack.Count == 1 && nav.ForwardStack[0].Equals(NavRoute.Settings));
+            H.Check("NavFreeze_Rerendered", H.FindText("Route: Detail") is not null);
+        }
+    }
 }
