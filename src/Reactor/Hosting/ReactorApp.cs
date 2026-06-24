@@ -27,7 +27,7 @@ internal record ReactorAppOptions(
     Action<ReactorAppContext>? Startup = null,
     WindowSpec? InitialWindowSpec = null);
 
-public static class ReactorApp
+public static partial class ReactorApp
 {
     // Application.Start blocks and creates ReactorApplication via parameterless constructor,
     // so we must communicate config through a static. Using a single record keeps this scoped.

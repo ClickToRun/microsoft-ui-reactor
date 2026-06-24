@@ -40,6 +40,19 @@ Conventions for contributors:
   `UseCommand`) is inert. `UseCommand` now consumes a stable hook shape regardless
   of the command's sync/async/debounce shape.
 
+- **`ReactorApp.RegisterAllBuiltIns()` — opt-in bulk registration of the built-in
+  control catalog (spec 048 §3.4, issue #486).** Built-in handler registration is
+  now lazy — each factory registers its own control on first use — so the trimmer
+  can drop controls an app never reaches. That broke the documented direct-record
+  construction idiom (`new TextBlockElement(…) { … }`, the "Hot loops" pattern in
+  `docs/guide/advanced.md`), which bypasses factories and so never triggers
+  registration. Call `RegisterAllBuiltIns()` once at startup to register the whole
+  catalog and keep that idiom working; apps that build UI exclusively through
+  factories don't need it, and a trimmed/NativeAOT build that never calls it still
+  drops unused controls. Relatedly, the reconciler now throws an actionable
+  `InvalidOperationException` (instead of silently mounting nothing) when it meets
+  an element record whose handler was never registered.
+
 - **`Callbacks<T>` — keep delegate props out of memo comparison (issue #151).**
   An opt-in, always-equal wrapper record (`Equals` returns `true`, `GetHashCode`
   returns `0`) for the delegate (callback) portion of a component's props. Because
