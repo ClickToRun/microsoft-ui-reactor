@@ -165,7 +165,10 @@ jobs:
         run: dotnet build tests/Reactor.AppTests/Reactor.AppTests.csproj -c Debug -p:Platform=x64
 
       - name: Test
-        run: dotnet test tests/Reactor.AppTests/Reactor.AppTests.csproj -c Debug -p:Platform=x64 --no-build --logger "console;verbosity=normal" --logger "trx;LogFileName=app-tests.trx"
+        # --results-directory pins the TRX under the workspace root so the gate below can find it.
+        # Without it, `dotnet test <csproj>` drops TestResults under the project dir
+        # (tests/Reactor.AppTests/TestResults), where the repo-root TRX lookup never looks.
+        run: dotnet test tests/Reactor.AppTests/Reactor.AppTests.csproj -c Debug -p:Platform=x64 --no-build --logger "console;verbosity=normal" --logger "trx;LogFileName=app-tests.trx" --results-directory TestResults
 
       - name: Fail on skipped input-injection E2Es
         shell: pwsh

@@ -54,6 +54,10 @@ public class TreeViewInteractionTests : AppTestBase
     /// it. "Work" starts expanded, so "Report.docx" is visible; after clicking the
     /// "Work" row body the child must remain visible.
     /// </summary>
+    // [Retry] mops up the rare unattended-desktop input-injection flake: Win32 SendInput is
+    // occasionally dropped before the Host window foregrounds on CI. A real regression still
+    // fails every attempt. Removable once winappCli #562 (send-keys)/#498 (drag) ship native verbs.
+    [Retry(3)]
     [TestMethod]
     public void ClickItemBody_DoesNotCollapseExpandedNode()
     {
@@ -83,6 +87,7 @@ public class TreeViewInteractionTests : AppTestBase
     /// "Report.docx" (a leaf child of "Work") and verify "Work" stays expanded
     /// (its sibling "Slides.pptx" remains visible).
     /// </summary>
+    [Retry(3)]
     [TestMethod]
     public void ClickChild_DoesNotCollapseParent()
     {

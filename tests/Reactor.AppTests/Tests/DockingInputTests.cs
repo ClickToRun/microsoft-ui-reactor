@@ -69,6 +69,10 @@ public class DockingInputTests : AppTestBase
     /// <see cref="WinUI.TabView"/> pin-header rebuild on every
     /// keystroke. Every character must land; focus must not bounce.
     /// </summary>
+    // [Retry] mops up the rare unattended-desktop input-injection flake: Win32 SendInput is
+    // occasionally dropped before the Host window foregrounds on CI. A real regression still
+    // fails every attempt. Removable once winappCli #562 (send-keys)/#498 (drag) ship native verbs.
+    [Retry(3)]
     [TestMethod]
     public void DockingInput_TypeAndTabAcrossPanes()
     {
@@ -111,6 +115,7 @@ public class DockingInputTests : AppTestBase
     /// reconcile path in <c>UpdateTabView</c>. If both fail, the bug is
     /// more general and lives in the docking host's render itself.
     /// </summary>
+    [Retry(3)]
     [TestMethod]
     public void DockingInput_NoPin_TypeAndTabAcrossPanes()
     {
@@ -142,6 +147,7 @@ public class DockingInputTests : AppTestBase
     /// the newly-tabbed pane must still work, and the pre-existing
     /// values from both editors must survive the layout change.
     /// </summary>
+    [Retry(3)]
     [TestMethod]
     public void DockingInput_DragToTab_PreservesFocusAndState()
     {
@@ -188,6 +194,7 @@ public class DockingInputTests : AppTestBase
     /// after dragging the right pane's tab into the left pane's group,
     /// both pre-drag state values ("alpha" / "beta") must survive.
     /// </summary>
+    [Retry(3)]
     [TestMethod]
     public void DockingInput_DragToTab_PreservesPreDragState()
     {

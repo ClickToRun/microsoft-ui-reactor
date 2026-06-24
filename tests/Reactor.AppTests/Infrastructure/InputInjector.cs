@@ -175,6 +175,11 @@ public static class InputInjector
         KeyDown(VK_CONTROL);
         try
         {
+            // Let the Ctrl key-down latch before pressing A. SendInput queues the events in
+            // order, but the modifier state the target tests at WM_KEYDOWN(A) is only updated
+            // once it has dequeued the Ctrl key-down — without this gap a fast field can see a
+            // bare 'A' and type a literal 'a' instead of select-all (the "ahello island" bug).
+            Thread.Sleep(15);
             PressVirtualKey(VK_A);
         }
         finally

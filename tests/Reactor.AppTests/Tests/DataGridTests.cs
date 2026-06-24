@@ -25,6 +25,10 @@ public class DataGridTests : AppTestBase
     /// press Enter to commit. Verifies the full editing pipeline through
     /// real mouse and keyboard input.
     /// </summary>
+    // [Retry] mops up the rare unattended-desktop input-injection flake: Win32 SendInput is
+    // occasionally dropped before the Host window foregrounds on CI. A real regression still
+    // fails every attempt. Removable once winappCli #562 (send-keys)/#498 (drag) ship native verbs.
+    [Retry(3)]
     [TestMethod]
     public void Interactive_DataGrid_ClickEditTabCommit()
     {

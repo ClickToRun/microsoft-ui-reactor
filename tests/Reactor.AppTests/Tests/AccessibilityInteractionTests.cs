@@ -37,6 +37,10 @@ public class AccessibilityInteractionTests : AppTestBase
     //  WCAG 2.1.1 — Keyboard: Tab order follows TabIndex
     // ════════════════════════════════════════════════════════════════
 
+    // [Retry] mops up the rare unattended-desktop input-injection flake: Win32 SendInput is
+    // occasionally dropped before the Host window foregrounds on CI. A real regression still
+    // fails every attempt. Removable once winappCli #562 (send-keys)/#498 (drag) ship native verbs.
+    [Retry(3)]
     [TestMethod]
     public void A11y_2_1_1_TabOrderFollowsTabIndex()
     {

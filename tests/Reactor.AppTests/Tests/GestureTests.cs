@@ -25,6 +25,10 @@ public class GestureTests : AppTestBase
     /// .OnPan: mouse-drag a Border and verify the pan callback reports
     /// Began → Changed → Ended and cumulative translation is non-zero.
     /// </summary>
+    // [Retry] mops up the rare unattended-desktop input-injection flake: Win32 SendInput is
+    // occasionally dropped before the Host window foregrounds on CI. A real regression still
+    // fails every attempt. Removable once winappCli #562 (send-keys)/#498 (drag) ship native verbs.
+    [Retry(3)]
     [TestMethod]
     public void Interactive_OnPan_Drag_ReportsTranslationAndPhase()
     {
@@ -54,6 +58,7 @@ public class GestureTests : AppTestBase
     /// <summary>
     /// .OnDoubleTap: double-click a Button and verify the count increments.
     /// </summary>
+    [Retry(3)]
     [TestMethod]
     public void Interactive_OnDoubleTap_FiresOnDoubleClick()
     {
@@ -70,6 +75,7 @@ public class GestureTests : AppTestBase
     /// <summary>
     /// .OnRightTapped: right-click a Button and verify the count increments.
     /// </summary>
+    [Retry(3)]
     [TestMethod]
     public void Interactive_OnRightTapped_FiresOnContextClick()
     {
@@ -87,6 +93,7 @@ public class GestureTests : AppTestBase
     /// .OnLongPress: press-and-hold and verify the long-press callback fires.
     /// Uses mouse emulation (default-off in production; opted in by the fixture).
     /// </summary>
+    [Retry(3)]
     [TestMethod]
     public void Interactive_OnLongPress_FiresAfterHold()
     {

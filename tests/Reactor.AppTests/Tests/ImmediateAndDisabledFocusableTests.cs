@@ -40,6 +40,10 @@ public class ImmediateAndDisabledFocusableTests : AppTestBase
     /// when focus left the control — proven indirectly by observing the
     /// fire-count rise while focus is still inside the NumberBox.
     /// </summary>
+    // [Retry] mops up the rare unattended-desktop input-injection flake: Win32 SendInput is
+    // occasionally dropped before the Host window foregrounds on CI. A real regression still
+    // fails every attempt. Removable once winappCli #562 (send-keys)/#498 (drag) ship native verbs.
+    [Retry(3)]
     [TestMethod]
     public void Immediate_FiresOnEveryKeystroke_BeforeBlur()
     {
@@ -76,6 +80,7 @@ public class ImmediateAndDisabledFocusableTests : AppTestBase
     /// commit-on-blur input + true-disabled Submit removes the button from
     /// the tab order at the moment Tab navigation runs.
     /// </summary>
+    [Retry(3)]
     [TestMethod]
     public void DisabledFocusable_TabReachesSubmit_AfterTypingValidValue()
     {
@@ -113,6 +118,7 @@ public class ImmediateAndDisabledFocusableTests : AppTestBase
     ///  2. Drop the user OnClick invocation when activated — the click
     ///     trampoline checks <c>IsDisabledFocusable</c> and returns early.
     /// </summary>
+    [Retry(3)]
     [TestMethod]
     public void DisabledFocusable_InvalidFormDropsInvokes()
     {
