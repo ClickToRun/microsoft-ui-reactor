@@ -5,7 +5,7 @@ using System.Threading;
 namespace BenchmarkCommon;
 
 // Manifest-based EventSource using WriteEvent() with primitive parameters.
-// AOT-safe: no reflection, no [EventData] structs.
+// AOT-safe: avoids EventSource.Write() + [EventData] payload reflection; works under NativeAOT when EventSourceSupport is enabled.
 //
 // Provider GUID + event names + AppName payload field match -lift exactly.
 // Method names match the event names the run_startup_bench.ps1 parser and

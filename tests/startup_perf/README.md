@@ -149,9 +149,8 @@ What this gives us:
 ## Methodology notes
 
 - **PublishAot is on for BlankReactorMsix only**
-  (`<PublishAot>true</PublishAot>`). `BenchmarkTracing` uses manifest-based
-  `WriteEvent()` with primitive parameters — no `[EventData]` structs, no
-  reflection — so ETW events emit correctly under NativeAOT. BlankReactor
+  (`<PublishAot>true</PublishAot>`, plus `<EventSourceSupport>true</EventSourceSupport>` for NativeAOT ETW). `BenchmarkTracing` uses manifest-based
+  `WriteEvent()` with primitive parameters — no `[EventData]` structs / `EventSource.Write()` payload reflection — so ETW events emit correctly under NativeAOT. BlankReactor
   (unpackaged) and BlankWinUI3 keep AOT off by default (flip them if you
   want an AOT run of those variants).
   Non-AOT C# adds ~70–100 ms of CLR bootstrap cost vs.
