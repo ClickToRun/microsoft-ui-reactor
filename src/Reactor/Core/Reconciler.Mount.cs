@@ -108,6 +108,11 @@ public sealed partial class Reconciler
                 _highlightMounted.Add(control);
         }
 
+        // Issue #345 — one-time debug warning for HStack/VStack collapsing to 0×0 inside a
+        // Grid Auto track. Gated so Release builds with the flag off pay a single flag read.
+        if (global::Microsoft.UI.Reactor.Diagnostics.LayoutFootgunDetector.AlwaysOnInDebug || ReactorFeatureFlags.WarnLayoutFootguns)
+            global::Microsoft.UI.Reactor.Diagnostics.LayoutFootgunDetector.Inspect(element);
+
         // Apply inline modifiers after mounting
         if (modifiers is not null && control is FrameworkElement fe)
             ApplyModifiers(fe, modifiers, requestRerender);

@@ -28,6 +28,18 @@ Conventions for contributors:
 
 ### Added
 
+- **Command debouncing: `Command.DebounceMs` (issue #136).**
+  Commands can declare a leading-edge debounce window via `DebounceMs` (default
+  `0` = off) to absorb double-clicks without reaching for `Task.Delay`. When
+  routed through `UseCommand`, the first fire is accepted and any subsequent fire
+  within the window is dropped; `IsDebouncing` drives `IsEnabled = false` so the
+  bound control visibly disables and then re-enables when the window elapses. For
+  async commands the disabled window is the longer of the lambda's lifetime
+  (`IsExecuting`) and `DebounceMs`. Debounce state lives in the `UseCommand` hook
+  store, so a raw `new Command { DebounceMs = … }` bound directly (not through
+  `UseCommand`) is inert. `UseCommand` now consumes a stable hook shape regardless
+  of the command's sync/async/debounce shape.
+
 - **`ReactorApp.RegisterAllBuiltIns()` — opt-in bulk registration of the built-in
   control catalog (spec 048 §3.4, issue #486).** Built-in handler registration is
   now lazy — each factory registers its own control on first use — so the trimmer
@@ -323,6 +335,22 @@ Conventions for contributors:
   the freshly-mounted subtree into the still-parented row wrapper, so the old
   control is no longer orphaned and the per-control tracking stays consistent.
   `ListView<T>` / `GridView<T>` already remount per realize and are unaffected.
+
+- **ItemsView multi-select checkmark no longer flickers during window resize
+  (issue #383).** In a `SelectionMode=Multiple` `ItemsView<T>`, the per-item
+  selection checkmark visibly faded out/in on every realized row while the
+  window was drag-resized. WinUI's `ItemsView` flips each realized
+  `ItemContainer`'s internal multi-select mode on every clear/prepare recycle
+  round-trip, re-running the `MultiSelectStates.Multiple` opacity storyboard with
+  `useTransitions: true`; and because the inner `ItemsRepeater` recycles its
+  realized set on every ancestor arrange pass during a resize, the storyboard
+  re-fired dozens of times per gesture. The recycle is intrinsic WinUI
+  viewport-manager behavior (not eliminable without regressing ItemsView sizing
+  — see the issue #383 investigation), so Reactor now collapses each realized
+  container's `Multiple`-state opacity storyboard keyframes to zero duration: the
+  animated `GoToState` still runs but snaps the checkmark to full opacity in the
+  same UI tick instead of fading it. Selection behavior, the recycle, and the
+  final checkmark visibility are unchanged — only the spurious fade is gone.
 
 - **`UseAnnounce().Announce(...)` now marshals to the UI thread automatically.**
   Previously, calling `Announce` off the UI thread (e.g. from a `Task.Run`

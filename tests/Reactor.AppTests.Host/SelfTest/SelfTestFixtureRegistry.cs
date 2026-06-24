@@ -168,6 +168,7 @@ internal static class SelfTestFixtureRegistry
         "ItemsView_SelectionMode_Applied",
         "ItemsView_Selection_SurvivesRerender",
         "ItemsView_Rerender_DoesNotMarkContainersModified",
+        "ItemsView_MultiSelect_CheckmarkDoesNotFlicker",
         // Spec 042 Phase 1 — keyed-list reconciliation end-to-end fixtures.
         "KLR_ListView_MountsOcSource",
         "KLR_ListView_InsertAtZero_EmitsSingleAdd",
@@ -1579,6 +1580,7 @@ internal static class SelfTestFixtureRegistry
         "ItemsView_SelectionMode_Applied" => new ItemsViewFixtures.ItemsView_SelectionMode_Applied(harness),
         "ItemsView_Selection_SurvivesRerender" => new ItemsViewFixtures.ItemsView_Selection_SurvivesRerender(harness),
         "ItemsView_Rerender_DoesNotMarkContainersModified" => new ItemsViewFixtures.ItemsView_Rerender_DoesNotMarkContainersModified(harness),
+        "ItemsView_MultiSelect_CheckmarkDoesNotFlicker" => new ItemsViewFixtures.ItemsView_MultiSelect_CheckmarkDoesNotFlicker(harness),
         // Spec 042 Phase 1 — keyed-list reconciliation end-to-end.
         "KLR_ListView_MountsOcSource" => new KeyedListReconciliationFixtures.ListView_MountsOcSource(harness),
         "KLR_ListView_InsertAtZero_EmitsSingleAdd" => new KeyedListReconciliationFixtures.ListView_InsertAtZero_EmitsSingleAdd(harness),
