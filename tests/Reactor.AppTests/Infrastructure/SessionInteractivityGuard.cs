@@ -18,7 +18,7 @@ public enum SessionInteractivity
 /// as test flake. We surface them as Inconclusive (not Failed) and write a
 /// marker file so the loop runner can abort the rest of the run.
 /// </summary>
-public static class SessionInteractivityGuard
+public static partial class SessionInteractivityGuard
 {
     public const string MarkerEnvVar = "E2E_LOCK_MARKER_PATH";
 
@@ -252,26 +252,31 @@ public static class SessionInteractivityGuard
     private const int UOI_NAME = 2;
     private const int ERROR_ACCESS_DENIED = 5;
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern IntPtr OpenInputDesktop(uint dwFlags, bool fInherit, uint dwDesiredAccess);
+    // Source-generated interop (LibraryImport) instead of raw DllImport extern: AOT/trim-friendly
+    // and the modern recommended form. The user32/wtsapi32 entry points below have no A/W variants
+    // except GetUserObjectInformation and WTSQuerySessionInformation, which are pinned to their
+    // explicit -W exports because LibraryImport uses ExactSpelling and does not auto-suffix.
+    [LibraryImport("user32.dll", SetLastError = true)]
+    private static partial IntPtr OpenInputDesktop(
+        uint dwFlags, [MarshalAs(UnmanagedType.Bool)] bool fInherit, uint dwDesiredAccess);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT { public int X; public int Y; }
 
-    [DllImport("user32.dll", SetLastError = true)]
+    [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetCursorPos(out POINT lpPoint);
+    private static partial bool GetCursorPos(out POINT lpPoint);
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern IntPtr GetProcessWindowStation();
+    [LibraryImport("user32.dll", SetLastError = true)]
+    private static partial IntPtr GetProcessWindowStation();
 
-    [DllImport("user32.dll", SetLastError = true)]
+    [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool CloseDesktop(IntPtr hDesktop);
+    private static partial bool CloseDesktop(IntPtr hDesktop);
 
-    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    [LibraryImport("user32.dll", EntryPoint = "GetUserObjectInformationW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetUserObjectInformation(
+    private static partial bool GetUserObjectInformation(
         IntPtr hObj, int nIndex, IntPtr pvInfo, uint nLength, out uint lpnLengthNeeded);
 
     private const int WTS_CURRENT_SESSION = -1;
@@ -279,14 +284,14 @@ public static class SessionInteractivityGuard
     private const int WTSActive = 0;
     private static readonly IntPtr WTS_CURRENT_SERVER_HANDLE = IntPtr.Zero;
 
-    [DllImport("wtsapi32.dll", SetLastError = true)]
+    [LibraryImport("wtsapi32.dll", EntryPoint = "WTSQuerySessionInformationW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool WTSQuerySessionInformation(
+    private static partial bool WTSQuerySessionInformation(
         IntPtr hServer, int sessionId, int infoClass,
         out IntPtr ppBuffer, out int pBytesReturned);
 
-    [DllImport("wtsapi32.dll")]
-    private static extern void WTSFreeMemory(IntPtr pMemory);
+    [LibraryImport("wtsapi32.dll")]
+    private static partial void WTSFreeMemory(IntPtr pMemory);
 
     private static bool TryGetConnectState(out int state)
     {

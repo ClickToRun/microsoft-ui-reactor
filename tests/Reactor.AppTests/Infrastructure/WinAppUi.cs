@@ -69,11 +69,9 @@ public sealed class WinAppUi
         var path = Environment.GetEnvironmentVariable("PATH");
         if (!string.IsNullOrEmpty(path))
         {
-            foreach (var entry in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+            foreach (var entry in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+                         .Where(Path.IsPathFullyQualified))
             {
-                if (!Path.IsPathFullyQualified(entry))
-                    continue;
-
                 var candidate = Path.Combine(entry, "winapp.exe");
                 if (File.Exists(candidate))
                     return Path.GetFullPath(candidate);
