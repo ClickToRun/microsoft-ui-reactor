@@ -279,4 +279,88 @@ public sealed class UnregisteredHandlerAndRegisterAllBuiltInsTests
         Assert.True(ControlRegistry.ContainsForType(typeof(ButtonElement)));
         Assert.True(ControlRegistry.ContainsForType(typeof(ListViewElement)));
     }
+
+    // ── Issue #486 reflection drift guard (generator-backed built-ins) ──────
+    //
+    // The ExpectedBuiltInCatalog mirror above catches catalog<->mirror drift, but
+    // it shares one blind spot with the production catalog: a brand-new
+    // generator-backed built-in (an element carrying [GenerateReactorDescriptor]
+    // or [GenerateReactorWrapper] plus a Dsl factory) that the author forgets to
+    // add to BOTH RegisterAllBuiltIns() AND the mirror passes the equality guard
+    // silently — both lists agree it doesn't exist — yet a direct-record
+    // `new FooElement()` would throw at first mount. Reflection sees the attribute
+    // regardless of either hand-maintained list, so this guard closes that gap for
+    // both generated families.
+    //
+    // This is specific to generated controls: both attributes emit a Pattern-A
+    // self-registering static cctor on the record, which RegisterAllBuiltIns() must
+    // fire (via RunClassConstructor or a factory/Reg<> touch) for direct-record
+    // construction to work. Hand-written Reg<>/RegDecorator<>/RegBaseDecorator<>
+    // built-ins (ListView, GridView, NavigationHost, the overlay/validation
+    // decorators, the base-derived lists) have no silent self-registration path —
+    // adding one means writing an explicit touch — so the mirror equality guard
+    // already covers them fully, and they carry neither attribute so aren't swept.
+    //
+    // Resolution is checked against the module-init snapshot (before any factory
+    // touch), so a later test lazily registering a control can't backfill / mask an
+    // omission. The base-chain walk mirrors ControlRegistry.ContainsForType, so a
+    // type that legitimately resolves via a base registration still counts.
+
+    // Reviewed exclusion set for generator-backed element types that are
+    // intentionally NOT part of the RegisterAllBuiltIns() bulk catalog. Keep empty
+    // unless a deliberate exclusion is documented with rationale; a stale entry
+    // (one that becomes catalog-resolved) fails the guard so this can't rot.
+    private static readonly HashSet<Type> KnownGeneratorBackedNotInBulkCatalog = new();
+
+    [Fact]
+    public void Every_Generator_Backed_BuiltIn_Is_Registered_By_RegisterAllBuiltIns()
+    {
+        var snapshot = BuiltInHandlerBootstrap.RegisteredBuiltInElementTypes.ToHashSet();
+
+        bool ResolvedByCatalog(Type t)
+        {
+            for (var cur = t; cur is not null && cur != typeof(Element); cur = cur.BaseType)
+                if (snapshot.Contains(cur))
+                    return true;
+            return false;
+        }
+
+        var attributed = typeof(Element).Assembly.GetTypes()
+            .Where(t => typeof(Element).IsAssignableFrom(t) && !t.IsAbstract && !t.IsGenericTypeDefinition)
+            .Where(t => t.GetCustomAttributesData()
+                .Any(a => a.AttributeType.Name is "GenerateReactorDescriptorAttribute"
+                                              or "GenerateReactorWrapperAttribute"))
+            .ToArray();
+
+        // Guard against vacuity: if the attributes are renamed/moved the sweep would
+        // silently find nothing and pass. The shipped generated family is ~65+.
+        Assert.True(
+            attributed.Length >= 50,
+            $"Expected the [GenerateReactorDescriptor]/[GenerateReactorWrapper] sweep to find the " +
+            $"built-in generated family (50+ types); found only {attributed.Length}. Did the attributes " +
+            $"get renamed or moved?");
+
+        var missing = attributed
+            .Where(t => !KnownGeneratorBackedNotInBulkCatalog.Contains(t) && !ResolvedByCatalog(t))
+            .Select(t => t.FullName).OrderBy(n => n, StringComparer.Ordinal).ToArray();
+
+        Assert.True(
+            missing.Length == 0,
+            "Generator-backed built-in(s) carry [GenerateReactorDescriptor]/[GenerateReactorWrapper] but " +
+            "are not registered by ReactorApp.RegisterAllBuiltIns() — a new generated control was added " +
+            "(with a factory) yet omitted from the bulk catalog, so `new XxxElement()` direct-record " +
+            "construction would throw at first mount. Add its registration touch to ReactorApp.BuiltIns.cs " +
+            "(and the mirror above), or document it in KnownGeneratorBackedNotInBulkCatalog. Missing:\n  " +
+            string.Join("\n  ", missing));
+
+        // The exclusion allow-list must not silently rot: every entry must still be
+        // a generated type that is genuinely not catalog-resolved.
+        var staleExclusions = KnownGeneratorBackedNotInBulkCatalog
+            .Where(ResolvedByCatalog)
+            .Select(t => t.FullName).OrderBy(n => n, StringComparer.Ordinal).ToArray();
+        Assert.True(
+            staleExclusions.Length == 0,
+            "KnownGeneratorBackedNotInBulkCatalog lists type(s) that ARE now registered by " +
+            "RegisterAllBuiltIns() — remove the stale exclusion:\n  " + string.Join("\n  ", staleExclusions));
+    }
 }
