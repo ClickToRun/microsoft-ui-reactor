@@ -358,6 +358,12 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
         // throwing later on the UI dispatcher where the caller can't observe it.
         if (state.Current is null)
             throw new ArgumentException("Navigation state must include a non-null Current route.", nameof(state));
+        // RestoreState calls AddRange on both lists; a null list would otherwise throw deep on
+        // the UI dispatcher after marshaling, where the caller can't observe it. Validate here.
+        if (state.BackStack is null)
+            throw new ArgumentException("Navigation state must include a non-null BackStack.", nameof(state));
+        if (state.ForwardStack is null)
+            throw new ArgumentException("Navigation state must include a non-null ForwardStack.", nameof(state));
         if (IsOffUIThread && MarshalOff(nameof(SetState), () => SetState(state))) return;
 
         var previous = _stack.Current;

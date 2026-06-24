@@ -246,9 +246,42 @@ public class ThreadSafeNavigationTests
         Assert.Equal("state", ex.ParamName);
     }
 
-    // ════════════════════════════════════════════════════════════════
-    //  UIThreadMarshal.EnqueueOrThrow — the shared marshal primitive (M8/M9)
-    // ════════════════════════════════════════════════════════════════
+    [Fact]
+    public void SetState_OffThread_NullBackStack_Throws_ArgumentException_Synchronously()
+    {
+        var nav = MakeHandle(new Home());
+        var bad = new NavigationState<Route>(
+            BackStack: null!,
+            Current: new Home(),
+            ForwardStack: Array.Empty<Route>());
+
+        // Like the Current check, BackStack is validated BEFORE the marshal gate so a null
+        // list fails fast at the call site rather than throwing later inside RestoreState's
+        // AddRange on the UI dispatcher, where an off-thread caller could never observe it.
+        var ex = Assert.ThrowsAsync<ArgumentException>(async () =>
+        {
+            await Task.Run(() => nav.SetState(bad), TestContext.Current.CancellationToken);
+        }).Result;
+        Assert.IsNotType<InvalidOperationException>(ex);
+        Assert.Equal("state", ex.ParamName);
+    }
+
+    [Fact]
+    public void SetState_OffThread_NullForwardStack_Throws_ArgumentException_Synchronously()
+    {
+        var nav = MakeHandle(new Home());
+        var bad = new NavigationState<Route>(
+            BackStack: Array.Empty<Route>(),
+            Current: new Home(),
+            ForwardStack: null!);
+
+        var ex = Assert.ThrowsAsync<ArgumentException>(async () =>
+        {
+            await Task.Run(() => nav.SetState(bad), TestContext.Current.CancellationToken);
+        }).Result;
+        Assert.IsNotType<InvalidOperationException>(ex);
+        Assert.Equal("state", ex.ParamName);
+    }
 
     [Fact]
     public void EnqueueOrThrow_NullDispatcher_Throws_NoDispatcher_Message()
