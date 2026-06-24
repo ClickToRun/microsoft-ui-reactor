@@ -336,7 +336,9 @@ reconciler throws `InvalidOperationException` on mount. Pick one:
   unless you are publishing a trimmed/NativeAOT binary that deliberately keeps
   only the controls it uses), or
 - register the specific handler explicitly with
-  `ControlRegistry.Register<TElement, TControl>(...)`.
+  `ControlRegistry.Register<TElement, TControl>(...)` (control-backed
+  elements) or `ControlRegistry.RegisterDecorator<TElement>(...)`
+  (decorator-backed elements that wrap/forward to a child).
 
 The reference app below calls `ReactorApp.RegisterAllBuiltIns()` once in
 `Main` before the hot loop runs, so its `new TextBlockElement(...)` cells mount
