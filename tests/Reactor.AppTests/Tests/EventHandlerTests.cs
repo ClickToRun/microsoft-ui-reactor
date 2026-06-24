@@ -29,7 +29,7 @@ public class EventHandlerTests : AppTestBase
     /// increments through the full UI pipeline (event -> state update -> re-render ->
     /// UIA text change). A real tap (not a UIA Invoke) is required: WinUI raises Tapped
     /// from pointer input, not from the Invoke pattern, so this uses the SendInput
-    /// fallback rather than <c>FindById(...).Click()</c>.
+    /// fallback; <c>UiElement.Click()</c> now uses that same real pointer path.
     /// </summary>
     [TestMethod]
     public void Interactive_OnTapped_Updates_State()

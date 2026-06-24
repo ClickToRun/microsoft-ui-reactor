@@ -119,13 +119,36 @@ public static class InputInjector
     /// </summary>
     public static void TypeKeys(string keys)
     {
-        foreach (var ch in keys)
+        var heldModifiers = new Stack<ushort>();
+        try
         {
-            if (TryMapSentinel(ch, out var vk))
-                PressVirtualKey(vk);
-            else
-                PressUnicode(ch);
-            Thread.Sleep(15); // small inter-key delay so per-keystroke handlers observe each char
+            foreach (var ch in keys)
+            {
+                if (TryMapModifierToken(ch, out var modifier))
+                {
+                    KeyDown(modifier);
+                    heldModifiers.Push(modifier);
+                    continue;
+                }
+
+                try
+                {
+                    if (TryMapKeyToken(ch, out var vk, out _))
+                        PressVirtualKey(vk);
+                    else
+                        PressCharacter(ch, heldModifiers.Count > 0);
+                }
+                finally
+                {
+                    ReleaseHeldModifiers(heldModifiers);
+                }
+
+                Thread.Sleep(15); // small inter-key delay so per-keystroke handlers observe each char
+            }
+        }
+        finally
+        {
+            ReleaseHeldModifiers(heldModifiers);
         }
     }
 
@@ -136,16 +159,28 @@ public static class InputInjector
     public static void ShiftTab()
     {
         KeyDown(VK_SHIFT);
-        PressVirtualKey(VK_TAB);
-        KeyUp(VK_SHIFT);
+        try
+        {
+            PressVirtualKey(VK_TAB);
+        }
+        finally
+        {
+            KeyUp(VK_SHIFT);
+        }
     }
 
     /// <summary>Select-all + delete (Ctrl+A, Delete) to clear an editable control.</summary>
     public static void ClearViaKeyboard()
     {
         KeyDown(VK_CONTROL);
-        PressVirtualKey(VK_A);
-        KeyUp(VK_CONTROL);
+        try
+        {
+            PressVirtualKey(VK_A);
+        }
+        finally
+        {
+            KeyUp(VK_CONTROL);
+        }
         Thread.Sleep(15);
         PressVirtualKey(VK_DELETE);
     }
@@ -161,7 +196,7 @@ public static class InputInjector
         Thread.Sleep(15);
     }
 
-    private static bool TryMapSentinel(char ch, out ushort vk)
+    internal static bool TryMapKeyToken(char ch, out ushort vk, out bool isModifier)
     {
         vk = ch switch
         {
@@ -175,8 +210,12 @@ public static class InputInjector
             '\ue009' => VK_CONTROL,
             _ => 0,
         };
+        isModifier = vk is VK_SHIFT or VK_CONTROL;
         return vk != 0;
     }
+
+    private static bool TryMapModifierToken(char ch, out ushort vk) =>
+        TryMapKeyToken(ch, out vk, out var isModifier) && isModifier;
 
     private static void PressVirtualKey(ushort vk)
     {
@@ -197,7 +236,60 @@ public static class InputInjector
                 ki = new KEYBDINPUT { wVk = vk, wScan = scan, dwFlags = flags, time = 0, dwExtraInfo = IntPtr.Zero }
             }
         };
-        SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
+        SendInputChecked(new[] { input }, $"key 0x{vk:X2} flags=0x{flags:X}");
+    }
+
+    private static void PressCharacter(char ch, bool modifiersHeld)
+    {
+        if (modifiersHeld && TryMapPrintableVirtualKey(ch, out var vk, out var needsShift))
+        {
+            var shiftWasAdded = false;
+            if (needsShift)
+            {
+                KeyDown(VK_SHIFT);
+                shiftWasAdded = true;
+            }
+
+            try
+            {
+                PressVirtualKey(vk);
+            }
+            finally
+            {
+                if (shiftWasAdded)
+                    KeyUp(VK_SHIFT);
+            }
+
+            return;
+        }
+
+        PressUnicode(ch);
+    }
+
+    private static bool TryMapPrintableVirtualKey(char ch, out ushort vk, out bool needsShift)
+    {
+        needsShift = false;
+        if (ch is >= 'a' and <= 'z')
+        {
+            vk = (ushort)(VK_A + (ch - 'a'));
+            return true;
+        }
+
+        if (ch is >= 'A' and <= 'Z')
+        {
+            vk = (ushort)(VK_A + (ch - 'A'));
+            needsShift = true;
+            return true;
+        }
+
+        vk = 0;
+        return false;
+    }
+
+    private static void ReleaseHeldModifiers(Stack<ushort> heldModifiers)
+    {
+        while (heldModifiers.Count > 0)
+            KeyUp(heldModifiers.Pop());
     }
 
     private static void PressUnicode(char ch)
@@ -212,7 +304,7 @@ public static class InputInjector
         };
         var up = down;
         up.U.ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
-        SendInput(2, new[] { down, up }, Marshal.SizeOf<INPUT>());
+        SendInputChecked(new[] { down, up }, $"unicode U+{(int)ch:X4}");
     }
 
     // ─── Mouse drag ──────────────────────────────────────────────────────────
@@ -231,16 +323,28 @@ public static class InputInjector
         MoveTo(screenPath[0].X, screenPath[0].Y);
         Thread.Sleep(60);
         MouseLeft(MOUSEEVENTF_LEFTDOWN);
-        Thread.Sleep(80);
-
-        for (int i = 1; i < screenPath.Count; i++)
+        Exception? failure = null;
+        try
         {
-            MoveTo(screenPath[i].X, screenPath[i].Y);
-            Thread.Sleep(60);
-        }
+            Thread.Sleep(80);
 
-        Thread.Sleep(80);
-        MouseLeft(MOUSEEVENTF_LEFTUP);
+            for (int i = 1; i < screenPath.Count; i++)
+            {
+                MoveTo(screenPath[i].X, screenPath[i].Y);
+                Thread.Sleep(60);
+            }
+
+            Thread.Sleep(80);
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+            throw;
+        }
+        finally
+        {
+            ReleaseMouseLeft(failure);
+        }
         Thread.Sleep(60);
     }
 
@@ -261,33 +365,45 @@ public static class InputInjector
         MoveTo(grab.X, grab.Y);
         Thread.Sleep(60);
         MouseLeft(MOUSEEVENTF_LEFTDOWN);
-        Thread.Sleep(80);
-
-        // Clear the drag threshold to fire the immediate tear-off, then settle so the layout has
-        // stabilised before moving to the drop target.
-        MoveTo(grab.X - 8, grab.Y); Thread.Sleep(60);
-        MoveTo(grab.X - 16, grab.Y); Thread.Sleep(60);
-        MoveTo(grab.X - 36, grab.Y); Thread.Sleep(150);
-
-        // Approach the merge target from above so the cursor crosses it before settling, giving the
-        // overlay repeated pointer-move events to latch "Add as tab".
-        MoveTo(drop.X, drop.Y - 24); Thread.Sleep(60);
-        MoveTo(drop.X, drop.Y - 8); Thread.Sleep(60);
-        MoveTo(drop.X, drop.Y); Thread.Sleep(60);
-
-        if (dwellBeforeReleaseMs > 0)
+        Exception? failure = null;
+        try
         {
-            const int pulses = 4;
-            var slice = Math.Max(1, dwellBeforeReleaseMs / pulses);
-            for (int i = 0; i < pulses; i++)
-            {
-                MoveTo(drop.X, drop.Y);
-                Thread.Sleep(slice);
-            }
-        }
+            Thread.Sleep(80);
 
-        Thread.Sleep(80);
-        MouseLeft(MOUSEEVENTF_LEFTUP);
+            // Clear the drag threshold to fire the immediate tear-off, then settle so the layout has
+            // stabilised before moving to the drop target.
+            MoveTo(grab.X - 8, grab.Y); Thread.Sleep(60);
+            MoveTo(grab.X - 16, grab.Y); Thread.Sleep(60);
+            MoveTo(grab.X - 36, grab.Y); Thread.Sleep(150);
+
+            // Approach the merge target from above so the cursor crosses it before settling, giving the
+            // overlay repeated pointer-move events to latch "Add as tab".
+            MoveTo(drop.X, drop.Y - 24); Thread.Sleep(60);
+            MoveTo(drop.X, drop.Y - 8); Thread.Sleep(60);
+            MoveTo(drop.X, drop.Y); Thread.Sleep(60);
+
+            if (dwellBeforeReleaseMs > 0)
+            {
+                const int pulses = 4;
+                var slice = Math.Max(1, dwellBeforeReleaseMs / pulses);
+                for (int i = 0; i < pulses; i++)
+                {
+                    MoveTo(drop.X, drop.Y);
+                    Thread.Sleep(slice);
+                }
+            }
+
+            Thread.Sleep(80);
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+            throw;
+        }
+        finally
+        {
+            ReleaseMouseLeft(failure);
+        }
         Thread.Sleep(60);
     }
 
@@ -311,8 +427,20 @@ public static class InputInjector
         MoveTo(x, y);
         Thread.Sleep(60);
         MouseLeft(MOUSEEVENTF_LEFTDOWN);
-        Thread.Sleep(holdMs);
-        MouseLeft(MOUSEEVENTF_LEFTUP);
+        Exception? failure = null;
+        try
+        {
+            Thread.Sleep(holdMs);
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+            throw;
+        }
+        finally
+        {
+            ReleaseMouseLeft(failure);
+        }
         Thread.Sleep(60);
     }
 
@@ -322,8 +450,20 @@ public static class InputInjector
         MoveTo(x, y);
         Thread.Sleep(40);
         MouseLeft(MOUSEEVENTF_LEFTDOWN);
-        Thread.Sleep(30);
-        MouseLeft(MOUSEEVENTF_LEFTUP);
+        Exception? failure = null;
+        try
+        {
+            Thread.Sleep(30);
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+            throw;
+        }
+        finally
+        {
+            ReleaseMouseLeft(failure);
+        }
         Thread.Sleep(40);
     }
 
@@ -337,8 +477,7 @@ public static class InputInjector
         if (vsWidth <= 1) vsWidth = 2;
         if (vsHeight <= 1) vsHeight = 2;
 
-        int nx = (int)Math.Round((x - vsLeft) * 65535.0 / (vsWidth - 1));
-        int ny = (int)Math.Round((y - vsTop) * 65535.0 / (vsHeight - 1));
+        var (nx, ny) = NormalizeAbsoluteCoordinates(x, y, vsLeft, vsTop, vsWidth, vsHeight);
 
         var input = new INPUT
         {
@@ -356,7 +495,23 @@ public static class InputInjector
                 }
             }
         };
-        SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
+        SendInputChecked(new[] { input }, $"mouse move to {x},{y}");
+    }
+
+    internal static (int X, int Y) NormalizeAbsoluteCoordinates(
+        int x,
+        int y,
+        int virtualScreenLeft,
+        int virtualScreenTop,
+        int virtualScreenWidth,
+        int virtualScreenHeight)
+    {
+        if (virtualScreenWidth <= 1) virtualScreenWidth = 2;
+        if (virtualScreenHeight <= 1) virtualScreenHeight = 2;
+
+        var nx = (int)Math.Round((x - virtualScreenLeft) * 65535.0 / (virtualScreenWidth - 1));
+        var ny = (int)Math.Round((y - virtualScreenTop) * 65535.0 / (virtualScreenHeight - 1));
+        return (Math.Clamp(nx, 0, 65535), Math.Clamp(ny, 0, 65535));
     }
 
     private static void MouseLeft(uint flag)
@@ -369,7 +524,24 @@ public static class InputInjector
                 mi = new MOUSEINPUT { dx = 0, dy = 0, mouseData = 0, dwFlags = flag, time = 0, dwExtraInfo = IntPtr.Zero }
             }
         };
-        SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
+        SendInputChecked(new[] { input }, $"mouse 0x{flag:X}");
+    }
+
+    private static void ReleaseMouseLeft(Exception? priorFailure)
+    {
+        try { MouseLeft(MOUSEEVENTF_LEFTUP); }
+        catch when (priorFailure is not null) { }
+    }
+
+    private static void SendInputChecked(INPUT[] inputs, string operation)
+    {
+        var sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+        if (sent == inputs.Length)
+            return;
+
+        var error = Marshal.GetLastWin32Error();
+        throw new WinAppException(
+            $"SendInput for {operation} sent {sent}/{inputs.Length} input event(s). LastWin32Error={error}.");
     }
 
     // ─── P/Invoke ────────────────────────────────────────────────────────────

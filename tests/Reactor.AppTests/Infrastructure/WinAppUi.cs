@@ -63,9 +63,26 @@ public sealed class WinAppUi
         if (!string.IsNullOrEmpty(local))
         {
             var candidate = Path.Combine(local, "Microsoft", "WindowsApps", "winapp.exe");
-            if (File.Exists(candidate)) return candidate;
+            if (File.Exists(candidate)) return Path.GetFullPath(candidate);
         }
-        return "winapp"; // fall back to PATH lookup
+
+        var path = Environment.GetEnvironmentVariable("PATH");
+        if (!string.IsNullOrEmpty(path))
+        {
+            foreach (var entry in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (!Path.IsPathFullyQualified(entry))
+                    continue;
+
+                var candidate = Path.Combine(entry, "winapp.exe");
+                if (File.Exists(candidate))
+                    return Path.GetFullPath(candidate);
+            }
+        }
+
+        throw new WinAppException(
+            "Could not find winapp.exe. Install the winapp CLI (winget install Microsoft.WinAppCli) " +
+            "or ensure an absolute PATH entry contains winapp.exe.");
     }
 
     /// <summary>
@@ -132,6 +149,9 @@ public sealed class WinAppUi
 
     /// <summary>Append the window target + --json to a verb's args.</summary>
     private string[] Args(string verb, long hwnd, params string[] rest)
+        => BuildArgs(verb, hwnd, rest);
+
+    internal static string[] BuildArgs(string verb, long hwnd, params string[] rest)
     {
         var list = new List<string>(rest.Length + 5) { verb };
         list.AddRange(rest);
@@ -142,17 +162,20 @@ public sealed class WinAppUi
     }
 
     private static JsonDocument Parse(RunResult r)
+        => ParseJson(r.ExitCode, r.StdOut, r.StdErr);
+
+    internal static JsonDocument ParseJson(int exitCode, string stdOut, string stdErr)
     {
-        var text = r.StdOut.Trim();
+        var text = stdOut.Trim();
         if (text.Length == 0)
-            throw new WinAppException($"winapp returned empty output (exit {r.ExitCode}). stderr: {r.StdErr.Trim()}");
+            throw new WinAppException($"winapp returned empty output (exit {exitCode}). stderr: {stdErr.Trim()}");
         try
         {
             return JsonDocument.Parse(text);
         }
         catch (JsonException ex)
         {
-            throw new WinAppException($"Could not parse winapp JSON (exit {r.ExitCode}): {text}", ex);
+            throw new WinAppException($"Could not parse winapp JSON (exit {exitCode}): {text}", ex);
         }
     }
 
@@ -326,11 +349,25 @@ public sealed class WinAppUi
     public void Invoke(string selector, long? hwnd = null)
     {
         var r = Run(15000, Args("invoke", hwnd ?? HostHwnd, selector));
-        if (r.ExitCode != 0)
-        {
-            // Fall back to a real mouse click for elements that support no invoke pattern.
+        if (r.ExitCode == 0)
+            return;
+
+        if (CanFallbackToClick(r))
             Click(selector, hwnd: hwnd);
-        }
+        else
+            throw new WinAppException($"winapp ui invoke '{selector}' failed: {r.StdErr.Trim()} {r.StdOut.Trim()}");
+    }
+
+    private static bool CanFallbackToClick(RunResult r)
+    {
+        var text = $"{r.StdErr}\n{r.StdOut}";
+        return text.Contains("invoke pattern", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("invokable pattern", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("not invokable", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("not invokeable", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("does not support invoke", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("no supported pattern", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("no supported action", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Mouse-simulation click (for elements without InvokePattern).</summary>
@@ -382,9 +419,28 @@ public sealed class WinAppUi
         {
             if (!w.TryGetProperty("elements", out var els) || els.ValueKind != JsonValueKind.Array)
                 continue;
-            foreach (var e in els.EnumerateArray().Where(e => GetString(e, "type") == "Edit"))
-                return GetString(e, "selector");
+            if (FindFirstEditableSelector(els) is { } selector)
+                return selector;
         }
+        return null;
+    }
+
+    internal static string? FindFirstEditableSelector(JsonElement nodes)
+    {
+        if (nodes.ValueKind != JsonValueKind.Array)
+            return null;
+
+        foreach (var node in nodes.EnumerateArray())
+        {
+            if (string.Equals(GetString(node, "type"), "Edit", StringComparison.OrdinalIgnoreCase) &&
+                GetString(node, "selector") is { } selector)
+                return selector;
+
+            if (node.TryGetProperty("children", out var children) &&
+                FindFirstEditableSelector(children) is { } childSelector)
+                return childSelector;
+        }
+
         return null;
     }
 

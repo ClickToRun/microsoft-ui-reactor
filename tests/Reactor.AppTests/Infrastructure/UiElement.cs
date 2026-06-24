@@ -5,7 +5,7 @@ namespace Microsoft.UI.Reactor.AppTests.Infrastructure;
 /// <summary>
 /// Lightweight handle to a UIA element, addressed by selector (AutomationId — stable —
 /// or a winapp slug). Mirrors the slice of the old Appium <c>WindowsElement</c> surface
-/// the test suite actually used (<see cref="Click"/>, <see cref="SendKeys"/>,
+/// the test suite actually used (<see cref="Click"/>, <see cref="Invoke"/>, <see cref="SendKeys"/>,
 /// <see cref="Clear"/>, <see cref="Text"/>, <see cref="GetAttribute"/>, <see cref="Rect"/>)
 /// so existing test bodies keep their shape.
 ///
@@ -37,8 +37,16 @@ public sealed class UiElement
         _cachedBounds = cachedBounds;
     }
 
-    /// <summary>Activate the element (UIA invoke patterns, falling back to a real click).</summary>
-    public void Click() => _app.Invoke(Selector, _hwnd);
+    /// <summary>Perform a real pointer click at the element center.</summary>
+    public void Click()
+    {
+        var rect = Rect;
+        InputInjector.Foreground(_hwnd == 0 ? _app.HostHwnd : _hwnd);
+        InputInjector.Click(rect.X + rect.Width / 2, rect.Y + rect.Height / 2);
+    }
+
+    /// <summary>Activate the element via UIA invoke/toggle/selection patterns.</summary>
+    public void Invoke() => _app.Invoke(Selector, _hwnd);
 
     /// <summary>The element's text/value (TextPattern → ValuePattern → Name).</summary>
     public string? Text => _app.GetValue(Selector, _hwnd);

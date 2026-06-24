@@ -577,6 +577,6 @@ Write-Host '    mur upgrade    refresh local packages + plugin after `git pull`'
 Write-Host '    mur --help     full command list'
 Write-Host ''
 Write-Host 'Run the E2E UI tests (needs the winapp CLI installed above):'
-Write-Host '    dotnet test tests/Reactor.AppTests -c Debug -p:Platform=x64'
+Write-Host "    dotnet test tests/Reactor.AppTests -c Debug -p:Platform=$hostArch"
 Write-Host ''
 Write-Host 'Visual Studio preview (if VS installed): View -> Other Windows -> Reactor Preview'

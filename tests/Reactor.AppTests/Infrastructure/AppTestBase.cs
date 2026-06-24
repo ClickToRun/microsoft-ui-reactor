@@ -211,40 +211,31 @@ public class AppTestBase
     /// Throws when no element matches, mirroring the former FindElement contract.
     /// </summary>
     protected UiElement FindById(string automationId)
-    {
-        if (!App.Exists(automationId))
-            throw new WinAppException($"No element found with AutomationId '{automationId}'.");
-        return Element(automationId, automationId);
-    }
+        => UiElementResolver.FindByAutomationId(App, Uia, HostHwnd, automationId);
 
     /// <summary>
     /// Finds an element by its Name property.
     /// </summary>
     protected UiElement FindByName(string name)
-    {
-        var matches = App.Search(name);
-        // Prefer an exact Name match; winapp may also return substring hits.
-        var exact = matches.FirstOrDefault(m => m.Name == name) ?? matches.FirstOrDefault();
-        if (exact is null)
-            throw new WinAppException($"No element found with Name '{name}'.");
-        var hasAutomationId = !string.IsNullOrEmpty(exact.AutomationId);
-        var selector = hasAutomationId ? exact.AutomationId! : exact.Selector;
-        // Elements without an AutomationId are addressed by winapp's volatile semantic slug,
-        // which can't be re-resolved later (see UiElement.Rect). Cache the bounds from this
-        // search so callers like drag-target resolution don't re-query the slug.
-        UiRect? bounds = hasAutomationId ? null : new UiRect(exact.X, exact.Y, exact.Width, exact.Height);
-        return Element(selector, exact.AutomationId, cachedBounds: bounds);
-    }
+        => UiElementResolver.FindByName(App, Uia, HostHwnd, name);
 
     /// <summary>
     /// Waits for an element with the given AutomationId to appear.
     /// </summary>
     protected UiElement WaitForElement(string automationId, int timeoutMs = 5000)
     {
-        if (!App.WaitForExists(automationId, timeoutMs))
-            throw new WinAppTimeoutException(
-                $"Timed out after {timeoutMs}ms waiting for AutomationId='{automationId}' to appear.");
-        return Element(automationId, automationId);
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        Exception? last = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            try { return FindById(automationId); }
+            catch (WinAppException ex) { last = ex; }
+            Thread.Sleep(100);
+        }
+
+        throw new WinAppTimeoutException(
+            $"Timed out after {timeoutMs}ms waiting for AutomationId='{automationId}' to appear." +
+            (last is null ? "" : $" Last error: {last.Message}"));
     }
 
     /// <summary>
@@ -332,11 +323,13 @@ public class AppTestBase
     /// </summary>
     protected void ClickButton(string nameOrId)
     {
-        if (App.Exists(nameOrId))
+        if (App.Search(nameOrId).Any(m =>
+                string.Equals(m.AutomationId, nameOrId, StringComparison.Ordinal) ||
+                string.Equals(m.Selector, nameOrId, StringComparison.Ordinal)))
         {
             App.Invoke(nameOrId);
             return;
         }
-        FindByName(nameOrId).Click();
+        FindByName(nameOrId).Invoke();
     }
 }

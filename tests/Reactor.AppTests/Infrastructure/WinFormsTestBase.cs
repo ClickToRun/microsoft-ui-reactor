@@ -40,32 +40,29 @@ public class WinFormsTestBase
         WinAppMetrics.Record(name, spawned, seconds);
     }
 
-    protected static UiElement Element(string selector, string? automationId = null) =>
-        new(App, Uia, selector, automationId, WinFormsTestSession.HostHwnd);
+    protected static UiElement Element(string selector, string? automationId = null, UiRect? cachedBounds = null) =>
+        new(App, Uia, selector, automationId, WinFormsTestSession.HostHwnd, cachedBounds);
 
     protected UiElement FindById(string automationId)
-    {
-        if (!App.Exists(automationId))
-            throw new WinAppException($"No element found with AutomationId '{automationId}'.");
-        return Element(automationId, automationId);
-    }
+        => UiElementResolver.FindByAutomationId(App, Uia, HostHwnd, automationId);
 
     protected UiElement FindByName(string name)
-    {
-        var matches = App.Search(name);
-        var exact = matches.FirstOrDefault(m => m.Name == name) ?? matches.FirstOrDefault();
-        if (exact is null)
-            throw new WinAppException($"No element found with Name '{name}'.");
-        var selector = !string.IsNullOrEmpty(exact.AutomationId) ? exact.AutomationId! : exact.Selector;
-        return Element(selector, exact.AutomationId);
-    }
+        => UiElementResolver.FindByName(App, Uia, HostHwnd, name);
 
     protected UiElement WaitForElement(string automationId, int timeoutMs = 5000)
     {
-        if (!App.WaitForExists(automationId, timeoutMs))
-            throw new WinAppTimeoutException(
-                $"Timed out after {timeoutMs}ms waiting for AutomationId='{automationId}' to appear.");
-        return Element(automationId, automationId);
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        Exception? last = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            try { return FindById(automationId); }
+            catch (WinAppException ex) { last = ex; }
+            Thread.Sleep(100);
+        }
+
+        throw new WinAppTimeoutException(
+            $"Timed out after {timeoutMs}ms waiting for AutomationId='{automationId}' to appear." +
+            (last is null ? "" : $" Last error: {last.Message}"));
     }
 
     protected void WaitForText(string automationId, string expectedText, int timeoutMs = 5000)
@@ -115,12 +112,14 @@ public class WinFormsTestBase
     /// </summary>
     protected void ClickElement(string nameOrId)
     {
-        if (App.Exists(nameOrId))
+        if (App.Search(nameOrId).Any(m =>
+                string.Equals(m.AutomationId, nameOrId, StringComparison.Ordinal) ||
+                string.Equals(m.Selector, nameOrId, StringComparison.Ordinal)))
         {
             App.Invoke(nameOrId);
             return;
         }
-        FindByName(nameOrId).Click();
+        FindByName(nameOrId).Invoke();
     }
 
     /// <summary>
