@@ -116,7 +116,7 @@ internal static class UIThreadMarshal
     {
         var dq = Microsoft.UI.Reactor.ReactorApp.UIDispatcher;
         return EnqueueOrThrow(
-            dq is null ? null : w => dq.TryEnqueue(() => w()),
+            dq is null ? null : w => dq.TryEnqueue(w.Invoke),
             work,
             () =>
             {

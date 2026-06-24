@@ -60,7 +60,7 @@ public sealed class RenderContext
         // preserved here because callers/tests depend on it.
         var dq = Microsoft.UI.Reactor.ReactorApp.UIDispatcher;
         return UIThreadMarshal.EnqueueOrThrow(
-            dq is null ? null : w => dq.TryEnqueue(() => w()),
+            dq is null ? null : w => dq.TryEnqueue(w.Invoke),
             work,
             () =>
                 // Test/headless context with no captured UI dispatcher AND off-thread.
