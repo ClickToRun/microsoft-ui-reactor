@@ -287,8 +287,8 @@ no manual `DispatcherQueue.TryEnqueue` needed:
 
 ```csharp
 await Task.Run(async () => {
-    var result = await LoadAsync();
-    nav.Navigate(Route.Detail, result); // marshals onto the UI thread automatically
+    var itemId = await LoadItemIdAsync();
+    nav.Navigate(new Route.Details(itemId)); // marshals onto the UI thread automatically
 });
 ```
 

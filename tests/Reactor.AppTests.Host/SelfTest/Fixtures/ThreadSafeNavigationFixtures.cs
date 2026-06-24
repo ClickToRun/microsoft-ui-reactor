@@ -52,8 +52,11 @@ internal static class ThreadSafeNavigationFixtures
                     nav!.Navigate(NavRoute.Detail);
                     done.TrySetResult();
                 }
-                catch (InvalidOperationException ex)
+                catch (Exception ex)
                 {
+                    // Forward ANY failure (not only the marshal's InvalidOperationException)
+                    // so an unexpected exception surfaces on `await done.Task` with its real
+                    // stack trace instead of hanging the fixture until the 10s timeout.
                     done.TrySetException(ex);
                 }
             });
@@ -81,8 +84,9 @@ internal static class ThreadSafeNavigationFixtures
                     nav!.Replace(NavRoute.Settings);
                     done2.TrySetResult();
                 }
-                catch (InvalidOperationException ex)
+                catch (Exception ex)
                 {
+                    // Surface any unexpected failure immediately (see note above).
                     done2.TrySetException(ex);
                 }
             });
@@ -184,8 +188,10 @@ internal static class ThreadSafeNavigationFixtures
                     mutate();
                     done.TrySetResult();
                 }
-                catch (InvalidOperationException ex)
+                catch (Exception ex)
                 {
+                    // Forward ANY failure so an unexpected exception (e.g. a setup regression)
+                    // surfaces on `await done.Task` instead of hanging to the 10s timeout.
                     done.TrySetException(ex);
                 }
             });
