@@ -85,7 +85,7 @@ public class DataGridTests : AppTestBase
     {
         var editor = WaitForEditor();
         editor.Clear();
-        editor.SendKeys(commitWithEnter ? value + "\ue007" : value); // \ue007 = Enter
+        editor.SendKeys(commitWithEnter ? value + Keys.Enter : value);
     }
 
     /// <summary>Wait for the DataGrid inline editor (a UIA <c>Edit</c> control) to mount.</summary>

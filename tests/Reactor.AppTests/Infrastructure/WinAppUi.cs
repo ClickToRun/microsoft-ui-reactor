@@ -184,7 +184,6 @@ public sealed class WinAppUi
     private IEnumerable<UiWindow> ListWindowsForPid()
     {
         var r = Run(15000, "list-windows", "-a", _pid.ToString(CultureInfo.InvariantCulture), "--json");
-        if (r.StdOut.Trim().Length == 0) yield break;
         using var doc = Parse(r);
         foreach (var w in EnumerateWindows(doc.RootElement)) yield return w;
     }
@@ -194,7 +193,6 @@ public sealed class WinAppUi
     {
         var result = new List<UiWindow>();
         var r = Run(15000, "list-windows", "-a", _pid.ToString(CultureInfo.InvariantCulture), "--json");
-        if (r.StdOut.Trim().Length == 0) return result;
         using var doc = Parse(r);
         result.AddRange(EnumerateWindows(doc.RootElement));
         return result;

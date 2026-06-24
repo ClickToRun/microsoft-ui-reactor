@@ -41,7 +41,7 @@ public class WinFormsTestBase
     }
 
     protected static UiElement Element(string selector, string? automationId = null) =>
-        new(App, Uia, selector, automationId ?? selector, WinFormsTestSession.HostHwnd);
+        new(App, Uia, selector, automationId, WinFormsTestSession.HostHwnd);
 
     protected UiElement FindById(string automationId)
     {

@@ -198,7 +198,8 @@ public sealed class UiaPropertyReader : IUiaPropertyReader
 
             default:
             {
-                var s = raw.ToString();
+                if (raw is not string s)
+                    return null;
                 return string.IsNullOrEmpty(s) ? null : s;
             }
         }

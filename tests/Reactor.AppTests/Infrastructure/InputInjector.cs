@@ -14,8 +14,21 @@ namespace Microsoft.UI.Reactor.AppTests.Infrastructure;
 /// <see cref="WinAppUi"/>.
 ///
 /// TODO: replace with native winapp verbs once they ship —
-/// winappCli #562 (send-keys) and #498 (drag). When those land, delete this class
-/// and route the input-injection tests back through <see cref="WinAppUi"/>.
+/// winappCli #562 (send-keys) and #498 (drag), tracked together by PR
+/// microsoft/winappCli#587. When those land, the keystroke/click/drag bodies below
+/// can be routed back through <see cref="WinAppUi"/>:
+///   * Per-keystroke typing  -> <c>winapp ui send-keys --via send-input</c>
+///     (post-message, the default, only raises TextChanged, not per-character KeyDown).
+///   * Literal text that collides with a key name (e.g. typing "enter") -> the
+///     <c>text=</c> escape token added in #587.
+///   * Tear-off / merge drags -> <c>winapp ui drag --hold-ms/--dwell-ms</c> (also #587)
+///     so the drop overlay can latch on a sustained hover before release.
+/// IMPORTANT — do NOT delete <see cref="Foreground"/> when swapping in the native verbs:
+/// winappCli's send-input transport only VERIFIES the target is foreground (its
+/// ForegroundGuard fails with <c>foreground_not_target</c>) — it does NOT force it.
+/// In a batch run the Host window is usually NOT foreground at inject time, so the
+/// harness must keep calling <see cref="Foreground"/> (AttachThreadInput-based force +
+/// verify) to activate the Host window first, then invoke the native verb.
 /// </summary>
 public static class InputInjector
 {

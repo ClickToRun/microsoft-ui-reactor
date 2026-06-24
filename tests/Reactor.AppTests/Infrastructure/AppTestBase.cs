@@ -27,7 +27,7 @@ public class AppTestBase
     /// <summary>Build a <see cref="UiElement"/> handle for a selector against the host window.</summary>
     protected static UiElement Element(string selector, string? automationId = null, long hwnd = 0,
         UiRect? cachedBounds = null) =>
-        new(App, Uia, selector, automationId ?? selector, hwnd == 0 ? TestSession.HostHwnd : hwnd, cachedBounds);
+        new(App, Uia, selector, automationId, hwnd == 0 ? TestSession.HostHwnd : hwnd, cachedBounds);
 
     // Per-test interactivity preflight — bails out as Inconclusive (not Failed)
     // when the workstation is locked or the session is disconnected, so flake
@@ -128,12 +128,22 @@ public class AppTestBase
             if (!App.Exists("ResetFixture"))
                 return; // not present yet (e.g., before first navigation)
             App.Invoke("ResetFixture");
-            App.WaitForValue("FixtureStatus", "Ready", timeoutMs: 3000);
         }
         catch (WinAppException)
         {
             // Reset button may not be present yet (e.g., before first navigation).
+            return;
         }
+
+        // The reset was invoked, so the fixture must report Ready. If it doesn't, the next
+        // navigation can run against stale fixture state (and a same-name re-nav no-ops in the
+        // host because UseState suppresses a rerender when the value is unchanged), so fail loudly
+        // rather than silently proceeding. Thrown outside the catch above so it isn't swallowed as
+        // a "button not present" case.
+        if (!App.WaitForValue("FixtureStatus", "Ready", timeoutMs: 3000))
+            throw new WinAppException(
+                "ResetFixture was invoked but FixtureStatus never reached 'Ready' within 3000ms; " +
+                "the next navigation could run against stale fixture state.");
     }
 
     /// <summary>
