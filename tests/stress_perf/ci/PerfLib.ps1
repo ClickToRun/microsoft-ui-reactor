@@ -98,14 +98,28 @@ function Read-HarnessMetrics {
     if (Test-Path -LiteralPath $jsonPath) {
         try {
             $j = Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json
-            $result.RendersPerSec   = [double]$j.rendersPerSec
-            $result.AvgReconcileMs  = [double]$j.avgReconcileMs
-            $result.AvgDiffMs       = [double]$j.avgDiffMs
-            $result.AvgMemoryMB     = [double]$j.avgMemoryMB
-            $result.TotalRenders    = [int]$j.totalRenders
-            $result.DurationSeconds = [double]$j.durationSeconds
-            $result.Source          = 'json'
-            return $result
+            # Every field below is always emitted by GetMetricsJson, so a missing
+            # or null one means a partial write or a schema mismatch. Reject the
+            # JSON and fall back to report.txt rather than coerce null -> 0 and
+            # surface a misleading metric / delta.
+            $required = 'rendersPerSec', 'avgReconcileMs', 'avgDiffMs', 'avgMemoryMB', 'totalRenders', 'durationSeconds'
+            $missing = @($required | Where-Object {
+                    $p = $j.PSObject.Properties[$_]
+                    (-not $p) -or ($null -eq $p.Value)
+                })
+            if ($missing.Count -gt 0) {
+                Write-Warning "Read-HarnessMetrics: '$jsonPath' is missing/null field(s): $($missing -join ', '); falling back to report.txt."
+            }
+            else {
+                $result.RendersPerSec   = [double]$j.rendersPerSec
+                $result.AvgReconcileMs  = [double]$j.avgReconcileMs
+                $result.AvgDiffMs       = [double]$j.avgDiffMs
+                $result.AvgMemoryMB     = [double]$j.avgMemoryMB
+                $result.TotalRenders    = [int]$j.totalRenders
+                $result.DurationSeconds = [double]$j.durationSeconds
+                $result.Source          = 'json'
+                return $result
+            }
         }
         catch {
             Write-Warning "Read-HarnessMetrics: '$jsonPath' is not valid JSON ($($_.Exception.Message)); falling back to report.txt."

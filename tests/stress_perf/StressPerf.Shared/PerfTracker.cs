@@ -186,9 +186,32 @@ public sealed class PerfTracker
     public string GetMetricsJson(string appName, double percent)
     {
         static string F(double v) => v.ToString("0.####", CultureInfo.InvariantCulture);
+        // Minimal JSON string escaping for the one string field (appName) so the
+        // hand-built JSON stays valid even if a name ever carries a quote /
+        // backslash / control char. The numbers are culture-invariant already.
+        static string J(string s)
+        {
+            var b = new StringBuilder(s.Length + 2);
+            foreach (char c in s)
+            {
+                switch (c)
+                {
+                    case '"': b.Append("\\\""); break;
+                    case '\\': b.Append("\\\\"); break;
+                    case '\n': b.Append("\\n"); break;
+                    case '\r': b.Append("\\r"); break;
+                    case '\t': b.Append("\\t"); break;
+                    default:
+                        if (c < ' ') b.Append("\\u").Append(((int)c).ToString("x4", CultureInfo.InvariantCulture));
+                        else b.Append(c);
+                        break;
+                }
+            }
+            return b.ToString();
+        }
         var sb = new StringBuilder();
         sb.Append('{');
-        sb.Append("\"app\":\"").Append(appName).Append("\",");
+        sb.Append("\"app\":\"").Append(J(appName)).Append("\",");
         sb.Append("\"percent\":").Append(F(percent)).Append(',');
         sb.Append("\"durationSeconds\":").Append(F(ElapsedSeconds)).Append(',');
         sb.Append("\"rendersPerSec\":").Append(F(RendersPerSec)).Append(',');

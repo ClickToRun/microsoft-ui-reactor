@@ -156,6 +156,23 @@ Duration: 10.0s
     Assert-Equal 99.9 $j.RendersPerSec    'json renders/sec'
     Assert-Equal 150.5 $j.AvgMemoryMB     'json memory'
 
+    # A metrics.json with a null required field is rejected -> fall back to
+    # report.txt, instead of coercing the null to 0 and reporting it.
+    $badJson = '{"app":"StressPerf.Partial","percent":50,"durationSeconds":10,"rendersPerSec":null,"totalRenders":999,"avgReconcileMs":1.1,"avgDiffMs":2.2,"avgMemoryMB":150.5}'
+    $partialReport = @"
+StressPerf.Partial report
+Total Renders: 400
+Duration: 10.0 s
+Avg Reconcile: 5.0 ms
+Avg Diff: 3.0 ms
+Avg Memory: 180.0 MB
+"@
+    Set-Content -LiteralPath (Join-Path $tmp 'StressPerf.Partial.metrics.json') -Value $badJson -Encoding UTF8
+    Set-Content -LiteralPath (Join-Path $tmp 'StressPerf.Partial.report.txt') -Value $partialReport -Encoding UTF8
+    $p = Read-HarnessMetrics -Directory $tmp -AppName 'StressPerf.Partial' -WarningAction SilentlyContinue
+    Assert-Equal 'report' $p.Source       'null json field -> fall back to report.txt'
+    Assert-Equal 40 $p.RendersPerSec      'fallback renders/sec from report (400/10)'
+
     # Imperative WinUI3 (StressPerf.Direct): no reconcile/diff lines -> n/a.
     $directReport = @"
 StressPerf.Direct report
