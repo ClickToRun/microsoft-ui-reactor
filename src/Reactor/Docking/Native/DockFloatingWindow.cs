@@ -394,7 +394,12 @@ public static class DockFloatingWindow
     {
         if (!DockDragSession.Consumed) return DockFloatingCloseReason.ContentClosed;
         var consumed = DockDragSession.LastConsumedPane;
-        if (consumed is not null && !ReferenceEquals(consumed, pane))
+        // A migrated reason requires a concrete consumed pane that is THIS
+        // pane. A null LastConsumedPane must never be treated as "matches
+        // every pane" — otherwise an unrelated last-tab close would misreport
+        // as a migration. (MarkConsumed no longer persists Consumed without a
+        // pane; this consumer-side guard keeps the seam robust regardless.)
+        if (consumed is null || !ReferenceEquals(consumed, pane))
             return DockFloatingCloseReason.ContentClosed;
         return DockDragSession.LastConsumedToFloat
             ? DockFloatingCloseReason.MigratedToFloat

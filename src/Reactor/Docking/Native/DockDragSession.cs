@@ -71,8 +71,19 @@ internal sealed class DockDragSession
     /// </summary>
     public static void MarkConsumed(DockableContent? pane, bool toFloat = false)
     {
+        // Resolve the concrete consumed pane. If there is no active session
+        // and no explicit pane — e.g. a host drop-confirm path firing after
+        // the session was already ended/cancelled (the call sites guard
+        // session?.End() as nullable, so Current can be null here) — there is
+        // nothing to consume. Never persist a half-state (Consumed=true with a
+        // null LastConsumedPane): that would make MigratedReasonFor treat
+        // EVERY subsequent floating-window close as a migration until the next
+        // Begin. (#417 review)
+        var resolved = pane ?? Current?.Source;
+        if (resolved is null)
+            return;
         Consumed = true;
-        LastConsumedPane = pane ?? Current?.Source;
+        LastConsumedPane = resolved;
         LastConsumedToFloat = toFloat;
     }
 

@@ -152,6 +152,28 @@ public class DockFloatingCloseReasonTests
         DockDragSession.ResetForTest();
     }
 
+    [Fact]
+    public void MarkConsumed_NoActiveSession_DoesNotPersistConsumedState()
+    {
+        // Review hardening (issue #417): a host drop-confirm path can invoke
+        // the no-arg MarkConsumed() after the drag session was already
+        // ended/cancelled (the call sites guard session?.End() as nullable).
+        // With no active session there is no concrete pane, so we must NOT
+        // persist Consumed=true with a null LastConsumedPane — otherwise the
+        // next unrelated floating-window close would misreport as a migration
+        // until the following Begin.
+        DockDragSession.ResetForTest(); // Current == null, no session
+        var pane = Pane("doc:a");
+
+        DockDragSession.MarkConsumed(); // no session, no explicit pane
+
+        Assert.False(DockDragSession.Consumed);
+        Assert.Null(DockDragSession.LastConsumedPane);
+        Assert.Equal(DockFloatingCloseReason.ContentClosed, DockFloatingWindow.MigratedReasonFor(pane));
+
+        DockDragSession.ResetForTest();
+    }
+
     // ── DockFloatingTracker pending-close stash round-trip ─────────────
 
     [Fact]
