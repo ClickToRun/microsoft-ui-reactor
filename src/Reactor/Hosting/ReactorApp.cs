@@ -571,6 +571,7 @@ public static partial class ReactorApp
     public static void Exit(int exitCode = 0)
     {
         ThreadAffinity.ThrowIfNotOnUIThread(nameof(Exit));
+        PrepareOpenWindowsForExit();
         try { Application.Current?.Exit(); }
         catch { /* best effort */ }
         if (exitCode != 0)
@@ -690,8 +691,44 @@ public static partial class ReactorApp
 
     private static void SafeExit()
     {
+        PrepareOpenWindowsForExit();
         try { Application.Current?.Exit(); }
         catch (Exception ex) { global::System.Diagnostics.Debug.WriteLine($"[Reactor] Application.Exit threw: {ex.Message}"); }
+    }
+
+    // Issue #537 — Application.Exit() tears down every open window's native
+    // surface without routing through ReactorWindow.Close()/OnAppWindowClosing,
+    // so a still-open window with a mounted WinUI TitleBar in an
+    // ExtendsContentIntoTitleBar=false mode would reach the unsafe teardown and
+    // corrupt the heap. (This is reachable under the default
+    // OnPrimaryWindowClosed policy: closing the primary fires SafeExit() while
+    // secondary ECITB=false TitleBar windows are still open.) Flip each live
+    // window — and its owned descendants — back into content-extended mode
+    // first, while their AppWindows are still alive. Idempotent per window, so
+    // windows already prepared by a close path are no-ops.
+    //
+    // This is the terminal exit boundary: Exit()/SafeExit() call this OUTSIDE
+    // any surrounding try, and there is no later path that could retry, so the
+    // per-window prep is wrapped best-effort and isolated — one window's
+    // unexpected teardown-race throw is logged and the loop continues so the
+    // remaining windows are still prepared (narrowing the catch here would let
+    // a single window abort the prep of every other open window). `internal`
+    // for selftest visibility — Application.Exit() cannot run in-process, so the
+    // TitleBar exit-prep fixture drives this loop directly.
+    internal static void PrepareOpenWindowsForExit()
+    {
+        var snapshot = Windows;
+        for (int i = 0; i < snapshot.Count; i++)
+        {
+            // Best-effort: a window mid-teardown can throw while we flip its
+            // title-bar mode. Catch only the exceptions a teardown-racing
+            // AppWindow/title-bar interop call can realistically surface so a
+            // genuine bug elsewhere still propagates.
+            try { snapshot[i].PrepareTitleBarTreeForClose(); }
+            catch (ObjectDisposedException ex) { global::System.Diagnostics.Debug.WriteLine($"[Reactor] PrepareOpenWindowsForExit threw: {ex.Message}"); }
+            catch (InvalidOperationException ex) { global::System.Diagnostics.Debug.WriteLine($"[Reactor] PrepareOpenWindowsForExit threw: {ex.Message}"); }
+            catch (COMException ex) { global::System.Diagnostics.Debug.WriteLine($"[Reactor] PrepareOpenWindowsForExit threw: {ex.Message}"); }
+        }
     }
 
     // Internal accessor for ReactorApplication.OnLaunched and tests.
