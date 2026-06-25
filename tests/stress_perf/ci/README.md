@@ -17,7 +17,7 @@ PowerShell entry point powers two things:
 
 ## The four metrics
 
-Measured on the `StressPerf.ReactorOptimized` StocksGrid workload, x64 Release:
+Measured on the `StressPerf.ReactorOptimized` StocksGrid workload (Release, built for the host architecture — x64 on the CI runner):
 
 | Metric | Meaning | Direction |
 |---|---|:--:|
@@ -41,6 +41,10 @@ reconcile/diff phase — those cells read *n/a*.
   property), the same hermetic trick the WinUI selftest hosts use, so the
   bundled runtime ships next to the exe. Pass `-SelfContained:$false` to use a
   machine-wide runtime instead.
+- **Any architecture.** The harness builds for your **host architecture** by
+  default (`x64` or `ARM64`), so it runs natively. This matters on ARM64 boxes:
+  an x64 build there runs under emulation and crashes WinUI composition with a
+  stowed exception (`0xC000027B`). Override with `-Platform x64|ARM64` if needed.
 
 ## Run it locally
 
@@ -52,8 +56,9 @@ pwsh tests/stress_perf/ci/Run-PerfBenchmark.ps1
 
 Builds + runs `StressPerf.ReactorOptimized` **and** `StressPerf.Direct`
 (vanilla WinUI3) in the current checkout, prints a console table, and writes
-`tests/stress_perf/ci/out/result.json`. The table also shows the static Rust
-`windows-reactor` reference column for context.
+`tests/stress_perf/ci/out/result.json`. Both build for your host architecture.
+Add a live Rust `windows-reactor` column with `-RustRepo <windows-rs checkout>`
+(see [Parameters](#parameters)).
 
 ### A/B against a clean `main` baseline
 
@@ -80,15 +85,18 @@ git worktree remove ../main
 | `-Reps` | `2` | Measured runs whose **median** is reported (methodology "median of two"). Bump for tighter numbers. |
 | `-Warmup` | `1` | Leading runs discarded before the measured `Reps`. |
 | `-Apps` | `ReactorOptimized,Direct` | Single-tree mode only: which harnesses to run. |
+| `-Platform` | host arch | Target architecture (`x64` or `ARM64`). Defaults to your machine's native arch so the WinUI harness runs without emulation. |
 | `-SelfContained` | `$true` | Build with the bundled WinApp runtime (no machine-wide install). |
 | `-SkipBuild` | off | Reuse existing binaries (skip `dotnet build`). |
 | `-PinAffinity` | off | Pin each run to one CPU core (can hurt on small runners). |
+| `-RustRepo` | _(unset)_ | Path to a [`microsoft/windows-rs`](https://github.com/microsoft/windows-rs) checkout. Builds + runs its `reactor_perf` harness to add a **live** Rust column (best-effort). |
+| `-DefenderExclude` | off | Add a temporary Defender exclusion on the output tree (removed afterward). CI-only; opt-in locally. |
 | `-OutDir` | `ci/out` | Where logs, `result.json` and `comment.md` land. |
 | `-HeadSha` / `-BaseSha` / `-RunUrl` | _(empty)_ | Context echoed into the comment footer (compare mode). |
 
 ### Outputs
 
-- **Console table** — median per metric, per app, plus the Rust reference column.
+- **Console table** — median per metric, per app (plus a live Rust column when `-RustRepo` is set).
 - **`out/result.json`** — machine-readable medians + run-to-run spread + runner identity.
 - **`out/comment.md`** _(compare mode only)_ — the rendered sticky comment.
 - **`out/*.log`** — per-build and per-run stdout/stderr for debugging.
@@ -120,12 +128,13 @@ Two tables plus footnotes:
   noise`). "Within noise" means `|Δ|` is below the larger of the run-to-run
   spread and a 4% floor — treat it as no measurable change.
 - **Cross-framework reference** — `vanilla WinUI3 | Rust windows-reactor |
-  Reactor (this PR)` on the same StocksGrid workload. The Rust column is a
-  **static** point-in-time snapshot cited from
-  [`microsoft/windows-rs` `windows-reactor.md`](https://github.com/microsoft/windows-rs/blob/master/docs/crates/windows-reactor.md#performance-notes)
-  (different machine, x64 Release, `--percent 50 --duration 10`, median of 2,
-  80×60 grid) — a cross-language reference, **not** a runner-local measurement.
-  The WinUI3 column **is** measured live on the runner.
+  Reactor (this PR)` on the same StocksGrid workload, **all measured live on the
+  same runner**. The Rust column builds and runs the
+  [`microsoft/windows-rs`](https://github.com/microsoft/windows-rs) `reactor_perf`
+  harness (a port of this workload), pinned in CI to a known-good commit. It is
+  best-effort: if the Rust build or run fails the column reads `n/a` and the
+  PR-vs-`main` comparison is unaffected. The WinUI3 column is the local
+  `StressPerf.Direct` build.
 
 ## Variance: trust the delta, not the absolutes
 
@@ -155,18 +164,21 @@ For the steadiest local numbers: close other apps, stay on AC power, and bump
 | File | Role |
 |---|---|
 | [`Run-PerfBenchmark.ps1`](Run-PerfBenchmark.ps1) | Orchestrator — build, run, interleave, render. Used by both the workflow and humans. |
-| [`PerfLib.ps1`](PerfLib.ps1) | Pure, side-effect-free helpers (parse, median, spread, direction-aware delta, comment renderer). Holds the Rust reference constants + comment marker. |
+| [`PerfLib.ps1`](PerfLib.ps1) | Pure, side-effect-free helpers (parse, median, spread, direction-aware delta, comment renderer) + the sticky-comment marker. |
 
 ## Troubleshooting
 
 - **Run crashes with `0xC000027B` right after "MountAndActivate ok".** That is a
-  stowed XAML/compositor exception: the box cannot composite a real WinUI window
-  (headless server, no GPU/desktop session, or an RDP session without
-  composition). The **build and runtime are fine** — `windows-latest` CI runners
-  composite XAML correctly (the selftest/E2E jobs prove it). Run locally from an
-  interactive desktop session.
-- **`exe … not found`.** The self-contained build nests the exe under a RID
-  folder (`bin\x64\Release\<tfm>\win-x64\`); the script finds it recursively. If
-  it is genuinely missing, check the `out/build-*.log` for the real `dotnet`
-  error.
+  stowed XAML/compositor exception. Most often the box cannot composite a real
+  WinUI window (headless server, no GPU/desktop session, or an RDP session
+  without composition) — run from an interactive desktop session. **On an ARM64
+  machine** it also happens when an **x64** harness runs under emulation; the
+  runner builds for your host architecture by default (so ARM64 runs natively),
+  but if you forced `-Platform x64` on ARM64, drop it or pass `-Platform ARM64`.
+  The build and runtime are otherwise fine — `windows-latest` CI runners
+  composite XAML correctly (the selftest/E2E jobs prove it).
+- **`exe … not found`.** The self-contained build nests the exe under an arch +
+  RID folder (`bin\<arch>\Release\<tfm>\win-<arch>\`); the script finds it
+  recursively. If it is genuinely missing, check the `out/build-*.log` for the
+  real `dotnet` error.
 - **Scripts won't parse.** Use `pwsh` (PowerShell 7+), not `powershell.exe` 5.1.

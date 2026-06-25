@@ -15,7 +15,7 @@
       Get-PerfDelta             signed %, direction-aware, with a noise band.
       Format-PerfComment        the sticky two-table markdown comment.
 
-    The four headline metrics (x64 Release, StocksGrid workload):
+    The four headline metrics (Release build, StocksGrid workload):
       Renders/sec      higher is better
       Avg Reconcile ms lower is better
       Avg Diff ms      lower is better
@@ -26,20 +26,6 @@ Set-StrictMode -Version Latest
 
 # Hidden marker used to find + update-in-place the sticky PR comment.
 $script:PerfCommentMarker = '<!-- reactor-perf-compare -->'
-
-# Point-in-time Rust reference snapshot, cited from microsoft/windows-rs
-# docs/crates/windows-reactor.md (Performance notes → "Comparing against the
-# C# reactor"). Measured on a DIFFERENT machine (x64 Release, --percent 50
-# --duration 10, median of two runs, 80x60 grid vs the C# harness's 70x70), so
-# these are indicative cross-language reference values, NOT a runner-local
-# measurement. Refresh if the upstream snapshot changes.
-$script:RustReference = [pscustomobject]@{
-    RendersPerSec  = 8.7
-    AvgReconcileMs = 7.9
-    AvgDiffMs      = 7.1
-    AvgMemoryMB    = 190.0
-}
-$script:RustReferenceUrl = 'https://github.com/microsoft/windows-rs/blob/master/docs/crates/windows-reactor.md#performance-notes'
 
 # Headline metric table spec, shared by the comment renderer.
 $script:PerfMetricSpec = @(
@@ -251,6 +237,8 @@ function Format-PerfComment {
     .PARAMETER Main       Aggregated baseline metrics (Measure-PerfRuns output).
     .PARAMETER Pr         Aggregated PR-head metrics.
     .PARAMETER WinUI3     Aggregated vanilla-WinUI3 (StressPerf.Direct) metrics, or $null.
+    .PARAMETER Rust       Aggregated Rust windows-reactor (test_reactor_perf) metrics
+                          measured live on this runner, or $null when not run.
     .PARAMETER Context    Hashtable: Percent, Duration, Reps, Warmup, BaseSha, HeadSha,
                           Runner, Cpu, Cores, MemoryGB, RunUrl, Timestamp, Note.
     #>
@@ -258,6 +246,7 @@ function Format-PerfComment {
         [Parameter(Mandatory)][pscustomobject]$Main,
         [Parameter(Mandatory)][pscustomobject]$Pr,
         [AllowNull()][pscustomobject]$WinUI3,
+        [AllowNull()][pscustomobject]$Rust,
         [Parameter(Mandatory)][hashtable]$Context
     )
 
@@ -268,8 +257,9 @@ function Format-PerfComment {
     & $add $script:PerfCommentMarker
     & $add "## $([char]0x26A1) Reactor perf comparison"
     & $add ''
+    $plat = if ($Context.ContainsKey('Platform') -and $Context.Platform) { $Context.Platform } else { 'x64' }
     $methodology = "**Workload:** ``StressPerf.ReactorOptimized`` StocksGrid &middot; " +
-        "``--percent $($Context.Percent) --duration $($Context.Duration)`` &middot; x64 Release &middot; " +
+        "``--percent $($Context.Percent) --duration $($Context.Duration)`` &middot; $plat Release &middot; " +
         "median of $($Context.Reps) runs ($($Context.Warmup) warmup dropped) &middot; " +
         "PR head and ``main`` built and run **interleaved on the same runner**."
     & $add $methodology
@@ -302,10 +292,11 @@ function Format-PerfComment {
     & $add '|---|--:|--:|--:|'
     foreach ($m in $script:PerfMetricSpec) {
         $w = if ($null -ne $WinUI3) { $WinUI3.($m.Key) } else { $null }
+        $r = if ($null -ne $Rust) { $Rust.($m.Key) } else { $null }
         $row = '| {0} {1} | {2} | {3} | {4} |' -f `
             $m.Label, $m.Arrow, `
             (Format-PerfNumber $w $m.Digits), `
-            (Format-PerfNumber $script:RustReference.($m.Key) $m.Digits), `
+            (Format-PerfNumber $r $m.Digits), `
             (Format-PerfNumber $Pr.($m.Key) $m.Digits)
         & $add $row
     }
@@ -313,9 +304,14 @@ function Format-PerfComment {
 
     # ── Footnotes ────────────────────────────────────────────────────────────
     $up = [char]0x2191; $down = [char]0x2193
+    $rustNote = if ($null -ne $Rust) {
+        'Built from source and measured **live on this runner**.'
+    } else {
+        '*Not run* on this runner (Rust toolchain/checkout unavailable or the Rust leg failed) — its cells read *n/a*.'
+    }
     & $add "<sub>$up higher is better &middot; $down lower is better. **Within noise** = |Δ| below the larger of the run-to-run spread and a 4% floor; treat as no measurable change.</sub>"
     & $add "<sub>$([char]0x00B9) vanilla WinUI3 = ``StressPerf.Direct`` (imperative; no virtual-DOM, so it has no reconcile/diff phase — those cells read *n/a*). Measured live on this runner.</sub>"
-    & $add "<sub>$([char]0x00B2) Rust = point-in-time snapshot from [microsoft/windows-rs ``windows-reactor.md``]($script:RustReferenceUrl) (different machine, x64 Release, ``--percent 50 --duration 10``, median of 2, 80&times;60 grid). Cross-language reference only — **not** measured on this runner.</sub>"
+    & $add "<sub>$([char]0x00B2) Rust = ``test_reactor_perf`` from [microsoft/windows-rs](https://github.com/microsoft/windows-rs/tree/master/crates/tests/libs/reactor_perf) — a port of this harness (same StocksGrid, same ``--percent``/``--duration`` CLI). $rustNote</sub>"
     & $add "<sub>Absolute numbers are runner-dependent — trust the **Δ vs main**, not the absolute values. Memory (working set) is the noisiest metric.</sub>"
 
     $ctxBits = @()

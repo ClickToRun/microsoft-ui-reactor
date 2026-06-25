@@ -36,7 +36,7 @@ Do **not** activate for unrelated profiling questions, the startup-perf harness
 
 ## The four metrics
 
-x64 Release, `StressPerf.ReactorOptimized` StocksGrid:
+Release build (host architecture; x64 on CI runners), `StressPerf.ReactorOptimized` StocksGrid:
 
 | Metric | Direction |
 |---|:--:|
