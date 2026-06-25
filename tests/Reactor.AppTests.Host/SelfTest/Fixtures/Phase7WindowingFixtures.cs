@@ -270,9 +270,17 @@ internal static class Phase7WindowingFixtures
             // Dispose() alone does not unregister (the normal flow is
             // Window.Closed -> UnregisterWindow -> Dispose). Clean up the
             // registration and the still-live native window for harness hygiene
-            // since we bypassed Close().
+            // since we bypassed Close(). Best-effort: closing a native window
+            // whose content was already disposed can race its teardown, so catch
+            // only the exceptions that path can realistically surface and record
+            // them (mirrors ReactorApp.PrepareOpenWindowsForExit) rather than
+            // rethrowing — this is post-test cleanup after a deliberate
+            // Close()-bypass.
             ReactorApp.UnregisterWindow(win);
-            try { win.NativeWindow.Close(); } catch { }
+            try { win.NativeWindow.Close(); }
+            catch (ObjectDisposedException ex) { global::System.Diagnostics.Debug.WriteLine($"[Reactor] TitleBar_DisposeNoClose cleanup close threw: {ex}"); }
+            catch (InvalidOperationException ex) { global::System.Diagnostics.Debug.WriteLine($"[Reactor] TitleBar_DisposeNoClose cleanup close threw: {ex}"); }
+            catch (COMException ex) { global::System.Diagnostics.Debug.WriteLine($"[Reactor] TitleBar_DisposeNoClose cleanup close threw: {ex}"); }
             await CollectWindowResources();
             H.Check("TitleBar_DisposeNoClose_Clean", true);
         }
