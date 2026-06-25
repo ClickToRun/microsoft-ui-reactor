@@ -477,13 +477,15 @@ public static partial class ReactorApp
         WindowSpec spec,
         Func<Component>? rootFactory,
         Func<RenderContext, Element>? renderFunc,
-        Action<ReactorHost>? configure)
+        Action<ReactorHost>? configure,
+        bool excludeFromShutdownPolicy = false)
     {
         Console.Error.WriteLine("[embed:trace] OpenWindowCore enter (embed=" + (spec.Embed is not null) + ")");
         ReactorWindow window;
         try
         {
             window = new ReactorWindow(spec);
+            window.ExcludeFromShutdownPolicy = excludeFromShutdownPolicy;
             Console.Error.WriteLine("[embed:trace] OpenWindowCore: ReactorWindow ctor ok");
         }
         catch (Exception ex)
@@ -587,7 +589,11 @@ public static partial class ReactorApp
         next[^1] = window;
         Volatile.Write(ref _windows, next);
 
-        if (PrimaryWindow is null)
+        // An auxiliary window (e.g. a docking tear-off floating window) must
+        // never become the fallback primary: closing it would otherwise fire
+        // ShutdownPolicy.OnPrimaryWindowClosed and tear the whole app down, even
+        // though it is just a transient docking surface. (issue #647)
+        if (PrimaryWindow is null && !window.ExcludeFromShutdownPolicy)
             PrimaryWindow = window;
 
         ReactorDisplay.RegisterWindowMonitor(window, window.MessageMonitor);
