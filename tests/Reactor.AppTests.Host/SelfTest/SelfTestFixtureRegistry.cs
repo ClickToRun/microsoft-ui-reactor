@@ -168,6 +168,7 @@ internal static class SelfTestFixtureRegistry
         "ItemsView_SelectionMode_Applied",
         "ItemsView_Selection_SurvivesRerender",
         "ItemsView_Rerender_DoesNotMarkContainersModified",
+        "ItemsView_MultiSelect_CheckmarkDoesNotFlicker",
         // Spec 042 Phase 1 — keyed-list reconciliation end-to-end fixtures.
         "KLR_ListView_MountsOcSource",
         "KLR_ListView_InsertAtZero_EmitsSingleAdd",
@@ -434,6 +435,10 @@ internal static class SelfTestFixtureRegistry
         "ThreadSafe_RenderCoalescing",
         "ThreadSafe_RenderCoalescingDispatcherBatch",
         "ThreadSafe_NonThreadSafeAutoMarshal",
+        // Thread-safe navigation (#234) — off-thread marshal on a real dispatcher
+        "ThreadSafeNav_NavigateOffThreadMarshals",
+        "ThreadSafeNav_MutatorsOffThreadMarshal",
+        "ThreadSafeNav_SetStateOffThreadFreezesSnapshot",
         // Animation system — Curve & Easing
         "Curve_RecordEquality",
         "Curve_PresetValues",
@@ -1070,6 +1075,10 @@ internal static class SelfTestFixtureRegistry
         // Spec 054 Phase 7 — title-bar inference, transparent backdrop, picker hooks.
         "TitleBar_ImplicitExtends",
         "TitleBar_ExplicitFalseOverrides",
+        "TitleBar_OwnedChild",
+        "TitleBar_DisposeNoClose",
+        "TitleBar_OwnedTree",
+        "TitleBar_ExitPrep",
         "TitleBar_NoElement_NullStaysFalse",
         "BackdropTransparent_Apply",
         "FilePicker_InitializesWithWindow",
@@ -1401,6 +1410,7 @@ internal static class SelfTestFixtureRegistry
         "Spec048_NavigationChromeGroupFactoriesRegisterHandlers",
         "Spec048_OverlaysGroupFactoriesRegisterHandlers",
         "Spec048_IconAndInteropGroupFactoriesRegisterHandlers",
+        "Spec048_RegisterAllBuiltIns_DirectRecordMounts",
         "PropEntryOptional_Execution",
         "ElementPoolOptionalReset",
         "ControlledOptionalCustomerRepro",
@@ -1583,6 +1593,7 @@ internal static class SelfTestFixtureRegistry
         "ItemsView_SelectionMode_Applied" => new ItemsViewFixtures.ItemsView_SelectionMode_Applied(harness),
         "ItemsView_Selection_SurvivesRerender" => new ItemsViewFixtures.ItemsView_Selection_SurvivesRerender(harness),
         "ItemsView_Rerender_DoesNotMarkContainersModified" => new ItemsViewFixtures.ItemsView_Rerender_DoesNotMarkContainersModified(harness),
+        "ItemsView_MultiSelect_CheckmarkDoesNotFlicker" => new ItemsViewFixtures.ItemsView_MultiSelect_CheckmarkDoesNotFlicker(harness),
         // Spec 042 Phase 1 — keyed-list reconciliation end-to-end.
         "KLR_ListView_MountsOcSource" => new KeyedListReconciliationFixtures.ListView_MountsOcSource(harness),
         "KLR_ListView_InsertAtZero_EmitsSingleAdd" => new KeyedListReconciliationFixtures.ListView_InsertAtZero_EmitsSingleAdd(harness),
@@ -1828,6 +1839,9 @@ internal static class SelfTestFixtureRegistry
         "ThreadSafe_RenderCoalescing" => new ThreadSafeHookFixtures.RenderCoalescing(harness),
         "ThreadSafe_RenderCoalescingDispatcherBatch" => new ThreadSafeHookFixtures.RenderCoalescingDispatcherBatch(harness),
         "ThreadSafe_NonThreadSafeAutoMarshal" => new ThreadSafeHookFixtures.NonThreadSafeAutoMarshal(harness),
+        "ThreadSafeNav_NavigateOffThreadMarshals" => new ThreadSafeNavigationFixtures.NavigateOffThreadMarshals(harness),
+        "ThreadSafeNav_MutatorsOffThreadMarshal" => new ThreadSafeNavigationFixtures.MutatorsOffThreadMarshal(harness),
+        "ThreadSafeNav_SetStateOffThreadFreezesSnapshot" => new ThreadSafeNavigationFixtures.SetStateOffThreadFreezesSnapshot(harness),
         // Animation system — Curve & Easing
         "Curve_RecordEquality" => new CurveTests.RecordEquality(harness),
         "Curve_PresetValues" => new CurveTests.PresetValues(harness),
@@ -2475,6 +2489,10 @@ internal static class SelfTestFixtureRegistry
         // Spec 054 Phase 7 — title-bar inference, transparent backdrop, picker hooks.
         "TitleBar_ImplicitExtends" => new Phase7WindowingFixtures.TitleBarImplicitExtends(harness),
         "TitleBar_ExplicitFalseOverrides" => new Phase7WindowingFixtures.TitleBarExplicitFalseOverrides(harness),
+        "TitleBar_OwnedChild" => new Phase7WindowingFixtures.TitleBarOwnedChildClosesClean(harness),
+        "TitleBar_DisposeNoClose" => new Phase7WindowingFixtures.TitleBarDisposeWithoutClose(harness),
+        "TitleBar_OwnedTree" => new Phase7WindowingFixtures.TitleBarOwnedTreeFlipsRecursively(harness),
+        "TitleBar_ExitPrep" => new Phase7WindowingFixtures.TitleBarExitPrepFlipsOpenWindows(harness),
         "TitleBar_NoElement_NullStaysFalse" => new Phase7WindowingFixtures.TitleBarNoElementNullStaysFalse(harness),
         "BackdropTransparent_Apply" => new Phase7WindowingFixtures.BackdropTransparentApply(harness),
         "FilePicker_InitializesWithWindow" => new Phase7WindowingFixtures.FilePickerInitializesWithWindow(harness),
@@ -2769,6 +2787,7 @@ internal static class SelfTestFixtureRegistry
         "Spec048_NavigationChromeGroupFactoriesRegisterHandlers" => new Spec048RegistrationFixtures.NavigationChromeGroupFactoriesRegisterHandlers(harness),
         "Spec048_OverlaysGroupFactoriesRegisterHandlers" => new Spec048RegistrationFixtures.OverlaysGroupFactoriesRegisterHandlers(harness),
         "Spec048_IconAndInteropGroupFactoriesRegisterHandlers" => new Spec048RegistrationFixtures.IconAndInteropGroupFactoriesRegisterHandlers(harness),
+        "Spec048_RegisterAllBuiltIns_DirectRecordMounts" => new Spec048RegistrationFixtures.RegisterAllBuiltInsEnablesDirectRecordMount(harness),
         "PropEntryOptional_Execution" => new PropEntryOptionalFixture.Execution(harness),
         "ElementPoolOptionalReset" => new ElementPoolOptionalResetFixture.Execution(harness),
         "ControlledOptionalCustomerRepro" => new ControlledOptionalCustomerRepro.Execution(harness),
