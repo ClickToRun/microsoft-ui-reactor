@@ -190,18 +190,25 @@ function Build-Harness {
     Write-Log "build $($AppMeta.AppName)  [$TreeRoot]" 'Cyan'
 
     # Compare mode only: overlay the harness .csproj from the trusted baseline tree
-    # over the PR tree's copy before building. The harness csproj is fixed test
-    # scaffolding — the build recipe for the StocksGrid workload, including the
-    # PerfCiSelfContained self-contained knob — NOT the code under measurement. The
-    # PR's actual perf change lives in src/Reactor/, which the harness still compiles
-    # via its relative ProjectReference into the PR tree, so overlaying only the
-    # csproj is fair. This guarantees the self-contained build block is present even
-    # for PRs opened before the gate landed (whose tree predates that csproj block),
-    # so /perf needs no rebase. Never runs in local single-tree mode ($BaselineRoot
-    # empty) or when building the baseline itself ($TreeRoot -eq $BaselineRoot).
+    # over the PR tree's copy for the duration of the build, then restore it. The
+    # harness csproj is fixed test scaffolding — the build recipe for the StocksGrid
+    # workload, including the PerfCiSelfContained self-contained knob — NOT the code
+    # under measurement. The PR's actual perf change lives in src/Reactor/, which the
+    # harness still compiles via its relative ProjectReference into the PR tree, so
+    # overlaying only the csproj is fair. This guarantees the self-contained build
+    # block is present even for PRs opened before the gate landed (whose tree predates
+    # that csproj block), so /perf needs no rebase. The overlay is build-scoped: the
+    # original csproj is restored in the finally below, so the checkout is never left
+    # modified — important for local compare runs against a developer's own worktree,
+    # and it keeps repeated runs deterministic. Never runs in local single-tree mode
+    # ($BaselineRoot empty) or when building the baseline itself ($TreeRoot -eq
+    # $BaselineRoot).
+    $overlayBackup = $null
     if ($BaselineRoot -and ($TreeRoot -ne $BaselineRoot)) {
         $trusted = Join-Path $BaselineRoot $AppMeta.ProjectRel
         if (Test-Path $trusted) {
+            $overlayBackup = "$proj.perfci-orig"
+            Copy-Item -LiteralPath $proj -Destination $overlayBackup -Force
             Copy-Item -LiteralPath $trusted -Destination $proj -Force
             Write-Log "  overlaid trusted csproj (self-contained knob) from baseline" 'DarkGray'
         } else {
@@ -209,13 +216,21 @@ function Build-Harness {
         }
     }
 
-    $log = Join-Path $OutDir ("build-{0}-{1}.log" -f $AppMeta.AppName, ([IO.Path]::GetFileName($TreeRoot)))
-    $buildArgs = @($proj, '-c', 'Release', "-p:Platform=$Platform", '--nologo')
-    if ($SelfContained) { $buildArgs += '-p:PerfCiSelfContained=true' }
-    & dotnet build @buildArgs 2>&1 | Tee-Object -FilePath $log | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host (Get-Content $log -Raw) -ForegroundColor DarkRed
-        throw "dotnet build failed for $($AppMeta.AppName) in $TreeRoot (see $log)"
+    try {
+        $log = Join-Path $OutDir ("build-{0}-{1}.log" -f $AppMeta.AppName, ([IO.Path]::GetFileName($TreeRoot)))
+        $buildArgs = @($proj, '-c', 'Release', "-p:Platform=$Platform", '--nologo')
+        if ($SelfContained) { $buildArgs += '-p:PerfCiSelfContained=true' }
+        & dotnet build @buildArgs 2>&1 | Tee-Object -FilePath $log | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host (Get-Content $log -Raw) -ForegroundColor DarkRed
+            throw "dotnet build failed for $($AppMeta.AppName) in $TreeRoot (see $log)"
+        }
+    } finally {
+        if ($overlayBackup -and (Test-Path $overlayBackup)) {
+            Copy-Item -LiteralPath $overlayBackup -Destination $proj -Force
+            Remove-Item -LiteralPath $overlayBackup -Force -ErrorAction SilentlyContinue
+            Write-Log "  restored original PR csproj (overlay is build-scoped)" 'DarkGray'
+        }
     }
 }
 

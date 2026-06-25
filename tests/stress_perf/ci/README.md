@@ -112,22 +112,26 @@ git worktree remove ../main
    promise even for PRs opened *before* the gate landed (whose tree predates the
    self-contained csproj block), `Run-PerfBenchmark.ps1` overlays the harness
    `.csproj` from the trusted baseline over the PR tree's copy before building
-   (compare mode only) — see below.
+   (compare mode only), restoring it afterwards — see below.
 3. It checks out the default branch (trusted perf scripts + the `main` baseline),
    sets up .NET 10, fetches the PR head via `refs/pull/N/head` into a worktree
    (so forks work), then runs `Run-PerfBenchmark.ps1` in compare mode.
 4. It posts — or **updates in place** on re-runs, via the hidden
    `<!-- reactor-perf-compare -->` marker — one sticky comment.
 
-Only the harness *code under measurement* comes from the PR — i.e. `src/Reactor/`,
-which the harness compiles via its relative `ProjectReference`. The perf scripts,
-the `main` baseline, **and the harness `.csproj` build recipe** (fixed test
-scaffolding, including the `PerfCiSelfContained` self-contained knob) all come
-from the trusted default branch: in compare mode `Build-Harness` copies each
-harness `.csproj` from the baseline tree over the PR tree's copy before building,
-so the self-contained build works regardless of how old the PR is. The
-`author_association` gate is the security control, because the job has a write
-token.
+In compare mode the PR tree supplies everything it normally would — `src/Reactor/`
+(the code under measurement) **and** the harness/workload sources under
+`tests/stress_perf/` — *except* the harness `.csproj` build recipe, which
+`Build-Harness` overlays from the trusted baseline tree for the duration of the
+build and then restores. That `.csproj` is fixed test scaffolding (the StocksGrid
+build recipe, including the `PerfCiSelfContained` self-contained knob), not a
+perf-sensitive input; sourcing only it from baseline guarantees the self-contained
+build works regardless of how old the PR is, while the PR's actual `src/Reactor/`
+change is still compiled in via the harness's relative `ProjectReference`. (A PR
+that deliberately edits the harness *sources* still has those changes measured —
+only the project file comes from baseline.) The perf scripts and the `main`
+baseline also come from the trusted default branch. The `author_association` gate
+is the security control, because the job has a write token.
 
 ### The comment
 
