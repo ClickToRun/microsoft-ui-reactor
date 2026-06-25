@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace StressPerf.Shared;
 
 public sealed class CliOptions
@@ -23,10 +25,10 @@ public sealed class CliOptions
             switch (args[i])
             {
                 case "--percent" when i + 1 < args.Length:
-                    opts.Percent = double.Parse(args[++i]);
+                    opts.Percent = double.Parse(args[++i], CultureInfo.InvariantCulture);
                     break;
                 case "--duration" when i + 1 < args.Length:
-                    opts.DurationSeconds = int.Parse(args[++i]);
+                    opts.DurationSeconds = int.Parse(args[++i], CultureInfo.InvariantCulture);
                     break;
                 case "--headless":
                     opts.Headless = true;
