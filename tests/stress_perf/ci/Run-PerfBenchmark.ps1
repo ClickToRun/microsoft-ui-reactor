@@ -188,6 +188,27 @@ function Build-Harness {
     $proj = Join-Path $TreeRoot $AppMeta.ProjectRel
     if (-not (Test-Path $proj)) { throw "Project not found: $proj" }
     Write-Log "build $($AppMeta.AppName)  [$TreeRoot]" 'Cyan'
+
+    # Compare mode only: overlay the harness .csproj from the trusted baseline tree
+    # over the PR tree's copy before building. The harness csproj is fixed test
+    # scaffolding — the build recipe for the StocksGrid workload, including the
+    # PerfCiSelfContained self-contained knob — NOT the code under measurement. The
+    # PR's actual perf change lives in src/Reactor/, which the harness still compiles
+    # via its relative ProjectReference into the PR tree, so overlaying only the
+    # csproj is fair. This guarantees the self-contained build block is present even
+    # for PRs opened before the gate landed (whose tree predates that csproj block),
+    # so /perf needs no rebase. Never runs in local single-tree mode ($BaselineRoot
+    # empty) or when building the baseline itself ($TreeRoot -eq $BaselineRoot).
+    if ($BaselineRoot -and ($TreeRoot -ne $BaselineRoot)) {
+        $trusted = Join-Path $BaselineRoot $AppMeta.ProjectRel
+        if (Test-Path $trusted) {
+            Copy-Item -LiteralPath $trusted -Destination $proj -Force
+            Write-Log "  overlaid trusted csproj (self-contained knob) from baseline" 'DarkGray'
+        } else {
+            Write-Log "  trusted csproj not found in baseline ($trusted) — using PR tree copy" 'Yellow'
+        }
+    }
+
     $log = Join-Path $OutDir ("build-{0}-{1}.log" -f $AppMeta.AppName, ([IO.Path]::GetFileName($TreeRoot)))
     $buildArgs = @($proj, '-c', 'Release', "-p:Platform=$Platform", '--nologo')
     if ($SelfContained) { $buildArgs += '-p:PerfCiSelfContained=true' }
