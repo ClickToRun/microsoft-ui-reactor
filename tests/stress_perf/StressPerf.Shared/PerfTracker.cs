@@ -232,10 +232,12 @@ public sealed class PerfTracker
     /// </summary>
     public void WriteMetricsJsonFile(string appName, double percent)
     {
-        // GetFileName() strips any directory/rooted segment so a stray appName
-        // can't redirect the write or make Path.Combine drop BaseDirectory.
+        // GetFileName() strips any directory/rooted segment, and Path.Join (not
+        // Path.Combine) concatenates without rooted-path reset semantics, so a
+        // stray appName can't redirect the write or drop BaseDirectory.
         var safeAppName = Path.GetFileName(appName);
-        var path = Path.Combine(AppContext.BaseDirectory, $"{safeAppName}.metrics.json");
+        var fileName = $"{safeAppName}.metrics.json";
+        var path = Path.Join(AppContext.BaseDirectory, fileName);
         File.WriteAllText(path, GetMetricsJson(appName, percent));
     }
 }
