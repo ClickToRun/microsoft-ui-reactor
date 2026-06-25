@@ -203,20 +203,26 @@ function Build-Harness {
     # and it keeps repeated runs deterministic. Never runs in local single-tree mode
     # ($BaselineRoot empty) or when building the baseline itself ($TreeRoot -eq
     # $BaselineRoot).
+    # $overlayBackup is set only AFTER the backup file is successfully written, and the
+    # overlay itself lives inside the try below. That ordering keeps the "checkout is
+    # never left modified" guarantee even if a Copy-Item throws mid-overlay: the finally
+    # restores from (and removes) the backup whenever it exists, so a failed trusted copy
+    # can't orphan a *.perfci-orig file or leave the PR csproj swapped out.
     $overlayBackup = $null
-    if ($BaselineRoot -and ($TreeRoot -ne $BaselineRoot)) {
-        $trusted = Join-Path $BaselineRoot $AppMeta.ProjectRel
-        if (Test-Path $trusted) {
-            $overlayBackup = "$proj.perfci-orig"
-            Copy-Item -LiteralPath $proj -Destination $overlayBackup -Force
-            Copy-Item -LiteralPath $trusted -Destination $proj -Force
-            Write-Log "  overlaid trusted csproj (self-contained knob) from baseline" 'DarkGray'
-        } else {
-            Write-Log "  trusted csproj not found in baseline ($trusted) — using PR tree copy" 'Yellow'
-        }
-    }
-
     try {
+        if ($BaselineRoot -and ($TreeRoot -ne $BaselineRoot)) {
+            $trusted = Join-Path $BaselineRoot $AppMeta.ProjectRel
+            if (Test-Path $trusted) {
+                $bak = "$proj.perfci-orig"
+                Copy-Item -LiteralPath $proj -Destination $bak -Force
+                $overlayBackup = $bak
+                Copy-Item -LiteralPath $trusted -Destination $proj -Force
+                Write-Log "  overlaid trusted csproj (self-contained knob) from baseline" 'DarkGray'
+            } else {
+                Write-Log "  trusted csproj not found in baseline ($trusted) — using PR tree copy" 'Yellow'
+            }
+        }
+
         $log = Join-Path $OutDir ("build-{0}-{1}.log" -f $AppMeta.AppName, ([IO.Path]::GetFileName($TreeRoot)))
         $buildArgs = @($proj, '-c', 'Release', "-p:Platform=$Platform", '--nologo')
         if ($SelfContained) { $buildArgs += '-p:PerfCiSelfContained=true' }
