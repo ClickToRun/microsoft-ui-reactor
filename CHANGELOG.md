@@ -28,6 +28,27 @@ Conventions for contributors:
 
 ### Added
 
+- **`DockFloatingWindowClosedEventArgs.Reason` — close-reason discriminator
+  for floating-window closes (spec 045 §5.3.5, issue #417).** A new
+  `required DockFloatingCloseReason Reason { get; init; }` on
+  `DockFloatingWindowClosedEventArgs`, with enum values `ContentClosed`
+  (content is gone — safe to release per-document resources tied to
+  `Content`), `MigratedToHost`, and `MigratedToFloat` (the pane is alive in
+  its new dock/float position — the close is synthetic and resources must
+  **not** be released). Previously every floating `Window.Closed` — including
+  the synthetic close Reactor fires right after a cross-window dock-back —
+  surfaced as one indistinguishable event, so consumers disposed live state
+  (SwapChainPanel, Win2D, file handles) out from under a still-mounted,
+  redocked page. The reason is stashed on the window holder
+  (`DockFloatingTracker.SetPendingClose`) immediately before the synthetic
+  `Close()` and read once by the `Closed` handler; a window with no stash
+  reports `ContentClosed`. The migrated reason is scoped to the **specific**
+  consumed pane (`DockDragSession.LastConsumedPane`), so a multi-pane float
+  that loses one tab to a dock-back still reports `ContentClosed` for a later
+  genuine close of its surviving tabs. `Reason` is intentionally `required`:
+  there is exactly one internal raise site, so it can never silently default a
+  migration to a wrong reason.
+
 - **Command debouncing: `Command.DebounceMs` (issue #136).**
   Commands can declare a leading-edge debounce window via `DebounceMs` (default
   `0` = off) to absorb double-clicks without reaching for `Task.Delay`. When

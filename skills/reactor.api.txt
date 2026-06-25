@@ -998,6 +998,7 @@ FilterOperator { Equals, NotEquals, Contains, StartsWith, EndsWith, GreaterThan,
 PinPosition { None, Left, Right }
 SortDirection { Ascending, Descending }
 DockOperationKind { Mount, DragStart, DragHover, DragConfirm, DragCancel, DragTearOut, SplitterResize, SplitterTrace, LayoutChange, Note }
+DockFloatingCloseReason { ContentClosed, MigratedToHost, MigratedToFloat }
 DockGroupRole { General, DocumentArea, ToolWindowStrip }
 DockPaneState { Docked, Floating, AutoHidden, AutoHiddenExpanded, Hidden }
 DockSide { Left, Top, Right, Bottom }
@@ -2360,7 +2361,7 @@ GetHashCode() → int
 ToString() → string
 
 ### class DockFloatingWindowClosedEventArgs
-new()
+DockFloatingCloseReason Reason { get; init; }
 DockableContent Content { get; init; }
 
 ### class DockFloatingWindowCreatedEventArgs
