@@ -1,0 +1,170 @@
+# On-demand perf comparison: comment `/perf` on a PR to benchmark its head
+# against the `main` baseline and post a sticky comparison comment.
+#
+# ── How to use ───────────────────────────────────────────────────────────────
+#   • Comment `/perf` on any open PR (must be an OWNER / MEMBER / COLLABORATOR).
+#   • Or run it manually: Actions ▸ "Perf comparison" ▸ Run workflow ▸ pr_number.
+#
+# It builds StressPerf.ReactorOptimized (the StocksGrid data-grid stress harness)
+# on the PR head and on `main`, runs them INTERLEAVED on the same runner, and
+# posts/updates one sticky comment with four metrics:
+#
+#   Renders/sec       higher is better
+#   Avg Reconcile ms  lower is better
+#   Avg Diff ms       lower is better
+#   Avg Memory MB     lower is better
+#
+# Each metric shows main, PR, a signed Δ%, and an improvement/regression/within-
+# noise status. A second table cross-references vanilla WinUI3 (StressPerf.Direct,
+# measured live) and the Rust `windows-reactor` snapshot (static reference).
+#
+# ── Why `issue_comment` (not a label) ────────────────────────────────────────
+# `issue_comment` always runs the workflow from the DEFAULT branch. Once this
+# lands on `main` it therefore works on every already-open PR with no rebase —
+# which is exactly what a fleet of in-flight perf PRs needs. The trade-off is
+# that the privileged (write-token) workflow builds and runs PR-authored harness
+# code, so triggering is restricted to trusted comment authors via
+# `author_association` (OWNER / MEMBER / COLLABORATOR). The perf scripts and the
+# `main` baseline come from the trusted default branch, never the PR.
+#
+# Local equivalent + script docs: tests/stress_perf/ci/README.md
+name: Perf comparison
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to benchmark against main
+        required: true
+        type: string
+
+# One in-flight run per PR; a newer /perf supersedes an older one.
+concurrency:
+  group: perf-compare-${{ github.event.issue.number || github.event.inputs.pr_number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read         # checkout
+  pull-requests: write   # post/update the comparison comment
+  issues: write          # PR conversation comments use the issues API
+
+jobs:
+  perf:
+    name: Benchmark PR vs main
+    # Gate: manual dispatch, OR a `/perf` comment on a PR from a trusted author.
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'issue_comment' &&
+         github.event.issue.pull_request != null &&
+         startsWith(github.event.comment.body, '/perf') &&
+         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+      }}
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      # Acknowledge the trigger so the author knows it was picked up.
+      - name: React to /perf comment
+        if: github.event_name == 'issue_comment'
+        continue-on-error: true
+        run: gh api "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" -f content=eyes
+
+      # Trusted checkout: the default branch carries the perf scripts + the main
+      # baseline. fetch-depth: 0 so we can resolve origin/main and PR head SHAs.
+      - name: Checkout default branch (trusted scripts + main baseline)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5.3.0
+        with:
+          dotnet-version: 10.0.x
+
+      # Resolve the PR number + head SHA. PR head is fetched via refs/pull/N/head
+      # so forks work too. The PR head lives in its own worktree; the workspace
+      # root stays on the trusted main baseline.
+      - name: Resolve PR + create PR worktree
+        id: resolve
+        shell: pwsh
+        run: |
+          $pr = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { '${{ github.event.inputs.pr_number }}' } else { '${{ github.event.issue.number }}' }
+          if (-not $pr) { throw 'Could not resolve a PR number.' }
+          Write-Host "PR #$pr"
+          git fetch --no-tags --force origin "pull/$pr/head" 2>&1 | Out-Host
+          $headSha = (git rev-parse FETCH_HEAD).Trim()
+          $baseSha = (git rev-parse origin/main).Trim()
+          $prTree  = Join-Path $env:RUNNER_TEMP 'pr-tree'
+          if (Test-Path $prTree) { git worktree remove --force $prTree 2>&1 | Out-Host }
+          git worktree add --force --detach $prTree $headSha 2>&1 | Out-Host
+          "pr_number=$pr"        | Out-File $env:GITHUB_OUTPUT -Append
+          "head_sha=$headSha"    | Out-File $env:GITHUB_OUTPUT -Append
+          "base_sha=$baseSha"    | Out-File $env:GITHUB_OUTPUT -Append
+          "pr_tree=$prTree"      | Out-File $env:GITHUB_OUTPUT -Append
+          Write-Host "head=$headSha base=$baseSha tree=$prTree"
+
+      # Build (self-contained, so no machine-wide WinApp runtime install — same
+      # hermetic trick the WinUI selftests job uses) + run interleaved + render
+      # the sticky comment to perf-out/comment.md. continue-on-error so a flaky
+      # run still posts a comment (with a NOTE) instead of failing silently.
+      - name: Run perf benchmark (PR vs main)
+        id: bench
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          ./tests/stress_perf/ci/Run-PerfBenchmark.ps1 `
+            -Root '${{ steps.resolve.outputs.pr_tree }}' `
+            -BaselineRoot '${{ github.workspace }}' `
+            -Percent 50 -Duration 10 -Reps 2 -Warmup 1 `
+            -HeadSha '${{ steps.resolve.outputs.head_sha }}' `
+            -BaseSha '${{ steps.resolve.outputs.base_sha }}' `
+            -RunUrl '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}' `
+            -OutDir '${{ github.workspace }}/perf-out'
+
+      - name: Upload perf logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: perf-logs
+          path: perf-out
+          if-no-files-found: warn
+          retention-days: 14
+
+      # Post or update-in-place the sticky comment (hidden marker lookup). Always
+      # runs; synthesizes a failure comment if the benchmark produced none.
+      - name: Post / update sticky comment
+        if: always()
+        shell: pwsh
+        run: |
+          $marker = '<!-- reactor-perf-compare -->'
+          $pr = '${{ steps.resolve.outputs.pr_number }}'
+          if (-not $pr) { Write-Host 'No PR number; nothing to comment on.'; exit 0 }
+          $file = '${{ github.workspace }}/perf-out/comment.md'
+          if (-not (Test-Path $file)) {
+            $runUrl = '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+            $body = "$marker`n## ⚡ Reactor perf comparison`n`n> [!CAUTION]`n> The perf benchmark did not produce results (build or harness launch failed). See the [run log]($runUrl) and the ``perf-logs`` artifact.`n"
+            Set-Content -LiteralPath $file -Value $body -Encoding UTF8
+          }
+          $existing = gh api "repos/$env:GH_REPO/issues/$pr/comments" --paginate --jq "[.[] | select(.body | startswith(""$marker""))][0].id"
+          if ($existing) {
+            Write-Host "Updating existing comment $existing"
+            gh api -X PATCH "repos/$env:GH_REPO/issues/comments/$existing" -F "body=@$file" | Out-Null
+          } else {
+            Write-Host 'Creating new sticky comment'
+            gh api "repos/$env:GH_REPO/issues/$pr/comments" -F "body=@$file" | Out-Null
+          }
+
+      # Surface a red check if the benchmark itself failed (comment still posted).
+      - name: Reflect benchmark status
+        if: always()
+        shell: pwsh
+        run: |
+          if ('${{ steps.bench.outcome }}' -ne 'success') {
+            throw 'Perf benchmark step failed or returned non-zero — see the comparison comment and the perf-logs artifact.'
+          }
+          Write-Host 'Perf benchmark completed successfully.'

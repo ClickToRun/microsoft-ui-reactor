@@ -170,8 +170,8 @@ public sealed class MainWindow : Window
         _tickCount++;
         if (_reportClock.Elapsed.TotalSeconds >= 1.0 && _tickCount > 0)
         {
-            File.AppendAllText(@"C:\temp\direct_perf_phases.log",
-                $"PERF [{_tickCount} ticks]: mutate={_mutateSum / _tickCount:F2}ms  propSet={_propSetSum / _tickCount:F2}ms  total={(_mutateSum + _propSetSum) / _tickCount:F2}ms\n");
+            try { File.AppendAllText(@"C:\temp\direct_perf_phases.log",
+                $"PERF [{_tickCount} ticks]: mutate={_mutateSum / _tickCount:F2}ms  propSet={_propSetSum / _tickCount:F2}ms  total={(_mutateSum + _propSetSum) / _tickCount:F2}ms\n"); } catch { }
             _mutateSum = 0; _propSetSum = 0; _tickCount = 0;
             _reportClock.Restart();
         }

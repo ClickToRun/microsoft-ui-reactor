@@ -6,6 +6,15 @@ public sealed class CliOptions
     public int DurationSeconds { get; set; } = 10;
     public bool Headless { get; set; }
 
+    /// <summary>
+    /// When set (via <c>--json</c>), the harness also writes a machine-readable
+    /// <c>{AppName}.metrics.json</c> next to the executable and echoes a single
+    /// <c>REACTOR_PERF_JSON {…}</c> line to the console. Used by the on-demand
+    /// perf-comparison CI workflow (.github/workflows/perf-compare.yml) to parse
+    /// the four headline metrics without scraping the human-readable report.
+    /// </summary>
+    public bool Json { get; set; }
+
     public static CliOptions Parse(string[] args)
     {
         var opts = new CliOptions();
@@ -21,6 +30,9 @@ public sealed class CliOptions
                     break;
                 case "--headless":
                     opts.Headless = true;
+                    break;
+                case "--json":
+                    opts.Json = true;
                     break;
             }
         }
