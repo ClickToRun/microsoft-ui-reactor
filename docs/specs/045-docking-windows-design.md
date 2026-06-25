@@ -728,6 +728,19 @@ A dockable window opens like any other window (`ReactorApp.OpenWindow(spec, ...)
 - If `DefaultHostId` is set and a `DockHost` with that id is currently mounted, the window opens *adopted* (no HWND created until tear-out).
 - Otherwise, it opens *floating* (top-level HWND, no host).
 
+Floating docking windows are **excluded from primary election** (issue #647).
+They open through the core window entry point with
+`ExcludeFromShutdownPolicy: true`, so a transient tear-off preview window is
+never elected `ReactorApp.PrimaryWindow` — neither on open nor by re-election
+when the real primary later closes. Without this, closing a tear-off under the
+default `OnPrimaryWindowClosed` policy would fire `Application.Exit()` and tear
+down every open window mid-process, after which a surviving host writing
+`Window.SystemBackdrop` on a torn-down surface faults with an
+`ACCESS_VIOLATION` (0xC0000005) in the shared WinUI backdrop interop. The
+companion `Window.Close()` idempotency and `BackdropApplier` closed-window
+registry (spec 036 §6.4) close the same teardown hazard for converging close
+paths.
+
 Tray-icon flyout windows (per spec 036 §11) can host a `DockHost` in their content — meaning tray flyouts can present dockable content. This is the "tray icon + dock = seamless" integration the user described.
 
 ### 6.4 DockHost as a Reactor element

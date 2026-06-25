@@ -593,13 +593,28 @@ public static partial class ReactorApp
         // never become the fallback primary: closing it would otherwise fire
         // ShutdownPolicy.OnPrimaryWindowClosed and tear the whole app down, even
         // though it is just a transient docking surface. (issue #647)
-        if (PrimaryWindow is null && !window.ExcludeFromShutdownPolicy)
-            PrimaryWindow = window;
+        if (PrimaryWindow is null)
+            PrimaryWindow = ElectPrimaryWindow(next);
 
         ReactorDisplay.RegisterWindowMonitor(window, window.MessageMonitor);
 
         try { WindowOpened?.Invoke(null, window); }
         catch (Exception ex) { global::System.Diagnostics.Debug.WriteLine($"[Reactor] WindowOpened threw: {ex.Message}"); }
+    }
+
+    // Pick the first window eligible to be the application's PrimaryWindow,
+    // skipping auxiliary windows (e.g. docking tear-off floating windows) that
+    // opted out via ExcludeFromShutdownPolicy. Returns null when only auxiliary
+    // windows remain. Shared by initial registration and unregister re-election
+    // so the two election sites cannot drift apart. (issue #647)
+    private static ReactorWindow? ElectPrimaryWindow(ReactorWindow[] candidates)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (!candidate.ExcludeFromShutdownPolicy)
+                return candidate;
+        }
+        return null;
     }
 
     // Copy-on-write remove. Idempotent — removing an already-removed window
@@ -618,10 +633,15 @@ public static partial class ReactorApp
 
         // Capture whether this window was the primary BEFORE we re-elect, so
         // ShutdownPolicy.OnPrimaryWindowClosed can distinguish "primary just
-        // died" from "secondary closed while primary still alive."
+        // died" from "secondary closed while primary still alive." Re-election
+        // goes through the same ElectPrimaryWindow helper as initial
+        // registration so an excluded auxiliary window (e.g. a docking tear-off)
+        // can never be promoted to primary on the unregister path either, which
+        // would re-introduce the exact OnPrimaryWindowClosed teardown #647
+        // closes. (issue #647)
         bool wasPrimary = ReferenceEquals(PrimaryWindow, window);
         if (wasPrimary)
-            PrimaryWindow = next.Length > 0 ? next[0] : null;
+            PrimaryWindow = ElectPrimaryWindow(next);
 
         ReactorDisplay.UnregisterWindowMonitor(window);
 
