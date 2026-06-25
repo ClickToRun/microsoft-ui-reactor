@@ -268,6 +268,100 @@ function Resolve-RustExe {
     return $null
 }
 
+function Stage-RustRuntime {
+    <# Stage the Windows App SDK self-contained runtime DLLs next to the Rust
+       test_reactor_perf.exe, with hard verification + loud logging (issue #674).
+
+       The crate's build.rs is patched to windows_reactor_setup::as_self_contained(),
+       which embeds an app.manifest that declares the WinAppSDK runtime DLLs as SxS
+       <file> entries — so the loader requires those DLLs *next to the exe at process
+       start*. as_self_contained() also tries to copy them there during `cargo build`,
+       but every download/extract/copy step in the upstream helper swallows its error
+       (`let _ = ...` / `.ok()`), so a single transient runner hiccup leaves ZERO DLLs
+       staged while the build still "Finishes". The exe then dies at load with
+       0xC0000135 (STATUS_DLL_NOT_FOUND) and 0-byte stdout/stderr, and the Rust column
+       reads n/a. This re-does the staging explicitly and verifies the result.
+
+       Best-effort: any failure here only leaves the Rust column n/a — the C# legs are
+       self-contained independently of this and are unaffected. Mirrors the upstream
+       layout: nupkg -> (strip leading dir) -> MSIX\win10-<arch>\...2.msix -> extract
+       -> copy the root *.dll / *.pri next to the exe. We copy the full runtime DLL set
+       (a superset of the crate's runtime.txt allow-list) so every manifest-referenced
+       file is present. #>
+    param([string]$ExeDir, [string]$Platform)
+
+    $arch = if ($Platform -match 'arm64') { 'arm64' } else { 'x64' }
+    $sentinel = 'microsoft.ui.xaml.dll'
+    if (Test-Path (Join-Path $ExeDir $sentinel)) {
+        Write-Log "  Rust runtime already staged next to exe ($sentinel present)" 'DarkGray'
+        return
+    }
+
+    try {
+        $tar = Join-Path $env:SystemRoot 'System32\tar.exe'
+        if (-not (Test-Path $tar)) { Write-Log "  System32\tar.exe not found — cannot stage Rust runtime (#674)" 'Yellow'; return }
+        $base = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { $env:TEMP }
+        $cache = Join-Path $base 'windows-reactor-setup\temp'
+
+        # 1. Locate the runtime nupkg. Prefer the one the build script already
+        #    downloaded (auto-syncs with the crate's pinned RUNTIME_VER); else fetch
+        #    the version this crate revision expects.
+        $pkg = 'Microsoft.WindowsAppSDK.Runtime'; $ver = '2.1.3'
+        $nupkg = $null
+        if (Test-Path $cache) {
+            $nupkg = Get-ChildItem $cache -Filter "$pkg.*.nupkg" -File -ErrorAction SilentlyContinue |
+                Sort-Object Length -Descending | Select-Object -First 1 -ExpandProperty FullName
+        }
+        if (-not $nupkg) {
+            $null = New-Item -ItemType Directory -Force -Path $cache -ErrorAction SilentlyContinue
+            $nupkg = Join-Path $cache "$pkg.$ver.nupkg"
+            $url = "https://www.nuget.org/api/v2/package/$pkg/$ver"
+            Write-Log "  staging WinAppSDK runtime for Rust harness: downloading $pkg $ver" 'DarkGray'
+            $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
+            if (Test-Path $curl) { & $curl -s -L -o $nupkg $url }
+            else { Invoke-WebRequest -Uri $url -OutFile $nupkg }
+        }
+        if (-not $nupkg -or -not (Test-Path $nupkg) -or (Get-Item $nupkg).Length -lt 1MB) {
+            Write-Log "  WinAppSDK runtime nupkg unavailable — Rust column may read n/a (#674)" 'Yellow'
+            return
+        }
+
+        # 2. Extract the nupkg (strip the leading 'tools/'-style component, matching
+        #    upstream) so the MSIX lands at MSIX\win10-<arch>\...
+        $extract = Join-Path $cache 'perfci-runtime-extract'
+        $msix = Join-Path $extract "MSIX\win10-$arch\Microsoft.WindowsAppRuntime.2.msix"
+        if (-not (Test-Path $msix)) {
+            $null = New-Item -ItemType Directory -Force -Path $extract -ErrorAction SilentlyContinue
+            & $tar -xf $nupkg -C $extract --strip-components=1
+        }
+        if (-not (Test-Path $msix)) {
+            Write-Log "  runtime MSIX not found after extract ($msix) — Rust column may read n/a (#674)" 'Yellow'
+            return
+        }
+
+        # 3. Extract the per-arch MSIX (its root holds the runtime DLLs + .pri).
+        $msixOut = Join-Path $extract ".msix_extract-$arch"
+        if (-not (Test-Path (Join-Path $msixOut $sentinel))) {
+            $null = New-Item -ItemType Directory -Force -Path $msixOut -ErrorAction SilentlyContinue
+            & $tar -xf $msix -C $msixOut
+        }
+
+        # 4. Copy the runtime DLLs + resource indices next to the exe.
+        $staged = 0
+        Get-ChildItem $msixOut -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -in '.dll', '.pri' } |
+            ForEach-Object { try { Copy-Item -LiteralPath $_.FullName -Destination $ExeDir -Force; $staged++ } catch {} }
+
+        if (Test-Path (Join-Path $ExeDir $sentinel)) {
+            Write-Log "  staged $staged WinAppSDK runtime file(s) next to test_reactor_perf.exe (self-contained)" 'Green'
+        } else {
+            Write-Log "  runtime staging copied $staged file(s) but $sentinel is missing — Rust column may read n/a (#674)" 'Yellow'
+        }
+    } catch {
+        Write-Log "  Rust runtime staging failed ($($_.Exception.Message)) — Rust column may read n/a (#674)" 'Yellow'
+    }
+}
+
 function Invoke-RustLeg {
     <# Build + run the windows-rs `test_reactor_perf` crate for the Rust column.
        Best-effort: any failure logs a warning and yields $null (column reads n/a). #>
@@ -277,6 +371,7 @@ function Invoke-RustLeg {
         if (-not $SkipBuild) { Build-RustHarness -RepoRoot $RustRepo }
         $rustExe = Resolve-RustExe -RepoRoot $RustRepo
         if (-not $rustExe) { Write-Log "test_reactor_perf.exe not found after build — Rust column n/a" 'Yellow'; return $null }
+        Stage-RustRuntime -ExeDir (Split-Path $rustExe) -Platform $Platform
         Write-Log "Rust windows-reactor (test_reactor_perf)" 'Green'
         # The Rust port writes StressPerf.Reactor.report.txt next to its exe and has
         # no --json mode, so run with -NoJson and read the report.
