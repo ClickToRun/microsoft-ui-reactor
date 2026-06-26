@@ -210,8 +210,17 @@ function Get-StudentTCritical {
     <#
     .SYNOPSIS
         Two-sided 95% Student-t critical value for the given degrees of freedom.
-        Hard-coded table for df 1..30, then a slightly conservative constant
-        (so the resulting CI is never understated) — keeps PerfLib dependency-free.
+        Exact hard-coded table for df 1..30, then a CONSERVATIVE step function
+        for df > 30 — keeps PerfLib dependency-free.
+    .DESCRIPTION
+        t(.975, df) decreases monotonically in df, so for any df in a band
+        (a, b] the largest true value occurs at the small-df edge. Each band
+        therefore returns t(.975, a) (the value at its left edge), which is
+        >= the true critical value for every df it covers. This guarantees the
+        resulting CI half-width is never understated (we never flag a delta as
+        significant on too-narrow an interval); it is mildly conservative within
+        a band. The default reps (12 -> df=11) land in the exact table, so this
+        only matters if someone runs >31 reps.
     #>
     param([int]$Df)
     if ($Df -lt 1) { return [double]::NaN }
@@ -221,9 +230,23 @@ function Get-StudentTCritical {
         2.080, 2.074, 2.069, 2.064, 2.060, 2.056, 2.052, 2.048, 2.045, 2.042
     )
     if ($Df -le 30) { return [double]$t[$Df - 1] }
-    if ($Df -le 60) { return 2.000 }
-    if ($Df -le 120) { return 1.980 }
-    return 1.960
+    # Step down using each band's left-edge t(.975) value (>= true across the band).
+    if ($Df -le 35) { return 2.042 }   # t(30)
+    if ($Df -le 40) { return 2.030 }   # t(35)
+    if ($Df -le 45) { return 2.021 }   # t(40)
+    if ($Df -le 50) { return 2.014 }   # t(45)
+    if ($Df -le 60) { return 2.009 }   # t(50)
+    if ($Df -le 70) { return 2.000 }   # t(60)
+    if ($Df -le 80) { return 1.994 }   # t(70)
+    if ($Df -le 90) { return 1.990 }   # t(80)
+    if ($Df -le 100) { return 1.987 }  # t(90)
+    if ($Df -le 120) { return 1.984 }  # t(100)
+    if ($Df -le 150) { return 1.980 }  # t(120)
+    if ($Df -le 200) { return 1.976 }  # t(150)
+    if ($Df -le 300) { return 1.972 }  # t(200)
+    if ($Df -le 500) { return 1.968 }  # t(300)
+    if ($Df -le 1000) { return 1.965 } # t(500)
+    return 1.962                       # t(1000); asymptote -> 1.960
 }
 
 function Get-PerfPairedDeltaStats {

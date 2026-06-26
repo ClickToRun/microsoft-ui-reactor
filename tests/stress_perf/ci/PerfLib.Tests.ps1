@@ -233,10 +233,15 @@ Assert-Match $noRust 'n/a'      'n/a cells rendered when winui3 + rust null'
 Assert-Equal 12.706 (Get-StudentTCritical -Df 1)  't critical df=1'
 Assert-Equal 2.201  (Get-StudentTCritical -Df 11) 't critical df=11'
 Assert-Equal 2.042  (Get-StudentTCritical -Df 30) 't critical df=30 (table edge)'
-Assert-Equal 2.0    (Get-StudentTCritical -Df 45) 't critical df 31..60 -> 2.000'
-Assert-Equal 1.98   (Get-StudentTCritical -Df 90) 't critical df 61..120 -> 1.980'
-Assert-Equal 1.96   (Get-StudentTCritical -Df 500) 't critical df>120 -> 1.960 (z)'
+Assert-Equal 2.021  (Get-StudentTCritical -Df 45) 't critical df 41..45 -> t(40)=2.021 conservative'
+Assert-Equal 1.99   (Get-StudentTCritical -Df 90) 't critical df 81..90 -> t(80)=1.990 conservative'
+Assert-Equal 1.968  (Get-StudentTCritical -Df 500) 't critical df 301..500 -> t(300)=1.968 conservative'
 Assert-True ([double]::IsNaN((Get-StudentTCritical -Df 0))) 't critical df<1 -> NaN'
+# Conservatism property: returned value must be >= the true two-sided 95% t critical.
+Assert-True ((Get-StudentTCritical -Df 45)  -ge 2.0141) 't(45) >= true 2.0141 (never understated)'
+Assert-True ((Get-StudentTCritical -Df 90)  -ge 1.9867) 't(90) >= true 1.9867 (never understated)'
+Assert-True ((Get-StudentTCritical -Df 500) -ge 1.9647) 't(500) >= true 1.9647 (never understated)'
+Assert-True ((Get-StudentTCritical -Df 5000) -ge 1.96)  't(5000) >= z 1.960 (never understated)'
 
 # ── Get-PerfPairedDeltaStats (paired CI over per-iteration deltas) ────────────
 # A clear, low-variance ~5% reduction: the 95% CI must exclude 0.
