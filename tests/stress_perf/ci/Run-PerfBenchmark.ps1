@@ -492,7 +492,7 @@ function Stage-RustRuntime {
         } else {
             # List exactly what's missing — MSIX payload files by name plus any required core /
             # SxS file (e.g. the WebView2 Core DLL) — so a partial stage is diagnosable from the log.
-            $missing = @(@($notCopied | ForEach-Object Name) + @($coreMissing) | Where-Object { $_ } | Select-Object -Unique)
+            $missing = @(@($notCopied | ForEach-Object { $_.Name }) + @($coreMissing) | Where-Object { $_ } | Select-Object -Unique)
             Write-Log "  runtime staging incomplete (copied $staged; missing: $($missing -join ', ')) — Rust column may read n/a (#674)" 'Yellow'
         }
     } catch {
