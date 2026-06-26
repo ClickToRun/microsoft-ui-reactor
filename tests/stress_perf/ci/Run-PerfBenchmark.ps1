@@ -321,14 +321,20 @@ function Stage-RustRuntime {
         $base = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { $env:TEMP }
         $cache = Join-Path $base 'windows-reactor-setup\temp'
 
-        # 1. Locate the runtime nupkg. Prefer the one the build script already
-        #    downloaded (auto-syncs with the crate's pinned RUNTIME_VER); else fetch
-        #    the version this crate revision expects.
+        # 1. Locate the runtime nupkg. Prefer one already in the shared windows-reactor-setup
+        #    cache (auto-syncs with the crate's pinned RUNTIME_VER); if several versions linger
+        #    there (e.g. local experimentation), pick the highest *version* — never the largest
+        #    file, which is arbitrary and could stage a mismatched runtime and reintroduce
+        #    0xC0000135. Else download the pinned version.
         $pkg = 'Microsoft.WindowsAppSDK.Runtime'; $ver = '2.1.3'
         $nupkg = $null
         if (Test-Path $cache) {
             $nupkg = Get-ChildItem $cache -Filter "$pkg.*.nupkg" -File -ErrorAction SilentlyContinue |
-                Sort-Object Length -Descending | Select-Object -First 1 -ExpandProperty FullName
+                Sort-Object @{ Expression = {
+                    $p = [version]'0.0'
+                    try { [void][version]::TryParse($_.BaseName.Substring($pkg.Length + 1), [ref]$p) } catch {}
+                    $p } } -Descending |
+                Select-Object -First 1 -ExpandProperty FullName
         }
         if (-not $nupkg) {
             $null = New-Item -ItemType Directory -Force -Path $cache -ErrorAction SilentlyContinue
@@ -344,9 +350,11 @@ function Stage-RustRuntime {
             return
         }
 
-        # 2. Extract the nupkg (strip the leading 'tools/'-style component, matching
-        #    upstream) so the MSIX lands at MSIX\win10-<arch>\...
-        $extract = Join-Path $cache 'perfci-runtime-extract'
+        # 2. Extract the nupkg (strip the leading 'tools/'-style component, matching upstream)
+        #    so the MSIX lands at MSIX\win10-<arch>\... Key the extract dir by the selected
+        #    nupkg name (version) so a different version selected later cannot reuse a stale
+        #    cross-version MSIX payload from a stable path.
+        $extract = Join-Path $cache ("perfci-runtime-extract-" + [IO.Path]::GetFileNameWithoutExtension($nupkg))
         $msix = Join-Path $extract "MSIX\win10-$arch\Microsoft.WindowsAppRuntime.2.msix"
         if (-not (Test-Path $msix)) {
             $null = New-Item -ItemType Directory -Force -Path $extract -ErrorAction SilentlyContinue
@@ -378,11 +386,12 @@ function Stage-RustRuntime {
             Where-Object { $_.Extension -in '.dll', '.pri' } |
             ForEach-Object { try { Copy-Item -LiteralPath $_.FullName -Destination $ExeDir -Force; $staged++ } catch {} }
 
-        # Verify completeness against the actual MSIX payload for this package version
-        # (not just one sentinel): every runtime DLL from the MSIX root must now sit next
-        # to the exe, and the required core set must be present.
-        $srcDlls = @(Get-ChildItem $msixOut -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -eq '.dll' })
-        $notCopied = @($srcDlls | Where-Object { -not (Test-Path (Join-Path $ExeDir $_.Name)) })
+        # Verify completeness against the actual MSIX payload for this package version (not
+        # just one sentinel): every runtime file we copied (.dll AND .pri) from the MSIX root
+        # must now sit next to the exe, and the required core DLL set must be present — so a
+        # swallowed .pri copy failure also blocks the completion marker.
+        $srcFiles = @(Get-ChildItem $msixOut -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.dll', '.pri' })
+        $notCopied = @($srcFiles | Where-Object { -not (Test-Path (Join-Path $ExeDir $_.Name)) })
         $coreMissing = @($required | Where-Object { -not (Test-Path (Join-Path $ExeDir $_)) })
         if ($notCopied.Count -eq 0 -and $coreMissing.Count -eq 0) {
             # Completion marker: written only now that staging is fully verified, so a later
