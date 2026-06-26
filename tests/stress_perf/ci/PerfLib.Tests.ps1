@@ -229,8 +229,156 @@ $noRust = Format-PerfComment -Main $main -Pr $pr -WinUI3 $null -Rust $null -Cont
 Assert-Match $noRust 'Not run'  'rust footnote = not run when null'
 Assert-Match $noRust 'n/a'      'n/a cells rendered when winui3 + rust null'
 
-# ── Summary ──────────────────────────────────────────────────────────────────
-Write-Host ""
+# ── Get-StudentTCritical (95% two-sided t-table) ─────────────────────────────
+Assert-Equal 12.706 (Get-StudentTCritical -Df 1)  't critical df=1'
+Assert-Equal 2.201  (Get-StudentTCritical -Df 11) 't critical df=11'
+Assert-Equal 2.042  (Get-StudentTCritical -Df 30) 't critical df=30 (table edge)'
+Assert-Equal 2.0    (Get-StudentTCritical -Df 45) 't critical df 31..60 -> 2.000'
+Assert-Equal 1.98   (Get-StudentTCritical -Df 90) 't critical df 61..120 -> 1.980'
+Assert-Equal 1.96   (Get-StudentTCritical -Df 500) 't critical df>120 -> 1.960 (z)'
+Assert-True ([double]::IsNaN((Get-StudentTCritical -Df 0))) 't critical df<1 -> NaN'
+
+# ── Get-PerfPairedDeltaStats (paired CI over per-iteration deltas) ────────────
+# A clear, low-variance ~5% reduction: the 95% CI must exclude 0.
+$bImp = @(100, 102, 98, 101, 99, 100, 103, 97, 99, 101)
+$cImp = @(95,  96,  93, 95,  94, 95,  97,  92, 94, 96)
+$sImp = Get-PerfPairedDeltaStats -BaselineSamples $bImp -CandidateSamples $cImp
+Assert-Equal 10 $sImp.N                          'paired N = 10 valid pairs'
+Assert-True ($sImp.MeanPct -lt 0)                'paired mean delta is negative (improvement)'
+Assert-True ($sImp.CiHighPct -lt 0)              'paired improvement CI excludes 0 (high < 0)'
+
+# Pure jitter around the baseline: the CI must straddle 0.
+$bN = @(100, 102, 98, 101, 99, 100, 103, 97, 99, 101)
+$cN = @(101, 99, 100, 98, 102, 99, 101, 100, 98, 102)
+$sN = Get-PerfPairedDeltaStats -BaselineSamples $bN -CandidateSamples $cN
+Assert-True (($sN.CiLowPct -lt 0) -and ($sN.CiHighPct -gt 0)) 'noise CI includes 0'
+
+# Nulls (a dropped/failed run on either side) are skipped, not zipped as zero.
+$bNull = @(100, $null, 98, 101)
+$cNull = @(95, 96, $null, 95)
+$sNull = Get-PerfPairedDeltaStats -BaselineSamples $bNull -CandidateSamples $cNull
+Assert-Equal 2 $sNull.N                          'paired stats skips null-containing pairs (2 valid)'
+
+# Fewer than 2 valid pairs -> null (a CI needs >= 2).
+Assert-Null (Get-PerfPairedDeltaStats -BaselineSamples @(100) -CandidateSamples @(95)) 'one pair -> null'
+Assert-Null (Get-PerfPairedDeltaStats -BaselineSamples $null -CandidateSamples $null)  'null samples -> null'
+Assert-Null (Get-PerfPairedDeltaStats -BaselineSamples @(0, 0) -CandidateSamples @(5, 5)) 'zero baselines skipped -> null'
+
+# ── Get-PerfDelta with samples (CI-excludes-0 replaces the 4% floor) ──────────
+# A ~2% improvement that the OLD 4% floor would have buried as "noise", now
+# resolved as a real improvement because the paired CI excludes 0.
+$bSmall = @(100, 100.5, 99.5, 100, 100.2, 99.8, 100.1, 99.9, 100.3, 99.7)
+$cSmall = @(98,  98.4,  97.6, 98,  98.2,  97.8, 98.1,  97.9, 98.3,  97.7)
+$dSmall = Get-PerfDelta -Baseline 100 -Candidate 98 -LowerIsBetter $true -BaselineSamples $bSmall -CandidateSamples $cSmall
+Assert-Equal 'better' $dSmall.Status   'sub-4% improvement resolved via CI (was noise under floor)'
+Assert-True  ($null -ne $dSmall.CiLowPct) 'sample delta carries CiLowPct'
+Assert-Equal 10 $dSmall.N              'sample delta carries N'
+
+# Genuine jitter with samples -> noise even though the point delta is non-trivial.
+$dNoise = Get-PerfDelta -Baseline 100 -Candidate 100 -LowerIsBetter $true -BaselineSamples $bN -CandidateSamples $cN
+Assert-Equal 'noise' $dNoise.Status    'paired jitter CI includes 0 -> noise'
+
+# Higher-is-better regression caught when the CI excludes 0.
+$bRps = @(3.6, 3.58, 3.62, 3.59, 3.61, 3.57, 3.6, 3.63, 3.58, 3.6)
+$cRps = @(3.4, 3.38, 3.42, 3.39, 3.41, 3.37, 3.4, 3.43, 3.38, 3.4)
+$dReg = Get-PerfDelta -Baseline 3.6 -Candidate 3.4 -LowerIsBetter $false -BaselineSamples $bRps -CandidateSamples $cRps
+Assert-Equal 'worse' $dReg.Status      'higher-better paired regression (CI excludes 0)'
+
+# Back-compat: with < 2 usable pairs it falls back to the scalar floor path.
+$dFallback = Get-PerfDelta -Baseline 100 -Candidate 95 -LowerIsBetter $true -BaselineSamples @(100) -CandidateSamples @(95)
+Assert-Equal 'better' $dFallback.Status 'insufficient samples -> floor fallback still flags'
+Assert-Null  $dFallback.CiLowPct        'fallback path has null CI'
+
+# ── Format-PerfDeltaCell with CI ─────────────────────────────────────────────
+$cellCi = Format-PerfDeltaCell ([pscustomobject]@{ DeltaPct = -3.4; CiLowPct = -6.1; CiHighPct = -0.6 })
+Assert-Match $cellCi '-3.4%'            'CI cell shows point delta'
+Assert-Match $cellCi '95% CI'            'CI cell shows the interval label'
+Assert-Match $cellCi '-6.1, -0.6'        'CI cell shows the interval bounds'
+# Legacy callers passing only DeltaPct must still render a bare percentage.
+Assert-Equal '+20.0%' (Format-PerfDeltaCell ([pscustomobject]@{ DeltaPct = 20.0 })) 'no-CI cell stays bare'
+
+# ── Measure-PerfRuns carries ordered per-run samples (incl. alloc keys) ───────
+$runsForSamples = @(
+    [pscustomobject]@{ RendersPerSec = 10; AvgReconcileMs = 5; AvgDiffMs = 2; AvgMemoryMB = 200; AllocBytesPerRender = 52000; Gen0PerKRenders = 4.1; Gen0 = 10; Gen1 = 2; Gen2 = 0; TotalRenders = 100; DurationSeconds = 10 }
+    [pscustomobject]@{ RendersPerSec = 12; AvgReconcileMs = 4; AvgDiffMs = 1.8; AvgMemoryMB = 195; AllocBytesPerRender = 48000; Gen0PerKRenders = 3.8; Gen0 = 9; Gen1 = 2; Gen2 = 0; TotalRenders = 120; DurationSeconds = 10 }
+)
+$aggS = Measure-PerfRuns -Runs $runsForSamples
+Assert-Equal 2 $aggS.RendersPerSecSamples.Count        'samples array preserves per-run order/count'
+Assert-Equal 10 $aggS.RendersPerSecSamples[0]          'samples array keeps first run value'
+Assert-Equal 52000 $aggS.AllocBytesPerRenderSamples[0] 'alloc samples captured'
+Assert-Equal 50000 $aggS.AllocBytesPerRender           'alloc median across runs'
+# A run object lacking the alloc key (legacy harness) -> null placeholder, not a throw.
+$aggMixed = Measure-PerfRuns -Runs @(
+    [pscustomobject]@{ RendersPerSec = 10; AvgReconcileMs = 5; AvgDiffMs = 2; AvgMemoryMB = 200; TotalRenders = 100; DurationSeconds = 10 }
+)
+Assert-Null $aggMixed.AllocBytesPerRender               'absent alloc key -> null median (no throw under StrictMode)'
+Assert-Null $aggMixed.AllocBytesPerRenderSamples[0]     'absent alloc key -> null sample placeholder'
+
+# ── Read-HarnessMetrics parses the new allocation fields ─────────────────────
+$tmp2 = Join-Path ([IO.Path]::GetTempPath()) ("perflib-alloc-" + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $tmp2 -Force | Out-Null
+try {
+    # report.txt with the alloc lines PerfTracker now emits.
+    $allocReport = @"
+StressPerf.ReactorOptimized report
+Total Renders: 1000
+Duration: 10.0 s
+Avg Reconcile: 5.50 ms
+Avg Diff: 2.20 ms
+Avg Memory: 210.0 MB
+Alloc/render: 51234 bytes
+GC Gen0/1/2: 12 / 3 / 1
+Gen0/Krender: 4.07
+"@
+    Set-Content -LiteralPath (Join-Path $tmp2 'StressPerf.ReactorOptimized.report.txt') -Value $allocReport -Encoding UTF8
+    $am = Read-HarnessMetrics -Directory $tmp2 -AppName 'StressPerf.ReactorOptimized'
+    Assert-Equal 51234 $am.AllocBytesPerRender 'report alloc bytes/render parsed'
+    Assert-Equal 4.07  $am.Gen0PerKRenders     'report Gen0/Krender parsed'
+    Assert-Equal 12    $am.Gen0                'report Gen0 count parsed'
+    Assert-Equal 1     $am.Gen2                'report Gen2 count parsed'
+
+    # metrics.json with the new alloc fields wins and is parsed.
+    $allocJson = '{"app":"StressPerf.ReactorOptimized","percent":50,"durationSeconds":10,"rendersPerSec":99.9,"totalRenders":999,"avgReconcileMs":1.1,"avgDiffMs":2.2,"avgMemoryMB":150.5,"allocBytesPerRender":47777,"gen0":9,"gen1":2,"gen2":0,"gen0PerKRenders":3.55,"avgFps":60,"sampleCount":5}'
+    Set-Content -LiteralPath (Join-Path $tmp2 'StressPerf.ReactorOptimized.metrics.json') -Value $allocJson -Encoding UTF8
+    $aj = Read-HarnessMetrics -Directory $tmp2 -AppName 'StressPerf.ReactorOptimized'
+    Assert-Equal 'json' $aj.Source             'json wins over report'
+    Assert-Equal 47777 $aj.AllocBytesPerRender 'json alloc bytes/render parsed'
+    Assert-Equal 3.55  $aj.Gen0PerKRenders     'json Gen0/Krender parsed'
+
+    # Back-compat: a metrics.json WITHOUT alloc fields still parses, alloc -> null.
+    $oldJson = '{"app":"StressPerf.Old","percent":50,"durationSeconds":10,"rendersPerSec":50,"totalRenders":500,"avgReconcileMs":3,"avgDiffMs":1,"avgMemoryMB":180,"avgFps":60,"sampleCount":5}'
+    Set-Content -LiteralPath (Join-Path $tmp2 'StressPerf.Old.metrics.json') -Value $oldJson -Encoding UTF8
+    $oj = Read-HarnessMetrics -Directory $tmp2 -AppName 'StressPerf.Old'
+    Assert-Equal 'json' $oj.Source             'legacy json (no alloc) still parses'
+    Assert-Null  $oj.AllocBytesPerRender       'legacy json -> alloc n/a (null)'
+}
+finally {
+    Remove-Item -LiteralPath $tmp2 -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# ── Format-PerfComment: allocation table + CI header + CI-based footnote ──────
+$allocMain = Measure-PerfRuns -Runs @(
+    [pscustomobject]@{ RendersPerSec = 3.55; AvgReconcileMs = 76; AvgDiffMs = 66; AvgMemoryMB = 303; AllocBytesPerRender = 52000; Gen0PerKRenders = 4.10; Gen0 = 10; Gen1 = 2; Gen2 = 0; TotalRenders = 35; DurationSeconds = 10 }
+    [pscustomobject]@{ RendersPerSec = 3.56; AvgReconcileMs = 76; AvgDiffMs = 66; AvgMemoryMB = 303; AllocBytesPerRender = 52100; Gen0PerKRenders = 4.12; Gen0 = 10; Gen1 = 2; Gen2 = 0; TotalRenders = 35; DurationSeconds = 10 }
+    [pscustomobject]@{ RendersPerSec = 3.54; AvgReconcileMs = 76; AvgDiffMs = 66; AvgMemoryMB = 303; AllocBytesPerRender = 51900; Gen0PerKRenders = 4.08; Gen0 = 10; Gen1 = 2; Gen2 = 0; TotalRenders = 35; DurationSeconds = 10 }
+)
+$allocPr = Measure-PerfRuns -Runs @(
+    [pscustomobject]@{ RendersPerSec = 3.55; AvgReconcileMs = 76; AvgDiffMs = 66; AvgMemoryMB = 303; AllocBytesPerRender = 48000; Gen0PerKRenders = 3.80; Gen0 = 9; Gen1 = 2; Gen2 = 0; TotalRenders = 35; DurationSeconds = 10 }
+    [pscustomobject]@{ RendersPerSec = 3.56; AvgReconcileMs = 76; AvgDiffMs = 66; AvgMemoryMB = 303; AllocBytesPerRender = 48100; Gen0PerKRenders = 3.82; Gen0 = 9; Gen1 = 2; Gen2 = 0; TotalRenders = 35; DurationSeconds = 10 }
+    [pscustomobject]@{ RendersPerSec = 3.54; AvgReconcileMs = 76; AvgDiffMs = 66; AvgMemoryMB = 303; AllocBytesPerRender = 47900; Gen0PerKRenders = 3.78; Gen0 = 9; Gen1 = 2; Gen2 = 0; TotalRenders = 35; DurationSeconds = 10 }
+)
+$allocComment = Format-PerfComment -Main $allocMain -Pr $allocPr -WinUI3 $null -Rust $null -Context $ctx
+Assert-Match $allocComment 'Allocation (Reactor)'  'comment renders the allocation table when alloc present'
+Assert-Match $allocComment 'Alloc bytes/render'    'alloc table has bytes/render row'
+Assert-Match $allocComment 'Gen0 GC / 1k renders'  'alloc table has Gen0 row'
+Assert-Match $allocComment '95% CI'                'delta cells carry a 95% CI'
+Assert-Match $allocComment 'confidence interval of the paired'  'footnote describes the CI-based noise rule'
+
+# Alloc table is omitted when neither side reports allocation metrics (legacy heads).
+$noAllocComment = Format-PerfComment -Main $main -Pr $pr -WinUI3 $null -Rust $null -Context $ctx
+Assert-True (-not ($noAllocComment -like '*Allocation (Reactor)*')) 'alloc table omitted when no alloc metric present'
+
+
 if ($script:Fail -gt 0) {
     Write-Host "FAILED: $($script:Fail) / $($script:Pass + $script:Fail) assertions" -ForegroundColor Red
     foreach ($f in $script:Failures) { Write-Host "  ✗ $f" -ForegroundColor Red }

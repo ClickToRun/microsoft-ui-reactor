@@ -26,6 +26,20 @@ public sealed class PerfTracker
     // increment when the reconcile completes via RecordPhases.
     private int _renderCount;
 
+    // Managed-allocation accounting for the render loop. The baseline is captured
+    // lazily on the FIRST recorded render (see RecordRender) so app-startup
+    // allocations (XAML load, first layout) are excluded and we measure the
+    // steady-state per-render cost. These are process-wide cumulative counters
+    // (GC.GetTotalAllocatedBytes / GC.CollectionCount) — AOT/trim-safe and
+    // require no changes to the Reactor host being measured. Allocation-reduction
+    // PRs move these directly, while the mean-ms / working-set metrics are largely
+    // blind to them. See METHODOLOGY.md.
+    private bool _allocBaselineCaptured;
+    private long _startAllocBytes;
+    private int _startGen0;
+    private int _startGen1;
+    private int _startGen2;
+
     public double CurrentFps => _currentFps;
     public double LastUpdateMs => _lastUpdateMs;
     public long CurrentMemoryMB => Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024);
@@ -71,7 +85,21 @@ public sealed class PerfTracker
     /// <see cref="RecordPhases"/> fires from the reconcile-complete callback.
     /// See METHODOLOGY.md.
     /// </summary>
-    public void RecordRender() => _renderCount++;
+    public void RecordRender()
+    {
+        // Capture the allocation baseline on the first render so per-render
+        // allocation figures reflect the steady-state render loop, not one-time
+        // app startup. Cheap, AOT-safe, and identical for every variant.
+        if (!_allocBaselineCaptured)
+        {
+            _allocBaselineCaptured = true;
+            _startAllocBytes = GC.GetTotalAllocatedBytes();
+            _startGen0 = GC.CollectionCount(0);
+            _startGen1 = GC.CollectionCount(1);
+            _startGen2 = GC.CollectionCount(2);
+        }
+        _renderCount++;
+    }
 
     public int TotalRenders => _renderCount;
 
@@ -130,6 +158,12 @@ public sealed class PerfTracker
         }
         sb.AppendLine($"Avg Memory:  {_memorySamples.Average() / (1024 * 1024):F1} MB");
         sb.AppendLine($"Peak Memory: {_memorySamples.Max() / (1024 * 1024):F1} MB");
+        // Allocation accounting (steady-state render loop; baseline = first render).
+        // Lower is better. The mean-ms / working-set metrics above are largely blind
+        // to allocation-reduction changes, so these are the sensitive signal for them.
+        sb.AppendLine($"Alloc/render: {AllocBytesPerRender:F0} bytes");
+        sb.AppendLine($"GC Gen0/1/2: {Gen0Collections} / {Gen1Collections} / {Gen2Collections}");
+        sb.AppendLine($"Gen0/Krender: {Gen0PerKRenders:F2}");
         return sb.ToString();
     }
 
@@ -179,6 +213,32 @@ public sealed class PerfTracker
     public double RendersPerSec => ElapsedSeconds > 0 ? _renderCount / ElapsedSeconds : 0.0;
 
     /// <summary>
+    /// Mean managed bytes allocated per recorded render across the measurement
+    /// window (first render → report time), or 0. Lower is better. This is the
+    /// metric allocation-reduction PRs move directly; the mean-ms and working-set
+    /// figures are largely insensitive to allocation churn. See METHODOLOGY.md.
+    /// </summary>
+    public double AllocBytesPerRender =>
+        _allocBaselineCaptured && _renderCount > 0
+            ? (GC.GetTotalAllocatedBytes() - _startAllocBytes) / (double)_renderCount
+            : 0.0;
+
+    /// <summary>Gen0 garbage collections during the measurement window, or 0.</summary>
+    public int Gen0Collections => _allocBaselineCaptured ? GC.CollectionCount(0) - _startGen0 : 0;
+
+    /// <summary>Gen1 garbage collections during the measurement window, or 0.</summary>
+    public int Gen1Collections => _allocBaselineCaptured ? GC.CollectionCount(1) - _startGen1 : 0;
+
+    /// <summary>Gen2 garbage collections during the measurement window, or 0.</summary>
+    public int Gen2Collections => _allocBaselineCaptured ? GC.CollectionCount(2) - _startGen2 : 0;
+
+    /// <summary>
+    /// Gen0 collections per 1,000 renders (render-rate-normalised so it is
+    /// comparable across runs of differing length), or 0. Lower is better.
+    /// </summary>
+    public double Gen0PerKRenders => _renderCount > 0 ? Gen0Collections * 1000.0 / _renderCount : 0.0;
+
+    /// <summary>
     /// Compact, single-line, culture-invariant JSON with the four headline
     /// metrics plus context. Built by hand (no serializer) to stay trivially
     /// AOT/trim-safe for this PublishAot harness.
@@ -219,6 +279,11 @@ public sealed class PerfTracker
         sb.Append("\"avgReconcileMs\":").Append(F(AvgReconcileMs)).Append(',');
         sb.Append("\"avgDiffMs\":").Append(F(AvgDiffMs)).Append(',');
         sb.Append("\"avgMemoryMB\":").Append(F(AvgMemoryMB)).Append(',');
+        sb.Append("\"allocBytesPerRender\":").Append(F(AllocBytesPerRender)).Append(',');
+        sb.Append("\"gen0\":").Append(Gen0Collections.ToString(CultureInfo.InvariantCulture)).Append(',');
+        sb.Append("\"gen1\":").Append(Gen1Collections.ToString(CultureInfo.InvariantCulture)).Append(',');
+        sb.Append("\"gen2\":").Append(Gen2Collections.ToString(CultureInfo.InvariantCulture)).Append(',');
+        sb.Append("\"gen0PerKRenders\":").Append(F(Gen0PerKRenders)).Append(',');
         sb.Append("\"avgFps\":").Append(F(_fpsSamples.Count > 0 ? _fpsSamples.Average() : 0.0)).Append(',');
         sb.Append("\"sampleCount\":").Append(_fpsSamples.Count.ToString(CultureInfo.InvariantCulture));
         sb.Append('}');

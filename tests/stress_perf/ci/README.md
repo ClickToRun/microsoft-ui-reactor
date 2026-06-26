@@ -29,6 +29,23 @@ Measured on the `StressPerf.ReactorOptimized` StocksGrid workload (Release, buil
 Imperative WinUI3 (`StressPerf.Direct`) has no virtual-DOM, so it has **no**
 reconcile/diff phase — those cells read *n/a*.
 
+### Allocation metrics (Reactor, lower is better)
+
+The mean-ms and working-set numbers above are largely **blind to
+allocation-reduction work** — a PR that removes per-render allocations often
+moves them < 1% while cutting allocations by double digits. So the comment also
+reports a Reactor-only allocation table, captured by `PerfTracker` over the
+measured render loop:
+
+| Metric | Meaning | Direction |
+|---|---|:--:|
+| **Alloc bytes/render** | managed bytes allocated per render (`GC.GetTotalAllocatedBytes` Δ ÷ renders) | lower is better ↓ |
+| **Gen0 GC / 1k renders** | Gen0 collections per 1,000 renders (`GC.CollectionCount(0)` Δ) | lower is better ↓ |
+
+These read *n/a* for a PR head whose harness sources predate the metric — rebase
+onto `main` to populate them. They are the **sensitive signal** for the
+allocation-focused PRs in the current fleet.
+
 ## Prerequisites
 
 - **Windows** with a real interactive desktop session (the harness opens a real
@@ -82,8 +99,10 @@ git worktree remove ../main
 | `-BaselineRoot` | _(unset)_ | A second checkout (the **`main`** baseline). Setting it enables **compare mode** and renders `comment.md`. |
 | `-Percent` | `50` | Fraction of grid cells mutated per tick (methodology default). |
 | `-Duration` | `10` | Measured seconds per run (methodology default). |
-| `-Reps` | `2` | Measured runs whose **median** is reported (methodology "median of two"). Bump for tighter numbers. |
-| `-Warmup` | `1` | Leading runs discarded before the measured `Reps`. |
+| `-Reps` | `12` | Measured runs per side whose **median** is reported and whose per-run samples feed the **paired 95% CI**. 12 resolves the ~1–3% deltas these PRs target; a 2-run median cannot. |
+| `-Warmup` | `2` | Leading runs discarded before the measured `Reps` (absorbs JIT / first-window warm-up). |
+| `-RefReps` | `3` | Measured runs for the **reference-only** legs (vanilla WinUI3, Rust) — a single reference absolute, not a paired CI, so it needs far fewer reps. |
+| `-RefWarmup` | `1` | Warm-up runs discarded for the reference-only legs. |
 | `-Apps` | `ReactorOptimized,Direct` | Single-tree mode only: which harnesses to run. |
 | `-Platform` | host arch | Target architecture (`x64` or `ARM64`). Defaults to your machine's native arch so the WinUI harness runs without emulation. |
 | `-SelfContained` | `$true` | Build with the bundled WinApp runtime (no machine-wide install). |
@@ -137,10 +156,19 @@ is the security control, because the job has a write token.
 
 Two tables plus footnotes:
 
-- **Regression vs `main`** — `Metric | main | This PR | Δ% | Status`, where
-  Status is direction-aware (`✅ improvement` / `⚠️ regression` / `≈ within
-  noise`). "Within noise" means `|Δ|` is below the larger of the run-to-run
-  spread and a 4% floor — treat it as no measurable change.
+- **Regression vs `main`** — `Metric | main | This PR | Δ (95% CI) | Status`,
+  where Status is direction-aware (`✅ improvement` / `⚠️ regression` / `≈ within
+  noise`). The Δ is the **mean of the paired per-run deltas** (PR run *i* vs
+  `main` run *i*, collected interleaved) with a two-sided **95% confidence
+  interval**. A change is flagged improvement/regression **only when that CI
+  excludes 0**; if the CI straddles 0 it is *within noise* — no change resolvable
+  at this sample size. This data-driven band replaces the old fixed 4% floor,
+  which both buried real sub-4% wins and rubber-stamped any sub-4% number as
+  "noise" regardless of how tight the runs were.
+- **Allocation (Reactor)** — `Alloc bytes/render` and `Gen0 GC / 1k renders`,
+  `main` vs PR with the same paired-CI band. Rendered only when the harness
+  reports the metric (n/a for pre-metric PR heads). This is the table that moves
+  for allocation-reduction PRs.
 - **Cross-framework reference** — `vanilla WinUI3 | Rust windows-reactor |
   Reactor (this PR)` on the same StocksGrid workload, **all measured live on the
   same runner**. The Rust column builds and runs the
@@ -178,26 +206,31 @@ between runs and machines. We do not own them, so the design leans on
 - **Same-runner A/B** — PR and `main` are built and measured on the *same*
   machine in the *same* job, so machine-class differences cancel.
 - **Interleaving** — runs alternate `main, PR, main, PR, …` so slow time
-  windows hit both sides roughly equally.
-- **Warm-up discard + median of N** — the first run(s) are dropped; the median
-  rejects single-run outliers.
-- **Noise band** — a delta smaller than the larger of the measured run-to-run
-  spread and a 4% floor is reported as *within noise*, not a win/regression.
-- **Process priority + power plan** — runs use High priority and a
-  high-performance power plan (restored afterward), with a best-effort Defender
-  exclusion on the output tree.
+  windows hit both sides roughly equally, and each `main`/PR pair is measured
+  back-to-back so the **paired** delta cancels time-correlated drift.
+- **Warm-up discard + 12 measured reps** — the first runs are dropped; 12 paired
+  reps give the delta's confidence interval enough power to resolve a few-percent
+  change (a 2-run median cannot — its run-to-run swing dwarfs the effect).
+- **Paired 95% CI, not a fixed floor** — a change is called only when the 95% CI
+  of the paired delta excludes 0. This adapts to the actual run-to-run noise
+  instead of a blanket 4% threshold that both hid real sub-4% wins and accepted
+  any sub-4% number as noise.
+- **Pinned runtime** — High process priority, a high-performance power plan, a
+  pinned **workstation / non-concurrent GC** (`DOTNET_gcServer=0`,
+  `DOTNET_gcConcurrent=0`, applied identically to both sides), and `-PinAffinity`
+  in CI, all restored afterward, plus a best-effort Defender exclusion.
 - **Runner identity** — CPU / cores / RAM are recorded in the comment so the
   absolute numbers are read in context.
 
-For the steadiest local numbers: close other apps, stay on AC power, and bump
-`-Reps` (e.g. `-Reps 5`).
+For the steadiest local numbers: close other apps, stay on AC power, and keep the
+default `-Reps 12` (drop to e.g. `-Reps 3` only for a quick smoke run).
 
 ## Files here
 
 | File | Role |
 |---|---|
 | [`Run-PerfBenchmark.ps1`](Run-PerfBenchmark.ps1) | Orchestrator — build, run, interleave, render. Used by both the workflow and humans. |
-| [`PerfLib.ps1`](PerfLib.ps1) | Pure, side-effect-free helpers (parse, median, spread, direction-aware delta, comment renderer) + the sticky-comment marker. |
+| [`PerfLib.ps1`](PerfLib.ps1) | Pure, side-effect-free helpers (parse, median, spread, paired-Δ 95% CI stats, direction-aware delta, comment renderer) + the sticky-comment marker. |
 
 ## Troubleshooting
 

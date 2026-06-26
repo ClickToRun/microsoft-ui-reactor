@@ -35,6 +35,17 @@ $script:PerfMetricSpec = @(
     [pscustomobject]@{ Key = 'AvgMemoryMB';    Label = 'Avg Memory (MB)';    LowerIsBetter = $true;  Digits = 1; Arrow = [char]0x2193 }
 )
 
+# Allocation metric table spec (Reactor main-vs-PR only — there is no meaningful
+# cross-framework allocation comparison). Lower is better for both. These move
+# directly when an allocation-reduction PR lands, where the mean-ms / working-set
+# headline metrics above are largely insensitive. Emitted by PerfTracker as
+# allocBytesPerRender / gen0PerKRenders; absent (n/a) for harness builds that
+# predate the metric (e.g. a PR head opened before this gate merged).
+$script:PerfAllocMetricSpec = @(
+    [pscustomobject]@{ Key = 'AllocBytesPerRender'; Label = 'Alloc bytes/render';   LowerIsBetter = $true; Digits = 0; Arrow = [char]0x2193 }
+    [pscustomobject]@{ Key = 'Gen0PerKRenders';     Label = 'Gen0 GC / 1k renders'; LowerIsBetter = $true; Digits = 2; Arrow = [char]0x2193 }
+)
+
 function ConvertTo-PerfDouble {
     <#
     .SYNOPSIS Culture-tolerant parse of a captured numeric string, or $null.
@@ -82,14 +93,19 @@ function Read-HarnessMetrics {
     )
 
     $result = [pscustomobject]@{
-        AppName         = $AppName
-        RendersPerSec   = $null
-        AvgReconcileMs  = $null
-        AvgDiffMs       = $null
-        AvgMemoryMB     = $null
-        TotalRenders    = $null
-        DurationSeconds = $null
-        Source          = 'none'
+        AppName             = $AppName
+        RendersPerSec       = $null
+        AvgReconcileMs      = $null
+        AvgDiffMs           = $null
+        AvgMemoryMB         = $null
+        AllocBytesPerRender = $null
+        Gen0PerKRenders     = $null
+        Gen0                = $null
+        Gen1                = $null
+        Gen2                = $null
+        TotalRenders        = $null
+        DurationSeconds     = $null
+        Source              = 'none'
     }
 
     $jsonPath   = Join-Path $Directory ("{0}.metrics.json" -f $AppName)
@@ -117,6 +133,15 @@ function Read-HarnessMetrics {
                 $result.AvgMemoryMB     = [double]$j.avgMemoryMB
                 $result.TotalRenders    = [int]$j.totalRenders
                 $result.DurationSeconds = [double]$j.durationSeconds
+                # Optional allocation fields (added after the headline four). Read
+                # when present so a PR head that predates them still parses via the
+                # required-set above (its alloc cells just read n/a) instead of being
+                # rejected. Guarded with PSObject.Properties for Set-StrictMode.
+                if ($j.PSObject.Properties['allocBytesPerRender'] -and $null -ne $j.allocBytesPerRender) { $result.AllocBytesPerRender = [double]$j.allocBytesPerRender }
+                if ($j.PSObject.Properties['gen0PerKRenders'] -and $null -ne $j.gen0PerKRenders) { $result.Gen0PerKRenders = [double]$j.gen0PerKRenders }
+                if ($j.PSObject.Properties['gen0'] -and $null -ne $j.gen0) { $result.Gen0 = [int]$j.gen0 }
+                if ($j.PSObject.Properties['gen1'] -and $null -ne $j.gen1) { $result.Gen1 = [int]$j.gen1 }
+                if ($j.PSObject.Properties['gen2'] -and $null -ne $j.gen2) { $result.Gen2 = [int]$j.gen2 }
                 $result.Source          = 'json'
                 return $result
             }
@@ -140,6 +165,16 @@ function Read-HarnessMetrics {
     $result.AvgReconcileMs  = Get-PerfReportField $text 'Avg Reconcile:\s*([0-9][0-9.,]*)\s*ms'
     $result.AvgDiffMs       = Get-PerfReportField $text 'Avg Diff:\s*([0-9][0-9.,]*)\s*ms'
     $result.AvgMemoryMB     = Get-PerfReportField $text 'Avg Memory:\s*([0-9][0-9.,]*)\s*MB'
+    # Optional allocation lines: absent in pre-metric harness builds and in the
+    # Rust port's report.txt, so they stay $null (n/a) there.
+    $result.AllocBytesPerRender = Get-PerfReportField $text 'Alloc/render:\s*([0-9][0-9.,]*)\s*bytes'
+    $result.Gen0PerKRenders     = Get-PerfReportField $text 'Gen0/Krender:\s*([0-9][0-9.,]*)'
+    $gcm = [regex]::Match($text, 'GC Gen0/1/2:\s*([0-9]+)\s*/\s*([0-9]+)\s*/\s*([0-9]+)')
+    if ($gcm.Success) {
+        $result.Gen0 = [int]$gcm.Groups[1].Value
+        $result.Gen1 = [int]$gcm.Groups[2].Value
+        $result.Gen2 = [int]$gcm.Groups[3].Value
+    }
 
     if ($null -ne $result.TotalRenders -and $null -ne $result.DurationSeconds -and $result.DurationSeconds -gt 0) {
         $result.RendersPerSec = [math]::Round($result.TotalRenders / $result.DurationSeconds, 4)
@@ -171,6 +206,79 @@ function Get-PerfRelativeSpreadPct {
     return [math]::Round((($max - $min) / [math]::Abs($med)) * 100.0, 1)
 }
 
+function Get-StudentTCritical {
+    <#
+    .SYNOPSIS
+        Two-sided 95% Student-t critical value for the given degrees of freedom.
+        Hard-coded table for df 1..30, then a slightly conservative constant
+        (so the resulting CI is never understated) — keeps PerfLib dependency-free.
+    #>
+    param([int]$Df)
+    if ($Df -lt 1) { return [double]::NaN }
+    $t = @(
+        12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228,
+        2.201, 2.179, 2.160, 2.145, 2.131, 2.120, 2.110, 2.101, 2.093, 2.086,
+        2.080, 2.074, 2.069, 2.064, 2.060, 2.056, 2.052, 2.048, 2.045, 2.042
+    )
+    if ($Df -le 30) { return [double]$t[$Df - 1] }
+    if ($Df -le 60) { return 2.000 }
+    if ($Df -le 120) { return 1.980 }
+    return 1.960
+}
+
+function Get-PerfPairedDeltaStats {
+    <#
+    .SYNOPSIS
+        Paired per-iteration percent-change statistics for two index-aligned
+        samples (Baseline run i vs Candidate run i, as collected interleaved).
+        Returns $null when fewer than 2 valid pairs survive (a CI needs >= 2).
+    .DESCRIPTION
+        For each index i where both samples are non-null and the baseline is
+        non-zero, the per-pair change is ((cand_i - base_i) / |base_i|) * 100.
+        Reports N, the mean / median change, the sample standard deviation, the
+        standard error, and a two-sided 95% confidence interval for the MEAN
+        change (mean +/- t(.975, N-1) * SE). The interval excluding 0 is the
+        data-driven "is this a real change?" test that replaces a fixed % floor.
+    .OUTPUTS
+        PSCustomObject { N; MeanPct; MedianPct; SdPct; SePct; CiLowPct; CiHighPct;
+        CiHalfWidthPct } or $null.
+    #>
+    param(
+        [AllowNull()][object[]]$BaselineSamples,
+        [AllowNull()][object[]]$CandidateSamples
+    )
+    if ($null -eq $BaselineSamples -or $null -eq $CandidateSamples) { return $null }
+    $n = [math]::Min($BaselineSamples.Count, $CandidateSamples.Count)
+    $deltas = [System.Collections.Generic.List[double]]::new()
+    for ($i = 0; $i -lt $n; $i++) {
+        $b = $BaselineSamples[$i]
+        $c = $CandidateSamples[$i]
+        if ($null -eq $b -or $null -eq $c) { continue }
+        $bd = [double]$b
+        $cd = [double]$c
+        if ($bd -eq 0) { continue }
+        $deltas.Add((($cd - $bd) / [math]::Abs($bd)) * 100.0)
+    }
+    if ($deltas.Count -lt 2) { return $null }
+    $cnt = $deltas.Count
+    $mean = ($deltas | Measure-Object -Average).Average
+    $ss = 0.0
+    foreach ($d in $deltas) { $ss += ($d - $mean) * ($d - $mean) }
+    $sd = [math]::Sqrt($ss / ($cnt - 1))
+    $se = $sd / [math]::Sqrt($cnt)
+    $half = (Get-StudentTCritical -Df ($cnt - 1)) * $se
+    return [pscustomobject]@{
+        N              = $cnt
+        MeanPct        = [math]::Round($mean, 2)
+        MedianPct      = [math]::Round((Get-PerfMedian ([double[]]$deltas.ToArray())), 2)
+        SdPct          = [math]::Round($sd, 2)
+        SePct          = [math]::Round($se, 2)
+        CiLowPct       = [math]::Round($mean - $half, 2)
+        CiHighPct      = [math]::Round($mean + $half, 2)
+        CiHalfWidthPct = [math]::Round($half, 2)
+    }
+}
+
 function Measure-PerfRuns {
     <#
     .SYNOPSIS
@@ -180,12 +288,20 @@ function Measure-PerfRuns {
     #>
     param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Runs)
 
-    $keys = 'RendersPerSec', 'AvgReconcileMs', 'AvgDiffMs', 'AvgMemoryMB', 'TotalRenders', 'DurationSeconds'
+    $keys = 'RendersPerSec', 'AvgReconcileMs', 'AvgDiffMs', 'AvgMemoryMB',
+            'AllocBytesPerRender', 'Gen0PerKRenders', 'Gen0', 'Gen1', 'Gen2',
+            'TotalRenders', 'DurationSeconds'
     $agg = [ordered]@{ RunCount = @($Runs).Count }
     foreach ($k in $keys) {
-        $vals = @($Runs | ForEach-Object { $_.$k } | Where-Object { $null -ne $_ } | ForEach-Object { [double]$_ })
+        # Ordered per-run values WITH $null placeholders preserved (and tolerant of
+        # run objects that lack a key, e.g. a variant that predates the metric), so
+        # a paired analysis downstream can zip Baseline run i against Candidate run i
+        # by index. Get-PerfPairedDeltaStats skips any pair with a null/zero side.
+        $ordered = @($Runs | ForEach-Object { if ($_.PSObject.Properties[$k]) { $_.$k } else { $null } })
+        $vals = @($ordered | Where-Object { $null -ne $_ } | ForEach-Object { [double]$_ })
         $agg[$k] = Get-PerfMedian $vals
         $agg["${k}Spread"] = Get-PerfRelativeSpreadPct $vals
+        $agg["${k}Samples"] = $ordered
     }
     return [pscustomobject]$agg
 }
@@ -193,31 +309,66 @@ function Measure-PerfRuns {
 function Get-PerfDelta {
     <#
     .SYNOPSIS
-        Signed percent change of Candidate vs Baseline, direction-aware, with a
-        noise band. Status is one of: better | worse | noise | na.
+        Signed percent change of Candidate vs Baseline, direction-aware. Status is
+        one of: better | worse | noise | na.
+    .DESCRIPTION
+        Preferred path (when per-iteration samples are supplied): a paired 95%
+        confidence interval over the per-pair percent deltas. The change is flagged
+        better/worse ONLY when that CI excludes 0 — the data-driven band that
+        replaces the fixed % floor. DeltaPct is the mean paired change; CiLowPct /
+        CiHighPct / N describe the interval.
+
+        Fallback path (no samples, e.g. legacy callers / unit tests): the point
+        delta of the scalar Baseline/Candidate vs a max(NoiseFloorPct, SpreadPct)
+        noise band.
     .PARAMETER NoiseFloorPct
-        Absolute floor for the "within noise" band (default 4%).
+        Absolute floor for the fallback "within noise" band (default 4%). Unused on
+        the sample/CI path.
     .PARAMETER SpreadPct
-        Run-to-run dispersion for this metric; the effective noise band is
+        Run-to-run dispersion for this metric; the fallback band is
         max(NoiseFloorPct, SpreadPct).
+    .PARAMETER BaselineSamples / CandidateSamples
+        Index-aligned per-run values (with $null placeholders) for the paired CI.
     #>
     param(
         [AllowNull()]$Baseline,
         [AllowNull()]$Candidate,
         [Parameter(Mandatory)][bool]$LowerIsBetter,
         [double]$NoiseFloorPct = 4.0,
-        [double]$SpreadPct = 0.0
+        [double]$SpreadPct = 0.0,
+        [AllowNull()][object[]]$BaselineSamples,
+        [AllowNull()][object[]]$CandidateSamples
     )
     if ($null -eq $Baseline -or $null -eq $Candidate -or [double]$Baseline -eq 0) {
-        return [pscustomobject]@{ DeltaPct = $null; Status = 'na'; Improved = $null }
+        return [pscustomobject]@{ DeltaPct = $null; Status = 'na'; Improved = $null; CiLowPct = $null; CiHighPct = $null; N = $null }
     }
     $b = [double]$Baseline
     $c = [double]$Candidate
     $deltaPct = (($c - $b) / [math]::Abs($b)) * 100.0
+
+    # Preferred: paired CI over the per-iteration deltas. Significant only when the
+    # 95% CI excludes 0 — the data-driven band that replaces the fixed % floor.
+    $stats = Get-PerfPairedDeltaStats -BaselineSamples $BaselineSamples -CandidateSamples $CandidateSamples
+    if ($null -ne $stats) {
+        $meanPct = [double]$stats.MeanPct
+        $improved = if ($LowerIsBetter) { $meanPct -lt 0 } else { $meanPct -gt 0 }
+        $ciExcludesZero = ($stats.CiLowPct -gt 0) -or ($stats.CiHighPct -lt 0)
+        $status = if (-not $ciExcludesZero) { 'noise' } elseif ($improved) { 'better' } else { 'worse' }
+        return [pscustomobject]@{
+            DeltaPct  = [math]::Round($meanPct, 1)
+            Status    = $status
+            Improved  = $improved
+            CiLowPct  = $stats.CiLowPct
+            CiHighPct = $stats.CiHighPct
+            N         = $stats.N
+        }
+    }
+
+    # Fallback: point delta vs a max(floor, spread) noise band.
     $improved = if ($LowerIsBetter) { $deltaPct -lt 0 } else { $deltaPct -gt 0 }
     $band = [math]::Max($NoiseFloorPct, $SpreadPct)
     $status = if ([math]::Abs($deltaPct) -lt $band) { 'noise' } elseif ($improved) { 'better' } else { 'worse' }
-    return [pscustomobject]@{ DeltaPct = [math]::Round($deltaPct, 1); Status = $status; Improved = $improved }
+    return [pscustomobject]@{ DeltaPct = [math]::Round($deltaPct, 1); Status = $status; Improved = $improved; CiLowPct = $null; CiHighPct = $null; N = $null }
 }
 
 function Format-PerfNumber {
@@ -230,7 +381,16 @@ function Format-PerfDeltaCell {
     param([pscustomobject]$Delta)
     if ($null -eq $Delta.DeltaPct) { return '—' }
     $s = ('{0:+0.0;-0.0;0.0}' -f $Delta.DeltaPct)
-    return "$s%"
+    $cell = "$s%"
+    # Append the 95% CI of the paired delta when present. Set-StrictMode-safe
+    # property probe so legacy callers passing only DeltaPct still render a bare %.
+    if (($Delta.PSObject.Properties['CiLowPct']) -and ($null -ne $Delta.CiLowPct) -and
+        ($Delta.PSObject.Properties['CiHighPct']) -and ($null -ne $Delta.CiHighPct)) {
+        $lo = ('{0:+0.0;-0.0;0.0}' -f $Delta.CiLowPct)
+        $hi = ('{0:+0.0;-0.0;0.0}' -f $Delta.CiHighPct)
+        $cell += " <sub>95% CI [$lo, $hi]</sub>"
+    }
+    return $cell
 }
 
 function Get-PerfStatusGlyph {
@@ -274,7 +434,7 @@ function Format-PerfComment {
     $plat = if ($Context.ContainsKey('Platform') -and $Context.Platform) { $Context.Platform } else { 'x64' }
     $methodology = "**Workload:** ``StressPerf.ReactorOptimized`` StocksGrid &middot; " +
         "``--percent $($Context.Percent) --duration $($Context.Duration)`` &middot; $plat Release &middot; " +
-        "median of $($Context.Reps) runs ($($Context.Warmup) warmup dropped) &middot; " +
+        "median of $($Context.Reps) paired runs ($($Context.Warmup) warmup dropped); Δ is the mean change with a 95% CI &middot; " +
         "PR head and ``main`` built and run **interleaved on the same runner**."
     & $add $methodology
     & $add ''
@@ -282,13 +442,14 @@ function Format-PerfComment {
     # ── Table 1: regression vs main ──────────────────────────────────────────
     & $add "### Regression vs ``main`` baseline"
     & $add ''
-    & $add '| Metric | `main` (baseline) | This PR | Δ | Status |'
+    & $add '| Metric | `main` (baseline) | This PR | Δ (95% CI) | Status |'
     & $add '|---|--:|--:|--:|:--|'
     foreach ($m in $script:PerfMetricSpec) {
         $bVal = $Main.($m.Key)
         $pVal = $Pr.($m.Key)
         $spread = [math]::Max([double]$Main."$($m.Key)Spread", [double]$Pr."$($m.Key)Spread")
-        $delta = Get-PerfDelta -Baseline $bVal -Candidate $pVal -LowerIsBetter $m.LowerIsBetter -SpreadPct $spread
+        $delta = Get-PerfDelta -Baseline $bVal -Candidate $pVal -LowerIsBetter $m.LowerIsBetter -SpreadPct $spread `
+            -BaselineSamples $Main."$($m.Key)Samples" -CandidateSamples $Pr."$($m.Key)Samples"
         $row = '| {0} {1} | {2} | {3} | {4} | {5} |' -f `
             $m.Label, $m.Arrow, `
             (Format-PerfNumber $bVal $m.Digits), `
@@ -298,6 +459,33 @@ function Format-PerfComment {
         & $add $row
     }
     & $add ''
+
+    # ── Allocation table (Reactor main vs PR; lower is better) ────────────────
+    # Rendered only when at least one side reports an allocation metric. A PR head
+    # opened before this metric landed reports n/a until rebased onto main.
+    $hasAlloc = ($null -ne $Main.AllocBytesPerRender) -or ($null -ne $Pr.AllocBytesPerRender) -or
+                ($null -ne $Main.Gen0PerKRenders) -or ($null -ne $Pr.Gen0PerKRenders)
+    if ($hasAlloc) {
+        & $add "### Allocation (Reactor) &mdash; lower is better"
+        & $add ''
+        & $add '| Metric | `main` (baseline) | This PR | Δ (95% CI) | Status |'
+        & $add '|---|--:|--:|--:|:--|'
+        foreach ($m in $script:PerfAllocMetricSpec) {
+            $bVal = $Main.($m.Key)
+            $pVal = $Pr.($m.Key)
+            $spread = [math]::Max([double]$Main."$($m.Key)Spread", [double]$Pr."$($m.Key)Spread")
+            $delta = Get-PerfDelta -Baseline $bVal -Candidate $pVal -LowerIsBetter $m.LowerIsBetter -SpreadPct $spread `
+                -BaselineSamples $Main."$($m.Key)Samples" -CandidateSamples $Pr."$($m.Key)Samples"
+            $row = '| {0} {1} | {2} | {3} | {4} | {5} |' -f `
+                $m.Label, $m.Arrow, `
+                (Format-PerfNumber $bVal $m.Digits), `
+                (Format-PerfNumber $pVal $m.Digits), `
+                (Format-PerfDeltaCell $delta), `
+                (Get-PerfStatusGlyph $delta.Status)
+            & $add $row
+        }
+        & $add ''
+    }
 
     # ── Table 2: cross-framework reference ───────────────────────────────────
     & $add "### Cross-framework reference (same StocksGrid workload)"
@@ -323,7 +511,8 @@ function Format-PerfComment {
     } else {
         '*Not run* on this runner (Rust toolchain/checkout unavailable or the Rust leg failed) — its cells read *n/a*.'
     }
-    & $add "<sub>$up higher is better &middot; $down lower is better. **Within noise** = |Δ| below the larger of the run-to-run spread and a 4% floor; treat as no measurable change.</sub>"
+    & $add "<sub>$up higher is better &middot; $down lower is better. **Within noise** = the 95% confidence interval of the paired Δ includes 0 (no change resolvable at this sample size); $([char]0x2705) improvement / $([char]0x26A0)$([char]0xFE0F) regression require the CI to **exclude** 0.</sub>"
+    & $add "<sub>Allocation metrics (alloc bytes/render, Gen0 GC) are the sensitive signal for allocation-reduction work, where the mean-ms / memory figures are largely flat. They read *n/a* for a harness built from a revision that predates them (rebase the PR onto ``main`` to populate them).</sub>"
     & $add "<sub>$([char]0x00B9) vanilla WinUI3 = ``StressPerf.Direct`` (imperative; no virtual-DOM, so it has no reconcile/diff phase — those cells read *n/a*). Measured live on this runner.</sub>"
     & $add "<sub>$([char]0x00B2) Rust = ``test_reactor_perf`` from [microsoft/windows-rs](https://github.com/microsoft/windows-rs/tree/master/crates/tests/libs/reactor_perf) — a port of this harness (same StocksGrid, same ``--percent``/``--duration`` CLI). $rustNote</sub>"
     & $add "<sub>Absolute numbers are runner-dependent — trust the **Δ vs main**, not the absolute values. Memory (working set) is the noisiest metric.</sub>"

@@ -216,7 +216,7 @@ jobs:
           ./tests/stress_perf/ci/Run-PerfBenchmark.ps1 `
             -Root $env:PR_TREE `
             -BaselineRoot $env:GITHUB_WORKSPACE `
-            -Percent 50 -Duration 10 -Reps 2 -Warmup 1 `
+            -Percent 50 -Duration 10 -Reps 12 -Warmup 2 -PinAffinity `
             -RustRepo "$env:RUST_REPO" `
             -DefenderExclude `
             -HeadSha $env:HEAD_SHA `
