@@ -462,13 +462,15 @@ function Stage-RustRuntime {
             if ($wok -and (Test-Path $wsrc)) {
                 try { Copy-Item -LiteralPath $wsrc -Destination $ExeDir -Force; $staged++ } catch {}
             } else {
-                # The package lacks the expected DLL, or tar failed on a truncated-but->1MB nupkg
-                # (partial/corrupt extract): evict the nupkg AND clear the partial extract so the
-                # next run re-downloads a fresh copy instead of staging a broken Core.dll and
-                # writing the completion marker over it.
+                # Either tar failed on a truncated-but->1MB nupkg (partial/corrupt extract) or the
+                # package extracted cleanly but genuinely lacks the DLL. Either way evict the nupkg
+                # AND clear the partial extract so the next run re-downloads a fresh copy instead of
+                # staging a broken Core.dll and writing the completion marker over it — but log the
+                # two causes distinctly so a tar failure isn't misread as a missing-from-package.
                 Remove-Item $wnupkg -Force -ErrorAction SilentlyContinue
                 Remove-Item $wextract -Recurse -Force -ErrorAction SilentlyContinue
-                Write-Log "  WebView2 Core DLL not staged (missing or corrupt extract) — Rust column may read n/a (#674)" 'Yellow'
+                $wwhy = if (-not $wok) { 'extract failed (tar exit nonzero)' } else { 'DLL absent from package' }
+                Write-Log "  WebView2 Core DLL not staged ($wwhy) — Rust column may read n/a (#674)" 'Yellow'
             }
         } else {
             if (Test-Path $wnupkg) { Remove-Item $wnupkg -Force -ErrorAction SilentlyContinue }
@@ -486,7 +488,7 @@ function Stage-RustRuntime {
             # Completion marker: written only now that staging is fully verified, so a later
             # call can trust it and skip re-staging (a partial stage never reaches here).
             Set-Content -LiteralPath $marker -Value (Get-Date -Format o) -ErrorAction SilentlyContinue
-            Write-Log "  staged $staged WinAppSDK runtime file(s) next to test_reactor_perf.exe (self-contained)" 'Green'
+            Write-Log "  staged $staged self-contained file(s) next to test_reactor_perf.exe (WinAppSDK runtime + WebView2 Core)" 'Green'
         } else {
             # List exactly what's missing — MSIX payload files by name plus any required core /
             # SxS file (e.g. the WebView2 Core DLL) — so a partial stage is diagnosable from the log.
