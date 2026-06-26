@@ -366,13 +366,31 @@ function Stage-RustRuntime {
         #    nupkg name (version) so a different version selected later cannot reuse a stale
         #    cross-version MSIX payload from a stable path.
         $extract = Join-Path $cache ("perfci-runtime-extract-" + [IO.Path]::GetFileNameWithoutExtension($nupkg))
-        $msix = Join-Path $extract "MSIX\win10-$arch\Microsoft.WindowsAppRuntime.2.msix"
-        if (-not (Test-Path $msix)) {
+        $msixDir = Join-Path $extract "MSIX\win10-$arch"
+        # Resolve the per-arch framework MSIX. 2.x ships Microsoft.WindowsAppRuntime.2.msix
+        # (the '2' is the stable WinAppSDK API-contract major, identical across 2.1.3/2.10/…),
+        # so that exact name is the fast path. Only if it is absent — e.g. the non-pinned
+        # fallback above selected a cached package from a future major whose framework MSIX is
+        # numbered differently (…\Microsoft.WindowsAppRuntime.N.msix) — glob for the framework
+        # MSIX by its stable stem so a valid runtime still stages instead of failing outright.
+        # The glob is scoped to the 'Microsoft.WindowsAppRuntime.<major>.msix' shape (no embedded
+        # dot after the stem) so it can't pick an unrelated package (DDLM/Singleton) that lacks
+        # the runtime DLLs.
+        $resolveMsix = {
+            $exact = Join-Path $msixDir 'Microsoft.WindowsAppRuntime.2.msix'
+            if (Test-Path $exact) { return $exact }
+            Get-ChildItem -Path $msixDir -Filter 'Microsoft.WindowsAppRuntime.*.msix' -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match '^Microsoft\.WindowsAppRuntime\.\d+\.msix$' } |
+                Select-Object -First 1 -ExpandProperty FullName
+        }
+        $msix = & $resolveMsix
+        if (-not $msix) {
             $null = New-Item -ItemType Directory -Force -Path $extract -ErrorAction SilentlyContinue
             & $tar -xf $nupkg -C $extract --strip-components=1
+            $msix = & $resolveMsix
         }
-        if (-not (Test-Path $msix)) {
-            Write-Log "  runtime MSIX not found after extract ($msix) — Rust column may read n/a (#674)" 'Yellow'
+        if (-not $msix -or -not (Test-Path $msix)) {
+            Write-Log "  runtime MSIX not found after extract ($msixDir) — Rust column may read n/a (#674)" 'Yellow'
             return
         }
 
