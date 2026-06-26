@@ -108,16 +108,30 @@ git worktree remove ../main
    `workflow_dispatch` with a `pr_number` input is also supported for manual runs.
 2. The workflow runs from the **default branch** (that is how `issue_comment`
    behaves), so once this is on `main` it works on **every already-open PR with
-   no rebase** — important while a fleet of perf PRs is in flight.
+   no rebase** — important while a fleet of perf PRs is in flight. To honour that
+   promise even for PRs opened *before* the gate landed (whose tree predates the
+   self-contained csproj block), `Run-PerfBenchmark.ps1` overlays the harness
+   `.csproj` from the trusted baseline over the PR tree's copy before building
+   (compare mode only), restoring it afterwards — see below.
 3. It checks out the default branch (trusted perf scripts + the `main` baseline),
    sets up .NET 10, fetches the PR head via `refs/pull/N/head` into a worktree
    (so forks work), then runs `Run-PerfBenchmark.ps1` in compare mode.
 4. It posts — or **updates in place** on re-runs, via the hidden
    `<!-- reactor-perf-compare -->` marker — one sticky comment.
 
-Only the harness *code* comes from the PR; the perf scripts and the `main`
-baseline always come from the trusted default branch. The `author_association`
-gate is the security control, because the job has a write token.
+In compare mode the PR tree supplies everything it normally would — `src/Reactor/`
+(the code under measurement) **and** the harness/workload sources under
+`tests/stress_perf/` — *except* the harness `.csproj` build recipe, which
+`Build-Harness` overlays from the trusted baseline tree for the duration of the
+build and then restores. That `.csproj` is fixed test scaffolding (the StocksGrid
+build recipe, including the `PerfCiSelfContained` self-contained knob), not a
+perf-sensitive input; sourcing only it from baseline guarantees the self-contained
+build works regardless of how old the PR is, while the PR's actual `src/Reactor/`
+change is still compiled in via the harness's relative `ProjectReference`. (A PR
+that deliberately edits the harness *sources* still has those changes measured —
+only the project file comes from baseline.) The perf scripts and the `main`
+baseline also come from the trusted default branch. The `author_association` gate
+is the security control, because the job has a write token.
 
 ### The comment
 
@@ -131,9 +145,14 @@ Two tables plus footnotes:
   Reactor (this PR)` on the same StocksGrid workload, **all measured live on the
   same runner**. The Rust column builds and runs the
   [`microsoft/windows-rs`](https://github.com/microsoft/windows-rs) `reactor_perf`
-  harness (a port of this workload), pinned in CI to a known-good commit. It is
-  best-effort: if the Rust build or run fails the column reads `n/a` and the
-  PR-vs-`main` comparison is unaffected. The WinUI3 column is the local
+  harness (a port of this workload), pinned in CI to a known-good commit. Because
+  that harness is built self-contained (its `build.rs` is patched to
+  `windows_reactor_setup::as_self_contained()`), the Windows App SDK runtime DLLs
+  must sit next to `test_reactor_perf.exe` at process start — `Stage-RustRuntime`
+  in `Run-PerfBenchmark.ps1` stages and verifies them explicitly so a silent
+  staging miss can't surface as a `0xC0000135` load failure (issue #674). It is
+  best-effort: if the Rust build, staging, or run fails the column reads `n/a` and
+  the PR-vs-`main` comparison is unaffected. The WinUI3 column is the local
   `StressPerf.Direct` build.
 
 ## Variance: trust the delta, not the absolutes

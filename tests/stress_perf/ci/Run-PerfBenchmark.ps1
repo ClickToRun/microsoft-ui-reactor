@@ -188,13 +188,55 @@ function Build-Harness {
     $proj = Join-Path $TreeRoot $AppMeta.ProjectRel
     if (-not (Test-Path $proj)) { throw "Project not found: $proj" }
     Write-Log "build $($AppMeta.AppName)  [$TreeRoot]" 'Cyan'
-    $log = Join-Path $OutDir ("build-{0}-{1}.log" -f $AppMeta.AppName, ([IO.Path]::GetFileName($TreeRoot)))
-    $buildArgs = @($proj, '-c', 'Release', "-p:Platform=$Platform", '--nologo')
-    if ($SelfContained) { $buildArgs += '-p:PerfCiSelfContained=true' }
-    & dotnet build @buildArgs 2>&1 | Tee-Object -FilePath $log | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host (Get-Content $log -Raw) -ForegroundColor DarkRed
-        throw "dotnet build failed for $($AppMeta.AppName) in $TreeRoot (see $log)"
+
+    # Compare mode only: overlay the harness .csproj from the trusted baseline tree
+    # over the PR tree's copy for the duration of the build, then restore it. The
+    # harness csproj is fixed test scaffolding — the build recipe for the StocksGrid
+    # workload, including the PerfCiSelfContained self-contained knob — NOT the code
+    # under measurement. The PR's actual perf change lives in src/Reactor/, which the
+    # harness still compiles via its relative ProjectReference into the PR tree, so
+    # overlaying only the csproj is fair. This guarantees the self-contained build
+    # block is present even for PRs opened before the gate landed (whose tree predates
+    # that csproj block), so /perf needs no rebase. The overlay is build-scoped: the
+    # original csproj is restored in the finally below, so the checkout is never left
+    # modified — important for local compare runs against a developer's own worktree,
+    # and it keeps repeated runs deterministic. Never runs in local single-tree mode
+    # ($BaselineRoot empty) or when building the baseline itself ($TreeRoot -eq
+    # $BaselineRoot).
+    # $overlayBackup is set only AFTER the backup file is successfully written, and the
+    # overlay itself lives inside the try below. That ordering keeps the "checkout is
+    # never left modified" guarantee even if a Copy-Item throws mid-overlay: the finally
+    # restores from (and removes) the backup whenever it exists, so a failed trusted copy
+    # can't orphan a *.perfci-orig file or leave the PR csproj swapped out.
+    $overlayBackup = $null
+    try {
+        if ($BaselineRoot -and ($TreeRoot -ne $BaselineRoot)) {
+            $trusted = Join-Path $BaselineRoot $AppMeta.ProjectRel
+            if (Test-Path $trusted) {
+                $bak = "$proj.perfci-orig"
+                Copy-Item -LiteralPath $proj -Destination $bak -Force
+                $overlayBackup = $bak
+                Copy-Item -LiteralPath $trusted -Destination $proj -Force
+                Write-Log "  overlaid trusted csproj (self-contained knob) from baseline" 'DarkGray'
+            } else {
+                Write-Log "  trusted csproj not found in baseline ($trusted) — using PR tree copy" 'Yellow'
+            }
+        }
+
+        $log = Join-Path $OutDir ("build-{0}-{1}.log" -f $AppMeta.AppName, ([IO.Path]::GetFileName($TreeRoot)))
+        $buildArgs = @($proj, '-c', 'Release', "-p:Platform=$Platform", '--nologo')
+        if ($SelfContained) { $buildArgs += '-p:PerfCiSelfContained=true' }
+        & dotnet build @buildArgs 2>&1 | Tee-Object -FilePath $log | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host (Get-Content $log -Raw) -ForegroundColor DarkRed
+            throw "dotnet build failed for $($AppMeta.AppName) in $TreeRoot (see $log)"
+        }
+    } finally {
+        if ($overlayBackup -and (Test-Path $overlayBackup)) {
+            Copy-Item -LiteralPath $overlayBackup -Destination $proj -Force
+            Remove-Item -LiteralPath $overlayBackup -Force -ErrorAction SilentlyContinue
+            Write-Log "  restored original PR csproj (overlay is build-scoped)" 'DarkGray'
+        }
     }
 }
 
@@ -226,6 +268,178 @@ function Resolve-RustExe {
     return $null
 }
 
+function Stage-RustRuntime {
+    <# Stage the Windows App SDK self-contained runtime DLLs next to the Rust
+       test_reactor_perf.exe, with hard verification + loud logging (issue #674).
+
+       The crate's build.rs is patched to windows_reactor_setup::as_self_contained(),
+       which embeds an app.manifest that declares the WinAppSDK runtime DLLs as SxS
+       <file> entries — so the loader requires those DLLs *next to the exe at process
+       start*. as_self_contained() also tries to copy them there during `cargo build`,
+       but every download/extract/copy step in the upstream helper swallows its error
+       (`let _ = ...` / `.ok()`), so a single transient runner hiccup leaves ZERO DLLs
+       staged while the build still "Finishes". The exe then dies at load with
+       0xC0000135 (STATUS_DLL_NOT_FOUND) and 0-byte stdout/stderr, and the Rust column
+       reads n/a. This re-does the staging explicitly and verifies the result.
+
+       Best-effort: any failure here only leaves the Rust column n/a — the C# legs are
+       self-contained independently of this and are unaffected. Mirrors the upstream
+       layout: nupkg -> (strip leading dir) -> MSIX\win10-<arch>\...2.msix -> extract
+       -> copy the root *.dll / *.pri next to the exe. We copy the full runtime DLL set
+       (a superset of the crate's runtime.txt allow-list) so every manifest-referenced
+       file is present. #>
+    param([string]$ExeDir, [string]$Platform)
+
+    $arch = if ($Platform -match 'arm64') { 'arm64' } else { 'x64' }
+    # Idempotency is gated on a positive completion marker that we write ONLY after a
+    # full, verified stage (below) — NOT on the presence of a subset of DLLs. The per-file
+    # copy loop intentionally swallows errors, so a prior *partial* stage could leave a few
+    # runtime DLLs present while others are missing, which still faults the loader at
+    # process start; keying the early-return on a DLL subset would wrongly short-circuit
+    # that incomplete state and never finish staging. The marker only exists once every
+    # manifest-referenced file has been verified next to the exe — and we still re-check the
+    # core set when the marker is present, so an external wipe can't leave a stale marker
+    # pointing at a now-broken exe.
+    $required = @('microsoft.ui.xaml.dll', 'Microsoft.WindowsAppRuntime.dll')
+    $sentinel = 'microsoft.ui.xaml.dll'
+    $marker = Join-Path $ExeDir '.perfci-runtime-staged'
+    if (Test-Path $marker) {
+        if (-not ($required | Where-Object { -not (Test-Path (Join-Path $ExeDir $_)) })) {
+            Write-Log "  Rust runtime already staged next to exe (completion marker present)" 'DarkGray'
+            return
+        }
+        # Marker survived but a core DLL was removed (external cleanup / partial dir wipe):
+        # the marker is stale and must not short-circuit into a broken exe — drop it and
+        # fall through to a full restage.
+        Write-Log "  stale Rust runtime marker (core DLL missing) — re-staging" 'Yellow'
+        Remove-Item $marker -Force -ErrorAction SilentlyContinue
+    }
+
+    try {
+        $tar = Join-Path $env:SystemRoot 'System32\tar.exe'
+        if (-not (Test-Path $tar)) { Write-Log "  System32\tar.exe not found — cannot stage Rust runtime (#674)" 'Yellow'; return }
+        $base = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { $env:TEMP }
+        $cache = Join-Path $base 'windows-reactor-setup\temp'
+
+        # 1. Locate the runtime nupkg. Prefer the pinned version ($pkg.$ver.nupkg) when it is
+        #    already cached, so runs are reproducible and match the version this script would
+        #    otherwise download. Only if the pinned copy is absent but other versions linger in
+        #    the shared windows-reactor-setup cache (e.g. local experimentation) fall back to
+        #    the highest *version* — never the largest file, which is arbitrary and could stage
+        #    a mismatched runtime and reintroduce 0xC0000135. Else download the pinned version.
+        $pkg = 'Microsoft.WindowsAppSDK.Runtime'; $ver = '2.1.3'
+        $nupkg = $null
+        $pinned = Join-Path $cache "$pkg.$ver.nupkg"
+        if (Test-Path $pinned) {
+            $nupkg = $pinned
+        } elseif (Test-Path $cache) {
+            $nupkg = Get-ChildItem $cache -Filter "$pkg.*.nupkg" -File -ErrorAction SilentlyContinue |
+                Sort-Object @{ Expression = {
+                    $p = [version]'0.0'
+                    try { [void][version]::TryParse($_.BaseName.Substring($pkg.Length + 1), [ref]$p) } catch {}
+                    $p } } -Descending |
+                Select-Object -First 1 -ExpandProperty FullName
+        }
+        if (-not $nupkg) {
+            $null = New-Item -ItemType Directory -Force -Path $cache -ErrorAction SilentlyContinue
+            $nupkg = $pinned
+            $url = "https://www.nuget.org/api/v2/package/$pkg/$ver"
+            Write-Log "  staging WinAppSDK runtime for Rust harness: downloading $pkg $ver" 'DarkGray'
+            $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
+            if (Test-Path $curl) { & $curl -s -L -o $nupkg $url }
+            else { Invoke-WebRequest -Uri $url -OutFile $nupkg }
+        }
+        if (-not $nupkg -or -not (Test-Path $nupkg) -or (Get-Item $nupkg).Length -lt 1MB) {
+            # A truncated/partial nupkg (failed download or corrupt cache entry) would be
+            # preferred again next run via the pinned-cache fast path above, permanently
+            # poisoning the cache and pinning the Rust leg at n/a. Evict it so the next
+            # invocation re-downloads (or falls back to another cached version) instead of
+            # looping on a bad artifact — the top of the same self-healing chain applied to
+            # $msix and $msixOut below.
+            if ($nupkg -and (Test-Path $nupkg)) { Remove-Item $nupkg -Force -ErrorAction SilentlyContinue }
+            Write-Log "  WinAppSDK runtime nupkg unavailable — Rust column may read n/a (#674)" 'Yellow'
+            return
+        }
+
+        # 2. Extract the nupkg (strip the leading 'tools/'-style component, matching upstream)
+        #    so the MSIX lands at MSIX\win10-<arch>\... Key the extract dir by the selected
+        #    nupkg name (version) so a different version selected later cannot reuse a stale
+        #    cross-version MSIX payload from a stable path.
+        $extract = Join-Path $cache ("perfci-runtime-extract-" + [IO.Path]::GetFileNameWithoutExtension($nupkg))
+        $msixDir = Join-Path $extract "MSIX\win10-$arch"
+        # Resolve the per-arch framework MSIX. 2.x ships Microsoft.WindowsAppRuntime.2.msix
+        # (the '2' is the stable WinAppSDK API-contract major, identical across 2.1.3/2.10/…),
+        # so that exact name is the fast path. Only if it is absent — e.g. the non-pinned
+        # fallback above selected a cached package from a future major whose framework MSIX is
+        # numbered differently (…\Microsoft.WindowsAppRuntime.N.msix) — glob for the framework
+        # MSIX by its stable stem so a valid runtime still stages instead of failing outright.
+        # The glob is scoped to the 'Microsoft.WindowsAppRuntime.<major>.msix' shape (no embedded
+        # dot after the stem) so it can't pick an unrelated package (DDLM/Singleton) that lacks
+        # the runtime DLLs.
+        $resolveMsix = {
+            $exact = Join-Path $msixDir 'Microsoft.WindowsAppRuntime.2.msix'
+            if (Test-Path $exact) { return $exact }
+            Get-ChildItem -Path $msixDir -Filter 'Microsoft.WindowsAppRuntime.*.msix' -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match '^Microsoft\.WindowsAppRuntime\.\d+\.msix$' } |
+                Select-Object -First 1 -ExpandProperty FullName
+        }
+        $msix = & $resolveMsix
+        if (-not $msix) {
+            $null = New-Item -ItemType Directory -Force -Path $extract -ErrorAction SilentlyContinue
+            & $tar -xf $nupkg -C $extract --strip-components=1
+            $msix = & $resolveMsix
+        }
+        if (-not $msix -or -not (Test-Path $msix)) {
+            Write-Log "  runtime MSIX not found after extract ($msixDir) — Rust column may read n/a (#674)" 'Yellow'
+            return
+        }
+
+        # 3. Extract the per-arch MSIX (its root holds the runtime DLLs + .pri). We only
+        #    reach here when the completion marker is absent, so the cached scratch dir is
+        #    untrusted: clear any prior (possibly partial) payload and re-extract fresh, then
+        #    require BOTH a clean tar exit and the sentinel before trusting $msixOut as the
+        #    completeness source below — a partial/stale extraction must never feed the
+        #    verification and write the marker from an incomplete payload.
+        $msixOut = Join-Path $extract ".msix_extract-$arch"
+        if (Test-Path $msixOut) { Remove-Item $msixOut -Recurse -Force -ErrorAction SilentlyContinue }
+        $null = New-Item -ItemType Directory -Force -Path $msixOut -ErrorAction SilentlyContinue
+        & $tar -xf $msix -C $msixOut
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $msixOut $sentinel))) {
+            # The MSIX itself is corrupt/partial (a truncated nupkg extract can yield a bad
+            # .msix that tar -xf still "produces"). Evict the cached $msix so the next call's
+            # step 2 — which skips re-extract while $msix exists — is forced to re-extract a
+            # fresh MSIX from the nupkg instead of looping forever on the poisoned cache.
+            Remove-Item $msix -Force -ErrorAction SilentlyContinue
+            Write-Log "  runtime MSIX extraction failed/incomplete — Rust column may read n/a (#674)" 'Yellow'
+            return
+        }
+
+        # 4. Copy the runtime DLLs + resource indices next to the exe.
+        $staged = 0
+        Get-ChildItem $msixOut -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -in '.dll', '.pri' } |
+            ForEach-Object { try { Copy-Item -LiteralPath $_.FullName -Destination $ExeDir -Force; $staged++ } catch {} }
+
+        # Verify completeness against the actual MSIX payload for this package version (not
+        # just one sentinel): every runtime file we copied (.dll AND .pri) from the MSIX root
+        # must now sit next to the exe, and the required core DLL set must be present — so a
+        # swallowed .pri copy failure also blocks the completion marker.
+        $srcFiles = @(Get-ChildItem $msixOut -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.dll', '.pri' })
+        $notCopied = @($srcFiles | Where-Object { -not (Test-Path (Join-Path $ExeDir $_.Name)) })
+        $coreMissing = @($required | Where-Object { -not (Test-Path (Join-Path $ExeDir $_)) })
+        if ($notCopied.Count -eq 0 -and $coreMissing.Count -eq 0) {
+            # Completion marker: written only now that staging is fully verified, so a later
+            # call can trust it and skip re-staging (a partial stage never reaches here).
+            Set-Content -LiteralPath $marker -Value (Get-Date -Format o) -ErrorAction SilentlyContinue
+            Write-Log "  staged $staged WinAppSDK runtime file(s) next to test_reactor_perf.exe (self-contained)" 'Green'
+        } else {
+            Write-Log "  runtime staging incomplete (copied $staged; $($notCopied.Count) file(s) missing) — Rust column may read n/a (#674)" 'Yellow'
+        }
+    } catch {
+        Write-Log "  Rust runtime staging failed ($($_.Exception.Message)) — Rust column may read n/a (#674)" 'Yellow'
+    }
+}
+
 function Invoke-RustLeg {
     <# Build + run the windows-rs `test_reactor_perf` crate for the Rust column.
        Best-effort: any failure logs a warning and yields $null (column reads n/a). #>
@@ -235,6 +449,7 @@ function Invoke-RustLeg {
         if (-not $SkipBuild) { Build-RustHarness -RepoRoot $RustRepo }
         $rustExe = Resolve-RustExe -RepoRoot $RustRepo
         if (-not $rustExe) { Write-Log "test_reactor_perf.exe not found after build — Rust column n/a" 'Yellow'; return $null }
+        Stage-RustRuntime -ExeDir (Split-Path $rustExe) -Platform $Platform
         Write-Log "Rust windows-reactor (test_reactor_perf)" 'Green'
         # The Rust port writes StressPerf.Reactor.report.txt next to its exe and has
         # no --json mode, so run with -NoJson and read the report.

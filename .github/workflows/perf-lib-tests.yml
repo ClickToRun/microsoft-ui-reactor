@@ -37,3 +37,10 @@ jobs:
       - name: Run PerfLib unit tests
         shell: pwsh
         run: ./tests/stress_perf/ci/PerfLib.Tests.ps1
+
+      # Covers the testable branching in the orchestrator script itself: the
+      # compare-mode .csproj overlay/restore guarantees and the Stage-RustRuntime
+      # idempotency gate. Headless, cross-platform, no network.
+      - name: Run Run-PerfBenchmark unit tests
+        shell: pwsh
+        run: ./tests/stress_perf/ci/RunPerfBenchmark.Tests.ps1
