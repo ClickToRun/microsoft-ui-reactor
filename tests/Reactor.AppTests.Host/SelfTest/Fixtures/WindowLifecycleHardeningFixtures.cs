@@ -1,3 +1,4 @@
+using System.Linq;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Reactor.Hosting;
@@ -62,10 +63,15 @@ internal static class WindowLifecycleHardeningFixtures
 
     private static async Task CloseAndSettle(params ReactorWindow?[] windows)
     {
-        foreach (var win in windows)
+        foreach (var win in windows.Where(static w => w is not null))
         {
-            if (win is null) continue;
-            try { win.Close(); } catch { }
+            try { win!.Close(); }
+            catch (global::System.Exception ex)
+                when (ex is global::System.InvalidOperationException
+                    or global::System.Runtime.InteropServices.COMException)
+            {
+                global::System.Diagnostics.Debug.WriteLine($"[selftest] CloseAndSettle best-effort close failed: {ex.GetType().Name}: {ex.Message}");
+            }
         }
         await Task.Delay(80);
         await Harness.Render(30);
@@ -193,7 +199,13 @@ internal static class WindowLifecycleHardeningFixtures
             }
             finally
             {
-                try { window.Close(); } catch { }
+                try { window.Close(); }
+                catch (global::System.Exception ex)
+                    when (ex is global::System.InvalidOperationException
+                        or global::System.Runtime.InteropServices.COMException)
+                {
+                    global::System.Diagnostics.Debug.WriteLine($"[selftest] BackdropSkipsClosedWindow cleanup close failed: {ex.GetType().Name}: {ex.Message}");
+                }
                 await Harness.Render(20);
             }
         }

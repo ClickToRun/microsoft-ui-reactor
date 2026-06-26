@@ -607,15 +607,8 @@ public static partial class ReactorApp
     // opted out via ExcludeFromShutdownPolicy. Returns null when only auxiliary
     // windows remain. Shared by initial registration and unregister re-election
     // so the two election sites cannot drift apart. (issue #647)
-    private static ReactorWindow? ElectPrimaryWindow(ReactorWindow[] candidates)
-    {
-        foreach (var candidate in candidates)
-        {
-            if (!candidate.ExcludeFromShutdownPolicy)
-                return candidate;
-        }
-        return null;
-    }
+    private static ReactorWindow? ElectPrimaryWindow(ReactorWindow[] candidates) =>
+        Array.Find(candidates, static c => !c.ExcludeFromShutdownPolicy);
 
     // Copy-on-write remove. Idempotent — removing an already-removed window
     // (Phase 1 path runs Dispose → close cascade twice in some failure modes)

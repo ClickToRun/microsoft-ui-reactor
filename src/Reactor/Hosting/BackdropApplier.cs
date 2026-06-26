@@ -189,6 +189,9 @@ internal sealed class BackdropApplier
         {
             try { _window.SystemBackdrop = null; }
             catch (global::System.Exception ex)
+                when (ex is global::System.ObjectDisposedException
+                    or global::System.InvalidOperationException
+                    or global::System.ArgumentException)
             {
                 Debug.WriteLine($"[Reactor] Backdrop reset failed: {ex.GetType().Name}: {ex.Message}");
             }

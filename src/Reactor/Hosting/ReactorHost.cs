@@ -921,7 +921,11 @@ public sealed class ReactorHost : IDisposable
         // closed/destroyed — touching set_SystemBackdrop on a torn-down window
         // AVs (0xC0000005) and corrupts the backdrop interop for later windows.
         // Best effort either way. (issue #647)
-        try { _backdropApplier.Reset(_windowClosed); } catch { /* best effort */ }
+        try { _backdropApplier.Reset(_windowClosed); }
+        catch (global::System.Exception ex)
+        {
+            Debug.WriteLine($"[Reactor] backdrop reset on dispose failed (best effort): {ex.GetType().Name}: {ex.Message}");
+        }
 
         _reconciler.Dispose();
         _rootComponent = null;
