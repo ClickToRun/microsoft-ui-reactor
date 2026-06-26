@@ -401,6 +401,55 @@ $noAllocComment = Format-PerfComment -Main $main -Pr $pr -WinUI3 $null -Rust $nu
 Assert-True (-not ($noAllocComment -like '*Allocation (Reactor)*')) 'alloc table omitted when no alloc metric present'
 
 
+# ── Format-PerfSkipFloorSection + Format-PerfComment: low-mutation skip-floor ──
+# 12 paired floor runs. rps, reconcile, and diff all move DOWN main->PR (memory is
+# held flat as a within-noise control), but the verdicts must differ BY DIRECTION:
+# rps (higher-better) going down is a regression, while
+# reconcile/diff (lower-better) going down are improvements — locking that the
+# section is direction-aware per metric (reusing Table 1's paired-CI machinery),
+# not hard-coded to one direction. Small jitter keeps each paired CI off 0.
+$floorMainRuns = @(); $floorPrRuns = @()
+1..12 | ForEach-Object {
+    $j = ($_ % 4) * 0.04
+    $floorMainRuns += [pscustomobject]@{ RendersPerSec = 6.0 + $j; AvgReconcileMs = 14.0 + $j; AvgDiffMs = 12.0 + $j; AvgMemoryMB = 300 + $j; TotalRenders = 60; DurationSeconds = 10 }
+    $floorPrRuns   += [pscustomobject]@{ RendersPerSec = 5.0 + $j; AvgReconcileMs = 11.0 + $j; AvgDiffMs = 10.0 + $j; AvgMemoryMB = 300 + $j; TotalRenders = 50; DurationSeconds = 10 }
+}
+$floorMain = Measure-PerfRuns -Runs $floorMainRuns
+$floorPr   = Measure-PerfRuns -Runs $floorPrRuns
+
+# Direct section renderer: empty when either side is null, populated when both present.
+Assert-Equal 0 @(Format-PerfSkipFloorSection -MainFloor $null -PrFloor $floorPr -Percent 0).Count 'skip-floor section empty when main floor null'
+Assert-Equal 0 @(Format-PerfSkipFloorSection -MainFloor $floorMain -PrFloor $null -Percent 0).Count 'skip-floor section empty when pr floor null'
+$floorSection = Format-PerfSkipFloorSection -MainFloor $floorMain -PrFloor $floorPr -Percent 0
+$floorSectionText = $floorSection -join "`n"
+Assert-Match $floorSectionText 'Low-mutation skip-floor' 'skip-floor section has heading'
+Assert-Match $floorSectionText 'Avg Reconcile'           'skip-floor section has reconcile row'
+Assert-Match $floorSectionText 'skip-walk floor'         'skip-floor preamble explains the O(n) skip-walk floor'
+# Direction-awareness: rps and reconcile both DECREASE main->PR, yet rps (higher-is-
+# better) must read regression while reconcile (lower-is-better) reads improvement.
+$floorRpsRow   = ($floorSection | Where-Object { $_ -match 'Renders/sec' })   -join ' '
+$floorReconRow = ($floorSection | Where-Object { $_ -match 'Avg Reconcile' }) -join ' '
+Assert-Match $floorRpsRow   'regression'  'skip-floor: rps DOWN reads regression (higher-is-better honored)'
+Assert-Match $floorReconRow 'improvement' 'skip-floor: reconcile DOWN reads improvement (lower-is-better honored)'
+
+# Threaded through Format-PerfComment, between the regression and cross-framework tables.
+$floorComment = Format-PerfComment -Main $main -Pr $pr -WinUI3 $null -Rust $null -MainFloor $floorMain -PrFloor $floorPr -Context $ctx
+Assert-Match $floorComment 'Low-mutation skip-floor' 'comment renders skip-floor table when floor aggregates present'
+$idxReg = $floorComment.IndexOf('Regression vs')
+$idxFloor = $floorComment.IndexOf('Low-mutation skip-floor')
+$idxXfw = $floorComment.IndexOf('Cross-framework reference')
+Assert-True (($idxReg -lt $idxFloor) -and ($idxFloor -lt $idxXfw)) 'skip-floor table sits between the regression and cross-framework tables'
+
+# Omitted entirely when floor aggregates are absent (skip-floor leg disabled).
+$noFloorComment = Format-PerfComment -Main $main -Pr $pr -WinUI3 $null -Rust $null -MainFloor $null -PrFloor $null -Context $ctx
+Assert-True (-not ($noFloorComment -like '*Low-mutation skip-floor*')) 'skip-floor table omitted when floor aggregates null'
+
+# Context.SkipFloorPercent threads into the heading (default 0 when absent).
+$ctxFloor1 = $ctx.Clone(); $ctxFloor1['SkipFloorPercent'] = 1
+$floorComment1 = Format-PerfComment -Main $main -Pr $pr -WinUI3 $null -Rust $null -MainFloor $floorMain -PrFloor $floorPr -Context $ctxFloor1
+Assert-Match $floorComment1 '--percent 1' 'skip-floor heading reflects Context.SkipFloorPercent'
+
+
 # ── Reconciler micro-suite: Read-MicroBenchResults / comparison / render ──────
 function New-MicroRow {
     param([string]$BenchId, [string]$Name, [string]$Variant, [int]$Rep, [double]$MeanNs, [double]$AllocBytes, [string]$Status = 'ok', [int]$Iterations = 1)
