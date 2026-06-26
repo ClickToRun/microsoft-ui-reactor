@@ -291,9 +291,14 @@ function Stage-RustRuntime {
     param([string]$ExeDir, [string]$Platform)
 
     $arch = if ($Platform -match 'arm64') { 'arm64' } else { 'x64' }
+    # Verify a REQUIRED SET, not a single sentinel: a prior *partial* stage could leave
+    # one runtime DLL present while others are missing, which still faults the loader at
+    # process start. Both of these are always in the self-contained runtime MSIX and are
+    # referenced by the embedded SxS manifest.
+    $required = @('microsoft.ui.xaml.dll', 'Microsoft.WindowsAppRuntime.dll')
     $sentinel = 'microsoft.ui.xaml.dll'
-    if (Test-Path (Join-Path $ExeDir $sentinel)) {
-        Write-Log "  Rust runtime already staged next to exe ($sentinel present)" 'DarkGray'
+    if (-not ($required | Where-Object { -not (Test-Path (Join-Path $ExeDir $_)) })) {
+        Write-Log "  Rust runtime already staged next to exe (required DLLs present)" 'DarkGray'
         return
     }
 
@@ -352,10 +357,16 @@ function Stage-RustRuntime {
             Where-Object { $_.Extension -in '.dll', '.pri' } |
             ForEach-Object { try { Copy-Item -LiteralPath $_.FullName -Destination $ExeDir -Force; $staged++ } catch {} }
 
-        if (Test-Path (Join-Path $ExeDir $sentinel)) {
+        # Verify completeness against the actual MSIX payload for this package version
+        # (not just one sentinel): every runtime DLL from the MSIX root must now sit next
+        # to the exe, and the required core set must be present.
+        $srcDlls = @(Get-ChildItem $msixOut -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -eq '.dll' })
+        $notCopied = @($srcDlls | Where-Object { -not (Test-Path (Join-Path $ExeDir $_.Name)) })
+        $coreMissing = @($required | Where-Object { -not (Test-Path (Join-Path $ExeDir $_)) })
+        if ($notCopied.Count -eq 0 -and $coreMissing.Count -eq 0) {
             Write-Log "  staged $staged WinAppSDK runtime file(s) next to test_reactor_perf.exe (self-contained)" 'Green'
         } else {
-            Write-Log "  runtime staging copied $staged file(s) but $sentinel is missing — Rust column may read n/a (#674)" 'Yellow'
+            Write-Log "  runtime staging incomplete (copied $staged; $($notCopied.Count) DLL(s) missing) — Rust column may read n/a (#674)" 'Yellow'
         }
     } catch {
         Write-Log "  Rust runtime staging failed ($($_.Exception.Message)) — Rust column may read n/a (#674)" 'Yellow'
