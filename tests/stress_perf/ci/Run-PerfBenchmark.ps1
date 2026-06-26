@@ -380,6 +380,11 @@ function Stage-RustRuntime {
         $null = New-Item -ItemType Directory -Force -Path $msixOut -ErrorAction SilentlyContinue
         & $tar -xf $msix -C $msixOut
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $msixOut $sentinel))) {
+            # The MSIX itself is corrupt/partial (a truncated nupkg extract can yield a bad
+            # .msix that tar -xf still "produces"). Evict the cached $msix so the next call's
+            # step 2 — which skips re-extract while $msix exists — is forced to re-extract a
+            # fresh MSIX from the nupkg instead of looping forever on the poisoned cache.
+            Remove-Item $msix -Force -ErrorAction SilentlyContinue
             Write-Log "  runtime MSIX extraction failed/incomplete — Rust column may read n/a (#674)" 'Yellow'
             return
         }
