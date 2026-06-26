@@ -153,7 +153,7 @@ $exeDir = Join-Path ([IO.Path]::GetTempPath()) 'perfci-rust-exedir'
 if (Test-Path $exeDir) { Remove-Item $exeDir -Recurse -Force }
 $null = New-Item -ItemType Directory -Force $exeDir | Out-Null
 Set-Content -LiteralPath (Join-Path $exeDir '.perfci-runtime-staged') -Value 'x' -NoNewline
-foreach ($f in 'microsoft.ui.xaml.dll', 'Microsoft.WindowsAppRuntime.dll') {
+foreach ($f in 'microsoft.ui.xaml.dll', 'Microsoft.WindowsAppRuntime.dll', 'Microsoft.Web.WebView2.Core.dll') {
     Set-Content -LiteralPath (Join-Path $exeDir $f) -Value 'x' -NoNewline
 }
 $global:LogLines.Clear()
@@ -196,6 +196,28 @@ Assert-True (@($global:LogLines | Where-Object { $_ -match 'already staged' }).C
 Assert-True (-not (Test-Path $marker3)) `
     '[stage] stale marker (core DLLs missing) -> marker deleted before restage'
 Remove-Item $exeDir3 -Recurse -Force -ErrorAction SilentlyContinue
+
+# (4) marker + the WinAppSDK core DLLs present but the WebView2 Core DLL MISSING -> the stage
+# is incomplete (WebView2 is a manifest-required SxS file that ships in a SEPARATE package), so
+# the gate must treat the marker as stale, drop it, and NOT early-return. Force the tar probe to
+# miss so it bails network-free right after the gate.
+$exeDir4 = Join-Path ([IO.Path]::GetTempPath()) 'perfci-rust-exedir4'
+if (Test-Path $exeDir4) { Remove-Item $exeDir4 -Recurse -Force }
+$null = New-Item -ItemType Directory -Force $exeDir4 | Out-Null
+$marker4 = Join-Path $exeDir4 '.perfci-runtime-staged'
+Set-Content -LiteralPath $marker4 -Value 'x' -NoNewline
+foreach ($f in 'microsoft.ui.xaml.dll', 'Microsoft.WindowsAppRuntime.dll') {
+    Set-Content -LiteralPath (Join-Path $exeDir4 $f) -Value 'x' -NoNewline
+}
+$savedSysRoot = $env:SystemRoot
+$env:SystemRoot = [IO.Path]::GetTempPath()
+$global:LogLines.Clear()
+try { Stage-RustRuntime -ExeDir $exeDir4 -Platform 'x64' } finally { $env:SystemRoot = $savedSysRoot }
+Assert-True (@($global:LogLines | Where-Object { $_ -match 'already staged' }).Count -eq 0) `
+    '[stage] WebView2 Core DLL missing -> does NOT early-return (WebView2 is required)'
+Assert-True (-not (Test-Path $marker4)) `
+    '[stage] WebView2 Core DLL missing -> stale marker dropped before restage'
+Remove-Item $exeDir4 -Recurse -Force -ErrorAction SilentlyContinue
 
 # cleanup
 foreach ($d in @($baseTree, $prTree, $OutDir, $exeDir)) {
