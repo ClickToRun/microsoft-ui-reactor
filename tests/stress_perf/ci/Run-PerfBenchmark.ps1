@@ -447,20 +447,28 @@ function Stage-RustRuntime {
         if ((Test-Path $wnupkg) -and (Get-Item $wnupkg).Length -ge 1MB) {
             $wextract = Join-Path $cache "$wpkg-$wver"
             $wsrc = Join-Path $wextract "win-$arch\native_uap\$wdll"
+            $wok = $true
             if (-not (Test-Path $wsrc)) {
                 # Clear any prior partial extract, then re-extract fresh (strip the leading
                 # package dir, matching upstream stage_pkg's --strip-components=1).
                 if (Test-Path $wextract) { Remove-Item $wextract -Recurse -Force -ErrorAction SilentlyContinue }
                 $null = New-Item -ItemType Directory -Force -Path $wextract -ErrorAction SilentlyContinue
                 & $tar -xf $wnupkg -C $wextract --strip-components=1
+                # A truncated nupkg that still cleared the coarse 1MB gate can make tar emit a
+                # partial/corrupt Core.dll that Test-Path alone would accept. Mirror the
+                # runtime-MSIX guard above: require a clean tar exit before trusting the extract.
+                if ($LASTEXITCODE -ne 0) { $wok = $false }
             }
-            if (Test-Path $wsrc) {
+            if ($wok -and (Test-Path $wsrc)) {
                 try { Copy-Item -LiteralPath $wsrc -Destination $ExeDir -Force; $staged++ } catch {}
             } else {
-                # The package extracted but lacks the expected DLL (corrupt/partial): evict the
-                # nupkg so the next run re-downloads instead of looping on a bad artifact.
+                # The package lacks the expected DLL, or tar failed on a truncated-but->1MB nupkg
+                # (partial/corrupt extract): evict the nupkg AND clear the partial extract so the
+                # next run re-downloads a fresh copy instead of staging a broken Core.dll and
+                # writing the completion marker over it.
                 Remove-Item $wnupkg -Force -ErrorAction SilentlyContinue
-                Write-Log "  WebView2 Core DLL not found in package after extract — Rust column may read n/a (#674)" 'Yellow'
+                Remove-Item $wextract -Recurse -Force -ErrorAction SilentlyContinue
+                Write-Log "  WebView2 Core DLL not staged (missing or corrupt extract) — Rust column may read n/a (#674)" 'Yellow'
             }
         } else {
             if (Test-Path $wnupkg) { Remove-Item $wnupkg -Force -ErrorAction SilentlyContinue }
