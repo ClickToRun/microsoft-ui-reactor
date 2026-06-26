@@ -923,6 +923,7 @@ public sealed class ReactorHost : IDisposable
         // Best effort either way. (issue #647)
         try { _backdropApplier.Reset(_windowClosed); }
         catch (global::System.Exception ex)
+            when (ex is not global::System.OutOfMemoryException and not global::System.StackOverflowException)
         {
             Debug.WriteLine($"[Reactor] backdrop reset on dispose failed (best effort): {ex.GetType().Name}: {ex.Message}");
         }
