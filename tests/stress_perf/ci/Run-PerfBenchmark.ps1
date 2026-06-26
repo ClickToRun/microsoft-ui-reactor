@@ -348,11 +348,19 @@ function Stage-RustRuntime {
             return
         }
 
-        # 3. Extract the per-arch MSIX (its root holds the runtime DLLs + .pri).
+        # 3. Extract the per-arch MSIX (its root holds the runtime DLLs + .pri). We only
+        #    reach here when the completion marker is absent, so the cached scratch dir is
+        #    untrusted: clear any prior (possibly partial) payload and re-extract fresh, then
+        #    require BOTH a clean tar exit and the sentinel before trusting $msixOut as the
+        #    completeness source below — a partial/stale extraction must never feed the
+        #    verification and write the marker from an incomplete payload.
         $msixOut = Join-Path $extract ".msix_extract-$arch"
-        if (-not (Test-Path (Join-Path $msixOut $sentinel))) {
-            $null = New-Item -ItemType Directory -Force -Path $msixOut -ErrorAction SilentlyContinue
-            & $tar -xf $msix -C $msixOut
+        if (Test-Path $msixOut) { Remove-Item $msixOut -Recurse -Force -ErrorAction SilentlyContinue }
+        $null = New-Item -ItemType Directory -Force -Path $msixOut -ErrorAction SilentlyContinue
+        & $tar -xf $msix -C $msixOut
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $msixOut $sentinel))) {
+            Write-Log "  runtime MSIX extraction failed/incomplete — Rust column may read n/a (#674)" 'Yellow'
+            return
         }
 
         # 4. Copy the runtime DLLs + resource indices next to the exe.
