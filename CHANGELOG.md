@@ -337,6 +337,26 @@ Conventions for contributors:
 
 ### Fixed
 
+- **Multi-window teardown no longer faults with an `ACCESS_VIOLATION`
+  (issue #647).** Closing a docking tear-off floating preview window could
+  terminate the process with `0xC0000005` deep in the WinUI backdrop interop —
+  an unmanaged fault no `try`/`catch` can trap — corrupting the lifecycle of
+  windows opened later in the same process. Root cause: a transient auxiliary
+  window (e.g. a docking tear-off) could be elected the fallback `PrimaryWindow`,
+  so closing it fired `ShutdownPolicy.OnPrimaryWindowClosed` →
+  `Application.Exit()`, tearing down every still-open window mid-process; a
+  surviving host then wrote `Window.SystemBackdrop` on one of those torn-down
+  surfaces. Three reinforcing fixes (spec 036, spec 045): docking floating
+  windows opt out of primary election via `ExcludeFromShutdownPolicy`, and the
+  single election helper that runs on both initial registration and
+  unregister re-election never promotes an excluded window — so an auxiliary
+  window can neither become *nor remain* primary, and `PrimaryWindow` goes
+  `null` rather than to an excluded window when no eligible window remains;
+  `BackdropApplier` records torn-down surfaces in a process-wide closed-window
+  registry and skips every `SystemBackdrop` write (both `Apply` and `Reset`) on
+  them; and `ReactorWindow.Close()` is now idempotent — a redundant or
+  owner-cascade close performs the native close exactly once instead of
+  re-entering native teardown.
 - **TitleBar in a non-content-extended window no longer corrupts the heap on
   close (issue #537).** A window whose `WindowSpec` set
   `ExtendsContentIntoTitleBar = false` while its content still rendered a

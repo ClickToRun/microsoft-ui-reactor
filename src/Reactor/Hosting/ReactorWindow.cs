@@ -99,6 +99,14 @@ public sealed class ReactorWindow : IDisposable
     private DipPositionSnapshot _position = new(0, 0);
     private int _stateValue; // backing storage for State (cast WindowState <-> int)
     private bool _disposed;
+    // Issue #647 — latched the first time the native Window.Close() is requested
+    // for this window, on any path (programmatic Close, the owner-close cascade,
+    // or ReactorApp exit). A second native close on an already-closing/closed
+    // window re-enters native teardown and faults with an ACCESS_VIOLATION
+    // (0xC0000005), poisoning later windows in the same process. All native
+    // closes route through CloseNativeWindowOnce so the underlying Window.Close()
+    // happens at most once.
+    private bool _nativeCloseRequested;
     private bool _userResized; // Phase 2: once true we no longer overwrite size on DPI events.
     private bool _firstDpiApplied;
     private bool _persistenceRestoreAttempted;
@@ -143,6 +151,15 @@ public sealed class ReactorWindow : IDisposable
     internal WindowMessageMonitor MessageMonitor => _messageMonitor;
 
     internal nint Hwnd => _hwnd;
+
+    /// <summary>
+    /// When <c>true</c>, this window is an auxiliary surface (e.g. a docking
+    /// tear-off floating window) that must never be elected the application's
+    /// <see cref="ReactorApp.PrimaryWindow"/> and so never drives the
+    /// <see cref="ShutdownPolicy.OnPrimaryWindowClosed"/> shutdown when it
+    /// closes. Set once at open time. (issue #647)
+    /// </summary>
+    internal bool ExcludeFromShutdownPolicy { get; set; }
 
     /// <summary>The <see cref="ReactorHost"/> driving this window's render loop.</summary>
     public ReactorHost Host => _host;
@@ -1400,7 +1417,7 @@ public sealed class ReactorWindow : IDisposable
                 // safe to tear down here, before the native close, mirroring
                 // ReactorWindow.Close(). Idempotent. (#537)
                 child.PrepareTitleBarTreeForClose();
-                try { child._window.Close(); }
+                try { child.CloseNativeWindowOnce(); }
                 // Iteration sibling-independence (spec 044 §6.7.3): one
                 // failing child must not abort the cascade across its
                 // siblings. The Window.Close call also re-enters the child's
@@ -1823,6 +1840,22 @@ public sealed class ReactorWindow : IDisposable
         // owned descendants that likewise never see their own AppWindow.Closing.
         // Idempotent. (issue #537)
         PrepareTitleBarTreeForClose();
+        CloseNativeWindowOnce();
+    }
+
+    /// <summary>
+    /// Request the underlying native <see cref="Window.Close"/> at most once for
+    /// this window, regardless of how many close paths converge on it
+    /// (programmatic <see cref="Close"/>, the owner-close cascade, the
+    /// <c>ReactorApp</c> exit prep). A redundant native close on a window whose
+    /// teardown has already started re-enters native destroy and faults with an
+    /// <c>ACCESS_VIOLATION</c> (0xC0000005) that corrupts later windows in the
+    /// process — the multi-window batch teardown crash this guards. (issue #647)
+    /// </summary>
+    private void CloseNativeWindowOnce()
+    {
+        if (_disposed || _nativeCloseRequested) return;
+        _nativeCloseRequested = true;
         try { _window.Close(); }
         catch (COMException ex) when (HResults.IsTeardownReentry(ex.HResult))
         { DiagnosticLog.SwallowedError(LogCategory.Hosting, "ReactorWindow.Close", ex); }

@@ -138,10 +138,20 @@ public static class DockFloatingWindow
         // by the host's dispatcher loop after OpenWindow returns, so
         // the holder is always populated by the time it's read.
         var windowHolder = new ReactorWindow?[] { null };
-        var window = ReactorApp.OpenWindow(spec, _ =>
-            new Microsoft.UI.Reactor.Core.ComponentElement<DockFloatingWindowProps>(
-                typeof(DockFloatingWindowComponent),
-                new DockFloatingWindowProps(pane, windowHolder, manager)));
+        var window = ReactorApp.OpenWindowCore(
+            spec,
+            rootFactory: null,
+            renderFunc: _ =>
+                new Microsoft.UI.Reactor.Core.ComponentElement<DockFloatingWindowProps>(
+                    typeof(DockFloatingWindowComponent),
+                    new DockFloatingWindowProps(pane, windowHolder, manager)),
+            configure: null,
+            // Spec 045 — a tear-off floating window is an auxiliary docking
+            // surface. It must never be elected the app's primary window, so
+            // closing it (e.g. dock-back, last-tab-close) cannot trigger
+            // ShutdownPolicy.OnPrimaryWindowClosed and tear the whole app down.
+            // (issue #647)
+            excludeFromShutdownPolicy: true);
         windowHolder[0] = window;
         DockFloatingTracker.Register(window);
         DockFloatingTracker.RegisterEntry(window, pane, spec.Width, spec.Height);

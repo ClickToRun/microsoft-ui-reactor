@@ -1088,6 +1088,10 @@ internal static class SelfTestFixtureRegistry
         "WindowStyle_ToolWindowExStyleRemoved",
         "SizeToContent_MinMaxInfoSuite",
         "UseSpec054Hooks_Suite",
+        // Spec 036/045 — issue #647 multi-window teardown hardening regression.
+        "Window647_PrimaryElectionExcludesAuxiliary",
+        "Window647_BackdropSkipsClosedWindow",
+        "Window647_NativeCloseIsIdempotent",
         // Spec 045 §2.19 — Phase-1 wrapper-based Docking_* smoke fixtures
         // were retired with the XAML wrapper at the §2.29 review gate.
         // NativeDocking_* below covers the same surface against the P2
@@ -2498,6 +2502,10 @@ internal static class SelfTestFixtureRegistry
         "FilePicker_InitializesWithWindow" => new Phase7WindowingFixtures.FilePickerInitializesWithWindow(harness),
         "FilePicker_ThrowsOffUiThread" => new Phase7WindowingFixtures.FilePickerThrowsOffUiThread(harness),
         "UseSpec054Hooks_Suite" => new Phase7WindowingFixtures.UseSpec054HooksSuite(harness),
+        // Spec 036/045 — issue #647 multi-window teardown hardening regression.
+        "Window647_PrimaryElectionExcludesAuxiliary" => new WindowLifecycleHardeningFixtures.PrimaryElectionExcludesAuxiliary(harness),
+        "Window647_BackdropSkipsClosedWindow" => new WindowLifecycleHardeningFixtures.BackdropSkipsClosedWindow(harness),
+        "Window647_NativeCloseIsIdempotent" => new WindowLifecycleHardeningFixtures.NativeCloseIsIdempotent(harness),
         // Spec 045 §2.19 — Phase-1 DockingSmokeFixtures retired alongside
         // the XAML wrapper unhooking. NativeDockingSmokeFixtures (below)
         // covers the same mount/update/unmount surface against the P2
