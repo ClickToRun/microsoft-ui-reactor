@@ -99,6 +99,8 @@ Assert-Equal 'na' $d.Status 'zero baseline -> na'
 # ── Format-PerfNumber / Format-PerfDeltaCell ─────────────────────────────────
 Assert-Equal 'n/a'   (Format-PerfNumber $null 1) 'format null -> n/a'
 Assert-Equal '8.70'  (Format-PerfNumber 8.7 2)   'format 2 digits invariant'
+Assert-Equal '52000' (Format-PerfNumber 52000 0) 'format 0 digits -> clean integer (no trailing dot)'
+Assert-Equal '13'    (Format-PerfNumber 12.6 0)  'format 0 digits rounds to integer'
 Assert-Equal '+20.0%' (Format-PerfDeltaCell ([pscustomobject]@{ DeltaPct = 20.0 })) 'delta cell signs positive'
 Assert-Equal '-5.0%'  (Format-PerfDeltaCell ([pscustomobject]@{ DeltaPct = -5.0 })) 'delta cell signs negative'
 Assert-Equal '—'      (Format-PerfDeltaCell ([pscustomobject]@{ DeltaPct = $null })) 'delta cell na -> dash'

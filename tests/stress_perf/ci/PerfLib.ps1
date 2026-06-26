@@ -409,7 +409,13 @@ function Get-PerfDelta {
 function Format-PerfNumber {
     param([AllowNull()]$Value, [int]$Digits = 1)
     if ($null -eq $Value) { return 'n/a' }
-    return ([math]::Round([double]$Value, $Digits)).ToString("0.$('0' * $Digits)", [System.Globalization.CultureInfo]::InvariantCulture)
+    # Digits=0 (used by the alloc-bytes metric) must render a clean integer — a
+    # "0.<zeros>" format with zero zeros collapses to "0." and emits a trailing
+    # dot ("52000."), so format integers with a plain "0" pattern instead.
+    $d = [math]::Max(0, $Digits)
+    $rounded = [math]::Round([double]$Value, $d)
+    $fmt = if ($d -le 0) { '0' } else { "0.$('0' * $d)" }
+    return $rounded.ToString($fmt, [System.Globalization.CultureInfo]::InvariantCulture)
 }
 
 function Format-PerfDeltaCell {
