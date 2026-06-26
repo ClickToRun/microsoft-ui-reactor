@@ -46,6 +46,16 @@ $script:PerfAllocMetricSpec = @(
     [pscustomobject]@{ Key = 'Gen0PerKRenders';     Label = 'Gen0 GC / 1k renders'; LowerIsBetter = $true; Digits = 2; Arrow = [char]0x2193 }
 )
 
+# Minimum-effect band (percent) for the micro-suite ALLOC flag. The per-side micro
+# runs are not rep-interleaved, so a sub-1% systematic process-to-process alloc
+# offset on non-deterministic benches (dispatcher / background-thread allocations,
+# e.g. M5 "Dispatch_Switch_Warm" measured 6/6 distinct alloc values per rep) can
+# make the tight within-process 95% CI exclude 0 on identical code. Requiring the CI
+# to clear +-this band absorbs that offset while still catching real structural
+# alloc changes, which are several percent to many-x. Set to 0 to restore the pure
+# "CI excludes 0" rule.
+$script:MicroAllocMinEffectPct = 1.0
+
 function ConvertTo-PerfDouble {
     <#
     .SYNOPSIS Culture-tolerant parse of a captured numeric string, or $null.
@@ -358,6 +368,27 @@ function Get-PerfDelta {
         max(NoiseFloorPct, SpreadPct).
     .PARAMETER BaselineSamples / CandidateSamples
         Index-aligned per-run values (with $null placeholders) for the paired CI.
+    .PARAMETER RequirePairedCI
+        When set, the paired 95% CI is the ONLY admissible flag: if fewer than 2
+        aligned pairs survive (so Get-PerfPairedDeltaStats returns $null) the result
+        is 'na' rather than the point-delta vs % -floor fallback. Used by the
+        micro-suite, whose contract is "flag only when the paired CI excludes 0" —
+        without it a single surviving pair (e.g. after later reps error out and are
+        filtered) would be flagged better/worse off one sample with N=$null. The
+        macro path leaves it off and keeps the legacy point-delta fallback.
+    .PARAMETER MinEffectPct
+        Minimum effect size (percent) for a paired-CI flag. The change is flagged
+        better/worse only when the 95% CI lies ENTIRELY beyond +-MinEffectPct, not
+        merely beyond 0. Default 0 keeps the pure "CI excludes 0" rule (macro path).
+        The micro-suite passes a small band (~1%) on the ALLOC delta because the
+        per-side micro runs are not rep-interleaved: a sub-1% systematic
+        process-to-process alloc offset (dispatcher / background-thread allocations
+        on benches like M5 are not bit-deterministic) can make the tight
+        within-process CI exclude 0 on identical code. Requiring >= MinEffectPct
+        absorbs that offset while still catching real structural alloc changes,
+        which are multiple percent to many-x. This is NOT the blanket point-delta
+        floor PR1 removed: it is a CI-vs-band test, applied only to the
+        non-interleaved micro alloc metric.
     #>
     param(
         [AllowNull()]$Baseline,
@@ -366,7 +397,9 @@ function Get-PerfDelta {
         [double]$NoiseFloorPct = 4.0,
         [double]$SpreadPct = 0.0,
         [AllowNull()][object[]]$BaselineSamples,
-        [AllowNull()][object[]]$CandidateSamples
+        [AllowNull()][object[]]$CandidateSamples,
+        [switch]$RequirePairedCI,
+        [double]$MinEffectPct = 0.0
     )
     if ($null -eq $Baseline -or $null -eq $Candidate -or [double]$Baseline -eq 0) {
         return [pscustomobject]@{ DeltaPct = $null; Status = 'na'; Improved = $null; CiLowPct = $null; CiHighPct = $null; N = $null }
@@ -387,8 +420,11 @@ function Get-PerfDelta {
         $ciLow = [double]$stats.CiLowPct
         $ciHigh = [double]$stats.CiHighPct
         $improved = if ($LowerIsBetter) { $meanPct -lt 0 } else { $meanPct -gt 0 }
-        $ciExcludesZero = ($ciLow -gt 0) -or ($ciHigh -lt 0)
-        $status = if (-not $ciExcludesZero) { 'noise' } elseif ($improved) { 'better' } else { 'worse' }
+        # Flag only when the CI lies entirely beyond +-MinEffectPct (default 0 => the
+        # pure "excludes 0" rule). The micro alloc path passes a small band so a
+        # sub-band process-to-process offset on non-deterministic benches reads noise.
+        $ciExcludesBand = ($ciLow -gt $MinEffectPct) -or ($ciHigh -lt -$MinEffectPct)
+        $status = if (-not $ciExcludesBand) { 'noise' } elseif ($improved) { 'better' } else { 'worse' }
         return [pscustomobject]@{
             DeltaPct  = [math]::Round($meanPct, 1)
             Status    = $status
@@ -397,6 +433,12 @@ function Get-PerfDelta {
             CiHighPct = [math]::Round($ciHigh, 2)
             N         = $stats.N
         }
+    }
+
+    # Micro-suite contract: with < 2 rep-aligned pairs there is no admissible CI, so
+    # report 'na' rather than flag a lone surviving pair off the point-delta fallback.
+    if ($RequirePairedCI) {
+        return [pscustomobject]@{ DeltaPct = $null; Status = 'na'; Improved = $null; CiLowPct = $null; CiHighPct = $null; N = $null }
     }
 
     # Fallback: point delta vs a max(floor, spread) noise band.
@@ -444,6 +486,209 @@ function Get-PerfStatusGlyph {
     }
 }
 
+# ── Reconciler micro-suite (PerfBench.ControlModel) ──────────────────────────
+# /perf's macro StocksGrid workload is render-bound and WinUI-diluted, so it can
+# neither resolve small Core/Reconciler time deltas nor see allocation changes.
+# The PerfBench.ControlModel micro-suite (spec-047 M1-M13) runs the production
+# `--variant Reactor` control-model path as a headless loop bracketed by
+# per-thread alloc + GC counters at ns-resolution, with no render pipeline in the
+# measured region. These helpers parse its JSON-Lines output and compute the
+# PR-vs-main paired delta per bench, reusing the same CI machinery as the macro
+# table (Get-PerfDelta / Get-PerfPairedDeltaStats).
+
+function Read-MicroBenchResults {
+    <#
+    .SYNOPSIS
+        Parse a PerfBench.ControlModel results.jsonl (JSON-Lines) into a per-bench
+        sample map for the production `Reactor` variant.
+    .DESCRIPTION
+        Each line is one MeasurementResult (camelCase JSON). Only variant == 'Reactor'
+        rows with status 'ok' are kept — the legacy Direct / ReactorToday variants are
+        an intra-build A/B (Reactor-vs-today / Reactor-vs-raw-WinUI), NOT the PR-vs-main
+        delta /perf reports. Rows are ordered by repetition and tagged with their
+        repetition index so the paired analysis can align baseline rep i against
+        candidate rep i BY REPETITION (not array position) — a dropped/errored rep on
+        one side must not shift every later sample. Malformed lines are skipped,
+        including any row missing benchId / meanNs / allocBytes or whose repetition
+        is absent or non-numeric (it would otherwise throw on the [int] cast below).
+    .OUTPUTS
+        OrderedDictionary benchId -> [pscustomobject]@{ BenchId; Name;
+        Repetitions [int[]]; MeanNsSamples [double[]]; AllocBytesSamples [double[]] }
+        (the three arrays are parallel / index-aligned). MeanNsSamples and
+        AllocBytesSamples are both PER-OP: BenchRunner already divides meanNs by the
+        iteration count, and allocBytes (reported as the whole-loop total) is divided
+        by the row's iterations here so both sit on the same per-op basis as the
+        "B/op" column. Empty when the file is missing / empty / has no usable
+        Reactor rows.
+    #>
+    param([AllowNull()][string]$Path)
+    $map = [ordered]@{}
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return $map }
+    $rows = [System.Collections.Generic.List[object]]::new()
+    foreach ($line in [System.IO.File]::ReadLines($Path)) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        $obj = $null
+        try { $obj = $line | ConvertFrom-Json } catch { continue }
+        if ($null -eq $obj) { continue }
+        $variant = if ($obj.PSObject.Properties['variant']) { [string]$obj.variant } else { '' }
+        if ($variant -ne 'Reactor') { continue }
+        $status = if ($obj.PSObject.Properties['status']) { [string]$obj.status } else { 'ok' }
+        if ($status -and $status -ne 'ok') { continue }
+        if (-not $obj.PSObject.Properties['benchId'] -or
+            -not $obj.PSObject.Properties['meanNs'] -or
+            -not $obj.PSObject.Properties['allocBytes'] -or
+            -not $obj.PSObject.Properties['repetition']) { continue }
+        # repetition drives the rep-keyed pairing and is cast to [int] when ordering /
+        # tagging samples below; a present-but-non-numeric value would throw PAST the
+        # malformed-line guard and break /perf comment generation, so validate the cast
+        # here and skip the row if it won't parse (honors "malformed lines are skipped").
+        try { $null = [int]$obj.repetition } catch { continue }
+        $rows.Add($obj)
+    }
+    if ($rows.Count -eq 0) { return $map }
+    foreach ($g in ($rows | Group-Object -Property benchId)) {
+        $ordered = @($g.Group | Sort-Object { [int]$_.repetition })
+        $name = ''
+        if ($ordered.Count -gt 0 -and $ordered[0].PSObject.Properties['benchName']) { $name = [string]$ordered[0].benchName }
+        $map[[string]$g.Name] = [pscustomobject]@{
+            BenchId           = [string]$g.Name
+            Name              = $name
+            Repetitions       = [int[]]@($ordered | ForEach-Object { [int]$_.repetition })
+            MeanNsSamples     = [double[]]@($ordered | ForEach-Object { [double]$_.meanNs })
+            AllocBytesSamples = [double[]]@($ordered | ForEach-Object {
+                    # Per-OP allocation: meanNs is already per-op but BenchRunner reports
+                    # allocBytes as the whole-loop total, so normalize by the row's
+                    # iterations to match the "B/op" column. Constant divisor keeps it
+                    # deterministic for identical code.
+                    $iter = if ($_.PSObject.Properties['iterations']) { [double]$_.iterations } else { 0 }
+                    if ($iter -gt 0) { [double]$_.allocBytes / $iter } else { [double]$_.allocBytes }
+                })
+        }
+    }
+    return $map
+}
+
+function Get-PerfMicroComparison {
+    <#
+    .SYNOPSIS
+        Per-bench PR-vs-main paired comparison for the micro-suite. For each bench
+        present in BOTH maps, computes the paired 95%-CI delta of mean ns/op and
+        alloc bytes/op (lower is better), reusing Get-PerfDelta. Returns rows sorted
+        by the numeric bench-id suffix (M1, M2, ... M13).
+    .OUTPUTS
+        Array of [pscustomobject]@{ BenchId; Name; MainMeanNs; PrMeanNs; NsDelta;
+        MainAllocBytes; PrAllocBytes; AllocDelta }. Empty when no bench overlaps.
+    #>
+    param([AllowNull()]$Main, [AllowNull()]$Pr)
+    if ($null -eq $Main -or $null -eq $Pr) { return @() }
+    $rows = [System.Collections.Generic.List[object]]::new()
+    foreach ($benchId in @($Main.Keys)) {
+        if (-not $Pr.Contains($benchId)) { continue }
+        $m = $Main[$benchId]
+        $p = $Pr[$benchId]
+        # Align samples BY REPETITION, not by array position: if a repetition was
+        # dropped/errored (and filtered) on one side, position-zipping would compare
+        # main rep i against pr rep i+1 for every later sample and silently mis-pair
+        # the paired CI. Pair only repetitions present on BOTH sides.
+        $prIdxByRep = @{}
+        for ($j = 0; $j -lt $p.Repetitions.Count; $j++) { $prIdxByRep[[int]$p.Repetitions[$j]] = $j }
+        $mNs = [System.Collections.Generic.List[object]]::new()
+        $pNs = [System.Collections.Generic.List[object]]::new()
+        $mAlloc = [System.Collections.Generic.List[object]]::new()
+        $pAlloc = [System.Collections.Generic.List[object]]::new()
+        for ($i = 0; $i -lt $m.Repetitions.Count; $i++) {
+            $rep = [int]$m.Repetitions[$i]
+            if (-not $prIdxByRep.ContainsKey($rep)) { continue }
+            $j = $prIdxByRep[$rep]
+            $mNs.Add($m.MeanNsSamples[$i]);       $pNs.Add($p.MeanNsSamples[$j])
+            $mAlloc.Add($m.AllocBytesSamples[$i]); $pAlloc.Add($p.AllocBytesSamples[$j])
+        }
+        # Displayed medians AND the paired CI are both computed over the SAME
+        # rep-aligned sample set, so the table's main/PR columns can't be drawn from
+        # a different set of reps than the Δ when a repetition is missing on one side.
+        $mNsArr = [object[]]$mNs.ToArray();    $pNsArr = [object[]]$pNs.ToArray()
+        $mAllocArr = [object[]]$mAlloc.ToArray(); $pAllocArr = [object[]]$pAlloc.ToArray()
+        $mainMeanNs = Get-PerfMedian $mNsArr; $prMeanNs = Get-PerfMedian $pNsArr
+        $mainAlloc = Get-PerfMedian $mAllocArr; $prAlloc = Get-PerfMedian $pAllocArr
+        $nsDelta = Get-PerfDelta -Baseline $mainMeanNs -Candidate $prMeanNs `
+            -LowerIsBetter $true -BaselineSamples $mNsArr -CandidateSamples $pNsArr -RequirePairedCI
+        # Alloc DRIVES the row flag, and not every bench is alloc-deterministic:
+        # dispatcher / background-thread benches (e.g. M5) carry a sub-1% systematic
+        # process-to-process offset that the within-process CI can't cancel, so flag
+        # only when the CI clears the +-MinEffectPct band. ns is informational-only
+        # (never drives the flag) so it keeps the pure CI-excludes-0 rule.
+        $allocDelta = Get-PerfDelta -Baseline $mainAlloc -Candidate $prAlloc `
+            -LowerIsBetter $true -BaselineSamples $mAllocArr -CandidateSamples $pAllocArr `
+            -RequirePairedCI -MinEffectPct $script:MicroAllocMinEffectPct
+        $rows.Add([pscustomobject]@{
+            BenchId        = $benchId
+            Name           = $m.Name
+            MainMeanNs     = $mainMeanNs
+            PrMeanNs       = $prMeanNs
+            NsDelta        = $nsDelta
+            MainAllocBytes = $mainAlloc
+            PrAllocBytes   = $prAlloc
+            AllocDelta     = $allocDelta
+        })
+    }
+    return @($rows | Sort-Object `
+        @{ Expression = { $n = 0; if ([int]::TryParse(($_.BenchId -replace '\D', ''), [ref]$n)) { $n } else { [int]::MaxValue } } }, `
+        @{ Expression = { $_.BenchId } })
+}
+
+function Get-PerfMicroRowStatus {
+    <#
+    .SYNOPSIS
+        Row flag for a micro-bench. v1 tracks the DETERMINISTIC allocation signal
+        only; the ns/op delta is informational and does NOT drive the flag.
+    .DESCRIPTION
+        Allocated bytes/op is deterministic for identical code (an unchanged diff
+        reproduces the same byte count exactly), so its paired CI is a trustworthy
+        flag. ns/op is NOT: the per-side micro runs are not yet rep-interleaved, so a
+        systematic process-to-process timing offset (thermal / scheduling drift
+        between the two back-to-back invocations) shifts every paired ns difference
+        the same way and makes the paired CI exclude 0 even for an identical binary
+        — empirically a no-op diff flagged -14.8% ns on one bench. Flagging ns would
+        therefore emit false improvements/regressions. So the row tracks alloc; ns is
+        shown for context. (Rep-level interleaving is the documented fast-follow that
+        would let ns be promoted to a flagged signal.)
+    #>
+    param([AllowNull()][string]$NsStatus, [AllowNull()][string]$AllocStatus)
+    if ([string]::IsNullOrEmpty($AllocStatus)) { return 'na' }
+    return $AllocStatus
+}
+
+function Format-PerfMicroSection {
+    <#
+    .SYNOPSIS
+        Render the reconciler micro-benchmark table (mean ns/op + alloc bytes/op,
+        PR vs main) as markdown lines. Empty array when there is nothing to show.
+    #>
+    param([AllowNull()][object[]]$Micro)
+    if ($null -eq $Micro -or @($Micro).Count -eq 0) { return @() }
+    $down = [char]0x2193
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $lines.Add("### Reconciler micro-benchmarks (``PerfBench.ControlModel``)")
+    $lines.Add('')
+    $lines.Add("Production ``--variant Reactor`` control-model path, ns-resolution and WinUI-undiluted (spec-047 M1&ndash;M13) &mdash; $down lower is better. **Status tracks allocated bytes/op**, the authoritative signal here; it is deterministic for structurally-fixed benches, while dispatcher / background-thread benches carry a small process-to-process offset, so a bench is flagged only when its 95% CI clears a &plusmn;$($script:MicroAllocMinEffectPct)% minimum-effect band (real structural alloc changes are several percent to many-x). **ns/op is shown for context** but is not auto-flagged in v1 (the per-side runs are not yet rep-interleaved, so a process-to-process timing offset can otherwise read as significant). Δ is the mean paired change with a 95% CI.")
+    $lines.Add('')
+    $lines.Add('| Bench | `main` ns/op | Δ ns (95% CI) | `main` B/op | Δ alloc (95% CI) | Status |')
+    $lines.Add('|---|--:|--:|--:|--:|:--|')
+    foreach ($r in $Micro) {
+        $label = if ($r.Name) { ('`{0}` {1}' -f $r.BenchId, $r.Name) } else { ('`{0}`' -f $r.BenchId) }
+        $status = Get-PerfMicroRowStatus -NsStatus $r.NsDelta.Status -AllocStatus $r.AllocDelta.Status
+        $lines.Add(('| {0} | {1} | {2} | {3} | {4} | {5} |' -f `
+                $label, `
+            (Format-PerfNumber $r.MainMeanNs 1), `
+            (Format-PerfDeltaCell $r.NsDelta), `
+            (Format-PerfNumber $r.MainAllocBytes 1), `
+            (Format-PerfDeltaCell $r.AllocDelta), `
+            (Get-PerfStatusGlyph $status)))
+    }
+    $lines.Add('')
+    return $lines.ToArray()
+}
+
 function Format-PerfComment {
     <#
     .SYNOPSIS
@@ -454,6 +699,8 @@ function Format-PerfComment {
     .PARAMETER WinUI3     Aggregated vanilla-WinUI3 (StressPerf.Direct) metrics, or $null.
     .PARAMETER Rust       Aggregated Rust windows-reactor (test_reactor_perf) metrics
                           measured live on this runner, or $null when not run.
+    .PARAMETER Micro      Per-bench reconciler micro-suite comparison rows
+                          (Get-PerfMicroComparison output), or $null when not run.
     .PARAMETER Context    Hashtable: Percent, Duration, Reps, Warmup, BaseSha, HeadSha,
                           Runner, Cpu, Cores, MemoryGB, RunUrl, Timestamp, Note.
     #>
@@ -462,6 +709,7 @@ function Format-PerfComment {
         [Parameter(Mandatory)][pscustomobject]$Pr,
         [AllowNull()][pscustomobject]$WinUI3,
         [AllowNull()][pscustomobject]$Rust,
+        [AllowNull()][object[]]$Micro,
         [Parameter(Mandatory)][hashtable]$Context
     )
 
@@ -528,6 +776,12 @@ function Format-PerfComment {
         & $add ''
     }
 
+    # ── Reconciler micro-benchmarks (ns-resolution, WinUI-undiluted) ──────────
+    # Rendered only when the PerfBench.ControlModel micro leg produced results for
+    # both sides. Resolves Core/Reconciler time + allocation deltas the macro
+    # StocksGrid workload above cannot (it is render-bound and working-set diluted).
+    foreach ($mline in (Format-PerfMicroSection -Micro $Micro)) { & $add $mline }
+
     # ── Table 2: cross-framework reference ───────────────────────────────────
     & $add "### Cross-framework reference (same StocksGrid workload)"
     & $add ''
@@ -554,6 +808,9 @@ function Format-PerfComment {
     }
     & $add "<sub>$up higher is better &middot; $down lower is better. **Within noise** = the 95% confidence interval of the paired Δ includes 0 (no change resolvable at this sample size); $([char]0x2705) improvement / $([char]0x26A0)$([char]0xFE0F) regression require the CI to **exclude** 0.</sub>"
     & $add "<sub>Allocation metrics (alloc bytes/render, Gen0 GC) are the sensitive signal for allocation-reduction work, where the mean-ms / memory figures are largely flat. They read *n/a* for a harness built from a revision that predates them (rebase the PR onto ``main`` to populate them).</sub>"
+    if ($null -ne $Micro -and @($Micro).Count -gt 0) {
+        & $add "<sub>Reconciler micro-benchmarks run ``PerfBench.ControlModel --variant Reactor`` (M1&ndash;M13) as a headless loop bracketed by per-thread alloc + GC counters &mdash; ns-resolution and free of WinUI render / working-set dilution, so they resolve Core/Reconciler allocation deltas the macro StocksGrid workload cannot. ``main`` and PR each link their own ``src/Reactor`` build; Δ is the paired 95% CI over per-rep means. The **Status** column tracks allocated bytes/op (deterministic for identical code); ns/op is informational &mdash; it is not auto-flagged until the per-side runs are rep-interleaved (a documented fast-follow), because a process-to-process timing offset can otherwise make the paired ns CI exclude 0 for an unchanged diff.</sub>"
+    }
     & $add "<sub>$([char]0x00B9) vanilla WinUI3 = ``StressPerf.Direct`` (imperative; no virtual-DOM, so it has no reconcile/diff phase — those cells read *n/a*). Measured live on this runner.</sub>"
     & $add "<sub>$([char]0x00B2) Rust = ``test_reactor_perf`` from [microsoft/windows-rs](https://github.com/microsoft/windows-rs/tree/master/crates/tests/libs/reactor_perf) — a port of this harness (same StocksGrid, same ``--percent``/``--duration`` CLI). $rustNote</sub>"
     & $add "<sub>Absolute numbers are runner-dependent — trust the **Δ vs main**, not the absolute values. Memory (working set) is the noisiest metric.</sub>"
