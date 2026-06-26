@@ -65,9 +65,17 @@
     Warm-up runs discarded for the reference-only legs (default 1).
 
 .PARAMETER MicroReps
-    Measured repetitions per side for the reconciler micro-suite
-    (PerfBench.ControlModel, spec-047 M1&ndash;M13). Default 12; the per-rep
-    samples feed the paired 95% CI on allocated bytes/op.
+    Measured interleaved rep rounds for the reconciler micro-suite
+    (PerfBench.ControlModel, spec-047 M1&ndash;M13). Default 12. Each round runs a
+    FRESH main process then a fresh PR process (one inner --reps each), alternating
+    per round so the process-to-process timing offset randomizes into the paired
+    variance rather than biasing every rep one way; the per-round samples feed the
+    paired 95% CI on ns/op and allocated bytes/op.
+
+.PARAMETER MicroWarmup
+    Interleaved warm-up rounds discarded before the measured MicroReps rounds
+    (default 1). Like the macro -Warmup, the first round per side pays cold-start /
+    JIT costs, so it is dropped from the accumulator on both sides.
 
 .PARAMETER MicroIterations
     Inner iterations per micro repetition (default 1000) over which each bench's
@@ -75,9 +83,16 @@
     (the spec-047 M1&ndash;M13 set plus 3 supplementary) and the heaviest
     (M7&ndash;M9 reconcile a 1000-node tree per op) run >=120 us/op,
     so even 1000 iterations keep each per-rep mean >=120 ms &mdash; hundreds of
-    thousands of times the Stopwatch floor &mdash; while letting the whole suite
-    finish inside its per-side timeout. (At 10000 the suite ran ~3x over budget,
-    completed only M1&ndash;M4, and was silently dropped from every comment.)
+    thousands of times the Stopwatch floor &mdash; while letting each per-round
+    launch finish inside -MicroRepTimeoutSec. (At 10000 the suite ran ~3x over its
+    budget, completed only M1&ndash;M4, and was silently dropped from every comment.)
+
+.PARAMETER MicroRepTimeoutSec
+    Per-round launch timeout in seconds for one micro side (default 180). Each
+    interleaved round runs the 16-bench suite once (one inner --reps) per side; a
+    round that exceeds this is dropped on BOTH sides to keep the rep indices
+    aligned. Replaces the old whole-suite timeout that silently truncated the
+    suite to M1&ndash;M4.
 
 .PARAMETER IncludeMicro
     Run the reconciler micro-suite on each side and append its per-bench ns/op +
@@ -176,7 +191,9 @@ param(
     [int]$RefReps = 3,
     [int]$RefWarmup = 1,
     [int]$MicroReps = 12,
+    [int]$MicroWarmup = 1,
     [int]$MicroIterations = 1000,
+    [int]$MicroRepTimeoutSec = 180,
     [bool]$IncludeMicro = $true,
     [double]$SkipFloorPercent = 0,
     [bool]$IncludeSkipFloor = $true,
@@ -655,14 +672,15 @@ function Invoke-MicroRun {
        results .jsonl path (or $null if it produced nothing). The measured region inside
        BenchRunner is bracketed by per-thread alloc + GC counters, so unlike the macro
        StressPerf legs this is ns-resolution and free of WinUI render / working-set
-       dilution. We run it once per side (each tree links its own src/Reactor) with no
-       rep-level interleave and no single-core pin — the within-process reps are already
-       GC-bracketed + warmed, and pinning would only contend the app's dispatcher/render
-       threads. Consequence of NOT interleaving: allocated bytes/op is deterministic and
-       flagged, but ns/op is reported informational-only (a process-to-process timing
-       offset can otherwise make its paired CI exclude 0 for identical code). Rep-level
-       interleaving is the documented fast-follow that would promote ns to a flag. #>
-    param([string]$Exe, [string]$Tag, [int]$RepCount, [int]$IterCount)
+       dilution. This is the single-launch primitive: Invoke-MicroInterleaved drives it
+       once per round per side with -RepCount 1 so each round is a FRESH process, which
+       randomizes the process-to-process timing offset (ASLR/layout/scheduling) into the
+       paired variance instead of biasing every rep one direction. That per-rep interleave
+       is what lets the ns/op paired CI be trusted (see PerfLib Get-PerfMicroRowStatus);
+       allocated bytes/op was already deterministic and flagged. No single-core pin: the
+       within-process reps are GC-bracketed + warmed, and pinning would only contend the
+       app's dispatcher/render threads. #>
+    param([string]$Exe, [string]$Tag, [int]$RepCount, [int]$IterCount, [int]$TimeoutSec = 600)
 
     $outJson = Join-Path $OutDir ("micro-{0}.jsonl" -f $Tag)
     if (Test-Path $outJson) { Remove-Item $outJson -Force -ErrorAction SilentlyContinue }
@@ -671,12 +689,14 @@ function Invoke-MicroRun {
     $inv = [System.Globalization.CultureInfo]::InvariantCulture
     $microArgs = @('--variant', 'Reactor', '--reps', $RepCount.ToString($inv),
         '--iterations', $IterCount.ToString($inv), '--out', $outJson, '--headless')
-    # Per-side budget for the whole 16-bench suite. Sized with headroom over the
-    # ~4-7 min the suite needs at -MicroIterations 1000, so thermal drift on a busy
-    # shared runner can't truncate it, while a genuine hang is still bounded. (At
-    # 420s with 10000 iterations the suite timed out after only M1-M4, so the micro
-    # section was silently absent from every comment.)
-    $timeoutSec = 600
+    # Per-launch budget. When the interleaver calls this with -RepCount 1 the launch runs
+    # the 16-bench suite once (each bench still does its own internal warmup + one timed
+    # rep), so the default 180s the caller passes is sized with wide headroom over the
+    # ~12-15s a single round needs, while a genuine hang is still bounded. (At 420s with
+    # 10000 iterations the whole-suite single launch timed out after only M1-M4, so the
+    # micro section was silently absent from every comment — hence the iter cut + the
+    # per-rep launches.)
+    $timeoutSec = $TimeoutSec
 
     Write-Log ("  micro [{0}] PerfBench.ControlModel --variant Reactor --reps {1} --iterations {2}" -f $Tag, $RepCount, $IterCount)
     $proc = Start-Process -FilePath $Exe -ArgumentList $microArgs -PassThru `
@@ -709,6 +729,86 @@ function Invoke-MicroRun {
         return $null
     }
     return $outJson
+}
+
+function ConvertTo-MicroRepLines {
+    <# Read one per-round micro .jsonl (produced by a single --reps 1 launch, so every
+       line carries "repetition":0) and renumber its repetition to $RepIndex, returning
+       the rewritten line array — or $null if the file is missing/empty so the caller can
+       drop BOTH sides of the round and keep the paired indices aligned. The accumulated
+       per-side file must look byte-compatible with a single multi-rep launch because
+       Get-PerfMicroComparison pairs main<->pr BY repetition value (not file position), so
+       both sides have to carry the SAME dense indices 0,1,2,... The serializer writes the
+       repetition field compact + camelCase ("repetition":0, no space — MeasurementResult
+       uses WriteIndented=false), and -RepCount 1 means the value is always the literal 0,
+       so the surgical literal replace can never collide with another numeric field. #>
+    param([string]$RoundFile, [int]$RepIndex)
+    if (-not $RoundFile -or -not (Test-Path $RoundFile)) { return $null }
+    $lines = @(Get-Content -LiteralPath $RoundFile | Where-Object { $_.Trim() })
+    if ($lines.Count -eq 0) { return $null }
+    $inv = [System.Globalization.CultureInfo]::InvariantCulture
+    $repl = '"repetition":' + $RepIndex.ToString($inv)
+    return @($lines | ForEach-Object { $_ -replace '"repetition":0', $repl })
+}
+
+function Invoke-MicroInterleaved {
+    <# Per-rep interleave of the reconciler micro-suite. Each round launches a FRESH
+       main-side then pr-side process (via $LaunchRep, a (Side,Round)->jsonl-path-or-$null
+       scriptblock so the loop is unit-testable without the exe) so the process-to-process
+       timing offset that otherwise makes the ns paired CI exclude 0 for identical code is
+       randomized round-to-round into the paired variance instead of biasing every rep the
+       same direction. Mirrors the macro legs' warmup-drop + drop-both alignment: warmup
+       rounds are discarded, and a round is kept only if BOTH sides produced output — the
+       surviving rounds are appended to the per-side accumulators with contiguous dense
+       repetition indices (0,1,2,...) on both sides. Best-effort per side: a launcher that
+       THROWS (a transient Start-Process / runner hiccup) is caught and treated like a
+       $null return, so only that round is dropped and the surviving reps still produce a
+       micro section instead of the exception aborting the whole leg. Returns @{ MainJson; PrJson; Reps } or
+       $null if fewer than 2 paired rounds survive (too few for a paired CI). #>
+    param(
+        [scriptblock]$LaunchRep,
+        [int]$RepCount,
+        [int]$WarmupCount,
+        [string]$MainOut,
+        [string]$PrOut
+    )
+    foreach ($f in @($MainOut, $PrOut)) {
+        if (Test-Path $f) { Remove-Item $f -Force -ErrorAction SilentlyContinue }
+    }
+    $kept = 0
+    for ($round = 1; $round -le ($WarmupCount + $RepCount); $round++) {
+        # Best-effort per side: a launcher that THROWS (e.g. a transient Start-Process
+        # failure) is treated like a $null return — only this round is dropped (drop-both
+        # keeps the paired indices aligned) instead of the exception aborting the whole
+        # micro leg and discarding every surviving rep.
+        $mainRound = $null; $prRound = $null
+        try { $mainRound = & $LaunchRep 'main' $round } catch { Write-Log ("  micro round #{0} main launch threw ({1}) — dropping the round" -f $round, $_) 'Yellow' }
+        try { $prRound = & $LaunchRep 'pr' $round } catch { Write-Log ("  micro round #{0} pr launch threw ({1}) — dropping the round" -f $round, $_) 'Yellow' }
+        if ($round -le $WarmupCount) {
+            Write-Log ("  (micro warmup round #{0} discarded)" -f $round) 'DarkGray'
+            continue
+        }
+        if ($mainRound -and $prRound) {
+            # Validate BOTH sides BEFORE appending either, so a one-sided empty file drops
+            # the whole round and never leaves the accumulators at mismatched rep counts.
+            $mLines = ConvertTo-MicroRepLines -RoundFile $mainRound -RepIndex $kept
+            $pLines = ConvertTo-MicroRepLines -RoundFile $prRound -RepIndex $kept
+            if ($mLines -and $pLines) {
+                Add-Content -LiteralPath $MainOut -Value $mLines -Encoding UTF8
+                Add-Content -LiteralPath $PrOut -Value $pLines -Encoding UTF8
+                $kept++
+            } else {
+                Write-Log ("  micro round #{0} produced empty output (main={1} pr={2}) — dropped" -f $round, [bool]$mLines, [bool]$pLines) 'Yellow'
+            }
+        } elseif ($mainRound -or $prRound) {
+            Write-Log ("  micro round #{0} incomplete (main={1} pr={2}) — dropped to keep the paired CI aligned" -f $round, [bool]$mainRound, [bool]$prRound) 'Yellow'
+        }
+    }
+    if ($kept -lt 2) {
+        Write-Log ("  micro interleave kept only {0} paired round(s) — too few for a paired CI; omitting micro section" -f $kept) 'Yellow'
+        return $null
+    }
+    return @{ MainJson = $MainOut; PrJson = $PrOut; Reps = $kept }
 }
 
 # ── Power plan + Defender (best-effort, restored on exit) ────────────────────
@@ -870,14 +970,25 @@ try {
                 $microMainExe = Resolve-HarnessExe -TreeRoot $BaselineRoot -AppMeta $microMeta
                 $microPrExe   = Resolve-HarnessExe -TreeRoot $Root -AppMeta $microMeta
                 if ($microMainExe -and $microPrExe) {
-                    Write-Log "reconciler micro-suite (PerfBench.ControlModel --variant Reactor, $MicroReps reps each)" 'Green'
-                    $microMainJson = Invoke-MicroRun -Exe $microMainExe -Tag 'main' -RepCount $MicroReps -IterCount $MicroIterations
-                    $microPrJson   = Invoke-MicroRun -Exe $microPrExe   -Tag 'pr'   -RepCount $MicroReps -IterCount $MicroIterations
-                    if ($microMainJson -and $microPrJson) {
+                    Write-Log "reconciler micro-suite (PerfBench.ControlModel --variant Reactor; per-rep interleaved, $MicroWarmup warmup + $MicroReps measured each side)" 'Green'
+                    $microMainJson = Join-Path $OutDir 'micro-main.jsonl'
+                    $microPrJson   = Join-Path $OutDir 'micro-pr.jsonl'
+                    # Fresh process per round per side. A plain scriptblock (NOT a
+                    # GetNewClosure) so it stays bound to THIS script scope: it reads the
+                    # exes/iter/timeout here and calls Invoke-MicroRun, which itself reads
+                    # the script-param $OutDir — a module-bound closure would sever that.
+                    # The captured vars are not reassigned before the loop runs them.
+                    $launchRep = {
+                        param($side, $round)
+                        $exe = if ($side -eq 'main') { $microMainExe } else { $microPrExe }
+                        Invoke-MicroRun -Exe $exe -Tag ("{0}-r{1}" -f $side, $round) -RepCount 1 -IterCount $MicroIterations -TimeoutSec $MicroRepTimeoutSec
+                    }
+                    $microInter = Invoke-MicroInterleaved -LaunchRep $launchRep -RepCount $MicroReps -WarmupCount $MicroWarmup -MainOut $microMainJson -PrOut $microPrJson
+                    if ($microInter) {
                         $micro = Get-PerfMicroComparison `
-                            -Main (Read-MicroBenchResults $microMainJson) `
-                            -Pr (Read-MicroBenchResults $microPrJson)
-                        Write-Log ("  micro: {0} bench(es) compared" -f @($micro).Count) 'DarkGray'
+                            -Main (Read-MicroBenchResults $microInter.MainJson) `
+                            -Pr (Read-MicroBenchResults $microInter.PrJson)
+                        Write-Log ("  micro: {0} bench(es) compared across {1} interleaved rep(s)" -f @($micro).Count, $microInter.Reps) 'DarkGray'
                     }
                 } else {
                     Write-Log "micro-suite exe not found (main=$([bool]$microMainExe) pr=$([bool]$microPrExe)) — omitting micro-benchmarks" 'Yellow'
