@@ -147,10 +147,13 @@ Two tables plus footnotes:
   [`microsoft/windows-rs`](https://github.com/microsoft/windows-rs) `reactor_perf`
   harness (a port of this workload), pinned in CI to a known-good commit. Because
   that harness is built self-contained (its `build.rs` is patched to
-  `windows_reactor_setup::as_self_contained()`), the Windows App SDK runtime DLLs
-  must sit next to `test_reactor_perf.exe` at process start — `Stage-RustRuntime`
-  in `Run-PerfBenchmark.ps1` stages and verifies them explicitly so a silent
-  staging miss can't surface as a `0xC0000135` load failure (issue #674). It is
+  `windows_reactor_setup::as_self_contained()`), the DLLs its embedded
+  `app.manifest` declares must sit next to `test_reactor_perf.exe` at process start —
+  `Stage-RustRuntime` in `Run-PerfBenchmark.ps1` stages and verifies them explicitly:
+  both the Windows App SDK runtime MSIX payload and `Microsoft.Web.WebView2.Core.dll`
+  (a manifest-declared SxS file that ships in the separate `Microsoft.Web.WebView2`
+  package, mirroring upstream `deploy_webview2`), so a silent staging miss can't
+  surface as a `0xC0000135` load failure (issue #674). It is
   best-effort: if the Rust build, staging, or run fails the column reads `n/a` and
   the PR-vs-`main` comparison is unaffected. The WinUI3 column is the local
   `StressPerf.Direct` build.

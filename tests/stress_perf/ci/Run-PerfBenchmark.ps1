@@ -287,7 +287,9 @@ function Stage-RustRuntime {
        layout: nupkg -> (strip leading dir) -> MSIX\win10-<arch>\...2.msix -> extract
        -> copy the root *.dll / *.pri next to the exe. We copy the full runtime DLL set
        (a superset of the crate's runtime.txt allow-list) so every manifest-referenced
-       file is present. #>
+       file is present. The embedded manifest also declares Microsoft.Web.WebView2.Core.dll,
+       which ships in the SEPARATE Microsoft.Web.WebView2 package (not the runtime MSIX), so we
+       stage it too — mirroring upstream windows_reactor_setup::deploy_webview2. #>
     param([string]$ExeDir, [string]$Platform)
 
     $arch = if ($Platform -match 'arm64') { 'arm64' } else { 'x64' }
@@ -300,7 +302,7 @@ function Stage-RustRuntime {
     # manifest-referenced file has been verified next to the exe — and we still re-check the
     # core set when the marker is present, so an external wipe can't leave a stale marker
     # pointing at a now-broken exe.
-    $required = @('microsoft.ui.xaml.dll', 'Microsoft.WindowsAppRuntime.dll')
+    $required = @('microsoft.ui.xaml.dll', 'Microsoft.WindowsAppRuntime.dll', 'Microsoft.Web.WebView2.Core.dll')
     $sentinel = 'microsoft.ui.xaml.dll'
     $marker = Join-Path $ExeDir '.perfci-runtime-staged'
     if (Test-Path $marker) {
@@ -420,6 +422,51 @@ function Stage-RustRuntime {
             Where-Object { $_.Extension -in '.dll', '.pri' } |
             ForEach-Object { try { Copy-Item -LiteralPath $_.FullName -Destination $ExeDir -Force; $staged++ } catch {} }
 
+        # 5. Stage the WebView2 Core DLL (issue #674). The embedded app.manifest declares
+        #    Microsoft.Web.WebView2.Core.dll as a load-time SxS <file>, but unlike the other
+        #    16 manifest files it does NOT ship in the WinAppSDK runtime MSIX — it lives in the
+        #    SEPARATE Microsoft.Web.WebView2 package. The runtime copy above can never produce
+        #    it, so the loader faults with 0xC0000135 at process start. Mirror upstream
+        #    windows_reactor_setup::deploy_webview2 (reactor-setup/src/lib.rs @ the pinned
+        #    RUST_REF): stage Microsoft.Web.WebView2 <ver> and copy its
+        #    win-<arch>/native_uap/Microsoft.Web.WebView2.Core.dll next to the exe, reusing the
+        #    same shared windows-reactor-setup cache + self-healing (evict truncated nupkg /
+        #    partial extract) as the runtime above.
+        $wpkg = 'Microsoft.Web.WebView2'; $wver = '1.0.4022.49'; $wdll = 'Microsoft.Web.WebView2.Core.dll'
+        $wnupkg = Join-Path $cache "$wpkg.$wver.nupkg"
+        if ((Test-Path $wnupkg) -and (Get-Item $wnupkg).Length -lt 1MB) {
+            Remove-Item $wnupkg -Force -ErrorAction SilentlyContinue
+        }
+        if (-not (Test-Path $wnupkg)) {
+            $wurl = "https://www.nuget.org/api/v2/package/$wpkg/$wver"
+            $wcurl = Join-Path $env:SystemRoot 'System32\curl.exe'
+            Write-Log "  staging WebView2 Core DLL for Rust harness: downloading $wpkg $wver" 'DarkGray'
+            if (Test-Path $wcurl) { & $wcurl -s -L -o $wnupkg $wurl }
+            else { Invoke-WebRequest -Uri $wurl -OutFile $wnupkg }
+        }
+        if ((Test-Path $wnupkg) -and (Get-Item $wnupkg).Length -ge 1MB) {
+            $wextract = Join-Path $cache "$wpkg-$wver"
+            $wsrc = Join-Path $wextract "win-$arch\native_uap\$wdll"
+            if (-not (Test-Path $wsrc)) {
+                # Clear any prior partial extract, then re-extract fresh (strip the leading
+                # package dir, matching upstream stage_pkg's --strip-components=1).
+                if (Test-Path $wextract) { Remove-Item $wextract -Recurse -Force -ErrorAction SilentlyContinue }
+                $null = New-Item -ItemType Directory -Force -Path $wextract -ErrorAction SilentlyContinue
+                & $tar -xf $wnupkg -C $wextract --strip-components=1
+            }
+            if (Test-Path $wsrc) {
+                try { Copy-Item -LiteralPath $wsrc -Destination $ExeDir -Force; $staged++ } catch {}
+            } else {
+                # The package extracted but lacks the expected DLL (corrupt/partial): evict the
+                # nupkg so the next run re-downloads instead of looping on a bad artifact.
+                Remove-Item $wnupkg -Force -ErrorAction SilentlyContinue
+                Write-Log "  WebView2 Core DLL not found in package after extract — Rust column may read n/a (#674)" 'Yellow'
+            }
+        } else {
+            if (Test-Path $wnupkg) { Remove-Item $wnupkg -Force -ErrorAction SilentlyContinue }
+            Write-Log "  WebView2 package unavailable — Rust column may read n/a (#674)" 'Yellow'
+        }
+
         # Verify completeness against the actual MSIX payload for this package version (not
         # just one sentinel): every runtime file we copied (.dll AND .pri) from the MSIX root
         # must now sit next to the exe, and the required core DLL set must be present — so a
@@ -433,7 +480,10 @@ function Stage-RustRuntime {
             Set-Content -LiteralPath $marker -Value (Get-Date -Format o) -ErrorAction SilentlyContinue
             Write-Log "  staged $staged WinAppSDK runtime file(s) next to test_reactor_perf.exe (self-contained)" 'Green'
         } else {
-            Write-Log "  runtime staging incomplete (copied $staged; $($notCopied.Count) file(s) missing) — Rust column may read n/a (#674)" 'Yellow'
+            # List exactly what's missing — MSIX payload files by name plus any required core /
+            # SxS file (e.g. the WebView2 Core DLL) — so a partial stage is diagnosable from the log.
+            $missing = @(@($notCopied | ForEach-Object Name) + @($coreMissing) | Where-Object { $_ } | Select-Object -Unique)
+            Write-Log "  runtime staging incomplete (copied $staged; missing: $($missing -join ', ')) — Rust column may read n/a (#674)" 'Yellow'
         }
     } catch {
         Write-Log "  Rust runtime staging failed ($($_.Exception.Message)) — Rust column may read n/a (#674)" 'Yellow'
