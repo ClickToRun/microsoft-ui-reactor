@@ -146,16 +146,27 @@ Two tables plus footnotes:
   same runner**. The Rust column builds and runs the
   [`microsoft/windows-rs`](https://github.com/microsoft/windows-rs) `reactor_perf`
   harness (a port of this workload), pinned in CI to a known-good commit. Because
-  that harness is built self-contained (its `build.rs` is patched to
-  `windows_reactor_setup::as_self_contained()`), the DLLs its embedded
-  `app.manifest` declares must sit next to `test_reactor_perf.exe` at process start —
-  `Stage-RustRuntime` in `Run-PerfBenchmark.ps1` stages and verifies them explicitly:
-  both the Windows App SDK runtime MSIX payload and `Microsoft.Web.WebView2.Core.dll`
-  (a manifest-declared SxS file that ships in the separate `Microsoft.Web.WebView2`
-  package, mirroring upstream `deploy_webview2`), so a silent staging miss can't
-  surface as a `0xC0000135` load failure (issue #674). It is
-  best-effort: if the Rust build, staging, or run fails the column reads `n/a` and
-  the PR-vs-`main` comparison is unaffected. The WinUI3 column is the local
+  that harness is built self-contained, two things are patched into the pinned
+  checkout before it builds: its `build.rs` is set to
+  `windows_reactor_setup::as_self_contained()`, and the single `bootstrap()` call
+  in its `main()` is commented out. The second patch matters as much as the first:
+  the harness `main()` otherwise calls the framework-dependent Windows App SDK
+  bootstrapper (`MddBootstrapInitialize2`) to locate a *machine-wide* runtime —
+  which a self-contained app neither needs nor finds on the runtime-less runner.
+  That call adds an unsatisfiable load-time import on
+  `Microsoft.WindowsAppRuntime.Bootstrap.dll` (which `as_self_contained()` does not
+  stage), so the exe dies at load with `0xC0000135` (DLL-not-found) and 0-byte
+  output — exactly the failure first seen in issue #674. (Even if that DLL were
+  staged, the bootstrapper fail-fasts headless with no machine-wide package —
+  `0xC0000602`.) Dropping the call removes the import; the embedded `app.manifest`
+  then activates the runtime app-local (reg-free). The DLLs that manifest declares
+  must still sit next to `test_reactor_perf.exe` at process start, so
+  `Stage-RustRuntime` in `Run-PerfBenchmark.ps1` stages and verifies them
+  explicitly: both the Windows App SDK runtime MSIX payload and
+  `Microsoft.Web.WebView2.Core.dll` (a manifest-declared SxS file that ships in the
+  separate `Microsoft.Web.WebView2` package, mirroring upstream `deploy_webview2`).
+  It is best-effort: if the Rust build, staging, or run fails the column reads `n/a`
+  and the PR-vs-`main` comparison is unaffected. The WinUI3 column is the local
   `StressPerf.Direct` build.
 
 ## Variance: trust the delta, not the absolutes
@@ -203,4 +214,13 @@ For the steadiest local numbers: close other apps, stay on AC power, and bump
   RID folder (`bin\<arch>\Release\<tfm>\win-<arch>\`); the script finds it
   recursively. If it is genuinely missing, check the `out/build-*.log` for the
   real `dotnet` error.
+- **Rust column reads `n/a` with the harness exiting `0xC0000135`.** The
+  self-contained `test_reactor_perf.exe` must not import the framework-dependent
+  Windows App SDK bootstrapper. The workflow patches the harness `main()` to skip
+  its `bootstrap()` call (alongside the `build.rs` → `as_self_contained()` patch);
+  if upstream `windows-rs` moves that call and the patch's regex stops matching,
+  the bootstrapper's load-time import on `Microsoft.WindowsAppRuntime.Bootstrap.dll`
+  returns — and on the runtime-less runner the loader fails with `0xC0000135`. The
+  "Prepare Rust harness" step logs a warning when the `main()` patch finds no match;
+  re-point the regex at the relocated call. See issue #674.
 - **Scripts won't parse.** Use `pwsh` (PowerShell 7+), not `powershell.exe` 5.1.
