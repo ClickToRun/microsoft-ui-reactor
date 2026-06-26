@@ -297,13 +297,22 @@ function Stage-RustRuntime {
     # runtime DLLs present while others are missing, which still faults the loader at
     # process start; keying the early-return on a DLL subset would wrongly short-circuit
     # that incomplete state and never finish staging. The marker only exists once every
-    # manifest-referenced file has been verified next to the exe.
+    # manifest-referenced file has been verified next to the exe — and we still re-check the
+    # core set when the marker is present, so an external wipe can't leave a stale marker
+    # pointing at a now-broken exe.
     $required = @('microsoft.ui.xaml.dll', 'Microsoft.WindowsAppRuntime.dll')
     $sentinel = 'microsoft.ui.xaml.dll'
     $marker = Join-Path $ExeDir '.perfci-runtime-staged'
     if (Test-Path $marker) {
-        Write-Log "  Rust runtime already staged next to exe (completion marker present)" 'DarkGray'
-        return
+        if (-not ($required | Where-Object { -not (Test-Path (Join-Path $ExeDir $_)) })) {
+            Write-Log "  Rust runtime already staged next to exe (completion marker present)" 'DarkGray'
+            return
+        }
+        # Marker survived but a core DLL was removed (external cleanup / partial dir wipe):
+        # the marker is stale and must not short-circuit into a broken exe — drop it and
+        # fall through to a full restage.
+        Write-Log "  stale Rust runtime marker (core DLL missing) — re-staging" 'Yellow'
+        Remove-Item $marker -Force -ErrorAction SilentlyContinue
     }
 
     try {

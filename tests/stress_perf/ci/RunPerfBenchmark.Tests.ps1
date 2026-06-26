@@ -144,22 +144,27 @@ Assert-True (-not (Test-Path "$prCsproj.perfci-orig"))   '[6] overlay-throws: no
 # ===========================================================================
 #  Stage-RustRuntime — completion-marker idempotency gate (network-free)
 # ===========================================================================
-# Idempotency is keyed on a completion marker written only after a fully verified
-# stage. When the marker is present the function must early-return before any
-# download/extract/tar.
+# Early-return requires BOTH the completion marker AND the core DLLs present next to the
+# exe. The marker is written only after a fully verified stage (so a partial stage can't
+# set it); the core-DLL re-check guards against the marker surviving an external wipe.
+
+# (1) marker + core DLLs present -> early-return before any download/extract/tar.
 $exeDir = Join-Path ([IO.Path]::GetTempPath()) 'perfci-rust-exedir'
 if (Test-Path $exeDir) { Remove-Item $exeDir -Recurse -Force }
 $null = New-Item -ItemType Directory -Force $exeDir | Out-Null
 Set-Content -LiteralPath (Join-Path $exeDir '.perfci-runtime-staged') -Value 'x' -NoNewline
+foreach ($f in 'microsoft.ui.xaml.dll', 'Microsoft.WindowsAppRuntime.dll') {
+    Set-Content -LiteralPath (Join-Path $exeDir $f) -Value 'x' -NoNewline
+}
 $global:LogLines.Clear()
 Stage-RustRuntime -ExeDir $exeDir -Platform 'x64'
 Assert-True (@($global:LogLines | Where-Object { $_ -match 'already staged' }).Count -ge 1) `
-    '[stage] completion marker present -> idempotent early-return (no download)'
+    '[stage] marker + core DLLs present -> idempotent early-return (no download)'
 
-# A *subset* of runtime DLLs present but NO completion marker must NOT early-return — a
-# partial prior stage has to be allowed to finish. Point SystemRoot at a dir with no
-# System32\tar.exe so the function bails network-free right after the marker check on any
-# OS, and assert it never logged 'already staged' (i.e. the DLL subset did not satisfy it).
+# (2) a DLL subset present but NO marker must NOT early-return — a partial prior stage has
+# to be allowed to finish. Point SystemRoot at a dir with no System32\tar.exe so the
+# function bails network-free right after the gate on any OS, and assert it never logged
+# 'already staged' (i.e. the DLL subset did not satisfy the gate).
 $exeDir2 = Join-Path ([IO.Path]::GetTempPath()) 'perfci-rust-exedir2'
 if (Test-Path $exeDir2) { Remove-Item $exeDir2 -Recurse -Force }
 $null = New-Item -ItemType Directory -Force $exeDir2 | Out-Null
@@ -174,6 +179,24 @@ Assert-True (@($global:LogLines | Where-Object { $_ -match 'already staged' }).C
     '[stage] DLL subset without marker -> does NOT early-return (no false idempotency)'
 Remove-Item $exeDir2 -Recurse -Force -ErrorAction SilentlyContinue
 
+# (3) marker present but the core DLLs were externally removed -> the marker is stale: the
+# function must delete it and NOT early-return (it falls through to restage). Force the tar
+# probe to miss so it bails network-free after dropping the marker.
+$exeDir3 = Join-Path ([IO.Path]::GetTempPath()) 'perfci-rust-exedir3'
+if (Test-Path $exeDir3) { Remove-Item $exeDir3 -Recurse -Force }
+$null = New-Item -ItemType Directory -Force $exeDir3 | Out-Null
+$marker3 = Join-Path $exeDir3 '.perfci-runtime-staged'
+Set-Content -LiteralPath $marker3 -Value 'x' -NoNewline
+$savedSysRoot = $env:SystemRoot
+$env:SystemRoot = [IO.Path]::GetTempPath()
+$global:LogLines.Clear()
+try { Stage-RustRuntime -ExeDir $exeDir3 -Platform 'x64' } finally { $env:SystemRoot = $savedSysRoot }
+Assert-True (@($global:LogLines | Where-Object { $_ -match 'already staged' }).Count -eq 0) `
+    '[stage] stale marker (core DLLs missing) -> does NOT early-return'
+Assert-True (-not (Test-Path $marker3)) `
+    '[stage] stale marker (core DLLs missing) -> marker deleted before restage'
+Remove-Item $exeDir3 -Recurse -Force -ErrorAction SilentlyContinue
+
 # cleanup
 foreach ($d in @($baseTree, $prTree, $OutDir, $exeDir)) {
     if (Test-Path $d) { Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue }
@@ -186,3 +209,9 @@ if ($script:Fail -gt 0) {
     exit 1
 }
 Write-Host "PASSED: all $script:Pass assertions" -ForegroundColor Green
+# Explicit success exit: the perf-lib-tests workflow invokes this via `pwsh -Command
+# ". '<script>'"` (dot-source), under which a non-zero $LASTEXITCODE left over from the
+# stubbed `dotnet` build-failure scenario leaks into the process exit code on Linux even
+# though every assertion passed. Pin the exit code to the test result. (Mirrors
+# PerfLib.Tests.ps1.)
+exit 0
