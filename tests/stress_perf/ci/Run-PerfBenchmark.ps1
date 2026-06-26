@@ -321,14 +321,18 @@ function Stage-RustRuntime {
         $base = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { $env:TEMP }
         $cache = Join-Path $base 'windows-reactor-setup\temp'
 
-        # 1. Locate the runtime nupkg. Prefer one already in the shared windows-reactor-setup
-        #    cache (auto-syncs with the crate's pinned RUNTIME_VER); if several versions linger
-        #    there (e.g. local experimentation), pick the highest *version* — never the largest
-        #    file, which is arbitrary and could stage a mismatched runtime and reintroduce
-        #    0xC0000135. Else download the pinned version.
+        # 1. Locate the runtime nupkg. Prefer the pinned version ($pkg.$ver.nupkg) when it is
+        #    already cached, so runs are reproducible and match the version this script would
+        #    otherwise download. Only if the pinned copy is absent but other versions linger in
+        #    the shared windows-reactor-setup cache (e.g. local experimentation) fall back to
+        #    the highest *version* — never the largest file, which is arbitrary and could stage
+        #    a mismatched runtime and reintroduce 0xC0000135. Else download the pinned version.
         $pkg = 'Microsoft.WindowsAppSDK.Runtime'; $ver = '2.1.3'
         $nupkg = $null
-        if (Test-Path $cache) {
+        $pinned = Join-Path $cache "$pkg.$ver.nupkg"
+        if (Test-Path $pinned) {
+            $nupkg = $pinned
+        } elseif (Test-Path $cache) {
             $nupkg = Get-ChildItem $cache -Filter "$pkg.*.nupkg" -File -ErrorAction SilentlyContinue |
                 Sort-Object @{ Expression = {
                     $p = [version]'0.0'
@@ -338,7 +342,7 @@ function Stage-RustRuntime {
         }
         if (-not $nupkg) {
             $null = New-Item -ItemType Directory -Force -Path $cache -ErrorAction SilentlyContinue
-            $nupkg = Join-Path $cache "$pkg.$ver.nupkg"
+            $nupkg = $pinned
             $url = "https://www.nuget.org/api/v2/package/$pkg/$ver"
             Write-Log "  staging WinAppSDK runtime for Rust harness: downloading $pkg $ver" 'DarkGray'
             $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
@@ -399,7 +403,7 @@ function Stage-RustRuntime {
             Set-Content -LiteralPath $marker -Value (Get-Date -Format o) -ErrorAction SilentlyContinue
             Write-Log "  staged $staged WinAppSDK runtime file(s) next to test_reactor_perf.exe (self-contained)" 'Green'
         } else {
-            Write-Log "  runtime staging incomplete (copied $staged; $($notCopied.Count) DLL(s) missing) — Rust column may read n/a (#674)" 'Yellow'
+            Write-Log "  runtime staging incomplete (copied $staged; $($notCopied.Count) file(s) missing) — Rust column may read n/a (#674)" 'Yellow'
         }
     } catch {
         Write-Log "  Rust runtime staging failed ($($_.Exception.Message)) — Rust column may read n/a (#674)" 'Yellow'
