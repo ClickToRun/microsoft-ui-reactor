@@ -291,14 +291,18 @@ function Stage-RustRuntime {
     param([string]$ExeDir, [string]$Platform)
 
     $arch = if ($Platform -match 'arm64') { 'arm64' } else { 'x64' }
-    # Verify a REQUIRED SET, not a single sentinel: a prior *partial* stage could leave
-    # one runtime DLL present while others are missing, which still faults the loader at
-    # process start. Both of these are always in the self-contained runtime MSIX and are
-    # referenced by the embedded SxS manifest.
+    # Idempotency is gated on a positive completion marker that we write ONLY after a
+    # full, verified stage (below) — NOT on the presence of a subset of DLLs. The per-file
+    # copy loop intentionally swallows errors, so a prior *partial* stage could leave a few
+    # runtime DLLs present while others are missing, which still faults the loader at
+    # process start; keying the early-return on a DLL subset would wrongly short-circuit
+    # that incomplete state and never finish staging. The marker only exists once every
+    # manifest-referenced file has been verified next to the exe.
     $required = @('microsoft.ui.xaml.dll', 'Microsoft.WindowsAppRuntime.dll')
     $sentinel = 'microsoft.ui.xaml.dll'
-    if (-not ($required | Where-Object { -not (Test-Path (Join-Path $ExeDir $_)) })) {
-        Write-Log "  Rust runtime already staged next to exe (required DLLs present)" 'DarkGray'
+    $marker = Join-Path $ExeDir '.perfci-runtime-staged'
+    if (Test-Path $marker) {
+        Write-Log "  Rust runtime already staged next to exe (completion marker present)" 'DarkGray'
         return
     }
 
@@ -364,6 +368,9 @@ function Stage-RustRuntime {
         $notCopied = @($srcDlls | Where-Object { -not (Test-Path (Join-Path $ExeDir $_.Name)) })
         $coreMissing = @($required | Where-Object { -not (Test-Path (Join-Path $ExeDir $_)) })
         if ($notCopied.Count -eq 0 -and $coreMissing.Count -eq 0) {
+            # Completion marker: written only now that staging is fully verified, so a later
+            # call can trust it and skip re-staging (a partial stage never reaches here).
+            Set-Content -LiteralPath $marker -Value (Get-Date -Format o) -ErrorAction SilentlyContinue
             Write-Log "  staged $staged WinAppSDK runtime file(s) next to test_reactor_perf.exe (self-contained)" 'Green'
         } else {
             Write-Log "  runtime staging incomplete (copied $staged; $($notCopied.Count) DLL(s) missing) — Rust column may read n/a (#674)" 'Yellow'

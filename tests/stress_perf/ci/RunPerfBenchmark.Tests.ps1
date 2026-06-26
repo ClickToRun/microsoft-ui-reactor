@@ -34,7 +34,16 @@ function Assert-True {
 # --- Extract the functions under test from the orchestrator script. ---
 $scriptPath = Join-Path $PSScriptRoot 'Run-PerfBenchmark.ps1'
 $src = Get-Content $scriptPath -Raw
-$ast = [System.Management.Automation.Language.Parser]::ParseInput($src, [ref]$null, [ref]$null)
+# Capture parse errors instead of discarding them: a syntax error in the orchestrator
+# script makes every extracted function extent unreliable, so fail fast and let CI flag
+# the broken script rather than silently testing garbage.
+$parseTokens = $null; $parseErrors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseInput($src, [ref]$parseTokens, [ref]$parseErrors)
+if ($parseErrors -and $parseErrors.Count -gt 0) {
+    Write-Host "Run-PerfBenchmark.ps1 has $($parseErrors.Count) parse error(s):" -ForegroundColor Red
+    $parseErrors | ForEach-Object { Write-Host "  line $($_.Extent.StartLineNumber): $($_.Message)" -ForegroundColor Red }
+    exit 1
+}
 function Get-Func([string]$name) {
     $f = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $true) |
         Select-Object -First 1
@@ -133,21 +142,37 @@ Assert-True ((Get-Content $prCsproj -Raw) -eq 'PRORIG')  '[6] overlay-throws: PR
 Assert-True (-not (Test-Path "$prCsproj.perfci-orig"))   '[6] overlay-throws: no backup leftover'
 
 # ===========================================================================
-#  Stage-RustRuntime — required-set idempotency gate (network-free)
+#  Stage-RustRuntime — completion-marker idempotency gate (network-free)
 # ===========================================================================
-# When the full required runtime set is already staged next to the exe, the
-# function must early-return before any download/extract. A single sentinel must
-# NOT be enough (a partial prior stage would still fault the loader at start).
+# Idempotency is keyed on a completion marker written only after a fully verified
+# stage. When the marker is present the function must early-return before any
+# download/extract/tar.
 $exeDir = Join-Path ([IO.Path]::GetTempPath()) 'perfci-rust-exedir'
 if (Test-Path $exeDir) { Remove-Item $exeDir -Recurse -Force }
 $null = New-Item -ItemType Directory -Force $exeDir | Out-Null
-foreach ($f in 'microsoft.ui.xaml.dll', 'Microsoft.WindowsAppRuntime.dll') {
-    Set-Content -LiteralPath (Join-Path $exeDir $f) -Value 'x' -NoNewline
-}
+Set-Content -LiteralPath (Join-Path $exeDir '.perfci-runtime-staged') -Value 'x' -NoNewline
 $global:LogLines.Clear()
 Stage-RustRuntime -ExeDir $exeDir -Platform 'x64'
 Assert-True (@($global:LogLines | Where-Object { $_ -match 'already staged' }).Count -ge 1) `
-    '[stage] full required set present -> idempotent early-return (no download)'
+    '[stage] completion marker present -> idempotent early-return (no download)'
+
+# A *subset* of runtime DLLs present but NO completion marker must NOT early-return — a
+# partial prior stage has to be allowed to finish. Point SystemRoot at a dir with no
+# System32\tar.exe so the function bails network-free right after the marker check on any
+# OS, and assert it never logged 'already staged' (i.e. the DLL subset did not satisfy it).
+$exeDir2 = Join-Path ([IO.Path]::GetTempPath()) 'perfci-rust-exedir2'
+if (Test-Path $exeDir2) { Remove-Item $exeDir2 -Recurse -Force }
+$null = New-Item -ItemType Directory -Force $exeDir2 | Out-Null
+foreach ($f in 'microsoft.ui.xaml.dll', 'Microsoft.WindowsAppRuntime.dll') {
+    Set-Content -LiteralPath (Join-Path $exeDir2 $f) -Value 'x' -NoNewline
+}
+$savedSysRoot = $env:SystemRoot
+$env:SystemRoot = [IO.Path]::GetTempPath()
+$global:LogLines.Clear()
+try { Stage-RustRuntime -ExeDir $exeDir2 -Platform 'x64' } finally { $env:SystemRoot = $savedSysRoot }
+Assert-True (@($global:LogLines | Where-Object { $_ -match 'already staged' }).Count -eq 0) `
+    '[stage] DLL subset without marker -> does NOT early-return (no false idempotency)'
+Remove-Item $exeDir2 -Recurse -Force -ErrorAction SilentlyContinue
 
 # cleanup
 foreach ($d in @($baseTree, $prTree, $OutDir, $exeDir)) {
