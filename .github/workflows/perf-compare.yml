@@ -163,6 +163,30 @@ jobs:
           # as_self_contained() is the upstream-supported, benchmark-neutral setup
           # used by the windows-rs reactor samples (see docs/crates/windows-reactor-setup.md).
           Set-Content -LiteralPath $buildRs -Value 'fn main() { windows_reactor_setup::as_self_contained(); }' -Encoding UTF8
+          # The harness main() unconditionally calls bootstrap() (MddBootstrapInitialize2)
+          # to locate a *machine-wide* WinAppSDK runtime. as_self_contained() never stages
+          # the framework-dependent bootstrapper, so on the runtime-less runner the exe
+          # carries an unsatisfiable load-time import -> 0xC0000135 (DLL-not-found), exits
+          # instantly with 0-byte output, and the watchdog reports n/a. (Even if the
+          # bootstrap DLL were staged, MddBootstrapInitialize2 fail-fasts headless with no
+          # machine-wide package -> 0xC0000602.) Self-contained apps don't need it: the
+          # embedded reg-free manifest activates the runtime app-local. Neutralize the one
+          # call so the self-contained harness launches. Benchmark-neutral (it only changes
+          # runtime discovery, not the measured StockGrid workload) and best-effort: warn,
+          # don't fail, if upstream ever drops the line.
+          $mainRs = Join-Path $dir 'crates/tests/libs/reactor_perf/src/main.rs'
+          if (Test-Path $mainRs) {
+            $src = Get-Content -LiteralPath $mainRs -Raw
+            $patched = [regex]::Replace($src, '(?m)^(?<indent>[ \t]*)bootstrap\(\)\?;', '${indent}// bootstrap()?; // perf CI self-contained: reg-free manifest provides the runtime app-local; the framework-dependent bootstrapper is not staged and would fail with no machine-wide WinAppSDK runtime')
+            if ($patched -ne $src) {
+              Set-Content -LiteralPath $mainRs -Value $patched -Encoding UTF8 -NoNewline
+              Write-Host "Patched main.rs: neutralized bootstrap() for the self-contained run"
+            } else {
+              Write-Warning "main.rs: bootstrap() call not found (upstream may have changed) - Rust column may read n/a"
+            }
+          } else {
+            Write-Warning "reactor_perf/src/main.rs missing in windows-rs@$env:RUST_REF - Rust column may read n/a"
+          }
           "rust_repo=$dir" | Out-File $env:GITHUB_OUTPUT -Append
           Write-Host "Rust harness ready at $dir"
 
