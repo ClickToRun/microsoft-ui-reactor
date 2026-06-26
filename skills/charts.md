@@ -229,12 +229,20 @@ Beyond that, your responsibilities:
   focus should announce category + value. The `IChartAccessibilityData`
   surface drives this; if you turn the chart `Interactive(false)` you lose
   it — keep it on unless there's a reason.
-- **`*View` defaults.** Custom labels are auto-stamped with
-  `IsHitTestVisible=false` and `AccessibilityView=Raw` so they don't
-  duplicate the structured UIA description. **Always** keep the string
-  `LabelAccessor` (PieChart) or `DataLabel` (line/bar/area) set — those
-  feed UIA. Custom visuals augment the visual; they don't replace the
-  accessible description.
+- **`*View` defaults.** Custom labels are non-interactive by default: the
+  chart force-applies `AccessibilityView=Raw` to the **entire realized
+  subtree** (not just the outer wrapper) and clears `IsTabStop` on every inner
+  control, so no inner peer surfaces to UIA and nothing inside the label joins
+  the tab order. Prefer keeping the string `LabelAccessor` (PieChart) or
+  `DataLabel` (line/bar/area) set — those feed UIA. When the visual lives
+  entirely in the `*View`, pass `name:` (a `Func<T,string>` for pie /
+  `Func<double,string>` for ticks) so the accessible name matches the visible
+  label instead of falling back to `Slice {n}`. Set `interactive: true` only
+  when the label has focusable children that must stay reachable — then **you**
+  own its accessibility. Signatures:
+  `LabelView(render, name: null, interactive: false)`,
+  `XTickLabelView(render, name: null, interactive: false)`,
+  `YTickLabelView(render, name: null, interactive: false)`.
 
 ## Common pitfalls — refuse to ship these
 
