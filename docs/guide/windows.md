@@ -36,9 +36,10 @@ Caveats:
   cascade is already tearing the window down) performs the native close exactly
   once. A redundant close is a safe no-op, so converging teardown paths can't
   re-enter native window destruction.
-- `ReactorApp.PrimaryWindow` is the first opened window; shutdown policy decides
-  whether closing it exits the process. Auxiliary windows that opt out of the
-  shutdown policy — notably docking tear-off floating windows — are excluded
+- `ReactorApp.PrimaryWindow` is the first *eligible* opened window; shutdown
+  policy decides whether closing it exits the process. Auxiliary windows that
+  opt out of the shutdown policy — notably docking tear-off floating windows —
+  are excluded
   from primary election: they can never become the fallback primary, and they
   are never promoted to primary when the real primary closes (re-election skips
   them, leaving `PrimaryWindow` `null` if only excluded windows remain). This
