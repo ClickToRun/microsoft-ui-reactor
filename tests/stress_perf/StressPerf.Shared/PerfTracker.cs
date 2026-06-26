@@ -289,6 +289,7 @@ public sealed class PerfTracker
     {
         get
         {
+            CaptureFinalSnapshot();
             int n = AllocWindowRenders;
             return n > 0 ? Gen0Collections * 1000.0 / n : 0.0;
         }
