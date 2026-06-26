@@ -19,11 +19,13 @@
         the two-table sticky comment to comment.md for the workflow to post.
 
     Variance mitigations (we don't own CI runners): same-runner A/B, interleaved
-    reps, warm-up discard, median of N, a noise band on the deltas (PerfLib),
-    High process priority, a high-performance power plan for the duration, and an
-    opt-in Defender exclusion (-DefenderExclude). Runner identity (CPU / cores /
-    RAM) is recorded in the comment so absolute numbers are interpreted in
-    context — trust the delta, not the absolutes.
+    reps, warm-up discard, median of N with a paired 95%-confidence-interval band
+    on the deltas (PerfLib flags a change only when its CI excludes 0), High
+    process priority, a pinned workstation/non-concurrent GC, a high-performance
+    power plan for the duration, and an opt-in Defender exclusion
+    (-DefenderExclude). Runner identity (CPU / cores / RAM) is recorded in the
+    comment so absolute numbers are interpreted in context — trust the delta, not
+    the absolutes.
 
     The Rust `windows-reactor` cross-framework column is measured live when
     -RustRepo points at a microsoft/windows-rs checkout (its `test_reactor_perf`
@@ -45,11 +47,22 @@
     Measured seconds per run. Methodology default 10.
 
 .PARAMETER Reps
-    Measured runs whose median is reported (default 2 — methodology "median of
-    two"). Bump locally for tighter numbers.
+    Measured runs per side whose median is reported and whose per-run samples feed
+    the paired 95% CI (default 12 — enough to resolve the ~1-3% deltas these perf
+    PRs target; a 2-run median cannot). Lower it only for a quick local smoke run.
 
 .PARAMETER Warmup
-    Leading runs discarded before the Reps measured runs (default 1).
+    Leading runs discarded before the Reps measured runs (default 2) to absorb
+    JIT/tiered-compilation and first-window warm-up.
+
+.PARAMETER RefReps
+    Measured runs for the reference-only legs — vanilla WinUI3 (StressPerf.Direct)
+    and the Rust column (default 3). These contribute a single reference absolute,
+    not a paired CI, so they don't need the full -Reps budget; keeping them small
+    bounds total runner time.
+
+.PARAMETER RefWarmup
+    Warm-up runs discarded for the reference-only legs (default 1).
 
 .PARAMETER Apps
     Which harnesses to run in single-tree mode: ReactorOptimized, Direct.
@@ -116,8 +129,10 @@ param(
     [string]$BaselineRoot = '',
     [double]$Percent = 50,
     [int]$Duration = 10,
-    [int]$Reps = 2,
-    [int]$Warmup = 1,
+    [int]$Reps = 12,
+    [int]$Warmup = 2,
+    [int]$RefReps = 3,
+    [int]$RefWarmup = 1,
     [ValidateSet('ReactorOptimized', 'Direct')]
     [string[]]$Apps = @('ReactorOptimized', 'Direct'),
     [string]$OutDir,
@@ -513,7 +528,7 @@ function Invoke-RustLeg {
         Write-Log "Rust windows-reactor (test_reactor_perf)" 'Green'
         # The Rust port writes StressPerf.Reactor.report.txt next to its exe and has
         # no --json mode, so run with -NoJson and read the report.
-        $rustRuns = Measure-Sequential -Exe $rustExe -AppMeta @{ AppName = 'StressPerf.Reactor' } -Tag 'rust' -NoJson
+        $rustRuns = Measure-Sequential -Exe $rustExe -AppMeta @{ AppName = 'StressPerf.Reactor' } -Tag 'rust' -NoJson -RepCount $RefReps -WarmupCount $RefWarmup
         if ($rustRuns.Count) { return Measure-PerfRuns -Runs $rustRuns }
         Write-Log "Rust harness produced no metrics — Rust column n/a" 'Yellow'
         return $null
@@ -568,11 +583,18 @@ function Invoke-OneRun {
 }
 
 function Measure-Sequential {
-    param([string]$Exe, [hashtable]$AppMeta, [string]$Tag, [switch]$NoJson)
+    # RepCount/WarmupCount default to the script-level paired-A/B budget but are
+    # overridable so the reference-only legs (vanilla WinUI3, Rust) can run a small
+    # fixed number of reps — they contribute a single reference absolute, not a
+    # paired CI, so spending the full -Reps on them is wasted runner time.
+    param(
+        [string]$Exe, [hashtable]$AppMeta, [string]$Tag, [switch]$NoJson,
+        [int]$RepCount = $Reps, [int]$WarmupCount = $Warmup
+    )
     $runs = @()
-    for ($i = 1; $i -le ($Warmup + $Reps); $i++) {
+    for ($i = 1; $i -le ($WarmupCount + $RepCount); $i++) {
         $m = Invoke-OneRun -Exe $Exe -AppMeta $AppMeta -Index $i -Tag $Tag -NoJson:$NoJson
-        if ($i -le $Warmup) { Write-Log "  (warmup #$i discarded)" 'DarkGray'; continue }
+        if ($i -le $WarmupCount) { Write-Log "  (warmup #$i discarded)" 'DarkGray'; continue }
         if ($m) { $runs += $m }
     }
     return , $runs
@@ -586,6 +608,20 @@ try {
     & powercfg /setactive SCHEME_MIN 2>$null | Out-Null   # High performance
     Write-Log "power plan -> High performance (was $prevScheme)" 'DarkGray'
 } catch { Write-Log "power plan unchanged ($_)" 'DarkGray' }
+
+# ── GC mode pinning (restored on exit) ───────────────────────────────────────
+# Pin a deterministic GC for every harness child process so run-to-run variance
+# is governed by the workload, not by background-GC scheduling, and so main and
+# PR are compared under identical runtime settings. Workstation + non-concurrent
+# is the low-variance choice for this single-window render loop; env vars override
+# each harness' runtimeconfig and are inherited by Start-Process. Captured and
+# restored in the finally below so we never leak runtime state to later steps.
+$prevGcServer     = $env:DOTNET_gcServer
+$prevGcConcurrent = $env:DOTNET_gcConcurrent
+$env:DOTNET_gcServer     = '0'
+$env:DOTNET_gcConcurrent = '0'
+Write-Log "GC pinned -> workstation, non-concurrent (DOTNET_gcServer=0 DOTNET_gcConcurrent=0)" 'DarkGray'
+
 if ($DefenderExclude) {
     try { Add-MpPreference -ExclusionPath $Root -ErrorAction Stop; Write-Log "Defender exclusion added for $Root" 'DarkGray' }
     catch { Write-Log "Defender exclusion skipped ($_)" 'DarkGray' }
@@ -626,7 +662,7 @@ try {
         $winRuns = @()
         if ($directExe) {
             Write-Log "vanilla WinUI3 (StressPerf.Direct)" 'Green'
-            $winRuns = Measure-Sequential -Exe $directExe -AppMeta $direct -Tag 'winui3'
+            $winRuns = Measure-Sequential -Exe $directExe -AppMeta $direct -Tag 'winui3' -RepCount $RefReps -WarmupCount $RefWarmup
         } else {
             Write-Log "StressPerf.Direct exe not found — WinUI3 column will read n/a" 'Yellow'
         }
@@ -705,6 +741,8 @@ try {
 }
 finally {
     if ($prevScheme) { try { & powercfg /setactive $prevScheme 2>$null | Out-Null; Write-Log "power plan restored -> $prevScheme" 'DarkGray' } catch {} }
+    $env:DOTNET_gcServer     = $prevGcServer
+    $env:DOTNET_gcConcurrent = $prevGcConcurrent
     if ($DefenderExclude) { try { Remove-MpPreference -ExclusionPath $Root -ErrorAction SilentlyContinue } catch {} }
 }
 
