@@ -80,6 +80,7 @@ public sealed class ChartElement<T> : IChartAccessibilityData
     private Accessibility.ChartPalette? _palette;
     private bool _colorOnly;
     private bool _rawColors;
+    private D3.D3Color? _chartBackground;
     private Accessibility.MarkerShape[]? _seriesShapes;
     private Accessibility.DashStyle[]? _seriesDashes;
 
@@ -205,6 +206,29 @@ public sealed class ChartElement<T> : IChartAccessibilityData
 
     /// <summary>Sets raw series colors — escape hatch with no validation (Tier 4). Triggers scanner warning A11Y_CHART_012.</summary>
     public ChartElement<T> RawColors(params D3.D3Color[] colors) { _palette = Accessibility.ChartPalette.FromRaw(colors); _rawColors = true; return this; }
+
+    /// <summary>
+    /// Declares the representative background color the chart actually renders on.
+    /// Lets the theme-agnostic accessibility scanner scope A11Y_CHART_011's custom-palette
+    /// contrast check to this single active background (a <c>warning</c>) instead of flagging
+    /// failure against either fixed light/dark background (an <c>info</c>). Omit for charts
+    /// that may render on any background.
+    /// <para>The stored value is normalized to opaque RGB: contrast math
+    /// (<see cref="Accessibility.ChartPalette.ContrastRatio"/>) cannot evaluate a semi-transparent
+    /// background without knowing what is behind it, so any alpha is dropped.</para>
+    /// </summary>
+    public ChartElement<T> ChartBackground(D3.D3Color background) { _chartBackground = new D3.D3Color(background.R, background.G, background.B); return this; }
+
+    /// <summary>
+    /// <inheritdoc cref="ChartBackground(D3.D3Color)"/> Parses a CSS color string (hex, rgb(), hsl(), or named).
+    /// </summary>
+    public ChartElement<T> ChartBackground(string background) => ChartBackground(D3Color.Parse(background));
+
+    /// <summary>
+    /// <inheritdoc cref="ChartBackground(D3.D3Color)"/> Accepts a <see cref="global::Windows.UI.Color"/>.
+    /// </summary>
+    public ChartElement<T> ChartBackground(global::Windows.UI.Color background)
+        => ChartBackground(new D3.D3Color(background.R, background.G, background.B, background.A / 255.0));
 
     /// <summary>Disables shape/dash double-encoding — color is sole series differentiator. Triggers scanner warning A11Y_CHART_004.</summary>
     public ChartElement<T> ColorOnly() { _colorOnly = true; return this; }
@@ -359,7 +383,14 @@ public sealed class ChartElement<T> : IChartAccessibilityData
             IsTightHitTest = _tightHitTest,
             CustomFocusColor = _customFocusColor,
             IsAnnounceEveryFrame = _announceEveryFrame,
+            ChartBackground = _chartBackground,
         });
+
+    // Test-only seam (InternalsVisibleTo Reactor.Tests): drives the real AttachChartData
+    // wiring against a caller-supplied canvas so unit tests can pin the accessibility
+    // metadata flow (e.g. .ChartBackground(...)) without building the chart's D3Canvas,
+    // which constructs a SolidColorBrush and therefore needs WinUI COM.
+    internal Core.CanvasElement AttachChartDataForTest(Core.CanvasElement canvas) => AttachChartData(canvas);
 
     private Element[] RenderData(IReadOnlyList<T> data, LinearScale xScale, LinearScale yScale,
         double plotLeft, double plotTop, double plotWidth, double plotHeight)
@@ -503,6 +534,7 @@ public sealed class PieChartElement<T> : IChartAccessibilityData
     // Double-encoding / palette fields
     private Accessibility.ChartPalette? _palette;
     private bool _colorOnly;
+    private D3Color? _chartBackground;
 
     // Custom label rendering — when set, replaces the built-in TextBlock label
     // produced from LabelAccessor. The string LabelAccessor is still consulted
@@ -531,6 +563,9 @@ public sealed class PieChartElement<T> : IChartAccessibilityData
     /// the override and restores the default palette — we deliberately don't store an
     /// empty palette because every downstream consumer would have to mod-by-zero
     /// guard, and "no colors" isn't a meaningful render state.
+    /// <para><b>Accessibility note:</b> colors set via <c>.SetColors(...)</c> are NOT seen by
+    /// the a11y scanner, so A11Y_CHART_011 contrast checks do not run on them. Use
+    /// <see cref="Palette(Accessibility.ChartPalette)"/> for a scanner-visible palette.</para>
     /// </summary>
     public PieChartElement<T> SetColors(params D3Color[] colors)
     {
@@ -587,6 +622,32 @@ public sealed class PieChartElement<T> : IChartAccessibilityData
 
     /// <summary>Sets a curated accessible palette (Tier 1).</summary>
     public PieChartElement<T> Palette(Accessibility.ChartPalette palette) { _palette = palette; return this; }
+
+    /// <summary>
+    /// Declares the representative background color the chart actually renders on.
+    /// Lets the theme-agnostic accessibility scanner scope A11Y_CHART_011's custom-palette
+    /// contrast check to this single active background (a <c>warning</c>) instead of flagging
+    /// failure against either fixed light/dark background (an <c>info</c>). Omit for charts
+    /// that may render on any background.
+    /// <para><b>Note:</b> only a scanner-visible palette (set via <see cref="Palette(Accessibility.ChartPalette)"/>)
+    /// is contrast-checked against this background. Colors set via <c>.SetColors(...)</c> are
+    /// not seen by the scanner.</para>
+    /// <para>The stored value is normalized to opaque RGB: contrast math
+    /// (<see cref="Accessibility.ChartPalette.ContrastRatio"/>) cannot evaluate a semi-transparent
+    /// background without knowing what is behind it, so any alpha is dropped.</para>
+    /// </summary>
+    public PieChartElement<T> ChartBackground(D3Color background) { _chartBackground = new D3Color(background.R, background.G, background.B); return this; }
+
+    /// <summary>
+    /// <inheritdoc cref="ChartBackground(D3Color)"/> Parses a CSS color string (hex, rgb(), hsl(), or named).
+    /// </summary>
+    public PieChartElement<T> ChartBackground(string background) => ChartBackground(D3Color.Parse(background));
+
+    /// <summary>
+    /// <inheritdoc cref="ChartBackground(D3Color)"/> Accepts a <see cref="global::Windows.UI.Color"/>.
+    /// </summary>
+    public PieChartElement<T> ChartBackground(global::Windows.UI.Color background)
+        => ChartBackground(new D3Color(background.R, background.G, background.B, background.A / 255.0));
 
     /// <summary>Disables shape/dash double-encoding. Triggers scanner warning A11Y_CHART_004.</summary>
     public PieChartElement<T> ColorOnly() { _colorOnly = true; return this; }
@@ -675,7 +736,13 @@ public sealed class PieChartElement<T> : IChartAccessibilityData
         {
             IsColorOnly = _colorOnly,
             CustomPalette = _palette,
+            ChartBackground = _chartBackground,
         });
+
+    // Test-only seam (InternalsVisibleTo Reactor.Tests): mirrors ChartElement<T>'s seam so unit
+    // tests can pin PieChartElement<T>'s own .ChartBackground(...) → ChartA11yData wiring without
+    // building the chart's D3Canvas, which constructs a SolidColorBrush and therefore needs WinUI COM.
+    internal Core.CanvasElement AttachChartDataForTest(Core.CanvasElement canvas) => AttachChartData(canvas);
 
     // Non-finite offsets would propagate NaN/Infinity into Canvas.Left/Top and
     // can crash WinUI layout — treat them as 0 to match how Width/Height/InnerRadius
