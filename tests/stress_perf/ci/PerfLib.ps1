@@ -46,22 +46,31 @@ $script:PerfAllocMetricSpec = @(
     [pscustomobject]@{ Key = 'Gen0PerKRenders';     Label = 'Gen0 GC / 1k renders'; LowerIsBetter = $true; Digits = 2; Arrow = [char]0x2193 }
 )
 
-# Minimum-effect band (percent) for the micro-suite ALLOC flag. The per-side micro
-# runs are not rep-interleaved, so a sub-1% systematic process-to-process alloc
-# offset on non-deterministic benches (dispatcher / background-thread allocations,
-# e.g. M5 "Dispatch_Switch_Warm" measured 6/6 distinct alloc values per rep) can
-# make the tight within-process 95% CI exclude 0 on identical code. Requiring the CI
-# to clear +-this band absorbs that offset while still catching real structural
-# alloc changes, which are several percent to many-x. Set to 0 to restore the pure
-# "CI excludes 0" rule.
-$script:MicroAllocMinEffectPct = 1.0
+# Minimum-effect band (percent) for the micro-suite ALLOC flag. Even though the micro
+# runs are now rep-interleaved (PR5b: a fresh process per rep randomizes the
+# process-to-process alloc offset on non-deterministic benches -- dispatcher /
+# background-thread allocations, e.g. M5 "Dispatch_Switch_Warm" measured 6/6 distinct
+# alloc values per rep -- into the paired variance instead of a constant bias), a
+# residual PER-OP offset survives and scales as offset/iterations: the band that held
+# at 10000 inner iterations is correspondingly tighter now that PR5a/PR5c run the suite
+# at 2000 iters to fit the CI budget. Requiring the paired CI to clear +-this band
+# absorbs that residual offset while still catching real structural alloc changes
+# (several percent to many-x). Set to 0 to restore the pure "CI excludes 0" rule.
+#
+# PROVISIONAL VALUE: 3.0 is a deliberately conservative interim hedge (<= the ns band)
+# chosen to avoid a latent false-flag at 2000 iters. Like the ns band it MUST be reset
+# from a real-CI identical-binary interleaved A/B at the live iteration count (which can
+# only run once this harness is on the default branch, since /perf builds it from main);
+# that post-merge calibration is expected to TIGHTEN it back toward the true offset.
+$script:MicroAllocMinEffectPct = 3.0
 
 # Minimum-effect band (percent) for the micro-suite ns/op flag, applied ONLY when the
 # ns flag is armed (see $MicroNsAutoFlag). ns is noisier than the deterministic alloc
 # metric even once rep-interleaved — a fresh process per rep randomizes the
 # process-to-process timing offset into the paired variance rather than leaving it a
-# constant bias, but residual cold-JIT / scheduling jitter remains — so the ns band is
-# wider than alloc's. This value is PROVISIONAL: per the arming gate it must be
+# constant bias, but residual cold-JIT / scheduling jitter remains. Both bands are now
+# PROVISIONALLY set to the same conservative interim value; ns is expected to stay >=
+# alloc once calibrated (alloc is the more deterministic axis). Per the arming gate it must be
 # recalibrated from a real-CI identical-binary interleaved A/B (which can only run after
 # the interleave is on main, since /perf builds the harness from the default branch)
 # so the ns CI stays within +-band for an unchanged diff before the flag goes live.
@@ -75,6 +84,19 @@ $script:MicroNsMinEffectPct = 3.0
 # real-CI identical-binary band calibration above. Arming is MEASUREMENT-ONLY — it
 # changes /perf verdict labels, never what merges.
 $script:MicroNsAutoFlag = $false
+
+# Canonical reconciler micro-suite size: the FULL emitted comparison set. That is the
+# spec-047 M1-M13 set PLUS 3 supplementary benches (ids OAlloc / OUpdate / C207) that
+# BenchCatalog.All also runs for `--variant Reactor`. The source of truth is
+# tests/perf_bench/PerfBench.ControlModel/Benches/AllBenches.cs (BenchCatalog.All); there is
+# NO bench-id allowlist in Read-MicroBenchResults, so every Reactor 'ok' row is compared and a
+# healthy run produces exactly this many paired rows. FEWER means one or more benches errored
+# or were filtered on a side and dropped from the paired comparison; Format-PerfMicroSection
+# surfaces that as a visible "N/<this>" note rather than silently rendering a short table that
+# is indistinguishable from a clean full run. A drift-guard test (RunPerfBenchmark.Tests)
+# asserts this equals the BenchCatalog.All count so the two can't silently diverge -- keep them
+# in sync when the suite changes.
+$script:MicroExpectedBenchCount = 16
 
 function ConvertTo-PerfDouble {
     <#
@@ -634,10 +656,11 @@ function Get-PerfMicroComparison {
         $nsDelta = Get-PerfDelta -Baseline $mainMeanNs -Candidate $prMeanNs `
             -LowerIsBetter $true -BaselineSamples $mNsArr -CandidateSamples $pNsArr `
             -RequirePairedCI -MinEffectPct $script:MicroNsMinEffectPct
-        # Both deltas clear a +-MinEffectPct band before flagging. Alloc's band is tight
-        # (~1%) because alloc bytes/op are deterministic for identical code; ns's is
-        # wider because even rep-interleaved timing carries residual cold-JIT / scheduling
-        # jitter. Whether ns actually DRIVES the row flag is gated separately on
+        # Both deltas clear a +-MinEffectPct band before flagging. The two bands are
+        # provisionally EQUAL (a conservative interim hedge pending the real-CI identical-binary
+        # calibration); alloc bytes/op are deterministic for identical code, so alloc is the more
+        # trustworthy axis and should tighten below ns once calibrated, while ns carries residual
+        # cold-JIT / scheduling jitter. Whether ns actually DRIVES the row flag is gated separately on
         # $MicroNsAutoFlag (see Get-PerfMicroRowStatus): dormant => alloc-only (v1), so a
         # bench's ns band only matters once the flag is armed.
         $allocDelta = Get-PerfDelta -Baseline $mainAlloc -Candidate $prAlloc `
@@ -709,14 +732,61 @@ function Format-PerfMicroSection {
     <#
     .SYNOPSIS
         Render the reconciler micro-benchmark table (mean ns/op + alloc bytes/op,
-        PR vs main) as markdown lines. Empty array when there is nothing to show.
+        PR vs main) as markdown lines.
+    .DESCRIPTION
+        Visibility contract -- the section must never SILENTLY vanish when the leg was
+        attempted (the #693-class regression where a per-round timeout dropped the whole
+        section and it went unnoticed for the PR's entire life):
+          * rows present            -> the comparison table, preceded by a visible
+                                       "N/<expected> benches" warning when a side dropped
+                                       benches (a short table is otherwise indistinguishable
+                                       from a clean full run);
+          * no rows but -OmitReason -> a visible "omitted this run -- <reason>" warning
+                                       callout (the leg was attempted and failed);
+          * no rows and no reason   -> empty array (the leg was not requested -> stay silent).
+    .PARAMETER Micro         Per-bench comparison rows (Get-PerfMicroComparison), or $null.
+    .PARAMETER OmitReason    Why the section produced no rows despite being attempted; when set
+                             (and Micro is empty) a visible omission callout is rendered instead
+                             of nothing, so a timeout / missing-exe / thrown leg is never
+                             mistaken for a clean absence.
+    .PARAMETER ExpectedCount Canonical bench count for the N/<expected> completeness check
+                             (defaults to $script:MicroExpectedBenchCount = the full emitted
+                             set: spec-047 M1-M13 + 3 supplementary); 0 disables the check.
     #>
-    param([AllowNull()][object[]]$Micro)
-    if ($null -eq $Micro -or @($Micro).Count -eq 0) { return @() }
+    param(
+        [AllowNull()][object[]]$Micro,
+        [AllowNull()][string]$OmitReason,
+        [int]$ExpectedCount = $script:MicroExpectedBenchCount
+    )
+    $heading = "### Reconciler micro-benchmarks (``PerfBench.ControlModel``)"
+    if ($null -eq $Micro -or @($Micro).Count -eq 0) {
+        if ([string]::IsNullOrWhiteSpace($OmitReason)) { return @() }
+        # The reason is interpolated into a single-line GitHub blockquote and may carry raw
+        # exception text: collapse any whitespace runs / CR-LF (a newline would break out of the
+        # `>` quote after the first line) to single spaces and cap the length so a stack-trace-
+        # laden message can't bloat or corrupt the posted comment. Full detail stays in the run log.
+        $reason = ($OmitReason -replace '\s+', ' ').Trim()
+        if ($reason.Length -gt 300) { $reason = $reason.Substring(0, 297) + '...' }
+        return @(
+            $heading
+            ''
+            '> [!WARNING]'
+            "> **Micro-suite omitted this run** &mdash; $reason."
+            "> The ns/op + allocated-bytes/op reconciler deltas (spec-047 M1&ndash;M13 + 3 supplementary) are unavailable for this comparison &mdash; a harness/runner condition, **not** a clean result. See the workflow run log for the per-side detail."
+            ''
+        )
+    }
     $down = [char]0x2193
     $lines = [System.Collections.Generic.List[string]]::new()
-    $lines.Add("### Reconciler micro-benchmarks (``PerfBench.ControlModel``)")
+    $lines.Add($heading)
     $lines.Add('')
+    $renderedCount = @($Micro).Count
+    if ($ExpectedCount -gt 0 -and $renderedCount -lt $ExpectedCount) {
+        $missingCount = $ExpectedCount - $renderedCount
+        $lines.Add('> [!WARNING]')
+        $lines.Add("> **Incomplete &mdash; $renderedCount/$ExpectedCount benches.** $missingCount bench(es) errored or were filtered on a side this run and dropped from the paired comparison; the rows below are only the benches that reported on **both** sides. See the workflow run log.")
+        $lines.Add('')
+    }
     if ($script:MicroNsAutoFlag) {
         $lines.Add("Production ``--variant Reactor`` control-model path, ns-resolution and WinUI-undiluted (spec-047 M1&ndash;M13) &mdash; $down lower is better. **Status combines ns/op and allocated bytes/op**: the per-side runs are rep-interleaved (a fresh alternated process per rep), so the ns paired CI is unbiased and a bench is flagged when EITHER axis' 95% CI clears its minimum-effect band &mdash; &plusmn;$($script:MicroNsMinEffectPct)% for ns (residual cold-JIT / scheduling jitter), &plusmn;$($script:MicroAllocMinEffectPct)% for the deterministic alloc metric. When the two axes disagree the row reads $([char]0x2195)$([char]0xFE0F) mixed &mdash; consult the individual Δ cells. Δ is the mean paired change with a 95% CI.")
     } else {
@@ -894,6 +964,10 @@ function Format-PerfComment {
                           measured live on this runner, or $null when not run.
     .PARAMETER Micro      Per-bench reconciler micro-suite comparison rows
                           (Get-PerfMicroComparison output), or $null when not run.
+    .PARAMETER MicroOmitReason  Why the micro section has no rows despite the leg being
+                          attempted (timeout / missing exe / thrown leg). When set and Micro is
+                          empty, a visible omission callout is rendered instead of a silent
+                          absence. $null when the leg ran or was not requested.
     .PARAMETER MainFloor  Aggregated baseline low-mutation skip-floor metrics, or $null.
     .PARAMETER PrFloor    Aggregated PR-head low-mutation skip-floor metrics, or $null.
     .PARAMETER MainKeyed  Aggregated baseline keyed-list workload metrics, or $null.
@@ -908,6 +982,7 @@ function Format-PerfComment {
         [AllowNull()][pscustomobject]$WinUI3,
         [AllowNull()][pscustomobject]$Rust,
         [AllowNull()][object[]]$Micro,
+        [AllowNull()][string]$MicroOmitReason,
         [AllowNull()][pscustomobject]$MainFloor,
         [AllowNull()][pscustomobject]$PrFloor,
         [AllowNull()][pscustomobject]$MainKeyed,
@@ -998,7 +1073,7 @@ function Format-PerfComment {
     # Rendered only when the PerfBench.ControlModel micro leg produced results for
     # both sides. Resolves Core/Reconciler time + allocation deltas the macro
     # StocksGrid workload above cannot (it is render-bound and working-set diluted).
-    foreach ($mline in (Format-PerfMicroSection -Micro $Micro)) { & $add $mline }
+    foreach ($mline in (Format-PerfMicroSection -Micro $Micro -OmitReason $MicroOmitReason)) { & $add $mline }
 
     # ── Table 2: cross-framework reference ───────────────────────────────────
     & $add "### Cross-framework reference (same StocksGrid workload)"

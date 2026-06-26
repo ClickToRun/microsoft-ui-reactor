@@ -283,13 +283,14 @@ finally {
 # ===========================================================================
 # The 16-bench suite was silently dropped from every comment because at
 # -MicroIterations 10000 it ran ~3x over the per-side timeout (completed only
-# M1-M4, then Invoke-MicroRun discarded the truncated prefix). Lock the budget
-# fit: a small inner-iteration default plus a timeout with headroom over the
-# suite's real cost. Both are pure capacity knobs — they don't change the per-op
-# ns/alloc math (each bench stays hundreds of thousands of times the timer floor).
+# M1-M4, then Invoke-MicroRun discarded the truncated prefix). PR5a cut the inner
+# iteration count to fit the per-side budget; PR5c raised it to 2000 (still 5x under
+# the 10000 that overran) to steady the per-op alloc variance for the min-effect band.
+# It stays a pure capacity knob — each bench remains hundreds of thousands of times the
+# timer floor, so the per-op ns/alloc math is unchanged.
 $mip = $ast.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'MicroIterations' } | Select-Object -First 1
 Assert-True ($null -ne $mip) '[micro] -MicroIterations parameter exists'
-Assert-True ($mip -and $mip.DefaultValue -and $mip.DefaultValue.Extent.Text -eq '1000') '[micro] -MicroIterations defaults to 1000 (suite fits its per-side budget)'
+Assert-True ($mip -and $mip.DefaultValue -and $mip.DefaultValue.Extent.Text -eq '2000') '[micro] -MicroIterations defaults to 2000 (fits the per-side budget; steadies per-op alloc variance for the band)'
 $mrp = $ast.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'MicroReps' } | Select-Object -First 1
 Assert-True ($mrp -and $mrp.DefaultValue -and $mrp.DefaultValue.Extent.Text -eq '12') '[micro] -MicroReps defaults to 12 (paired-CI sample count unchanged)'
 $mwp = $ast.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'MicroWarmup' } | Select-Object -First 1
@@ -320,6 +321,19 @@ Assert-True ($microWire -match 'Invoke-MicroRun\s+-Exe\s+\$exe\s+-Tag\s+.+-RepCo
 Assert-True ($microWire -match 'Invoke-MicroInterleaved\s+-LaunchRep\s+\$launchRep\s+-RepCount\s+\$MicroReps\s+-WarmupCount\s+\$MicroWarmup') '[micro-wiring] interleaver gets MicroReps measured + MicroWarmup warmup rounds'
 Assert-True (($microWire -match '\$microInter\.MainJson') -and ($microWire -match '\$microInter\.PrJson')) '[micro-wiring] comparison reads the interleaved accumulators (.MainJson/.PrJson)'
 Assert-True ($microWire -match 'Get-PerfMicroComparison') '[micro-wiring] interleaved accumulators feed Get-PerfMicroComparison'
+# PR5c: incompleteness must reach the COMMENT, not just the run log. Lock that the omit
+# reason is captured when the leg produces no comparison (timeout / missing-exe / thrown) and
+# that it threads into Format-PerfComment so the section renders a visible "incomplete" callout
+# instead of silently vanishing (the #693 regression).
+Assert-True ($microWire -match '\$microOmitReason\s*=\s*"') '[micro-wiring] an omit reason is captured when the micro leg yields no comparison'
+Assert-True ($src -match 'Format-PerfComment .*-MicroOmitReason \$microOmitReason') '[micro-wiring] the captured omit reason threads into Format-PerfComment'
+# Every silent-omit PATH must capture a reason — one per failure mode — so none of them can
+# regress back to a vanished section. Four sites: too-few-rounds, zero comparable rows after a
+# successful interleave (the residual path PR5c added), exe-not-built, and the catch-all throw.
+Assert-True ($microWire -match 'fewer than 2 paired rounds')        '[micro-wiring] omit reason set on the interleave-null (too-few-rounds) path'
+Assert-True ($microWire -match 'no bench produced a comparable ok') '[micro-wiring] omit reason set when the interleave succeeds but yields zero comparable rows'
+Assert-True ($microWire -match 'micro exe was not built')           '[micro-wiring] omit reason set on the exe-not-found path'
+Assert-True ($microWire -match 'the micro leg threw')               '[micro-wiring] omit reason set on the thrown-leg (catch) path'
 
 # ===========================================================================
 #  Invoke-OneRun — --percent threading (-RunPercent defaults to $Percent)

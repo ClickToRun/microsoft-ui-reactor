@@ -192,7 +192,7 @@ param(
     [int]$RefWarmup = 1,
     [int]$MicroReps = 12,
     [int]$MicroWarmup = 1,
-    [int]$MicroIterations = 1000,
+    [int]$MicroIterations = 2000,
     [int]$MicroRepTimeoutSec = 180,
     [bool]$IncludeMicro = $true,
     [double]$SkipFloorPercent = 0,
@@ -692,10 +692,10 @@ function Invoke-MicroRun {
     # Per-launch budget. When the interleaver calls this with -RepCount 1 the launch runs
     # the 16-bench suite once (each bench still does its own internal warmup + one timed
     # rep), so the default 180s the caller passes is sized with wide headroom over the
-    # ~12-15s a single round needs, while a genuine hang is still bounded. (At 420s with
-    # 10000 iterations the whole-suite single launch timed out after only M1-M4, so the
-    # micro section was silently absent from every comment — hence the iter cut + the
-    # per-rep launches.)
+    # tens of seconds a single round needs at 2000 iters, while a genuine hang is still
+    # bounded. (At 420s with 10000 iterations the whole-suite single launch timed out
+    # after only M1-M4, so the micro section was silently absent from every comment —
+    # hence the iter cut + the per-rep launches.)
     $timeoutSec = $TimeoutSec
 
     Write-Log ("  micro [{0}] PerfBench.ControlModel --variant Reactor --reps {1} --iterations {2}" -f $Tag, $RepCount, $IterCount)
@@ -965,6 +965,7 @@ try {
         # Reconciler micro-suite (ns-resolution, WinUI-undiluted). Best-effort: any
         # failure here leaves $micro = $null and the macro comment is unaffected.
         $micro = $null
+        $microOmitReason = $null
         if ($IncludeMicro) {
             try {
                 $microMainExe = Resolve-HarnessExe -TreeRoot $BaselineRoot -AppMeta $microMeta
@@ -989,13 +990,30 @@ try {
                             -Main (Read-MicroBenchResults $microInter.MainJson) `
                             -Pr (Read-MicroBenchResults $microInter.PrJson)
                         Write-Log ("  micro: {0} bench(es) compared across {1} interleaved rep(s)" -f @($micro).Count, $microInter.Reps) 'DarkGray'
+                        if (@($micro).Count -eq 0) {
+                            # >=2 paired rounds survived, but NO bench produced a comparable ok
+                            # row on both sides (every bench filtered/errored, or no benchId
+                            # overlapped) -> $micro is empty and Format-PerfMicroSection would
+                            # otherwise omit the section SILENTLY. Capture a reason so it renders
+                            # the loud callout instead, closing the last silent-omit path.
+                            $microOmitReason = 'the rep-interleave completed but no bench produced a comparable ok Reactor row on both sides'
+                        }
+                    } else {
+                        # Invoke-MicroInterleaved returned $null: fewer than 2 paired rounds
+                        # survived (a per-round timeout, or truncated/empty output on a side).
+                        # Capture WHY so Format-PerfComment renders a visible "incomplete"
+                        # callout instead of silently dropping the section (the #693 bug); the
+                        # per-round detail is already in the run log above.
+                        $microOmitReason = "the rep-interleave kept fewer than 2 paired rounds (a per-round timeout at ${MicroRepTimeoutSec}s, or truncated/empty output on one or both sides)"
                     }
                 } else {
                     Write-Log "micro-suite exe not found (main=$([bool]$microMainExe) pr=$([bool]$microPrExe)) — omitting micro-benchmarks" 'Yellow'
+                    $microOmitReason = "the PerfBench.ControlModel micro exe was not built for one or both sides (main=$([bool]$microMainExe) pr=$([bool]$microPrExe))"
                 }
             } catch {
                 Write-Log "reconciler micro-suite leg failed ($_) — omitting micro-benchmarks" 'Yellow'
                 $micro = $null
+                $microOmitReason = "the micro leg threw: $($_.Exception.Message)"
             }
         }
 
@@ -1034,7 +1052,7 @@ try {
             Runner = $runner.Runner; Cpu = $runner.Cpu; Cores = $runner.Cores; MemoryGB = $runner.MemoryGB
             RunUrl = $RunUrl; Timestamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'); Note = $note
         }
-        $comment = Format-PerfComment -Main $main -Pr $pr -WinUI3 $winui3 -Rust $rust -Micro $micro -MainFloor $mainFloor -PrFloor $prFloor -MainKeyed $mainKeyed -PrKeyed $prKeyed -Context $ctx
+        $comment = Format-PerfComment -Main $main -Pr $pr -WinUI3 $winui3 -Rust $rust -Micro $micro -MicroOmitReason $microOmitReason -MainFloor $mainFloor -PrFloor $prFloor -MainKeyed $mainKeyed -PrKeyed $prKeyed -Context $ctx
         $commentPath = Join-Path $OutDir 'comment.md'
         Set-Content -LiteralPath $commentPath -Value $comment -Encoding UTF8
         Write-Log "comment.md written -> $commentPath" 'Green'
