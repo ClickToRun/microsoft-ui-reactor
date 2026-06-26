@@ -321,6 +321,35 @@ finally {
     Remove-Item function:Format-PerfNumber -ErrorAction SilentlyContinue
 }
 
+# ===========================================================================
+#  Keyed-list leg — static wiring contract (param + registry + leg + comment)
+# ===========================================================================
+# The keyed-list leg lives in the orchestrator's main run flow (not a dot-sourceable
+# function), exactly like the headline + skip-floor legs, so — as with those — its
+# Invoke-OneRun threading is covered by the -RunPercent test above (the keyed leg omits
+# -RunPercent, so it inherits $Percent). What is NEW and worth locking here is the
+# static wiring: the opt-out switch defaults on, the registry resolves the right
+# exe/csproj, the interleave runs both sides, and the aggregates reach the renderer.
+$kp = $ast.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'IncludeKeyedList' } | Select-Object -First 1
+Assert-True ($null -ne $kp) '[keyed] -IncludeKeyedList parameter exists'
+Assert-True ($kp -and $kp.DefaultValue -and $kp.DefaultValue.Extent.Text -eq '$true') '[keyed] -IncludeKeyedList defaults to $true (on unless opted out)'
+Assert-True ($src -match "KeyedList\s*=\s*@\{\s*AppName\s*=\s*'StressPerf\.KeyedList';\s*ProjectRel\s*=\s*'tests\\stress_perf\\StressPerf\.KeyedList") '[keyed] AppRegistry maps KeyedList -> StressPerf.KeyedList exe + csproj'
+Assert-True ($src -match "-Tag 'main-keyed'") '[keyed] leg interleaves the main side (main-keyed)'
+Assert-True ($src -match "-Tag 'pr-keyed'")   '[keyed] leg interleaves the PR side (pr-keyed)'
+Assert-True ($src -match '-MainKeyed \$mainKeyed') '[keyed] Format-PerfComment receives the main keyed aggregate'
+Assert-True ($src -match '-PrKeyed \$prKeyed')     '[keyed] Format-PerfComment receives the PR keyed aggregate'
+
+# Opt-out + best-effort build fallback: the keyed build is guarded by the switch, and a
+# build failure flips the switch off (omit the table, never throw) so the leg is skipped.
+Assert-True ($src -match 'if \(\$IncludeKeyedList -and -not \$SkipBuild\)') '[keyed] build is guarded by -IncludeKeyedList (and -SkipBuild)'
+Assert-True ($src -match '(?s)keyed-list workload build failed.*?\$IncludeKeyedList = \$false') '[keyed] a build failure flips -IncludeKeyedList off (best-effort: omit table, never throw)'
+Assert-True ($src -match '\$mainKeyedRuns = @\(\); \$prKeyedRuns = @\(\)\s*\r?\n\s*if \(\$IncludeKeyedList\)') '[keyed] the run leg is skipped unless -IncludeKeyedList is on'
+
+# Paired drop-both alignment: a complete keyed pair appends BOTH sides; a one-sided
+# failure drops BOTH halves so the paired CI's main[i]/pr[i] zip stays index-aligned.
+Assert-True ($src -match 'if \(\$mm -and \$pm\) \{ \$mainKeyedRuns \+= \$mm; \$prKeyedRuns \+= \$pm \}') '[keyed] a complete pair appends both main + pr samples'
+Assert-True ($src -match 'elseif \(\$mm -or \$pm\) \{ Write-Log "  keyed pair #\$i incomplete') '[keyed] a one-sided keyed run drops both halves (paired CI stays aligned)'
+
 # cleanup
 foreach ($d in @($baseTree, $prTree, $OutDir, $exeDir)) {
     if (Test-Path $d) { Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue }
