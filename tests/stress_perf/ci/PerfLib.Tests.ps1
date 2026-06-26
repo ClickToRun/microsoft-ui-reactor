@@ -269,6 +269,13 @@ Assert-Null (Get-PerfPairedDeltaStats -BaselineSamples @(100) -CandidateSamples 
 Assert-Null (Get-PerfPairedDeltaStats -BaselineSamples $null -CandidateSamples $null)  'null samples -> null'
 Assert-Null (Get-PerfPairedDeltaStats -BaselineSamples @(0, 0) -CandidateSamples @(5, 5)) 'zero baselines skipped -> null'
 
+# Stats are returned at FULL precision (not pre-rounded to 2dp): the per-pair
+# delta here is exactly -0.999%, which 2dp rounding would have collapsed to -1.00.
+$bPrec = @(100, 100, 100, 100)
+$cPrec = @(99.001, 99.001, 99.001, 99.001)
+$sPrec = Get-PerfPairedDeltaStats -BaselineSamples $bPrec -CandidateSamples $cPrec
+Assert-True ([math]::Abs([double]$sPrec.MeanPct - (-0.999)) -lt 1e-9) 'stats keep full precision (mean not rounded to 2dp)'
+
 # ── Get-PerfDelta with samples (CI-excludes-0 replaces the 4% floor) ──────────
 # A ~2% improvement that the OLD 4% floor would have buried as "noise", now
 # resolved as a real improvement because the paired CI excludes 0.
@@ -293,6 +300,14 @@ Assert-Equal 'worse' $dReg.Status      'higher-better paired regression (CI excl
 $dFallback = Get-PerfDelta -Baseline 100 -Candidate 95 -LowerIsBetter $true -BaselineSamples @(100) -CandidateSamples @(95)
 Assert-Equal 'better' $dFallback.Status 'insufficient samples -> floor fallback still flags'
 Assert-Null  $dFallback.CiLowPct        'fallback path has null CI'
+
+# Full-precision gating: a CI strictly just above 0 (here +0.004%) must be flagged,
+# not collapsed to "noise" by 2dp rounding of the bound to 0.00. Under the old
+# pre-rounded stats this returned 'noise'; the full-precision decision returns it.
+$bTiny = @(100, 100, 100, 100)
+$cTiny = @(100.004, 100.004, 100.004, 100.004)
+$dTiny = Get-PerfDelta -Baseline 100 -Candidate 100.004 -LowerIsBetter $false -BaselineSamples $bTiny -CandidateSamples $cTiny
+Assert-Equal 'better' $dTiny.Status 'CI just above 0 (+0.004) flagged, not rounded to noise'
 
 # ── Format-PerfDeltaCell with CI ─────────────────────────────────────────────
 $cellCi = Format-PerfDeltaCell ([pscustomobject]@{ DeltaPct = -3.4; CiLowPct = -6.1; CiHighPct = -0.6 })

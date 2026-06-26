@@ -262,6 +262,8 @@ function Get-PerfPairedDeltaStats {
         standard error, and a two-sided 95% confidence interval for the MEAN
         change (mean +/- t(.975, N-1) * SE). The interval excluding 0 is the
         data-driven "is this a real change?" test that replaces a fixed % floor.
+        All fields are returned at full precision (no rounding) because callers
+        gate significance on them; round only when formatting for display.
     .OUTPUTS
         PSCustomObject { N; MeanPct; MedianPct; SdPct; SePct; CiLowPct; CiHighPct;
         CiHalfWidthPct } or $null.
@@ -290,15 +292,19 @@ function Get-PerfPairedDeltaStats {
     $sd = [math]::Sqrt($ss / ($cnt - 1))
     $se = $sd / [math]::Sqrt($cnt)
     $half = (Get-StudentTCritical -Df ($cnt - 1)) * $se
+    # Full precision on purpose: Get-PerfDelta gates significance/direction on
+    # these values, so rounding here (e.g. a CI bound of 0.004 -> 0.00) could
+    # silently flip a real change to "noise". Rounding is a display concern and
+    # happens at format time (Format-PerfDeltaCell / Get-PerfDelta display fields).
     return [pscustomobject]@{
         N              = $cnt
-        MeanPct        = [math]::Round($mean, 2)
-        MedianPct      = [math]::Round((Get-PerfMedian ([double[]]$deltas.ToArray())), 2)
-        SdPct          = [math]::Round($sd, 2)
-        SePct          = [math]::Round($se, 2)
-        CiLowPct       = [math]::Round($mean - $half, 2)
-        CiHighPct      = [math]::Round($mean + $half, 2)
-        CiHalfWidthPct = [math]::Round($half, 2)
+        MeanPct        = $mean
+        MedianPct      = Get-PerfMedian ([double[]]$deltas.ToArray())
+        SdPct          = $sd
+        SePct          = $se
+        CiLowPct       = $mean - $half
+        CiHighPct      = $mean + $half
+        CiHalfWidthPct = $half
     }
 }
 
@@ -373,16 +379,22 @@ function Get-PerfDelta {
     # 95% CI excludes 0 — the data-driven band that replaces the fixed % floor.
     $stats = Get-PerfPairedDeltaStats -BaselineSamples $BaselineSamples -CandidateSamples $CandidateSamples
     if ($null -ne $stats) {
+        # Decide direction + significance on FULL-PRECISION stats. Rounding is a
+        # display-only concern: a CI bound like 0.004 must not round to 0.00 and
+        # silently flip a genuine change to "noise". The returned CI fields are
+        # rounded to 2dp for presentation; the cell format rounds again to 1dp.
         $meanPct = [double]$stats.MeanPct
+        $ciLow = [double]$stats.CiLowPct
+        $ciHigh = [double]$stats.CiHighPct
         $improved = if ($LowerIsBetter) { $meanPct -lt 0 } else { $meanPct -gt 0 }
-        $ciExcludesZero = ($stats.CiLowPct -gt 0) -or ($stats.CiHighPct -lt 0)
+        $ciExcludesZero = ($ciLow -gt 0) -or ($ciHigh -lt 0)
         $status = if (-not $ciExcludesZero) { 'noise' } elseif ($improved) { 'better' } else { 'worse' }
         return [pscustomobject]@{
             DeltaPct  = [math]::Round($meanPct, 1)
             Status    = $status
             Improved  = $improved
-            CiLowPct  = $stats.CiLowPct
-            CiHighPct = $stats.CiHighPct
+            CiLowPct  = [math]::Round($ciLow, 2)
+            CiHighPct = [math]::Round($ciHigh, 2)
             N         = $stats.N
         }
     }
