@@ -350,6 +350,13 @@ function Stage-RustRuntime {
             else { Invoke-WebRequest -Uri $url -OutFile $nupkg }
         }
         if (-not $nupkg -or -not (Test-Path $nupkg) -or (Get-Item $nupkg).Length -lt 1MB) {
+            # A truncated/partial nupkg (failed download or corrupt cache entry) would be
+            # preferred again next run via the pinned-cache fast path above, permanently
+            # poisoning the cache and pinning the Rust leg at n/a. Evict it so the next
+            # invocation re-downloads (or falls back to another cached version) instead of
+            # looping on a bad artifact — the top of the same self-healing chain applied to
+            # $msix and $msixOut below.
+            if ($nupkg -and (Test-Path $nupkg)) { Remove-Item $nupkg -Force -ErrorAction SilentlyContinue }
             Write-Log "  WinAppSDK runtime nupkg unavailable — Rust column may read n/a (#674)" 'Yellow'
             return
         }
