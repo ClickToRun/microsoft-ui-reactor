@@ -40,6 +40,19 @@ public sealed class PerfTracker
     private int _startGen1;
     private int _startGen2;
 
+    // End snapshot of the cumulative GC counters, frozen exactly once — the first
+    // time a report/JSON is produced or an allocation property is read — and
+    // BEFORE any report-string building. Because GetTotalAllocatedBytes/
+    // CollectionCount are process-wide cumulative counters, freezing them up front
+    // keeps allocations from report/JSON generation itself out of the measured
+    // window and guarantees report.txt and metrics.json report identical figures.
+    private bool _allocEndCaptured;
+    private long _endAllocBytes;
+    private int _endGen0;
+    private int _endGen1;
+    private int _endGen2;
+    private int _endRenderCount;
+
     public double CurrentFps => _currentFps;
     public double LastUpdateMs => _lastUpdateMs;
     public long CurrentMemoryMB => Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024);
@@ -101,6 +114,31 @@ public sealed class PerfTracker
         _renderCount++;
     }
 
+    /// <summary>
+    /// Freeze the end-of-measurement allocation/GC counters exactly once, before
+    /// any report or JSON string is built. Idempotent: the first call wins, so
+    /// every consumer (report.txt, metrics.json, direct property reads) sees the
+    /// same numbers and string-building allocations never leak into the window.
+    /// No-op until the first render has set the baseline.
+    /// </summary>
+    private void CaptureFinalSnapshot()
+    {
+        if (_allocEndCaptured || !_allocBaselineCaptured) return;
+        _endAllocBytes = GC.GetTotalAllocatedBytes();
+        _endGen0 = GC.CollectionCount(0);
+        _endGen1 = GC.CollectionCount(1);
+        _endGen2 = GC.CollectionCount(2);
+        _endRenderCount = _renderCount;
+        _allocEndCaptured = true;
+    }
+
+    // Renders fully inside the allocation window. The baseline is captured during
+    // the FIRST RecordRender, so that render's own allocations sit in the baseline
+    // and only renders 2..N contribute to the measured delta. Normalising the
+    // delta by (N-1) keeps numerator and denominator over the same window and
+    // avoids a small systematic downward bias.
+    private int AllocWindowRenders => _allocEndCaptured ? Math.Max(0, _endRenderCount - 1) : 0;
+
     public int TotalRenders => _renderCount;
 
     /// <summary>
@@ -121,6 +159,10 @@ public sealed class PerfTracker
     public string GetReport(string appName, double percent)
     {
         if (_fpsSamples.Count == 0) return "No data collected.";
+
+        // Freeze the allocation/GC end-counters before building any report string
+        // so report generation's own allocations never enter the measured window.
+        CaptureFinalSnapshot();
 
         var sb = new StringBuilder();
         sb.AppendLine($"=== {appName} ===");
@@ -216,27 +258,41 @@ public sealed class PerfTracker
     /// Mean managed bytes allocated per recorded render across the measurement
     /// window (first render → report time), or 0. Lower is better. This is the
     /// metric allocation-reduction PRs move directly; the mean-ms and working-set
-    /// figures are largely insensitive to allocation churn. See METHODOLOGY.md.
+    /// figures are largely insensitive to allocation churn. Reads the frozen
+    /// end-snapshot and normalises by renders-since-baseline. See METHODOLOGY.md.
     /// </summary>
-    public double AllocBytesPerRender =>
-        _allocBaselineCaptured && _renderCount > 0
-            ? (GC.GetTotalAllocatedBytes() - _startAllocBytes) / (double)_renderCount
-            : 0.0;
+    public double AllocBytesPerRender
+    {
+        get
+        {
+            CaptureFinalSnapshot();
+            int n = AllocWindowRenders;
+            return n > 0 ? (_endAllocBytes - _startAllocBytes) / (double)n : 0.0;
+        }
+    }
 
     /// <summary>Gen0 garbage collections during the measurement window, or 0.</summary>
-    public int Gen0Collections => _allocBaselineCaptured ? GC.CollectionCount(0) - _startGen0 : 0;
+    public int Gen0Collections { get { CaptureFinalSnapshot(); return _allocEndCaptured ? _endGen0 - _startGen0 : 0; } }
 
     /// <summary>Gen1 garbage collections during the measurement window, or 0.</summary>
-    public int Gen1Collections => _allocBaselineCaptured ? GC.CollectionCount(1) - _startGen1 : 0;
+    public int Gen1Collections { get { CaptureFinalSnapshot(); return _allocEndCaptured ? _endGen1 - _startGen1 : 0; } }
 
     /// <summary>Gen2 garbage collections during the measurement window, or 0.</summary>
-    public int Gen2Collections => _allocBaselineCaptured ? GC.CollectionCount(2) - _startGen2 : 0;
+    public int Gen2Collections { get { CaptureFinalSnapshot(); return _allocEndCaptured ? _endGen2 - _startGen2 : 0; } }
 
     /// <summary>
     /// Gen0 collections per 1,000 renders (render-rate-normalised so it is
     /// comparable across runs of differing length), or 0. Lower is better.
+    /// Normalised by renders-since-baseline to match the collection window.
     /// </summary>
-    public double Gen0PerKRenders => _renderCount > 0 ? Gen0Collections * 1000.0 / _renderCount : 0.0;
+    public double Gen0PerKRenders
+    {
+        get
+        {
+            int n = AllocWindowRenders;
+            return n > 0 ? Gen0Collections * 1000.0 / n : 0.0;
+        }
+    }
 
     /// <summary>
     /// Compact, single-line, culture-invariant JSON with the four headline
@@ -269,6 +325,10 @@ public sealed class PerfTracker
             }
             return b.ToString();
         }
+        // Freeze the allocation/GC end-counters before building the JSON so the
+        // payload's own allocations never enter the measured window (and so this
+        // matches report.txt exactly when both are written).
+        CaptureFinalSnapshot();
         var sb = new StringBuilder();
         sb.Append('{');
         sb.Append("\"app\":\"").Append(J(appName)).Append("\",");
