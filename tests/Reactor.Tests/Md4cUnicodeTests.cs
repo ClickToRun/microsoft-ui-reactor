@@ -6,8 +6,9 @@ namespace Microsoft.UI.Reactor.Tests;
 /// <summary>
 /// Tests for Md4cUnicode — character classification and case-folding functions
 /// used by the Markdown parser. These are pure functions with no dependencies.
-/// Exercising all classification categories also covers the static lookup tables
-/// (PunctMap, WhitespaceMap, FoldMaps) that contribute ~475 lines.
+/// Whitespace and punctuation/symbol classification defer to the BCL's Unicode
+/// categories (System.Text.Rune); case folding still uses the retained FoldMap
+/// lookup tables. Exercising every category also covers those code paths.
 /// </summary>
 public class Md4cUnicodeTests
 {
@@ -118,7 +119,7 @@ public class Md4cUnicodeTests
         Assert.Equal(expected, Md4cUnicode.IsPunct(ch));
 
     // ════════════════════════════════════════════════════════════════
-    //  Unicode whitespace — exercises WhitespaceMap table
+    //  Unicode whitespace — exercises the Zs (SpaceSeparator) category path
     // ════════════════════════════════════════════════════════════════
 
     [Theory]
@@ -134,6 +135,11 @@ public class Md4cUnicodeTests
     [InlineData(0x0041u, false)]  // 'A'
     [InlineData(0x0100u, false)]  // Latin Extended A
     [InlineData(0x4000u, false)]  // CJK range
+    [InlineData(0x0085u, false)]  // NEL (Cc) — not Zs, excluded by md4c's Zs-only rule
+    [InlineData(0x2028u, false)]  // line separator (Zl) — not Zs
+    [InlineData(0x2029u, false)]  // paragraph separator (Zp) — not Zs
+    [InlineData(0xD800u, false)]  // lone surrogate — invalid scalar, must not throw
+    [InlineData(0x110000u, false)] // above U+10FFFF — invalid codepoint
     public void IsUnicodeWhitespace(uint codepoint, bool expected) =>
         Assert.Equal(expected, Md4cUnicode.IsUnicodeWhitespace(codepoint));
 
@@ -146,7 +152,7 @@ public class Md4cUnicodeTests
         Assert.False(Md4cUnicode.IsUnicodeWhitespace(0x61)); // 'a'
 
     // ════════════════════════════════════════════════════════════════
-    //  Unicode punctuation — exercises PunctMap table (298 lines!)
+    //  Unicode punctuation — exercises the P/S general-category path
     // ════════════════════════════════════════════════════════════════
 
     [Theory]
@@ -169,6 +175,8 @@ public class Md4cUnicodeTests
     [InlineData(0x2190u, true)]   // leftwards arrow
     [InlineData(0x25A0u, true)]   // black square
     [InlineData(0x2605u, true)]   // black star
+    [InlineData(0x203Fu, true)]   // undertie — connector punctuation (Pc), non-ASCII
+    [InlineData(0xFF3Fu, true)]   // fullwidth low line — connector punctuation (Pc)
     [InlineData(0x0041u, false)]  // 'A'
     [InlineData(0x0061u, false)]  // 'a'
     [InlineData(0x0030u, false)]  // '0'
@@ -277,9 +285,9 @@ public class Md4cUnicodeTests
     }
 
     // ════════════════════════════════════════════════════════════════
-    //  Extended PunctMap coverage — exercise many table regions
-    //  Binary search visits different pivot entries depending on
-    //  the target codepoint. Spread tests across the full table.
+    //  Extended punctuation coverage — exercise many P/S category codepoints
+    //  spread across Unicode blocks (the classifier visits the BCL Unicode
+    //  data; spread tests across the full range).
     // ════════════════════════════════════════════════════════════════
 
     [Theory]
@@ -390,6 +398,8 @@ public class Md4cUnicodeTests
     [InlineData(0x0061u, false)]  // 'a'
     [InlineData(0x4E00u, false)]  // CJK ideograph
     [InlineData(0x10000u, false)] // linear B syllable B008 A
+    [InlineData(0xD800u, false)]  // lone surrogate — invalid scalar, must not throw
+    [InlineData(0x110000u, false)] // above U+10FFFF — invalid codepoint
     public void IsUnicodePunct_Extended(uint codepoint, bool expected) =>
         Assert.Equal(expected, Md4cUnicode.IsUnicodePunct(codepoint));
 
