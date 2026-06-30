@@ -854,6 +854,19 @@ internal static class SelfTestFixtureRegistry
         "Gesture_OnRotateSetsRotateFlag",
         "Gesture_PanAndPinchCombine",
 
+        // #721 — skip fast-path refreshes cached gesture/drag dispatch closures
+        "SkipPath_RefreshesLivePanClosure",
+        "SkipPath_RefreshesLivePanClosure_Keyed",
+        "SkipPath_RefreshesLiveDropTarget",
+        "SkipPath_MidGesturePreservesCursorsAndSubscriptions",
+        "SkipPath_AddFirstGestureWires",
+        "SkipPath_RemoveDragSourceMidDragPreservesState",
+        "SkipPath_RemoveDragSourceNotInFlightClears",
+        "SkipPath_AddPanAlongsidePinchWidensMode",
+        "SkipPath_AddDragSourceAlongsideDropTargetWires",
+        "SkipPath_RemoveDragSourceWithDropTargetMidDragPreservesState",
+        "SkipPath_RemoveGestureClearsPlatformFlags",
+
         // LongPress + focus — spec 027 Tier 3 Part 2 / Tier 5 (Phase 4)
         "Gesture_OnLongPressAutoEnablesHolding",
         "Gesture_OnLongPressMouseEmulationOptIn",
@@ -2300,6 +2313,19 @@ internal static class SelfTestFixtureRegistry
         "Gesture_OnPinchSetsScaleFlag" => new GestureFixtures.OnPinchSetsScaleFlag(harness),
         "Gesture_OnRotateSetsRotateFlag" => new GestureFixtures.OnRotateSetsRotateFlag(harness),
         "Gesture_PanAndPinchCombine" => new GestureFixtures.PanAndPinchCombine(harness),
+
+        // #721 — skip fast-path refreshes cached gesture/drag dispatch closures
+        "SkipPath_RefreshesLivePanClosure" => new SkipPathGestureDragFixtures.SkipRefreshesLivePanClosure(harness),
+        "SkipPath_RefreshesLivePanClosure_Keyed" => new SkipPathGestureDragFixtures.SkipRefreshesLivePanClosure_Keyed(harness),
+        "SkipPath_RefreshesLiveDropTarget" => new SkipPathGestureDragFixtures.SkipRefreshesLiveDropTarget(harness),
+        "SkipPath_MidGesturePreservesCursorsAndSubscriptions" => new SkipPathGestureDragFixtures.SkipMidGesturePreservesCursorsAndSubscriptions(harness),
+        "SkipPath_AddFirstGestureWires" => new SkipPathGestureDragFixtures.SkipAddFirstGestureWires(harness),
+        "SkipPath_RemoveDragSourceMidDragPreservesState" => new SkipPathGestureDragFixtures.SkipRemoveDragSourceMidDragPreservesState(harness),
+        "SkipPath_RemoveDragSourceNotInFlightClears" => new SkipPathGestureDragFixtures.SkipRemoveDragSourceNotInFlightClears(harness),
+        "SkipPath_AddPanAlongsidePinchWidensMode" => new SkipPathGestureDragFixtures.SkipAddPanAlongsidePinchWidensMode(harness),
+        "SkipPath_AddDragSourceAlongsideDropTargetWires" => new SkipPathGestureDragFixtures.SkipAddDragSourceAlongsideDropTargetWires(harness),
+        "SkipPath_RemoveDragSourceWithDropTargetMidDragPreservesState" => new SkipPathGestureDragFixtures.SkipRemoveDragSourceWithDropTargetMidDragPreservesState(harness),
+        "SkipPath_RemoveGestureClearsPlatformFlags" => new SkipPathGestureDragFixtures.SkipRemoveGestureClearsPlatformFlags(harness),
 
         // LongPress + focus — spec 027 Tier 3 Part 2 / Tier 5 (Phase 4)
         "Gesture_OnLongPressAutoEnablesHolding" => new GestureFixtures.OnLongPressAutoEnablesHolding(harness),
