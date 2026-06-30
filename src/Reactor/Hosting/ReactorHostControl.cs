@@ -48,6 +48,12 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable
     private readonly DispatcherQueue _dispatcherQueue;
     private readonly ILogger? _logger;
 
+    // Issue #660 (#86): UISettings.ColorValuesChanged invalidates the theme-brush
+    // resolution cache on high-contrast / accent / palette changes (ActualThemeChanged
+    // below covers only Light/Dark). Mirrors ReactorHost so an embedded host with no
+    // ReactorApp still drops stale brushes on a non-Light/Dark theme change.
+    private global::Windows.UI.ViewManagement.UISettings? _uiSettings;
+
     private Component? _rootComponent;
     private Func<RenderContext, Element>? _rootRenderFunc;
     private RenderContext? _funcContext;
@@ -88,6 +94,13 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable
     // Published via Interlocked.Exchange / read via Volatile.Read — see the
     // matching note in ReactorHost.
     private double _lastRenderMs;
+
+    // Issue #660 (#180/#181): per-frame delegates cached once. _renderLoopHandler
+    // is the DispatcherQueueHandler passed to TryEnqueue; _requestRenderAction is
+    // the parameterless RequestRender method group reused for BeginRender and
+    // Reconcile instead of re-allocating an Action 2-3x per render.
+    private Microsoft.UI.Dispatching.DispatcherQueueHandler? _renderLoopHandler;
+    private Action? _requestRenderAction;
 
     // Public perf snapshot — updated every ~1 second, readable from components
     private RenderStats _stats;
@@ -222,7 +235,11 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable
         // Spec 042 §6 — snapshot the AmbientAnimation set by Animations.Animate
         // so the reconcile pass can re-push it around the diff. Same
         // last-writer-wins rule as the curve capture above.
-        var capturedAmbient = Microsoft.UI.Reactor.Core.Internal.AnimationAmbient.Current;
+        // Issue #660 (#183): skip the AsyncLocal walk unless an ambient has ever
+        // been opened in this process.
+        var capturedAmbient = Microsoft.UI.Reactor.Core.Internal.AnimationAmbient.HasAny
+            ? Microsoft.UI.Reactor.Core.Internal.AnimationAmbient.Current
+            : null;
         if (capturedAmbient is not null)
             _pendingAmbientAnimation = capturedAmbient;
 
@@ -244,7 +261,7 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable
         // Interlocked.Exchange in Render().
         _dispatcherQueue.TryEnqueue(
             RenderPriorityPolicy.PickPriority(Volatile.Read(ref _lastRenderMs)),
-            RenderLoop);
+            _renderLoopHandler ??= RenderLoop);
     }
 
     private void RenderLoop()
@@ -267,7 +284,7 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable
         if (_needsRerender)
         {
             if (Interlocked.CompareExchange(ref _renderPending, 1, 0) == 0)
-                _dispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, RenderLoop);
+                _dispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, _renderLoopHandler ??= RenderLoop);
         }
     }
 
@@ -358,7 +375,7 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable
 
             if (_rootComponent is not null)
             {
-                _rootComponent.Context.BeginRender(RequestRender);
+                _rootComponent.Context.BeginRender(_requestRenderAction ??= RequestRender);
                 try
                 {
                     newTree = _rootComponent.Render();
@@ -377,7 +394,7 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable
             }
             else if (_rootRenderFunc is not null && _funcContext is not null)
             {
-                _funcContext.BeginRender(RequestRender);
+                _funcContext.BeginRender(_requestRenderAction ??= RequestRender);
                 try
                 {
                     newTree = _rootRenderFunc(_funcContext);
@@ -419,7 +436,7 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable
                     _currentTree,
                     newTree,
                     _currentControl,
-                    RequestRender
+                    _requestRenderAction ??= RequestRender
                 );
             }
             finally
@@ -495,9 +512,10 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable
 
             double effectsMs = _phaseSw.Elapsed.TotalMilliseconds;
 
-            // Feed RenderPriorityPolicy. Interlocked publishes to off-UI-thread
-            // RequestRender callers. See matching note in ReactorHost.Render.
-            Interlocked.Exchange(ref _lastRenderMs, treeBuildMs + reconcileMs + effectsMs);
+            // Feed RenderPriorityPolicy. Single writer (this UI-thread Render);
+            // off-thread RequestRender readers use Volatile.Read, so a release
+            // Volatile.Write suffices (issue #660 #185). See ReactorHost.Render.
+            Volatile.Write(ref _lastRenderMs, treeBuildMs + reconcileMs + effectsMs);
 
             OnRenderComplete?.Invoke(treeBuildMs, reconcileMs, effectsMs);
 
@@ -516,7 +534,9 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable
             _renderCount++;
             _totalRenderCount++;
 
-            if (_reportClock.Elapsed.TotalSeconds >= 1.0 && _renderCount > 0)
+            // Issue #660 (#186): integer ElapsedMilliseconds gate instead of a
+            // per-frame Stopwatch.Elapsed.TotalSeconds TimeSpan + division.
+            if (_reportClock.ElapsedMilliseconds >= 1000 && _renderCount > 0)
             {
                 double avgTree = _treeBuildSum / _renderCount;
                 double avgReconcile = _reconcileSum / _renderCount;
@@ -574,8 +594,28 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable
         fe.ActualThemeChanged += (_, _) =>
         {
             _logger?.LogDebug("Theme changed to {Theme} — re-rendering", fe.ActualTheme);
+            // Issue #660 (#86): drop the (key,theme)->Brush cache so ThemeRef
+            // resolves re-read the now-current ThemeDictionaries.
+            Microsoft.UI.Reactor.Core.ThemeRef.InvalidateResolutionCache();
             RequestRender();
         };
+
+        // Issue #660 (#86): also invalidate on high-contrast / accent / palette
+        // changes, which don't raise ActualThemeChanged but can change a resolved
+        // brush. ColorValuesChanged fires off the UI thread; ThemeRef cache clear
+        // and RequestRender are both thread-safe.
+        try
+        {
+            _uiSettings = new global::Windows.UI.ViewManagement.UISettings();
+            _uiSettings.ColorValuesChanged += OnColorValuesChanged;
+        }
+        catch { /* headless / no UISettings projection — nothing to invalidate */ }
+    }
+
+    private void OnColorValuesChanged(global::Windows.UI.ViewManagement.UISettings sender, object args)
+    {
+        Microsoft.UI.Reactor.Core.ThemeRef.InvalidateResolutionCache();
+        RequestRender();
     }
 
     private void ShowErrorFallback(Exception ex)
@@ -600,6 +640,12 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable
 
         Loaded -= OnLoaded;
         Unloaded -= OnUnloaded;
+
+        if (_uiSettings is not null)
+        {
+            _uiSettings.ColorValuesChanged -= OnColorValuesChanged;
+            _uiSettings = null;
+        }
 
         _rootComponent?.Context.RunCleanups();
         _funcContext?.RunCleanups();
