@@ -81,12 +81,38 @@ public static class UseMemoCellsExtensions
         var prev = stateRef.Current;
         var depsChanged = prev is null || !DepsEqual(prev.Deps, dependencies);
         var count = items.Count;
+
+        // Issue #659 (#47), hardened per review: full-cache-hit fast path.
+        // Returns the prior children array with ZERO new allocations when deps are
+        // unchanged, every item compares equal to the previous snapshot (same
+        // count), AND no prior cell was theme-sensitive.
+        //
+        // The theme-sensitivity gate is LOAD-BEARING. Returning a reference-equal
+        // Children array makes the container element ShallowEquals-skip its whole
+        // subtree (Element.ShallowEquals reference-compares Children — Element.cs
+        // ~622-699; Reconciler.Update then keeps the control and re-applies ONLY the
+        // container's OWN ThemeBindings/ResourceOverrides, never the children's). A
+        // theme-sensitive descendant would then never re-resolve its brush on a
+        // theme change. When any child is theme-sensitive we fall through to the
+        // fresh-array path so the container recurses and the theme re-applies —
+        // matching the pre-optimization "fresh array every render" behavior. The
+        // equality predicate matches the per-cell reuse loop below exactly
+        // (object.Equals).
+        if (!depsChanged && !prev!.AnyThemeSensitive && prev.Items.Length == count
+            && AllItemsEqual(items, prev.Items, count))
+            return prev.Children;
+
         var children = new Element[count];
+        bool anyThemeSensitive = false;
 
         if (depsChanged)
         {
             for (int i = 0; i < count; i++)
-                children[i] = builder(items[i], i);
+            {
+                var built = builder(items[i], i);
+                children[i] = built;
+                if (ChildDiffHints.IsThemeSensitive(built)) anyThemeSensitive = true;
+            }
         }
         else
         {
@@ -96,14 +122,18 @@ public static class UseMemoCellsExtensions
             for (int i = 0; i < count; i++)
             {
                 var item = items[i];
-                if (i < prevLen && Equals(item, prevItems[i]))
-                    children[i] = prevChildren[i];
-                else
-                    children[i] = builder(item, i);
+                Element cell = (i < prevLen && Equals(item, prevItems[i]))
+                    ? prevChildren[i]
+                    : builder(item, i);
+                children[i] = cell;
+                if (ChildDiffHints.IsThemeSensitive(cell)) anyThemeSensitive = true;
             }
         }
 
-        stateRef.Current = new MemoCellsState<T>(SnapshotItems(items), children, SnapshotDeps(dependencies));
+        stateRef.Current = new MemoCellsState<T>(SnapshotItems(items), children, SnapshotDeps(dependencies))
+        {
+            AnyThemeSensitive = anyThemeSensitive,
+        };
         return children;
     }
 
@@ -388,7 +418,30 @@ public static class UseMemoCellsExtensions
         return true;
     }
 
-    private sealed record MemoCellsState<T>(T[] Items, Element[] Children, object[] Deps);
+    // Issue #659 (#47): positional value-equality scan for the full-cache-hit
+    // fast path. Caller guarantees prev.Length == count. Uses the SAME
+    // object.Equals semantics as the per-cell reuse loop above so the early-out
+    // can never decide "all equal" where the normal path would have rebuilt a
+    // cell (a divergence the earlier EqualityComparer<T>.Default version risked
+    // for types whose IEquatable<T> differs from object.Equals).
+    private static bool AllItemsEqual<T>(IReadOnlyList<T> items, T[] prevItems, int count)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            if (!Equals(items[i], prevItems[i])) return false;
+        }
+        return true;
+    }
+
+    private sealed record MemoCellsState<T>(T[] Items, Element[] Children, object[] Deps)
+    {
+        // Issue #659 review: true when any cell in Children is theme-sensitive
+        // (ThemeBindings or a ThemeRef ResourceOverride). Gates the base
+        // full-cache-hit early-out: a reference-equal Children array would let the
+        // container ShallowEquals-skip the subtree and drop child theme
+        // re-application, so the early-out only fires when this is false.
+        public bool AnyThemeSensitive { get; init; }
+    }
 
     private sealed record MemoCellsByKeyState<T, TKey>(T[] Items, Element[] Children, object[] Deps, Dictionary<TKey, int> KeyToIndex)
         where TKey : notnull;
