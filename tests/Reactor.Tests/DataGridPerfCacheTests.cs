@@ -538,4 +538,200 @@ public class DataGridPerfCacheTests
         // GetColumnWidth on an unknown column falls back to the 120 default (no resize, no descriptor).
         Assert.Equal(120, state.GetColumnWidth("Nope"));
     }
+
+    // ════════════════════════════════════════════════════════════════
+    //  #671 — stabilized row/cell/expand modifier handlers
+    //  (reference stability for the skip path + live-index resolution so a
+    //   cached handler never fires against a stale row after a sort/mutation)
+    // ════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void StabilizedHandlers_Are_Reference_Stable_Per_Key_And_Distinct_Across_Keys()
+    {
+        // The whole point of #671: a given (row[, column]) slot must return the SAME delegate
+        // instance across renders, so post-#665 ModifiersEqual (per-slot ReferenceEquals) is true
+        // and the unchanged cell/row skips Update. Distinct keys must get distinct instances.
+        var state = CreateState();
+        var k1 = new RowKey("1");
+        var k2 = new RowKey("2");
+
+        Assert.Same(state.GetRowPointerHandler(k1), state.GetRowPointerHandler(k1));
+        Assert.Same(state.GetExpandHandler(k1), state.GetExpandHandler(k1));
+        Assert.Same(state.GetCellEditHandler(k1, "Name"), state.GetCellEditHandler(k1, "Name"));
+
+        Assert.NotSame(state.GetRowPointerHandler(k1), state.GetRowPointerHandler(k2));
+        Assert.NotSame(state.GetExpandHandler(k1), state.GetExpandHandler(k2));
+        Assert.NotSame(state.GetCellEditHandler(k1, "Name"), state.GetCellEditHandler(k1, "Score"));
+    }
+
+    [Fact]
+    public void ClearStabilizedHandlerCaches_Forces_Fresh_Instances()
+    {
+        var state = CreateState();
+        var k1 = new RowKey("1");
+        var rp = state.GetRowPointerHandler(k1);
+        var ex = state.GetExpandHandler(k1);
+        var ce = state.GetCellEditHandler(k1, "Name");
+
+        state.ClearStabilizedHandlerCaches();
+
+        Assert.NotSame(rp, state.GetRowPointerHandler(k1));
+        Assert.NotSame(ex, state.GetExpandHandler(k1));
+        Assert.NotSame(ce, state.GetCellEditHandler(k1, "Name"));
+    }
+
+    [Fact]
+    public async Task RowPointerClick_Resolves_The_Live_Row_Index_After_A_Sort_Reorders_Rows()
+    {
+        // Stale-closure regression (the #721 bug class): a handler captured while row "3" sat at
+        // index 2 must, after a re-sort moves "3" to index 0, still act on "3" — i.e. it resolves
+        // the CURRENT index, never a captured one.
+        var state = await CreateClientFallbackLoadedState(); // sorted by Id asc: 1,2,3
+        var key3 = new RowKey("3");
+        Assert.Equal(2, state.GetRowIndex(key3));
+
+        // Grab the stabilized handler BEFORE the reorder (simulating a delegate cached on an
+        // earlier render), then reorder so "3" lands at index 0.
+        var handlerBefore = state.GetRowPointerHandler(key3);
+        state.ToggleSort("Id"); // asc -> desc
+        await state.LoadDataAsync(TestContext.Current.CancellationToken); // 3,2,1
+        Assert.Equal(0, state.GetRowIndex(key3));
+
+        // The cached delegate is the same instance (skip-stable) ...
+        Assert.Same(handlerBefore, state.GetRowPointerHandler(key3));
+        // ... and invoking its resolved action lands on "3"'s CURRENT position, not the stale 2.
+        state.InvokeRowPointerClick(key3, ctrlKey: false, shiftKey: false);
+
+        Assert.Equal(0, state.FocusedRowIndex);
+        Assert.Equal("3", state.FocusedKey?.Value);
+        Assert.Contains(key3, state.SelectedKeys);
+    }
+
+    [Fact]
+    public async Task CellEditClick_Begins_Edit_On_The_Correct_Cell_After_A_Sort_Reorders_Rows()
+    {
+        var state = await CreateClientFallbackLoadedState(); // 1,2,3
+        var key1 = new RowKey("1");
+        Assert.Equal(0, state.GetRowIndex(key1));
+
+        var handlerBefore = state.GetCellEditHandler(key1, "Name");
+        state.ToggleSort("Id"); // -> desc: 3,2,1
+        await state.LoadDataAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(2, state.GetRowIndex(key1)); // "1" now last
+
+        Assert.Same(handlerBefore, state.GetCellEditHandler(key1, "Name"));
+        state.InvokeCellEditClick(key1, "Name");
+
+        // Editing the right logical row ("1") + column ("Name"), resolved at the new index.
+        Assert.True(state.IsEditing);
+        Assert.Equal("1", state.EditingRowKey?.Value);
+        Assert.Equal("Name", state.EditingColumnName);
+        Assert.Equal(2, state.FocusedRowIndex);
+    }
+
+    [Fact]
+    public async Task StabilizedHandlers_NoOp_For_A_Key_No_Longer_In_The_Set()
+    {
+        var state = await CreateClientFallbackLoadedState(); // 1,2,3
+        var ghost = new RowKey("999"); // never present
+        Assert.Equal(-1, state.GetRowIndex(ghost));
+
+        // A handler for a departed/absent key resolves to index -1 and must no-op (no throw, no
+        // focus/selection/edit side effects) — so a stale cached handler is harmless.
+        state.InvokeRowPointerClick(ghost, ctrlKey: false, shiftKey: false);
+        state.InvokeCellEditClick(ghost, "Name");
+
+        Assert.False(state.IsEditing);
+        Assert.Empty(state.SelectedKeys);
+    }
+
+    [Fact]
+    public void ExpandHandler_Toggles_The_Keyed_Rows_Detail_State()
+    {
+        // The expand handler is index-free (keys on the row key), so it is inherently stable and
+        // correct regardless of row movement. Verify the underlying toggle it routes to.
+        var state = CreateState();
+        var k2 = new RowKey("2");
+        Assert.False(state.IsExpanded(k2));
+
+        state.ToggleRowExpansion(k2); // the action the cached handler dispatches
+        Assert.True(state.IsExpanded(k2));
+        state.ToggleRowExpansion(k2);
+        Assert.False(state.IsExpanded(k2));
+    }
+
+    // ── #759 dual-review required coverage: commit-routing + column dimension ──
+    // The commit-in-flight path moved into CommitInFlightEditThroughDispatcher (routed via
+    // CommitDispatcher) and the column-index resolution are the riskiest relocated logic; these
+    // lock them. CommitDispatcher is null headless, so the existing suites never exercised it.
+
+    [Fact]
+    public async Task RowPointerClick_On_A_Different_Row_Commits_The_InFlight_Edit_Through_The_Dispatcher_Once()
+    {
+        var state = await CreateClientFallbackLoadedState(); // rows 1,2,3 (Id asc)
+        var commits = new List<(RowKey Key, TestItem NewItem, TestItem? Orig)>();
+        state.CommitDispatcher = (k, n, o) => commits.Add((k, n, o));
+
+        // Begin editing row "1" (index 0), column "Name", with a pending new value.
+        Assert.True(state.BeginEdit(0, 1));
+        state.UpdateEditingValue("Alice2");
+
+        // Click a DIFFERENT row ("2") — must commit row "1"'s in-flight edit exactly ONCE, routed
+        // through CommitDispatcher, carrying the PRE-commit original-item snapshot for revert.
+        state.InvokeRowPointerClick(new RowKey("2"), ctrlKey: false, shiftKey: false);
+
+        Assert.Single(commits);
+        Assert.Equal("1", commits[0].Key.Value);
+        Assert.Equal("Alice", commits[0].Orig?.Name);   // pre-edit snapshot, not the new value
+        Assert.Equal("Alice2", commits[0].NewItem.Name); // committed value
+        Assert.False(state.IsEditing);                   // edit committed, not left dangling
+    }
+
+    [Fact]
+    public async Task CellEditClick_On_A_New_Cell_Commits_The_InFlight_Edit_Through_The_Dispatcher_Once_Then_Begins()
+    {
+        var state = await CreateClientFallbackLoadedState(); // rows 1,2,3
+        var commits = new List<(RowKey Key, TestItem NewItem, TestItem? Orig)>();
+        state.CommitDispatcher = (k, n, o) => commits.Add((k, n, o));
+
+        Assert.True(state.BeginEdit(0, 1)); // row "1", column "Name"
+        state.UpdateEditingValue("Alice2");
+
+        // Tap a different cell — commits the in-flight edit (once, via the dispatcher) BEFORE the new
+        // edit begins.
+        state.InvokeCellEditClick(new RowKey("2"), "Score");
+
+        Assert.Single(commits);
+        Assert.Equal("1", commits[0].Key.Value);
+        Assert.Equal("Alice", commits[0].Orig?.Name);
+        Assert.Equal("Alice2", commits[0].NewItem.Name);
+
+        // ...and a NEW edit began on the tapped cell (row "2", column "Score").
+        Assert.True(state.IsEditing);
+        Assert.Equal("2", state.EditingRowKey?.Value);
+        Assert.Equal("Score", state.EditingColumnName);
+    }
+
+    [Fact]
+    public async Task CellEditClick_NoOps_For_An_Absent_Column_And_Resolves_The_Right_Column_By_Name_After_Reorder()
+    {
+        var state = await CreateClientFallbackLoadedState(); // rows 1,2,3; columns Id,Name,Score
+        var key1 = new RowKey("1");
+
+        // Absent column name -> the name->index lookup misses -> no-op (no edit begins).
+        state.InvokeCellEditClick(key1, "Nope");
+        Assert.False(state.IsEditing);
+
+        // A cached cell handler resolves its column BY NAME at invocation, so after a column reorder
+        // it still edits the same logical column ("Score"), not whatever now sits at Score's old
+        // index. The handler instance also stays reference-stable across the reorder.
+        var handlerBefore = state.GetCellEditHandler(key1, "Score");
+        state.ReorderColumn(2, 0); // move Score (idx 2) to the front -> columns become Score,Id,Name
+        Assert.Same(handlerBefore, state.GetCellEditHandler(key1, "Score"));
+
+        state.InvokeCellEditClick(key1, "Score");
+        Assert.True(state.IsEditing);
+        Assert.Equal("1", state.EditingRowKey?.Value);
+        Assert.Equal("Score", state.EditingColumnName); // correct column by name despite the reorder
+    }
 }
