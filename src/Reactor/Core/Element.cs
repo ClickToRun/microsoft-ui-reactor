@@ -1189,6 +1189,7 @@ public abstract record Element
             && a.ContextFlyout is null && b.ContextFlyout is null
             // Accessibility Tier 1
             && a.HeadingLevel == b.HeadingLevel
+            && a.IsDragRegion == b.IsDragRegion
             && a.IsTabStop == b.IsTabStop
             && a.TabIndex == b.TabIndex
             && a.AccessKey == b.AccessKey
@@ -1984,6 +1985,15 @@ public record ElementModifiers
         init => Layout = Layout is null ? new LayoutModifiers { RequestedTheme = value } : Layout with { RequestedTheme = value };
     }
 
+    /// <summary>
+    /// When set, writes the <c>Microsoft.UI.Xaml.Controls.TitleBar.IsDragRegion</c>
+    /// attached property on this element's control (WinApp SDK ≥ 2.1.3):
+    /// <c>true</c> = draggable, <c>false</c> = clickable. Unset leaves the title bar
+    /// to decide (interactive controls are auto-excluded from the drag region).
+    /// Inert on elements that are not inside a TitleBar. See spec 059.
+    /// </summary>
+    public bool? IsDragRegion { get; init; }
+
     // ── Accessibility — Tier 1 (inline, commonly needed for WCAG AA) ─
     public Microsoft.UI.Xaml.Automation.Peers.AutomationHeadingLevel? HeadingLevel { get; init; }
     public bool? IsTabStop { get; init; }
@@ -2072,6 +2082,7 @@ public record ElementModifiers
             DragSource = other.DragSource ?? DragSource,
             DropTarget = other.DropTarget ?? DropTarget,
             HeadingLevel = other.HeadingLevel ?? HeadingLevel,
+            IsDragRegion = other.IsDragRegion ?? IsDragRegion,
             IsTabStop = other.IsTabStop ?? IsTabStop,
             TabIndex = other.TabIndex ?? TabIndex,
             AccessKey = other.AccessKey ?? AccessKey,
@@ -4586,7 +4597,7 @@ public partial record NavigationViewElement(
 }
 
 // Spec 058 §15 (P5.23) — Title/Subtitle/IsBackButtonVisible/IsBackButtonEnabled/
-// IsPaneToggleButtonVisible auto-map. Content+RightHeader (NamedSlots → overwrite d.Children),
+// IsPaneToggleButtonVisible/AutoRefreshDragRegions auto-map. Content+RightHeader (NamedSlots → overwrite d.Children),
 // Icon (Icon→IconSource via IconResolver transform), the window.SetTitleBar registration
 // (.Imperative) and the BackRequested/PaneToggleRequested events (Excluded) are bespoke.
 // Replaces TitleBarDescriptor.
@@ -4604,6 +4615,13 @@ public partial record TitleBarElement(
     public Action? OnBackRequested { get; init; }
     public bool IsPaneToggleButtonVisible { get; init; }
     public Action? OnPaneToggleRequested { get; init; }
+    /// <summary>
+    /// When <c>true</c>, the WinUI <c>TitleBar</c> re-derives its drag regions on
+    /// every layout pass (WinApp SDK ≥ 2.1.3). Useful when <see cref="Content"/>
+    /// changes across renders. Default <c>false</c> (matches the control default;
+    /// interactive controls are still auto-excluded from the drag region). See spec 059.
+    /// </summary>
+    public bool AutoRefreshDragRegions { get; init; }
     public Element? Content { get; init; }
     public Element? RightHeader { get; init; }
     /// <summary>
