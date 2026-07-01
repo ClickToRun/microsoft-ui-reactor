@@ -396,6 +396,11 @@ internal static class SelfTestFixtureRegistry
         "Issue675_KeyedSuffixChildSkipReResolves",
         "Issue675_LiteralOverrideNoFalseDecline",
         "Issue701_KeyedMiddleReorderReResolves",
+        "Item1Mount_AncestorThemeResolvesAtMount",
+        "Item1Mount_NestedAncestorThemeResolvesAtMount",
+        "Item1Mount_OwnThemeWinsAtMount",
+        "Item1Mount_PostMountAncestorToggleReResolves",
+        "Item1Mount_SiblingSubtreesResolveIndependently",
         "HotReload_ChildHookOrderRecovery",
         "HotReload_ComponentMigratesState",
         // DSL and extension tests
@@ -1865,6 +1870,11 @@ internal static class SelfTestFixtureRegistry
         "Issue675_KeyedSuffixChildSkipReResolves" => new Issue675ResourceOverrideSkipFixtures.KeyedSuffixChildSkipReResolves(harness),
         "Issue675_LiteralOverrideNoFalseDecline" => new Issue675ResourceOverrideSkipFixtures.LiteralOverrideNoFalseDecline(harness),
         "Issue701_KeyedMiddleReorderReResolves" => new Issue675ResourceOverrideSkipFixtures.KeyedMiddleReorderReResolves(harness),
+        "Item1Mount_AncestorThemeResolvesAtMount" => new ResourceOverrideMountThemeFixtures.AncestorThemeResolvesAtMount(harness),
+        "Item1Mount_NestedAncestorThemeResolvesAtMount" => new ResourceOverrideMountThemeFixtures.NestedAncestorThemeResolvesAtMount(harness),
+        "Item1Mount_OwnThemeWinsAtMount" => new ResourceOverrideMountThemeFixtures.OwnThemeWinsAtMount(harness),
+        "Item1Mount_PostMountAncestorToggleReResolves" => new ResourceOverrideMountThemeFixtures.PostMountAncestorToggleReResolves(harness),
+        "Item1Mount_SiblingSubtreesResolveIndependently" => new ResourceOverrideMountThemeFixtures.SiblingSubtreesResolveIndependently(harness),
         "HotReload_ChildHookOrderRecovery" => new HotReloadRecoveryFixtures.ChildRecoversAndSiblingStateSurvives(harness),
         "HotReload_ComponentMigratesState" => new HotReloadComponentMigrationFixtures.MigratesPreservingState(harness),
         // DSL and extension tests

@@ -50,6 +50,15 @@ public sealed partial class Reconciler : IDisposable
     internal readonly ILogger? _logger;
     private readonly List<(ConnectedAnimation Animation, UIElement Target)> _pendingConnectedAnimationStarts = new();
     private readonly ContextScope _contextScope = new();
+    // Ancestor-aware effective theme for the subtree currently being mounted/updated,
+    // threaded top-down through Mount/Update (an element's own RequestedTheme wins,
+    // otherwise the subtree inherits its ancestor's). ElementTheme.Default means "no
+    // Reactor-tree ancestor override" — resolution then falls back to the element's own
+    // fe-based walk / app theme. At mount the element is not yet parented, so an
+    // ancestor RequestedTheme is unreachable via fe's visual-tree walk; this field
+    // carries the reconciler's top-down knowledge so ThemeRef-backed ResourceOverrides
+    // resolve their concrete brush against the correct effective theme at mount.
+    private ElementTheme _ambientRequestedTheme = ElementTheme.Default;
     private int _errorBoundaryDepth;
     /// <summary>
     /// Active rerender-callback depth. Throws past
@@ -4802,17 +4811,44 @@ public sealed partial class Reconciler : IDisposable
     /// Applies per-control resource overrides (lightweight styling) to a
     /// <see cref="FrameworkElement"/>. Literal values are set directly;
     /// <see cref="ThemeRef"/>-based values are resolved from
-    /// <c>Application.Current.Resources</c>.
+    /// <c>Application.Current.Resources</c> using the element's own effective theme.
     /// </summary>
-    /// <summary>
-    /// Spec 047 §14 Phase 1 (1.3) — promoted from private (per audit
-    /// existing-api-surface.md). Applies per-control resource overrides
-    /// (lightweight styling). Provisional API; see <c>REACTOR_V1_PREVIEW</c>.
-    /// </summary>
+    /// <remarks>
+    /// Binary-compatible original 3-arg surface (Spec 047 §14 Phase 1 (1.3), promoted
+    /// from private per audit existing-api-surface.md). Delegates to the 4-arg overload
+    /// with <see cref="ElementTheme.Default"/>; the reconciler uses the 4-arg form to
+    /// pass an explicit ancestor-aware theme (needed at mount, before the control is
+    /// parented). Provisional API; see <c>REACTOR_V1_PREVIEW</c>.
+    /// </remarks>
     public static void ApplyResourceOverrides(
         FrameworkElement fe,
         Microsoft.UI.Reactor.Elements.ResourceOverrides? oldOverrides,
         Microsoft.UI.Reactor.Elements.ResourceOverrides? newOverrides)
+        => ApplyResourceOverrides(fe, oldOverrides, newOverrides, ElementTheme.Default);
+
+    /// <summary>
+    /// Applies per-control resource overrides (lightweight styling), resolving
+    /// <see cref="ThemeRef"/>-backed values against an explicit
+    /// <paramref name="effectiveTheme"/>. Provisional API (Spec 047 §14 Phase 1);
+    /// see <c>REACTOR_V1_PREVIEW</c>.
+    /// </summary>
+    /// <param name="fe">The control whose <c>Resources</c> receive the overrides.</param>
+    /// <param name="oldOverrides">The previously-applied overrides, or null at mount.</param>
+    /// <param name="newOverrides">The overrides to apply, or null to clear managed keys.</param>
+    /// <param name="effectiveTheme">
+    /// The ancestor-aware effective theme threaded by the reconciler. When non-Default,
+    /// ThemeRef-backed overrides resolve their concrete brush against it via
+    /// <see cref="ThemeRef.Resolve(string, bool)"/> — necessary at mount, where the
+    /// element is not yet parented and so an ancestor <c>RequestedTheme</c> is
+    /// unreachable through <paramref name="fe"/>'s own visual-tree walk. Pass
+    /// <see cref="ElementTheme.Default"/> to fall back to fe-based resolution
+    /// (host-window themes set outside the Reactor tree; the 3-arg overload).
+    /// </param>
+    public static void ApplyResourceOverrides(
+        FrameworkElement fe,
+        Microsoft.UI.Reactor.Elements.ResourceOverrides? oldOverrides,
+        Microsoft.UI.Reactor.Elements.ResourceOverrides? newOverrides,
+        ElementTheme effectiveTheme)
     {
         // Track which keys Reactor has set on this element
         var managed = _managedResourceKeys.GetOrCreateValue(fe);
@@ -4850,10 +4886,18 @@ public sealed partial class Reconciler : IDisposable
             managed.Add(key);
         }
 
-        // Apply ThemeRef resources (resolved from Application.Current.Resources)
+        // Apply ThemeRef resources (resolved from Application.Current.Resources).
+        // When the reconciler threaded an explicit ancestor-aware effective theme,
+        // resolve against it: at mount fe is not yet parented, so its own visual-tree
+        // walk cannot see an ancestor RequestedTheme and would otherwise fall back to
+        // the app theme (the mount-theme bug). When no ambient theme is supplied
+        // (Default — direct public-API callers, or a host/window theme set outside the
+        // Reactor tree), keep the fe-based resolution.
         foreach (var (key, themeRef) in newOverrides.ThemeRefs)
         {
-            var resolved = ThemeRef.Resolve(themeRef.ResourceKey, fe);
+            var resolved = effectiveTheme != ElementTheme.Default
+                ? ThemeRef.Resolve(themeRef.ResourceKey, effectiveTheme == ElementTheme.Dark)
+                : ThemeRef.Resolve(themeRef.ResourceKey, fe);
             if (resolved is not null)
             {
                 fe.Resources[key] = resolved;
