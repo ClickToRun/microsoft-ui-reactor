@@ -419,6 +419,44 @@ namespace App
 }");
     }
 
+    // ── Positive: ConfigureAwait(false).GetAwaiter().GetResult() ────────
+
+    [Fact]
+    public async Task Fires_For_ConfigureAwait_GetResult_In_Render()
+    {
+        await VerifyAsync(@"
+namespace App
+{
+    using Microsoft.UI.Reactor.Core;
+    public sealed class C : Component
+    {
+        public override Element Render()
+        {
+            var data = {|REACTOR_THREAD_002:Data.FetchAsync().ConfigureAwait(false).GetAwaiter().GetResult()|};
+            return new TextElement(data.ToString());
+        }
+    }
+}");
+    }
+
+    [Fact]
+    public async Task Fires_For_ValueTask_ConfigureAwait_GetResult_In_Render()
+    {
+        await VerifyAsync(@"
+namespace App
+{
+    using Microsoft.UI.Reactor.Core;
+    public sealed class C : Component
+    {
+        public override Element Render()
+        {
+            var data = {|REACTOR_THREAD_002:Data.FetchValueAsync().ConfigureAwait(false).GetAwaiter().GetResult()|};
+            return new TextElement(data.ToString());
+        }
+    }
+}");
+    }
+
     // ── Negative: .Result inside nested Task.Run within an effect ───────
 
     [Fact]

@@ -126,6 +126,7 @@ public sealed class BlockingTaskAnalyzer : DiagnosticAnalyzer
 
         ExpressionSyntax? taskReceiver;
         string blockingForm;
+        var allowConfiguredAwaitable = false;
 
         if (name == "Wait")
         {
@@ -151,13 +152,20 @@ public sealed class BlockingTaskAnalyzer : DiagnosticAnalyzer
 
             taskReceiver = getAwaiterAccess.Expression;
             blockingForm = ".GetAwaiter().GetResult()";
+            // The GetAwaiter receiver may be a `ConfigureAwait(...)` wrapper over a Task/
+            // ValueTask; GetResult() still blocks, so accept that wrapper here too.
+            allowConfiguredAwaitable = true;
         }
         else
         {
             return;
         }
 
-        if (!known.IsTaskLike(context.SemanticModel.GetTypeInfo(taskReceiver).Type))
+        var receiverType = context.SemanticModel.GetTypeInfo(taskReceiver).Type;
+        var isBlockingReceiver = allowConfiguredAwaitable
+            ? known.IsBlockingAwaiterReceiver(receiverType)
+            : known.IsTaskLike(receiverType);
+        if (!isBlockingReceiver)
             return;
 
         var flag = ClassifyContext(context.SemanticModel, invocation);
@@ -401,17 +409,29 @@ public sealed class BlockingTaskAnalyzer : DiagnosticAnalyzer
         private readonly INamedTypeSymbol? _taskOfT;
         private readonly INamedTypeSymbol? _valueTask;
         private readonly INamedTypeSymbol? _valueTaskOfT;
+        private readonly INamedTypeSymbol? _configuredTaskAwaitable;
+        private readonly INamedTypeSymbol? _configuredTaskAwaitableOfT;
+        private readonly INamedTypeSymbol? _configuredValueTaskAwaitable;
+        private readonly INamedTypeSymbol? _configuredValueTaskAwaitableOfT;
 
         private TaskTypes(
             INamedTypeSymbol? task,
             INamedTypeSymbol? taskOfT,
             INamedTypeSymbol? valueTask,
-            INamedTypeSymbol? valueTaskOfT)
+            INamedTypeSymbol? valueTaskOfT,
+            INamedTypeSymbol? configuredTaskAwaitable,
+            INamedTypeSymbol? configuredTaskAwaitableOfT,
+            INamedTypeSymbol? configuredValueTaskAwaitable,
+            INamedTypeSymbol? configuredValueTaskAwaitableOfT)
         {
             _task = task;
             _taskOfT = taskOfT;
             _valueTask = valueTask;
             _valueTaskOfT = valueTaskOfT;
+            _configuredTaskAwaitable = configuredTaskAwaitable;
+            _configuredTaskAwaitableOfT = configuredTaskAwaitableOfT;
+            _configuredValueTaskAwaitable = configuredValueTaskAwaitable;
+            _configuredValueTaskAwaitableOfT = configuredValueTaskAwaitableOfT;
         }
 
         public bool Any => _task is not null || _taskOfT is not null
@@ -421,7 +441,11 @@ public sealed class BlockingTaskAnalyzer : DiagnosticAnalyzer
             compilation.GetTypeByMetadataName("System.Threading.Tasks.Task"),
             compilation.GetTypeByMetadataName("System.Threading.Tasks.Task`1"),
             compilation.GetTypeByMetadataName("System.Threading.Tasks.ValueTask"),
-            compilation.GetTypeByMetadataName("System.Threading.Tasks.ValueTask`1"));
+            compilation.GetTypeByMetadataName("System.Threading.Tasks.ValueTask`1"),
+            compilation.GetTypeByMetadataName("System.Runtime.CompilerServices.ConfiguredTaskAwaitable"),
+            compilation.GetTypeByMetadataName("System.Runtime.CompilerServices.ConfiguredTaskAwaitable`1"),
+            compilation.GetTypeByMetadataName("System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable"),
+            compilation.GetTypeByMetadataName("System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable`1"));
 
         /// <summary>
         /// True when <paramref name="type"/> is (or, for <c>Task</c>, derives from)
@@ -448,6 +472,30 @@ public sealed class BlockingTaskAnalyzer : DiagnosticAnalyzer
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// True when <paramref name="type"/> is a valid receiver for the blocking
+        /// <c>.GetAwaiter().GetResult()</c> form: a <c>Task</c>/<c>ValueTask</c>, OR a
+        /// <c>ConfigureAwait(...)</c> wrapper over one
+        /// (<c>ConfiguredTaskAwaitable[&lt;T&gt;]</c> / <c>ConfiguredValueTaskAwaitable[&lt;T&gt;]</c>).
+        /// <c>ConfigureAwait</c> only affects continuation scheduling — <c>GetResult()</c>
+        /// still blocks the calling thread — and these awaitable types are produced solely by
+        /// <c>Task</c>/<c>ValueTask.ConfigureAwait</c>, so treating them as blocking is FP-free.
+        /// </summary>
+        public bool IsBlockingAwaiterReceiver(ITypeSymbol? type)
+        {
+            if (IsTaskLike(type))
+                return true;
+
+            if (type is null)
+                return false;
+
+            var definition = type.OriginalDefinition;
+            return Matches(definition, _configuredTaskAwaitable)
+                || Matches(definition, _configuredTaskAwaitableOfT)
+                || Matches(definition, _configuredValueTaskAwaitable)
+                || Matches(definition, _configuredValueTaskAwaitableOfT);
         }
 
         private static bool Matches(ITypeSymbol candidate, INamedTypeSymbol? wellKnown) =>
