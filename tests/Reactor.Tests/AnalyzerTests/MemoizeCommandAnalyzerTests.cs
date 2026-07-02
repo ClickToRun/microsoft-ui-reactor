@@ -600,4 +600,53 @@ namespace TestApp
             CodeActionEquivalenceKey = MemoizeCommandAnalyzer.Id,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    [Fact]
+    public async Task CodeFix_Escapes_Keyword_Dependency()
+    {
+        // A captured local whose name is a reserved keyword (`@event`) must be re-emitted with `@`
+        // in the deps list, or the generated UseMemo call would not compile.
+        var before = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+
+    public sealed class Comp : Component
+    {
+        void Use(int x) { }
+
+        public override Element Render()
+        {
+            var @event = 0;
+            var save = {|REACTOR_PERF_FUNCREF:new Command { Label = ""Save"", Execute = () => Use(@event) }|};
+            return Button(save);
+        }
+    }
+}";
+
+        var after = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+
+    public sealed class Comp : Component
+    {
+        void Use(int x) { }
+
+        public override Element Render()
+        {
+            var @event = 0;
+            var save = UseMemo(() => new Command { Label = ""Save"", Execute = () => Use(@event) }, @event);
+            return Button(save);
+        }
+    }
+}";
+
+        await new CSharpCodeFixTest<MemoizeCommandAnalyzer, MemoizeCommandCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            CodeActionEquivalenceKey = MemoizeCommandAnalyzer.Id,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }

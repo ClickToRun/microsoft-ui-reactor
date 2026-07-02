@@ -115,7 +115,7 @@ public sealed class MemoizeCommandCodeFix : CodeFixProvider
                         {
                             nodesAndTokens.Add(SyntaxFactory.Token(SyntaxKind.CommaToken)
                                 .WithTrailingTrivia(SyntaxFactory.Space));
-                            nodesAndTokens.Add(SyntaxFactory.Argument(SyntaxFactory.IdentifierName(dep)));
+                            nodesAndTokens.Add(SyntaxFactory.Argument(DependencyIdentifier(dep)));
                         }
 
                         var wrapped = SyntaxFactory.InvocationExpression(
@@ -201,6 +201,16 @@ public sealed class MemoizeCommandCodeFix : CodeFixProvider
         }
         return false;
     }
+
+    // A local/parameter whose name is a reserved keyword can only exist in source as an escaped
+    // identifier (`@event`), and Roslyn reports its Name without the `@` ("event"). Parse the escaped
+    // form so the emitted `UseMemo(…, @event)` dependency is a proper verbatim identifier (correct
+    // Text AND ValueText) that both compiles and round-trips. Contextual keywords (value, async, …)
+    // are valid unescaped identifiers, so they need no `@`.
+    private static IdentifierNameSyntax DependencyIdentifier(string name)
+        => SyntaxFacts.GetKeywordKind(name) != SyntaxKind.None
+            ? (IdentifierNameSyntax)SyntaxFactory.ParseName("@" + name)
+            : SyntaxFactory.IdentifierName(name);
 
     /// <summary>
     /// Rebuilds a target-typed <c>new() { … }</c> as an explicit <c>new Command&lt;T&gt; { … }</c>

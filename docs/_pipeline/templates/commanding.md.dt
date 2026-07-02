@@ -430,7 +430,7 @@ return VStack(0,
 ```
 
 Re-creating the `Command` record every render allocates a fresh command
-(and its captured closures) each frame. Where a host rebuilds keyboard
+(and its captured closures). Where a host rebuilds keyboard
 accelerators on reconcile it *clears and re-adds* them — a bounded rewire,
 not an unbounded leak — and a command bound to a button is diffed by
 *value*, so a fresh-but-equal command re-applies nothing. The avoidable
