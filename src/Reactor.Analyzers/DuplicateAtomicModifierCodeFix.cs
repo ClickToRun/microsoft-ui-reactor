@@ -57,8 +57,14 @@ public sealed class DuplicateAtomicModifierCodeFix : CodeFixProvider
             if (name is null || !DuplicateAtomicModifierAnalyzer.AtomicModifiers.ContainsKey(name))
                 continue;
 
-            var occurrences = CollectSameNameOccurrences(outermost, name);
+            var occurrences = DuplicateAtomicModifierAnalyzer.CollectSameNameOccurrences(outermost, name);
             if (occurrences.Count < 2) continue;
+
+            // Only merge a contiguous run of same-name calls. Merging across an
+            // intervening modifier (e.g. `.Grid(a).Margin(b).Grid(c)`) would move
+            // an argument expression to the other side of `.Margin(b)`, changing
+            // evaluation order — withhold and let the author merge by hand.
+            if (!AreDirectlyChained(occurrences)) continue;
 
             var mergedArgList = TryBuildMergedArgumentList(model, occurrences, context.CancellationToken);
             if (mergedArgList is null) continue; // withhold — can't merge safely
@@ -74,19 +80,19 @@ public sealed class DuplicateAtomicModifierCodeFix : CodeFixProvider
         }
     }
 
-    /// <summary>All same-name occurrences on the chain, innermost first.</summary>
-    private static List<InvocationExpressionSyntax> CollectSameNameOccurrences(
-        InvocationExpressionSyntax outermost, string name)
+    /// <summary>
+    /// True when the occurrences form a contiguous run — each is the direct fluent
+    /// receiver of the next — so collapsing them moves no argument across an
+    /// intervening call. Occurrences are innermost-first.
+    /// </summary>
+    private static bool AreDirectlyChained(List<InvocationExpressionSyntax> occurrences)
     {
-        var list = new List<InvocationExpressionSyntax>();
-        for (var node = outermost; node is not null;
-             node = DuplicateAtomicModifierAnalyzer.GetReceiverInvocation(node))
+        for (var i = 0; i < occurrences.Count - 1; i++)
         {
-            if (DuplicateAtomicModifierAnalyzer.GetFluentMethodName(node) == name)
-                list.Add(node);
+            if (DuplicateAtomicModifierAnalyzer.GetReceiverInvocation(occurrences[i + 1]) != occurrences[i])
+                return false;
         }
-        list.Reverse();
-        return list;
+        return true;
     }
 
     /// <summary>
@@ -122,6 +128,15 @@ public sealed class DuplicateAtomicModifierCodeFix : CodeFixProvider
             {
                 var argument = arguments[i];
 
+                // Withhold when an argument carries side effects or comments: the
+                // merge can drop an argument (when a later call overrides the same
+                // parameter) or re-order emission into parameter order, and it
+                // rebuilds each argument without its trivia. Dropping/reordering a
+                // side-effecting call or deleting a comment would silently change
+                // the program — leave those for the author.
+                if (!IsMergeSafeArgument(argument))
+                    return null;
+
                 IParameterSymbol? parameter;
                 if (argument.NameColon is { } nameColon)
                 {
@@ -151,6 +166,46 @@ public sealed class DuplicateAtomicModifierCodeFix : CodeFixProvider
             ordered.Count - 1);
 
         return SyntaxFactory.ArgumentList(SyntaxFactory.SeparatedList(ordered, separators));
+    }
+
+    /// <summary>
+    /// An argument is safe to merge only when it has no comment trivia (which the
+    /// rebuild would delete) and its expression is free of side effects — no call,
+    /// object creation, await, assignment, or increment/decrement. Such an
+    /// expression can be dropped or re-ordered without changing behaviour.
+    /// </summary>
+    private static bool IsMergeSafeArgument(ArgumentSyntax argument)
+    {
+        var hasComment = argument.GetLeadingTrivia()
+            .Concat(argument.DescendantTrivia())
+            .Concat(argument.GetTrailingTrivia())
+            .Any(t => t.IsKind(SyntaxKind.SingleLineCommentTrivia)
+                   || t.IsKind(SyntaxKind.MultiLineCommentTrivia)
+                   || t.IsKind(SyntaxKind.SingleLineDocumentationCommentTrivia)
+                   || t.IsKind(SyntaxKind.MultiLineDocumentationCommentTrivia));
+        if (hasComment)
+            return false;
+
+        foreach (var node in argument.Expression.DescendantNodesAndSelf())
+        {
+            switch (node)
+            {
+                case InvocationExpressionSyntax:
+                case ObjectCreationExpressionSyntax:
+                case AwaitExpressionSyntax:
+                case AssignmentExpressionSyntax:
+                    return false;
+                case PostfixUnaryExpressionSyntax post
+                    when post.IsKind(SyntaxKind.PostIncrementExpression)
+                      || post.IsKind(SyntaxKind.PostDecrementExpression):
+                    return false;
+                case PrefixUnaryExpressionSyntax pre
+                    when pre.IsKind(SyntaxKind.PreIncrementExpression)
+                      || pre.IsKind(SyntaxKind.PreDecrementExpression):
+                    return false;
+            }
+        }
+        return true;
     }
 
     private static ArgumentSyntax MakeNamedArgument(string parameterName, ExpressionSyntax value)

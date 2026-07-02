@@ -68,6 +68,9 @@ public sealed class DuplicateAtomicModifierAnalyzer : DiagnosticAnalyzer
         Title,
         MessageFormat,
         "Reactor.Modifier",
+        // Info is deliberate (spec 060 §12 table + §2.5): a nudge-class rule that
+        // ships a safe merge fix. It is not promoted to Warning despite describing
+        // silent argument loss — the auto-fix makes it low-friction to resolve.
         DiagnosticSeverity.Info,
         isEnabledByDefault: true,
         description: Description);
@@ -150,10 +153,13 @@ public sealed class DuplicateAtomicModifierAnalyzer : DiagnosticAnalyzer
         return false;
     }
 
-    private static List<InvocationExpressionSyntax> CollectSameNameOccurrences(
+    /// <summary>
+    /// Every same-name occurrence on the chain, innermost first (later/outer wins
+    /// order for the code fix). Shared with <see cref="DuplicateAtomicModifierCodeFix"/>.
+    /// </summary>
+    internal static List<InvocationExpressionSyntax> CollectSameNameOccurrences(
         InvocationExpressionSyntax outermost, string name)
     {
-        // Innermost-first order is convenient for the code fix (later/outer wins).
         var stack = new List<InvocationExpressionSyntax>();
         for (var node = outermost; node is not null; node = GetReceiverInvocation(node))
         {

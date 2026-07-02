@@ -94,6 +94,7 @@ namespace TestApp
 
     public static class C
     {
+        internal static int Val() => 1;
 " + body + @"
     }
 }";
@@ -261,24 +262,91 @@ namespace TestApp
     }
 
     [Fact]
-    public async Task CodeFix_Merges_Three_NonAdjacent_Grid_Calls()
+    public async Task CodeFix_Merges_Three_Adjacent_Grid_Calls()
     {
         var before = App(@"
         public static Element Build()
-            => {|REACTOR_MOD_001:Text(""hi"").Grid(row: 1).Margin(4).Grid(column: 2).Grid(rowSpan: 3)|};");
+            => {|REACTOR_MOD_001:Text(""hi"").Grid(row: 1).Grid(column: 2).Grid(rowSpan: 3)|};");
 
-        // All three `.Grid` calls collapse into the outermost position (the inner
-        // ones are peeled); merged args are emitted in parameter order. Order
-        // relative to `.Margin` is irrelevant — they write different attached slots.
         var after = App(@"
         public static Element Build()
-            => Text(""hi"").Margin(4).Grid(row: 1, column: 2, rowSpan: 3);");
+            => Text(""hi"").Grid(row: 1, column: 2, rowSpan: 3);");
 
         await new CSharpCodeFixTest<DuplicateAtomicModifierAnalyzer, DuplicateAtomicModifierCodeFix, DefaultVerifier>
         {
             TestCode = before,
             FixedCode = after,
             CodeActionEquivalenceKey = $"{DuplicateAtomicModifierAnalyzer.DiagnosticId}_Merge",
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Merges_Duplicate_RelativePanel_Calls()
+    {
+        // Required positional/name parameter present in both calls; later wins for
+        // shared params, distinct optional placement params preserved.
+        var before = App(@"
+        public static Element Build()
+            => {|REACTOR_MOD_001:Text(""hi"").RelativePanel(name: ""a"", alignTopWith: ""x"").RelativePanel(name: ""a"", below: ""y"")|};");
+
+        var after = App(@"
+        public static Element Build()
+            => Text(""hi"").RelativePanel(name: ""a"", alignTopWith: ""x"", below: ""y"");");
+
+        await new CSharpCodeFixTest<DuplicateAtomicModifierAnalyzer, DuplicateAtomicModifierCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            CodeActionEquivalenceKey = $"{DuplicateAtomicModifierAnalyzer.DiagnosticId}_Merge",
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Withheld_For_NonAdjacent_Duplicates()
+    {
+        // The two `.Grid` calls are separated by `.Margin(4)`. Merging would move an
+        // argument across the intervening call, so the diagnostic fires but no fix
+        // is offered (FixedCode == TestCode).
+        var source = App(@"
+        public static Element Build()
+            => {|REACTOR_MOD_001:Text(""hi"").Grid(row: 1).Margin(4).Grid(column: 2)|};");
+
+        await new CSharpCodeFixTest<DuplicateAtomicModifierAnalyzer, DuplicateAtomicModifierCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Withheld_When_Argument_Has_Side_Effect()
+    {
+        // `Val()` is dropped by a naive merge (later call overrides `row`); its call
+        // could have side effects, so the fix is withheld (diagnostic still fires).
+        var source = App(@"
+        public static Element Build()
+            => {|REACTOR_MOD_001:Text(""hi"").Grid(row: Val()).Grid(row: 2)|};");
+
+        await new CSharpCodeFixTest<DuplicateAtomicModifierAnalyzer, DuplicateAtomicModifierCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Withheld_When_Argument_Has_Comment()
+    {
+        // The merge rebuilds arguments without trivia, which would delete the
+        // comment — withhold rather than silently drop it.
+        var source = App(@"
+        public static Element Build()
+            => {|REACTOR_MOD_001:Text(""hi"").Grid(row: 1).Grid(column: /* keep me */ 2)|};");
+
+        await new CSharpCodeFixTest<DuplicateAtomicModifierAnalyzer, DuplicateAtomicModifierCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 
