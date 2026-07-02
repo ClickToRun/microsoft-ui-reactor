@@ -96,6 +96,13 @@ public sealed class MemoizeCommandAnalyzer : DiagnosticAnalyzer
         var type = ctx.SemanticModel.GetTypeInfo(node, ctx.CancellationToken).Type;
         if (!IsReactorCommandType(type)) return;
 
+        // Anchor to an actual Reactor render context so a non-Reactor helper that merely happens to be
+        // named Render()/UseXxx and build a Reactor Command isn't flagged. Battle-tested rule (task
+        // contract §2.1 / HookRulesAnalyzer.IsLikelyReactorHook): accept a Component OR RenderContext
+        // enclosing type, plus RenderContext-extension custom hooks. Left permissive only when symbols
+        // don't resolve (incomplete code mid-edit), so the diagnostic isn't lost.
+        if (!IsInReactorRenderContext(method!, ctx)) return;
+
         // Cede debounced commands to REACTOR_HOOKS_009 (CommandDebounceAnalyzer): a non-zero
         // DebounceMs only works through UseCommand — not UseMemo — so that rule owns them. Without
         // this, `new Command { …, DebounceMs = 1500 }` bound raw in Render would draw BOTH a HOOKS_009
@@ -137,11 +144,12 @@ public sealed class MemoizeCommandAnalyzer : DiagnosticAnalyzer
     // is a construct where a hook could not legally be introduced — a lambda / anonymous method /
     // local function (deferred, so the construction is not a per-render allocation), or a conditional
     // / loop / switch / try (where wrapping in UseMemo would violate the rules-of-hooks). Mirrors the
-    // boundary set of HookRulesAnalyzer.FindConditionalAncestor so the rule fires only where the
-    // offered UseMemo fix is both meaningful and legal.
+    // boundary set of HookRulesAnalyzer.FindConditionalAncestor (extended with switch-expression, LINQ
+    // query, and the conditionally-evaluated right operand of ?? / && / ||) so the rule fires only
+    // where the offered UseMemo fix is both meaningful and legal.
     private static bool CrossesHookIllegalBoundary(SyntaxNode node, MethodDeclarationSyntax method)
     {
-        for (var n = node.Parent; n is not null && n != method; n = n.Parent)
+        for (SyntaxNode? child = node, n = node.Parent; n is not null && n != method; child = n, n = n.Parent)
         {
             switch (n)
             {
@@ -157,12 +165,54 @@ public sealed class MemoizeCommandAnalyzer : DiagnosticAnalyzer
                 case DoStatementSyntax:
                 case SwitchStatementSyntax:
                 case SwitchSectionSyntax:
+                case SwitchExpressionSyntax:
+                case SwitchExpressionArmSyntax:
                 case TryStatementSyntax:
                 case CatchClauseSyntax:
                 case FinallyClauseSyntax:
+                case QueryExpressionSyntax:
                 case ConditionalExpressionSyntax:
                     return true;
+                // The right operand of ?? / && / || is evaluated conditionally (e.g.
+                // `existing ?? new Command { … }`); the left operand always runs, so only suppress
+                // when we ascended from the right side.
+                case BinaryExpressionSyntax bin
+                    when (bin.IsKind(SyntaxKind.CoalesceExpression)
+                        || bin.IsKind(SyntaxKind.LogicalAndExpression)
+                        || bin.IsKind(SyntaxKind.LogicalOrExpression))
+                        && ReferenceEquals(child, bin.Right):
+                    return true;
             }
+        }
+        return false;
+    }
+
+    // Anchors the enclosing Render()/Use* method to a genuine Reactor render context: an instance
+    // method on a Component / RenderContext-derived type (the Render override or an instance custom
+    // hook), or a RenderContext-extension custom hook (`static UseXxx(this RenderContext ctx, …)`).
+    // Mirrors HookRulesAnalyzer.IsLikelyReactorHook. Returns true when the method symbol can't be
+    // resolved (incomplete code mid-edit) so the diagnostic isn't lost on a transient bind failure.
+    private static bool IsInReactorRenderContext(MethodDeclarationSyntax method, SyntaxNodeAnalysisContext ctx)
+    {
+        if (ctx.SemanticModel.GetDeclaredSymbol(method, ctx.CancellationToken) is not IMethodSymbol symbol)
+            return true;
+
+        if (DerivesFromComponentOrRenderContext(symbol.ContainingType)) return true;
+
+        if (symbol.IsExtensionMethod && symbol.Parameters.Length > 0)
+            return DerivesFromComponentOrRenderContext(symbol.Parameters[0].Type as INamedTypeSymbol);
+
+        return false;
+    }
+
+    private static bool DerivesFromComponentOrRenderContext(INamedTypeSymbol? type)
+    {
+        for (var t = type; t is not null; t = t.BaseType)
+        {
+            var name = t.OriginalDefinition.ToDisplayString();
+            if (name is "Microsoft.UI.Reactor.Core.Component" or "Microsoft.UI.Reactor.Core.RenderContext"
+                || name.StartsWith("Microsoft.UI.Reactor.Core.Component<", System.StringComparison.Ordinal))
+                return true;
         }
         return false;
     }

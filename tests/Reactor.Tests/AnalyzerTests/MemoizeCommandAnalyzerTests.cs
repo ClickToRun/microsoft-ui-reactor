@@ -31,6 +31,7 @@ namespace Microsoft.UI.Reactor.Core
     {
         public string Label { get; init; }
         public System.Action Execute { get; init; }
+        public bool CanExecute { get; init; }
         public int DebounceMs { get; init; }
     }
 
@@ -286,6 +287,129 @@ namespace TestApp
         await Analyzer(source).RunAsync(TestContext.Current.CancellationToken);
     }
 
+    [Fact]
+    public async Task No_Diagnostic_When_Inside_If()
+    {
+        var source = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+
+    public sealed class Comp : Component
+    {
+        void Save() { }
+
+        public override Element Render()
+        {
+            Command save = null;
+            if (System.DateTime.Now.Second > 0)
+                save = new Command { Label = ""Save"", Execute = Save };
+            return Button(save);
+        }
+    }
+}";
+        await Analyzer(source).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_In_Conditional_Expression()
+    {
+        var source = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+
+    public sealed class Comp : Component
+    {
+        void Save() { }
+
+        public override Element Render()
+        {
+            Command other = null;
+            var save = System.DateTime.Now.Second > 0 ? new Command { Label = ""Save"", Execute = Save } : other;
+            return Button(save);
+        }
+    }
+}";
+        await Analyzer(source).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_In_Coalesce_Right_Operand()
+    {
+        // `existing ?? new Command { … }` — the new command is evaluated conditionally, so a UseMemo
+        // there would break the rules-of-hooks.
+        var source = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+
+    public sealed class Comp : Component
+    {
+        void Save() { }
+
+        public override Element Render()
+        {
+            Command existing = null;
+            var save = existing ?? new Command { Label = ""Save"", Execute = Save };
+            return Button(save);
+        }
+    }
+}";
+        await Analyzer(source).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_In_Switch_Expression_Arm()
+    {
+        var source = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+
+    public sealed class Comp : Component
+    {
+        void Save() { }
+
+        public override Element Render()
+        {
+            Command other = null;
+            var save = System.DateTime.Now.Second switch
+            {
+                0 => new Command { Label = ""Save"", Execute = Save },
+                _ => other,
+            };
+            return Button(save);
+        }
+    }
+}";
+        await Analyzer(source).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_When_Not_In_Reactor_Component()
+    {
+        // A plain class (not a Component / RenderContext) with a method named Render that builds a
+        // Reactor Command — the render-context anchor excludes it, so no diagnostic.
+        var source = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+
+    public sealed class NotAComponent
+    {
+        void Save() { }
+
+        public Element Render()
+        {
+            var save = new Command { Label = ""Save"", Execute = Save };
+            return save is null ? null : null;
+        }
+    }
+}";
+        await Analyzer(source).RunAsync(TestContext.Current.CancellationToken);
+    }
+
     // ── Near-miss: syntactic ""Command"" name matches, but not the Reactor type ──
 
     [Fact]
@@ -396,6 +520,83 @@ namespace TestApp
         {
             TestCode = before,
             FixedCode = after,
+            CodeActionEquivalenceKey = MemoizeCommandAnalyzer.Id,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Rewrites_Implicit_New()
+    {
+        var before = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+
+    public sealed class Comp : Component
+    {
+        void Save() { }
+
+        public override Element Render()
+        {
+            Command save = {|REACTOR_PERF_FUNCREF:new() { Label = ""Save"", Execute = Save }|};
+            return Button(save);
+        }
+    }
+}";
+
+        var after = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+
+    public sealed class Comp : Component
+    {
+        void Save() { }
+
+        public override Element Render()
+        {
+            Command save = UseMemo(() => new Command { Label = ""Save"", Execute = Save });
+            return Button(save);
+        }
+    }
+}";
+
+        await new CSharpCodeFixTest<MemoizeCommandAnalyzer, MemoizeCommandCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            CodeActionEquivalenceKey = MemoizeCommandAnalyzer.Id,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Not_Offered_When_Command_Reads_Instance_Field()
+    {
+        // The command reads a mutable instance field at render time (snapshotted into CanExecute).
+        // The fix can't turn that into a UseMemo dependency, so it declines — but the diagnostic
+        // still fires. FixedCode == TestCode (no code action applied).
+        var source = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+
+    public sealed class Comp : Component
+    {
+        bool _isValid;
+        void Save() { }
+
+        public override Element Render()
+        {
+            var save = {|REACTOR_PERF_FUNCREF:new Command { Label = ""Save"", Execute = Save, CanExecute = _isValid }|};
+            return Button(save);
+        }
+    }
+}";
+
+        await new CSharpCodeFixTest<MemoizeCommandAnalyzer, MemoizeCommandCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
             CodeActionEquivalenceKey = MemoizeCommandAnalyzer.Id,
         }.RunAsync(TestContext.Current.CancellationToken);
     }

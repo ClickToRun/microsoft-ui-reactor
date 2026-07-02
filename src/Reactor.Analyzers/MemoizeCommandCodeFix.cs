@@ -68,6 +68,16 @@ public sealed class MemoizeCommandCodeFix : CodeFixProvider
                     s is IMethodSymbol m && CommandDebounceAnalyzer.IsReactorNamespace(m.ContainingNamespace?.ToDisplayString())))
                 continue;
 
+            // Decline the fix when the command reads a mutable component instance field/property at
+            // render time (outside a deferred lambda): that value is snapshotted into the init-only
+            // Command property, and `this` is (correctly) never a UseMemo dependency, so a wrapped memo
+            // would serve a STALE value when the member changes. We can't turn an arbitrary member read
+            // into a dependency, so we leave the command un-fixed — the Info diagnostic still nudges the
+            // author to memoize by hand with the right deps. Reads that occur only inside a deferred
+            // lambda (e.g. Execute = () => _count++) re-read live and are safe.
+            if (ReadsRenderTimeInstanceMember(creation, semanticModel, context.CancellationToken))
+                continue;
+
             // A target-typed `new() { … }` is typed by its surrounding context; once it becomes the
             // body of the memo lambda that context is gone. Rewrite it to an explicit
             // `new Command<T> { … }` using the resolved type, or skip if it can't be resolved.
@@ -152,6 +162,46 @@ public sealed class MemoizeCommandCodeFix : CodeFixProvider
         return names.ToImmutableArray();
     }
 
+    // True when the creation expression reads a mutable component instance field or non-static property
+    // at RENDER TIME — i.e. outside any nested lambda / anonymous method (whose body defers to invoke
+    // time and re-reads the member live). Such a render-time read is snapshotted into the init-only
+    // Command property, and `this` is never a UseMemo dependency, so a wrapped memo would serve a stale
+    // value. We skip: reads inside a deferred lambda (safe), the object-initializer assignment targets
+    // (the Command's own properties, e.g. `Label = …`), and the member name of a `receiver.Member`
+    // access whose receiver is not `this` (that member belongs to a local/parameter/type whose root is
+    // captured as a dependency or is static).
+    private static bool ReadsRenderTimeInstanceMember(
+        ExpressionSyntax creation, SemanticModel model, System.Threading.CancellationToken ct)
+    {
+        foreach (var id in creation.DescendantNodes().OfType<IdentifierNameSyntax>())
+        {
+            if (IsInsideNestedAnonymousFunction(id, creation)) continue;
+
+            if (id.Parent is AssignmentExpressionSyntax { Parent: InitializerExpressionSyntax } assign
+                && assign.Left == id)
+                continue;
+
+            if (id.Parent is MemberAccessExpressionSyntax ma && ma.Name == id
+                && ma.Expression is not ThisExpressionSyntax)
+                continue;
+
+            if (model.GetSymbolInfo(id, ct).Symbol is IFieldSymbol { IsStatic: false, IsConst: false }
+                or IPropertySymbol { IsStatic: false })
+                return true;
+        }
+        return false;
+    }
+
+    private static bool IsInsideNestedAnonymousFunction(SyntaxNode node, ExpressionSyntax boundary)
+    {
+        for (var n = node.Parent; n is not null && n != boundary; n = n.Parent)
+        {
+            if (n is SimpleLambdaExpressionSyntax or ParenthesizedLambdaExpressionSyntax or AnonymousMethodExpressionSyntax)
+                return true;
+        }
+        return false;
+    }
+
     /// <summary>
     /// Rebuilds a target-typed <c>new() { … }</c> as an explicit <c>new Command&lt;T&gt; { … }</c>
     /// using the resolved <paramref name="type"/>, preserving the initializer (and any constructor
@@ -167,15 +217,16 @@ public sealed class MemoizeCommandCodeFix : CodeFixProvider
 
         ArgumentListSyntax? argumentList = implicitNew.ArgumentList;
         if (argumentList is null || argumentList.Arguments.Count == 0)
-        {
             argumentList = null;
-            typeSyntax = typeSyntax.WithTrailingTrivia(SyntaxFactory.Space);
-        }
+
+        // Force exactly one space before the initializer brace so the result is a clean
+        // `new Command { … }` regardless of the original `new()`/`new() { … }` spacing.
+        var initializer = implicitNew.Initializer!.WithLeadingTrivia(SyntaxFactory.Space);
 
         return SyntaxFactory.ObjectCreationExpression(
             SyntaxFactory.Token(SyntaxKind.NewKeyword).WithTrailingTrivia(SyntaxFactory.Space),
             typeSyntax,
             argumentList,
-            implicitNew.Initializer);
+            initializer);
     }
 }
