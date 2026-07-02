@@ -20,3 +20,9 @@ REACTOR_DSL_001 | Reactor.Dsl | Warning | MissingWithKeyAnalyzer - Dynamic list 
 REACTOR_DOCK_001 | Reactor.Docking | Warning | OnLiveLayoutRoundTripAnalyzer - OnLiveLayoutChanged feeds the live layout back into state
 REACTOR_POOL_001 | Reactor.Pool | Warning | PoolResetSetAnalyzer - .Set assigns to a property reset on pool return; use the surviving Reactor modifier
 REACTOR0050 | Reactor.Descriptor | Warning | OneWayClearValueAnalyzer - Optional<T> OneWay descriptor entries should provide dp: for ClearValue fallback
+REACTOR_HOOKS_002 | Reactor.Hooks | Info | HookRulesAnalyzer - Hook after an early-return guard
+REACTOR_HOOKS_003 | Reactor.Hooks | Warning | HookRulesAnalyzer - async-void UseEffect body
+REACTOR_HOOKS_010 | Reactor.Hooks | Warning | HookRulesAnalyzer - Mutate-then-set reference state (same ref re-passed to setter)
+REACTOR_HOOKS_012 | Reactor.Hooks | Warning | HookRulesAnalyzer - Memo dependency lacks value equality
+REACTOR_HOOKS_013 | Reactor.Hooks | Warning | HookRulesAnalyzer - UseState/UsePersisted initial value allocated every render
+REACTOR_CTX_001 | Reactor.Context | Info | ContextProvideAnalyzer - Context value re-allocated each render (reference-equality type)
