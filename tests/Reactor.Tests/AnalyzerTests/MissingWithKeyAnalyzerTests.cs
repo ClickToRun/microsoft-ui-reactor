@@ -597,4 +597,33 @@ namespace TestApp
             TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    [Fact]
+    public async Task DSL_002_Does_Not_Fire_On_Bcl_List_ForEach()
+    {
+        // The BCL List<T>.ForEach(Action<T>) is not Reactor's ForEach factory:
+        // its lambda is the sole/first argument and nothing it produces is a
+        // keyed projection, so a per-render key inside it must not be flagged.
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System;
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Core.Factories;
+
+    public record Row(string Id, string Text);
+
+    public static class C
+    {
+        public static void Build(List<Row> rows)
+            => rows.ForEach(r => { _ = TextBlock(r.Text).WithKey(Guid.NewGuid().ToString()); });
+    }
+}";
+
+        await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }

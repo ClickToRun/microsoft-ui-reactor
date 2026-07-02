@@ -53,7 +53,7 @@ public sealed class MissingWithKeyAnalyzer : DiagnosticAnalyzer
     private static readonly DiagnosticDescriptor NonStableKeyRule = new(
         NonStableKeyId,
         "Non-stable list key in .WithKey",
-        ".WithKey(...) uses a non-stable key (the list index or a per-render value such as Guid.NewGuid()/DateTime.Now/Random). On insert/reorder the reconciler re-mounts every row — losing focus, animation, and ElementRef state — the same failure a missing key causes. Key off the item's stable id instead.",
+        ".WithKey(...) uses a non-stable key (the list index or a per-render value such as Guid.NewGuid()/DateTime.Now/Random/Environment.TickCount). On insert/reorder the reconciler re-mounts every row — losing focus, animation, and ElementRef state — the same failure a missing key causes. Key off the item's stable id instead.",
         "Reactor.Dsl",
         DiagnosticSeverity.Info,
         isEnabledByDefault: true,
@@ -164,14 +164,22 @@ public sealed class MissingWithKeyAnalyzer : DiagnosticAnalyzer
         {
             if (cur is LambdaExpressionSyntax lambda)
             {
-                // The invoked name is read from either an instance/LINQ call
-                // (`items.Select(…)` / `items.ForEach(…)` — a member access) or
-                // the static `ForEach(items, …)` factory imported via
-                // `using static …Factories` (a bare identifier).
-                if (lambda.Parent is ArgumentSyntax { Parent: ArgumentListSyntax { Parent: InvocationExpressionSyntax outer } }
-                    && SimpleName(outer.Expression) is "Select" or "ForEach")
+                if (lambda.Parent is ArgumentSyntax arg
+                    && arg.Parent is ArgumentListSyntax argList
+                    && argList.Parent is InvocationExpressionSyntax outer)
                 {
-                    return lambda;
+                    var name = SimpleName(outer.Expression);
+                    // LINQ Select — `collection.Select(lambda)`; the projection
+                    // lambda is the (first) argument.
+                    if (name == "Select") return lambda;
+                    // Reactor's ForEach factory — `ForEach(items, lambda)` (a bare
+                    // identifier via `using static …Factories`) or
+                    // `Factories.ForEach(items, lambda)`: the collection is a
+                    // separate leading argument, so the lambda is never argument 0.
+                    // Requiring a preceding argument excludes the BCL
+                    // `list.ForEach(action)` (lambda at 0), which is not a keyed
+                    // projection and must not be flagged.
+                    if (name == "ForEach" && argList.Arguments.IndexOf(arg) >= 1) return lambda;
                 }
                 return null;
             }
