@@ -656,4 +656,60 @@ namespace TestApp
             TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    [Fact]
+    public async Task DSL_002_Fires_On_Qualified_Factories_ForEach_Index_Key()
+    {
+        // The qualified `Factories.ForEach(items, lambda)` receiver is Reactor's
+        // factory too — its inner positional key is flagged.
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+
+    public record Row(string Id, string Text);
+
+    public static class C
+    {
+        public static Element Build(IReadOnlyList<Row> rows)
+            => Factories.ForEach(rows, (r, i) => Factories.TextBlock(r.Text).WithKey({|REACTOR_DSL_002:i.ToString()|}));
+    }
+}";
+
+        await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task DSL_002_Does_Not_Fire_On_Parallel_ForEach()
+    {
+        // Parallel.ForEach(source, body) is not Reactor's ForEach factory (its
+        // receiver is Parallel, not Factories), so a per-render key inside its
+        // body must not be flagged.
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System;
+    using System.Collections.Generic;
+    using System.Threading.Tasks;
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Core.Factories;
+
+    public record Row(string Id, string Text);
+
+    public static class C
+    {
+        public static void Build(IReadOnlyList<Row> rows)
+            => Parallel.ForEach(rows, r => { _ = TextBlock(r.Text).WithKey(Guid.NewGuid().ToString()); });
+    }
+}";
+
+        await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }

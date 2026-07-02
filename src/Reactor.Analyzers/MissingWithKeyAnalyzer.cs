@@ -172,20 +172,34 @@ public sealed class MissingWithKeyAnalyzer : DiagnosticAnalyzer
                     // LINQ Select — `collection.Select(lambda)`; the projection
                     // lambda is the (first) argument.
                     if (name == "Select") return lambda;
-                    // Reactor's ForEach factory — `ForEach(items, lambda)` (a bare
-                    // identifier via `using static …Factories`) or
-                    // `Factories.ForEach(items, lambda)`: the collection is a
-                    // separate leading argument, so the lambda is never argument 0.
-                    // Requiring a preceding argument excludes the BCL
-                    // `list.ForEach(action)` (lambda at 0), which is not a keyed
-                    // projection and must not be flagged.
-                    if (name == "ForEach" && argList.Arguments.IndexOf(arg) >= 1) return lambda;
+                    // Reactor's ForEach factory only: a bare `ForEach(items, lambda)`
+                    // imported via `using static …Factories`, or a
+                    // `Factories.ForEach(items, lambda)` receiver — with the
+                    // collection leading, so the lambda is never argument 0.
+                    // Restricting to that shape avoids matching unrelated ForEach
+                    // APIs: the BCL `list.ForEach(action)`, `Parallel.ForEach(
+                    // source, body)`, or any custom `X.ForEach(items, lambda)`.
+                    if (name == "ForEach"
+                        && argList.Arguments.IndexOf(arg) >= 1
+                        && IsReactorForEachReceiver(outer.Expression))
+                        return lambda;
                 }
                 return null;
             }
         }
         return null;
     }
+
+    // The receiver shape of Reactor's static `ForEach` factory: either a bare
+    // identifier (`using static …Factories; ForEach(...)`) or a member access
+    // whose immediate receiver is `Factories` (`Factories.ForEach(...)` /
+    // `…Factories.ForEach(...)`).
+    static bool IsReactorForEachReceiver(ExpressionSyntax invoked) => invoked switch
+    {
+        IdentifierNameSyntax => true,
+        MemberAccessExpressionSyntax m => SimpleName(m.Expression) == "Factories",
+        _ => false,
+    };
 
     // A projection lambda carries a positional index only in its two-parameter
     // form: `(item, index) => …` (Select/ForEach both expose that overload).
