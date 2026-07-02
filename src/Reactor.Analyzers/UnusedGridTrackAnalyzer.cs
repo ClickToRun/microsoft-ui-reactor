@@ -153,6 +153,15 @@ public sealed class UnusedGridTrackAnalyzer : DiagnosticAnalyzer
             if (placement.Kind == PlacementKind.Skip)
                 continue;
 
+            // A start index at or beyond the declared track count is out of range on a countable
+            // axis. WinUI clamps such a child into the last track, so we can no longer prove which
+            // in-range track it does NOT occupy — bail the whole grid rather than risk a false
+            // "unused" claim. (An in-range start whose span overshoots is fine — the span clamps.)
+            if (hasColumns && placement.Column >= columnCount)
+                return;
+            if (hasRows && placement.Row >= rowCount)
+                return;
+
             if (hasColumns)
                 MarkOccupied(occupiedCols, placement.Column, placement.ColumnSpan, columnCount);
             if (hasRows)
@@ -341,7 +350,9 @@ public sealed class UnusedGridTrackAnalyzer : DiagnosticAnalyzer
             }
         }
 
-        // Out-of-range indices / spans are unusual and ambiguous — do not risk a false claim.
+        // A negative index or a non-positive span is invalid/ambiguous — bail. (An oversized span
+        // and an out-of-range start are handled by the caller: the span is clamped to the declared
+        // range when marking occupancy, and an out-of-range start bails the whole grid there.)
         if (row < 0 || column < 0 || rowSpan < 1 || columnSpan < 1)
             return Placement.Bail;
 

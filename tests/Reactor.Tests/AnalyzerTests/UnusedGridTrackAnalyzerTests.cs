@@ -377,4 +377,17 @@ class C
         [GridSize.Auto],
         Text(""a"").Grid(column: 0, columnSpan: 2147483647));
 }");
+
+    [Fact]
+    public Task No_Diagnostic_For_Out_Of_Range_Placement() => VerifyAsync(@"
+// The second child's column is beyond the declared tracks; WinUI clamps it into the last column,
+// so we can no longer prove which track is unused — bail the whole grid.
+class C
+{
+    Element M() => Grid(
+        [GridSize.Auto, GridSize.Star(), GridSize.Auto],
+        [GridSize.Auto],
+        Text(""a"").Grid(column: 0),
+        Text(""b"").Grid(column: 9));
+}");
 }
