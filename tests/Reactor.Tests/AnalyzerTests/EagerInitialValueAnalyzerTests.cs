@@ -18,6 +18,8 @@ namespace Microsoft.UI.Reactor.Core
 {
     public class RenderContext { }
 
+    public struct Box { public int V; public Box(int v) { V = v; } }
+
     public abstract class Component
     {
         protected internal RenderContext Context { get; } = new RenderContext();
@@ -91,6 +93,21 @@ class C : Microsoft.UI.Reactor.Core.Component
     public override string Render()
     {
         var (state, setState) = UseState((0, """"));
+        return """";
+    }
+}");
+    }
+
+    // Negative: a value-type creation (new struct) does not heap-allocate, so it is not the footgun.
+    [Fact]
+    public async Task UseState_With_ValueType_Creation_DoesNotFlag()
+    {
+        await VerifyAnalyzer(@"
+class C : Microsoft.UI.Reactor.Core.Component
+{
+    public override string Render()
+    {
+        var (box, setBox) = UseState(new Microsoft.UI.Reactor.Core.Box(1));
         return """";
     }
 }");

@@ -140,11 +140,11 @@ public sealed class HookRulesAnalyzer : DiagnosticAnalyzer
     private static readonly DiagnosticDescriptor MutateThenSetRule = new(
         MutateThenSetId,
         "Mutate-then-set reference state",
-        "'{0}' is mutated in place and the same reference is passed back to '{1}'. The setter compares the new value to the old with EqualityComparer<T>.Default and returns early on reference equality, so no re-render is scheduled. Pass a new value instead, e.g. {1}([.. {0}, item]).",
+        "'{0}' is mutated in place and the same instance is passed back to '{1}'. The setter compares the new value to the stored one with EqualityComparer<T>.Default; the same instance compares equal (x.Equals(x) is true), so no re-render is scheduled. Pass a new value instead, e.g. {1}([.. {0}, item]).",
         "Reactor.Hooks",
         DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "UseState/UsePersisted setters early-return when the new value equals the old. A mutated-in-place List/array/Dictionary/plain class is the same reference as the stored value, so it compares equal and no render is scheduled. Records and other value-equality types are unaffected and do not fire.");
+        description: "UseState/UsePersisted setters early-return when the new value equals the old. Mutating a reference-typed state value in place and passing that same instance back compares equal to the stored value (they are the same object), so no render is scheduled — regardless of whether the type has value semantics. Value types are copied and compared by value, so a mutated copy differs from the stored original and they are unaffected.");
 
     private static readonly DiagnosticDescriptor MemoUnstableDepRule = new(
         MemoUnstableDepId,
@@ -1102,6 +1102,11 @@ public sealed class HookRulesAnalyzer : DiagnosticAnalyzer
         var (unstable, kind) = AllocationAnalysis.ClassifyRestricted(initExpr);
         if (!unstable) return;
 
+        // Only reference-type creations heap-allocate per render; a value type (new MyStruct(),
+        // a record-struct `with`) is a cheap stack value, so it is not the eager-allocation footgun.
+        var initType = model.GetTypeInfo(initExpr).Type ?? model.GetTypeInfo(initExpr).ConvertedType;
+        if (initType is not null && initType.IsValueType) return;
+
         context.ReportDiagnostic(Diagnostic.Create(EagerInitialValueRule, initExpr.GetLocation(), kind));
     }
 
@@ -1149,10 +1154,12 @@ public sealed class HookRulesAnalyzer : DiagnosticAnalyzer
         if (model.GetSymbolInfo(stateArg).Symbol is not { } argSymbol) return;
         if (!SymbolEqualityComparer.Default.Equals(argSymbol, stateSymbol)) return;
 
-        // Only reference types WITHOUT value equality exhibit the silent miss (the setter early-
-        // returns on reference equality). Records/structs/IEquatable/Equals-override compare by
-        // value and re-render correctly, so they must not fire.
-        if (AllocationAnalysis.HasValueEquality(stateSymbol.Type)) return;
+        // Only REFERENCE types exhibit the silent miss: the mutated-in-place value and the stored
+        // value are the same instance, so the setter's EqualityComparer<T>.Default comparison sees
+        // x.Equals(x) == true and returns early — this holds whether or not the type has value
+        // semantics. Value types are copied when passed to the setter, so the mutated copy differs
+        // from the stored original and re-renders correctly; skip them.
+        if (stateSymbol.Type.IsValueType) return;
 
         if (FindBlockStatement(invocation, out var block) is not { } setterStatement || block is null) return;
         int setterIndex = block.Statements.IndexOf(setterStatement);

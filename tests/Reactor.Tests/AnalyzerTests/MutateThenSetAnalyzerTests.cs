@@ -18,8 +18,9 @@ namespace Microsoft.UI.Reactor.Core
 {
     public class RenderContext { }
 
-    // A record HAS value equality, so mutate-then-set on it re-renders correctly (negative case).
-    public record ValueList
+    // A value type is COPIED when passed to the setter, so a mutated copy differs from the stored
+    // original and re-renders correctly — mutate-then-set is not the silent-miss bug here.
+    public struct ValueList
     {
         public void Add(string s) { }
     }
@@ -109,9 +110,10 @@ class C : Microsoft.UI.Reactor.Core.Component
 }");
     }
 
-    // Negative: a record has value equality, so the setter re-renders on the mutated copy.
+    // Negative: a value type is copied when passed to the setter, so the mutated copy differs from
+    // the stored original and re-renders correctly.
     [Fact]
-    public async Task Mutate_Then_Set_ValueEqualityType_DoesNotFlag()
+    public async Task Mutate_Then_Set_ValueType_DoesNotFlag()
     {
         await VerifyAnalyzer(@"
 class C : Microsoft.UI.Reactor.Core.Component
