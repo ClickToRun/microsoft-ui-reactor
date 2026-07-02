@@ -132,7 +132,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             var cts = new global::System.Threading.CancellationTokenSource();
             _ = RunAsync(cts.Token);
-            return () => cts.Cancel();
+            return () => { cts.Cancel(); cts.Dispose(); };
 
             async global::System.Threading.Tasks.Task RunAsync(global::System.Threading.CancellationToken ct)
             {
@@ -174,7 +174,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         {
             var cts = new global::System.Threading.CancellationTokenSource();
             _ = RunAsync(cts.Token);
-            return () => cts.Cancel();
+            return () => { cts.Cancel(); cts.Dispose(); };
 
             async global::System.Threading.Tasks.Task RunAsync(global::System.Threading.CancellationToken ct)
             {

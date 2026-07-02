@@ -27,7 +27,7 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// {
 ///     var cts = new System.Threading.CancellationTokenSource();
 ///     _ = RunAsync(cts.Token);
-///     return () => cts.Cancel();
+///     return () => { cts.Cancel(); cts.Dispose(); };
 ///
 ///     async System.Threading.Tasks.Task RunAsync(System.Threading.CancellationToken ct)
 ///     {
@@ -123,7 +123,7 @@ public sealed class AsyncEffectCodeFix : CodeFixProvider
         sb.Append(baseIndent).Append('{').Append(nl);
         sb.Append(baseIndent).Append("    var cts = new global::System.Threading.CancellationTokenSource();").Append(nl);
         sb.Append(baseIndent).Append("    _ = RunAsync(cts.Token);").Append(nl);
-        sb.Append(baseIndent).Append("    return () => cts.Cancel();").Append(nl);
+        sb.Append(baseIndent).Append("    return () => { cts.Cancel(); cts.Dispose(); };").Append(nl);
         sb.Append(nl);
         sb.Append(baseIndent).Append("    async global::System.Threading.Tasks.Task RunAsync(global::System.Threading.CancellationToken ct)").Append(nl);
         sb.Append(baseIndent).Append("    {").Append(nl);

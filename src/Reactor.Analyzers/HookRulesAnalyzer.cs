@@ -136,12 +136,12 @@ public sealed class HookRulesAnalyzer : DiagnosticAnalyzer
         "Reactor.Hooks",
         DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "UseEffect only accepts Action / Func<Action> — there is no Func<Task> overload, so an async lambda binds as async void. Move the awaited work into a local async Task RunAsync(CancellationToken) and call it from UseEffect(() => { var cts = new CancellationTokenSource(); _ = RunAsync(cts.Token); return () => cts.Cancel(); }, deps).");
+        description: "UseEffect only accepts Action / Func<Action> — there is no Func<Task> overload, so an async lambda binds as async void. Move the awaited work into a local async Task RunAsync(CancellationToken) and call it from UseEffect(() => { var cts = new CancellationTokenSource(); _ = RunAsync(cts.Token); return () => { cts.Cancel(); cts.Dispose(); }; }, deps).");
 
     private static readonly DiagnosticDescriptor MutateThenSetRule = new(
         MutateThenSetId,
         "Mutate-then-set reference state",
-        "'{0}' is mutated in place and the same instance is passed back to '{1}'. The setter compares the new value to the stored one with EqualityComparer<T>.Default; the same instance compares equal (x.Equals(x) is true), so no re-render is scheduled. Pass a new value instead, e.g. {1}([.. {0}, item]).",
+        "'{0}' is mutated in place and the same instance is passed back to '{1}'. The setter compares the new value to the stored one with EqualityComparer<T>.Default; the same instance compares equal (x.Equals(x) is true), so no re-render is scheduled. {2}",
         "Reactor.Hooks",
         DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
@@ -1186,13 +1186,19 @@ public sealed class HookRulesAnalyzer : DiagnosticAnalyzer
 
         var properties = ImmutableDictionary<string, string?>.Empty
             .Add("canFix", isSingleArgAdd ? "true" : "false");
+        // The advice example is only accurate for the fixable single-arg .Add shape; other mutators
+        // (Clear/Remove/indexer set) get generic guidance so the message isn't misleading.
+        var advice = isSingleArgAdd
+            ? $"Pass a new value instead, e.g. {setterSymbol.Name}([.. {stateSymbol.Name}, item])."
+            : $"Pass a new value to {setterSymbol.Name} — a copy of '{stateSymbol.Name}' with the change applied — instead of mutating and re-passing the same instance.";
         context.ReportDiagnostic(Diagnostic.Create(
             MutateThenSetRule,
             invocation.GetLocation(),
             additionalLocations: new[] { mutatorNode.GetLocation() },
             properties: properties,
             stateSymbol.Name,
-            setterSymbol.Name));
+            setterSymbol.Name,
+            advice));
     }
 
     private static bool ReassignsLocal(StatementSyntax statement, ILocalSymbol local, SemanticModel model)
