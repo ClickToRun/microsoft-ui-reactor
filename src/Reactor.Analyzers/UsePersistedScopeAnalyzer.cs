@@ -43,7 +43,7 @@ public sealed class UsePersistedScopeAnalyzer : DiagnosticAnalyzer
         "UsePersisted defaults to Application (process-wide) scope";
 
     private static readonly LocalizableString MessageFormat =
-        "UsePersisted({0}, …) uses the two-argument overload, which defaults to PersistedScope.Application (process-wide — state is shared across windows). Specify PersistedScope.Window (host lifetime) or PersistedScope.Application (make the current behavior explicit).";
+        "UsePersisted({0}, …) defaults to PersistedScope.Application (process-wide). Specify PersistedScope.Window or PersistedScope.Application explicitly.";
 
     private static readonly LocalizableString Description =
         "The two-argument RenderContext.UsePersisted<T>(string, T) overload delegates to " +
