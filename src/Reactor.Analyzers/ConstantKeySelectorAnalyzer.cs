@@ -49,6 +49,21 @@ public sealed class ConstantKeySelectorAnalyzer : DiagnosticAnalyzer
     /// <summary>The parameter name shared by every typed collection factory's key selector.</summary>
     private const string KeySelectorParameterName = "keySelector";
 
+    /// <summary>
+    /// Simple names of the typed, data-driven collection factories that take a
+    /// <c>Func&lt;T, string&gt; keySelector</c> as their second parameter (in
+    /// <c>src/Reactor/Elements/Dsl.cs</c>). Used only as a cheap first-pass filter so
+    /// the analyzer skips the lambda/body scan and semantic lookup for the vast
+    /// majority of invocations; the actual match is still confirmed semantically
+    /// against <see cref="FactoriesTypeName"/>. Keep in sync with Dsl.cs when a new
+    /// typed collection factory is added.
+    /// </summary>
+    private static readonly ImmutableHashSet<string> TypedCollectionFactoryNames =
+        ImmutableHashSet.Create(
+            System.StringComparer.Ordinal,
+            "ListView", "GridView", "FlipView", "TreeView",
+            "LazyVStack", "LazyHStack", "ItemsRepeater", "ItemsView");
+
     private static readonly LocalizableString Title =
         "Key selector never keys by item";
 
@@ -84,6 +99,15 @@ public sealed class ConstantKeySelectorAnalyzer : DiagnosticAnalyzer
     private static void AnalyzeInvocation(SyntaxNodeAnalysisContext context)
     {
         var invocation = (InvocationExpressionSyntax)context.Node;
+
+        // ── Cheap name gate ───────────────────────────────────────────────
+        // A single hash-set lookup skips the lambda/body scan and the semantic
+        // symbol lookup for every invocation that isn't a typed collection
+        // factory by name (e.g. Enumerable.Select(source, _ => "row")). The
+        // containing-type/parameter shape is still confirmed semantically below.
+        if (!TypedCollectionFactoryNames.Contains(GetInvokedMethodName(invocation)))
+            return;
+
         var args = invocation.ArgumentList.Arguments;
         if (args.Count < 2)
             return;

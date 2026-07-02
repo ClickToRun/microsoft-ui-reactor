@@ -177,4 +177,11 @@ namespace TestApp
     [Fact]
     public Task No_Diagnostic_For_Same_Named_Method_On_Unrelated_Type() =>
         Verify(@"            Other.NotReactor.ListView(items, _ => ""row"", (i, idx) => Text(i.Id));");
+
+    [Fact]
+    public Task No_Diagnostic_For_Non_Factory_Method_Name() =>
+        // Cheap name gate: a constant single-param lambda passed to a method whose
+        // name isn't a typed collection factory (here Enumerable.Select) is skipped
+        // before any lambda/body scan or semantic lookup.
+        Verify(@"            System.Linq.Enumerable.Select(items, _ => ""row"");");
 }
