@@ -63,32 +63,20 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.EnableConcurrentExecution();
         context.RegisterSyntaxNodeAction(AnalyzeInvocation, SyntaxKind.InvocationExpression);
+        context.RegisterSyntaxNodeAction(AnalyzeAssignment, SyntaxKind.SimpleAssignmentExpression);
     }
 
     private static void AnalyzeInvocation(SyntaxNodeAnalysisContext context)
     {
         var invocation = (InvocationExpressionSyntax)context.Node;
-
-        // Syntactic gate first (spec §3): only proceed when the call is lexically
-        // inside a background-launch lambda and not already marshaled via TryEnqueue.
-        if (!IsInsideUnmarshaledBackgroundLambda(invocation))
-            return;
-
-        // Don't re-flag the null-dispatcher fallback the code fix itself emits
-        // (`if (d is null) window.Close();` paired with an `else d.TryEnqueue(...)`).
-        // When the dispatcher is null the runtime guard is a no-op, so the direct
-        // call is the correct pre-bootstrap fallback — and this also stops the
-        // code fix from looping on its own output.
-        if (IsInsideDispatcherNullFallback(invocation))
+        if (!IsBackgroundThreadContext(invocation))
             return;
 
         // Semantic backstop: confirm the callee carries [UIThreadOnly].
         var symbolInfo = context.SemanticModel.GetSymbolInfo(invocation, context.CancellationToken);
         var method = symbolInfo.Symbol as IMethodSymbol
             ?? symbolInfo.CandidateSymbols.FirstOrDefault() as IMethodSymbol;
-        if (method is null)
-            return;
-        if (!HasUIThreadOnlyAttribute(method))
+        if (method is null || !HasUIThreadOnlyAttribute(method))
             return;
 
         context.ReportDiagnostic(Diagnostic.Create(
@@ -96,6 +84,40 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
             invocation.GetLocation(),
             method.Name));
     }
+
+    private static void AnalyzeAssignment(SyntaxNodeAnalysisContext context)
+    {
+        var assignment = (AssignmentExpressionSyntax)context.Node;
+
+        // Only a property write hits a UI-thread-guarded setter. The flagged node is
+        // the whole assignment so the code fix can wrap `x.P = v` in the dispatcher
+        // marshal the same way it wraps a call.
+        if (assignment.Left is not (MemberAccessExpressionSyntax or IdentifierNameSyntax or MemberBindingExpressionSyntax))
+            return;
+        if (!IsBackgroundThreadContext(assignment))
+            return;
+
+        var symbolInfo = context.SemanticModel.GetSymbolInfo(assignment.Left, context.CancellationToken);
+        var property = symbolInfo.Symbol as IPropertySymbol
+            ?? symbolInfo.CandidateSymbols.FirstOrDefault() as IPropertySymbol;
+        if (property is null || !HasUIThreadOnlyAttribute(property))
+            return;
+
+        context.ReportDiagnostic(Diagnostic.Create(
+            Rule,
+            assignment.GetLocation(),
+            property.Name));
+    }
+
+    /// <summary>
+    /// Shared syntactic gate (spec §3): the node is lexically inside a
+    /// background-launch lambda, not already marshaled via <c>TryEnqueue</c>, and
+    /// not the analyzer/code-fix's own null-dispatcher fallback (which is safe
+    /// because <c>ThrowIfNotOnUIThread</c> is a no-op while the dispatcher is null,
+    /// and skipping it stops the code fix looping on its own output).
+    /// </summary>
+    private static bool IsBackgroundThreadContext(SyntaxNode node) =>
+        IsInsideUnmarshaledBackgroundLambda(node) && !IsInsideDispatcherNullFallback(node);
 
     /// <summary>
     /// Walk the lexical ancestors of <paramref name="invocation"/>. Returns
@@ -136,47 +158,69 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
     private enum LambdaHost { Unrelated, Background, Marshaled }
 
     /// <summary>
-    /// Returns <see langword="true"/> when <paramref name="invocation"/> sits in
-    /// the then-branch of an <c>if (x is null)</c> / <c>if (x == null)</c> whose
-    /// <c>else</c> marshals through <c>TryEnqueue</c> — the null-dispatcher
+    /// Returns <see langword="true"/> when <paramref name="node"/> sits in the
+    /// then-branch of an <c>if (d is null)</c> / <c>if (d == null)</c> whose
+    /// <c>else</c> marshals through <c>d.TryEnqueue(...)</c> — the null-dispatcher
     /// fallback idiom the code fix emits (and app authors write by hand). The
-    /// fallback is safe because <c>ThrowIfNotOnUIThread</c> is a no-op while the
-    /// dispatcher is null.
+    /// suppression is tied to the null-checked identifier: the same local must be
+    /// the <c>TryEnqueue</c> receiver, so an unrelated null check with an unrelated
+    /// <c>TryEnqueue</c> in its else does not hide a genuine off-thread call. Safe
+    /// because <c>ThrowIfNotOnUIThread</c> is a no-op while the dispatcher is null.
     /// </summary>
-    private static bool IsInsideDispatcherNullFallback(SyntaxNode invocation)
+    private static bool IsInsideDispatcherNullFallback(SyntaxNode node)
     {
-        var child = invocation;
-        for (var node = invocation.Parent; node is not null; child = node, node = node.Parent)
+        var child = node;
+        for (var current = node.Parent; current is not null; child = current, current = current.Parent)
         {
-            if (node is IfStatementSyntax ifStatement &&
+            if (current is IfStatementSyntax ifStatement &&
                 ReferenceEquals(child, ifStatement.Statement) &&
-                IsNullCheck(ifStatement.Condition) &&
+                TryGetNullCheckedIdentifier(ifStatement.Condition) is { } dispatcherName &&
                 ifStatement.Else is { } elseClause &&
-                ContainsTryEnqueue(elseClause))
+                ElseMarshalsThrough(elseClause, dispatcherName))
             {
                 return true;
             }
 
-            if (node is MemberDeclarationSyntax)
+            if (current is MemberDeclarationSyntax)
                 break;
         }
 
         return false;
     }
 
-    private static bool IsNullCheck(ExpressionSyntax condition) => condition switch
+    /// <summary>
+    /// For <c>x is null</c> / <c>x == null</c> / <c>null == x</c> where <c>x</c> is a
+    /// simple identifier, returns that identifier's name; otherwise <see langword="null"/>.
+    /// </summary>
+    private static string? TryGetNullCheckedIdentifier(ExpressionSyntax condition) => condition switch
     {
-        IsPatternExpressionSyntax { Pattern: ConstantPatternSyntax { Expression: LiteralExpressionSyntax literal } }
-            => literal.IsKind(SyntaxKind.NullLiteralExpression),
-        BinaryExpressionSyntax binary when binary.IsKind(SyntaxKind.EqualsExpression)
-            => binary.Left.IsKind(SyntaxKind.NullLiteralExpression)
-               || binary.Right.IsKind(SyntaxKind.NullLiteralExpression),
-        _ => false,
+        IsPatternExpressionSyntax
+        {
+            Expression: IdentifierNameSyntax id,
+            Pattern: ConstantPatternSyntax { Expression: LiteralExpressionSyntax literal },
+        } when literal.IsKind(SyntaxKind.NullLiteralExpression) => id.Identifier.Text,
+        BinaryExpressionSyntax binary when binary.IsKind(SyntaxKind.EqualsExpression) => NullCheckedSide(binary),
+        _ => null,
     };
 
-    private static bool ContainsTryEnqueue(SyntaxNode node) =>
-        node.DescendantNodes().OfType<InvocationExpressionSyntax>()
-            .Any(invocation => GetInvokedNames(invocation).methodName == "TryEnqueue");
+    private static string? NullCheckedSide(BinaryExpressionSyntax binary)
+    {
+        if (binary.Right.IsKind(SyntaxKind.NullLiteralExpression) && binary.Left is IdentifierNameSyntax left)
+            return left.Identifier.Text;
+        if (binary.Left.IsKind(SyntaxKind.NullLiteralExpression) && binary.Right is IdentifierNameSyntax right)
+            return right.Identifier.Text;
+        return null;
+    }
+
+    /// <summary>
+    /// The <c>else</c> branch marshals through <c><paramref name="dispatcherName"/>.TryEnqueue(...)</c>.
+    /// </summary>
+    private static bool ElseMarshalsThrough(SyntaxNode elseClause, string dispatcherName) =>
+        elseClause.DescendantNodes().OfType<InvocationExpressionSyntax>().Any(invocation =>
+        {
+            var (methodName, receiverName) = GetInvokedNames(invocation);
+            return methodName == "TryEnqueue" && receiverName == dispatcherName;
+        });
 
     /// <summary>
     /// Classify a lambda by the method it is passed to: a background launcher, a
@@ -239,9 +283,9 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
         }
     }
 
-    internal static bool HasUIThreadOnlyAttribute(IMethodSymbol method)
+    internal static bool HasUIThreadOnlyAttribute(ISymbol member)
     {
-        foreach (var attribute in method.GetAttributes())
+        foreach (var attribute in member.GetAttributes())
         {
             var attributeClass = attribute.AttributeClass;
             if (attributeClass is null)

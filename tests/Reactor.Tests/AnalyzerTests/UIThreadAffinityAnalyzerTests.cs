@@ -53,6 +53,9 @@ public sealed class FakeWindow
     [UIThreadOnly] public void Close() { }
     [UIThreadOnly] public void Activate() { }
 
+    // UI-thread-only property: the setter would call ThrowIfNotOnUIThread.
+    [UIThreadOnly] public string Title { get; set; } = string.Empty;
+
     // Not UI-thread-only — background use is legitimate.
     public void SafeMethod() { }
 }
@@ -313,6 +316,183 @@ class C
                 window.Close();
             else
                 d.TryEnqueue(() => window.Close());
+        });
+    }
+}";
+
+        await new CSharpCodeFixTest<UIThreadAffinityAnalyzer, UIThreadAffinityCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // ── Property setters (the [UIThreadOnly] attribute also targets properties) ──
+
+    [Fact]
+    public async Task Fires_For_Marked_Property_Set_In_TaskRun()
+    {
+        var source = Stubs + @"
+class C
+{
+    void M()
+    {
+        var window = new FakeWindow();
+        Task.Run(() => {|REACTOR_THREAD_001:window.Title = ""hi""|});
+    }
+}";
+
+        await new CSharpAnalyzerTest<UIThreadAffinityAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_Marked_Property_Read_In_TaskRun()
+    {
+        // Only writes hit the UI-thread-guarded setter; a read must not fire.
+        var source = Stubs + @"
+class C
+{
+    void M()
+    {
+        var window = new FakeWindow();
+        Task.Run(() =>
+        {
+            var t = window.Title;
+        });
+    }
+}";
+
+        await new CSharpAnalyzerTest<UIThreadAffinityAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Marshals_Property_Set()
+    {
+        var before = Stubs + @"
+class C
+{
+    void M()
+    {
+        var window = new FakeWindow();
+        Task.Run(() => {|REACTOR_THREAD_001:window.Title = ""hi""|});
+    }
+}";
+
+        var after = Stubs + @"
+class C
+{
+    void M()
+    {
+        var window = new FakeWindow();
+        Task.Run(() =>
+        {
+            var d = ReactorApp.UIDispatcher;
+            if (d is null)
+                window.Title = ""hi"";
+            else
+                d.TryEnqueue(() => window.Title = ""hi"");
+        });
+    }
+}";
+
+        await new CSharpCodeFixTest<UIThreadAffinityAnalyzer, UIThreadAffinityCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // ── Null-fallback suppression precision (must be tied to the dispatcher) ──
+
+    [Fact]
+    public async Task No_Diagnostic_For_Matching_Dispatcher_Null_Fallback()
+    {
+        // The exact idiom the code fix emits: same local checked for null and used
+        // as the TryEnqueue receiver. The direct call is the safe pre-bootstrap path.
+        var source = Stubs + @"
+class C
+{
+    void M()
+    {
+        var window = new FakeWindow();
+        Task.Run(() =>
+        {
+            var d = ReactorApp.UIDispatcher;
+            if (d is null)
+                window.Close();
+            else
+                d.TryEnqueue(() => window.Close());
+        });
+    }
+}";
+
+        await new CSharpAnalyzerTest<UIThreadAffinityAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_When_Null_Check_Marshals_Through_Unrelated_Receiver()
+    {
+        // An unrelated null check whose else marshals through a DIFFERENT receiver
+        // must NOT suppress the direct call — otherwise a real off-thread call hides.
+        var source = Stubs + @"
+class C
+{
+    void M(object gate)
+    {
+        var window = new FakeWindow();
+        Task.Run(() =>
+        {
+            if (gate is null)
+                {|REACTOR_THREAD_001:window.Close()|};
+            else
+                ReactorApp.UIDispatcher.TryEnqueue(() => window.Close());
+        });
+    }
+}";
+
+        await new CSharpAnalyzerTest<UIThreadAffinityAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // ── Collision-free dispatcher local name ──
+
+    [Fact]
+    public async Task CodeFix_Uses_CollisionFree_Name_When_d_In_Scope()
+    {
+        var before = Stubs + @"
+class C
+{
+    void M(int d)
+    {
+        var window = new FakeWindow();
+        Task.Run(() => {|REACTOR_THREAD_001:window.Close()|});
+    }
+}";
+
+        var after = Stubs + @"
+class C
+{
+    void M(int d)
+    {
+        var window = new FakeWindow();
+        Task.Run(() =>
+        {
+            var dispatcher = ReactorApp.UIDispatcher;
+            if (dispatcher is null)
+                window.Close();
+            else
+                dispatcher.TryEnqueue(() => window.Close());
         });
     }
 }";

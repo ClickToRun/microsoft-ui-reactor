@@ -1,5 +1,9 @@
+using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Composition;
+using System.Globalization;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
@@ -52,38 +56,47 @@ public sealed class UIThreadAffinityCodeFix : CodeFixProvider
         foreach (var diagnostic in context.Diagnostics)
         {
             var node = root.FindNode(diagnostic.Location.SourceSpan, getInnermostNodeForTie: true);
-            var invocation = node.FirstAncestorOrSelf<InvocationExpressionSyntax>();
-            if (invocation is null) continue;
 
-            // Shape A: the call is a stand-alone statement (`window.Close();`).
-            if (invocation.Parent is ExpressionStatementSyntax statement)
+            // The flagged node is either a UI-thread-only call or a property-set
+            // assignment; both are marshaled the same way. Identify it by its exact
+            // reported span.
+            var core = node.AncestorsAndSelf()
+                .FirstOrDefault(n => n is InvocationExpressionSyntax or AssignmentExpressionSyntax
+                    && n.Span == diagnostic.Location.SourceSpan) as ExpressionSyntax;
+            if (core is null) continue;
+
+            // Shape A: the call/assignment is a stand-alone statement.
+            if (core.Parent is ExpressionStatementSyntax statement)
             {
                 context.RegisterCodeFix(
                     CodeAction.Create(
                         Title,
-                        ct => Task.FromResult(FixStatement(context.Document, root, statement, invocation)),
+                        ct => Task.FromResult(FixStatement(context.Document, root, statement, core)),
                         equivalenceKey: UIThreadAffinityAnalyzer.DiagnosticId),
                     diagnostic);
                 continue;
             }
 
-            // Shape B: the call is the expression body of the background lambda
-            // (`Task.Run(() => window.Close())`). Only rewrite when the call is
-            // void — otherwise the lambda's produced value would be lost.
-            if (invocation.Parent is LambdaExpressionSyntax lambda &&
-                lambda.ExpressionBody == invocation)
+            // Shape B: it is the expression body of the background lambda
+            // (`Task.Run(() => window.Close())`). For an invocation, only rewrite a
+            // void call — otherwise turning the lambda into a block would drop its
+            // produced value. An assignment expression body is always safe to wrap.
+            if (core.Parent is LambdaExpressionSyntax lambda && lambda.ExpressionBody == core)
             {
-                var semanticModel = await context.Document
-                    .GetSemanticModelAsync(context.CancellationToken).ConfigureAwait(false);
-                if (semanticModel is null) continue;
-                if (semanticModel.GetSymbolInfo(invocation, context.CancellationToken).Symbol
-                        is not IMethodSymbol { ReturnsVoid: true })
-                    continue;
+                if (core is InvocationExpressionSyntax)
+                {
+                    var semanticModel = await context.Document
+                        .GetSemanticModelAsync(context.CancellationToken).ConfigureAwait(false);
+                    if (semanticModel is null) continue;
+                    if (semanticModel.GetSymbolInfo(core, context.CancellationToken).Symbol
+                            is not IMethodSymbol { ReturnsVoid: true })
+                        continue;
+                }
 
                 context.RegisterCodeFix(
                     CodeAction.Create(
                         Title,
-                        ct => Task.FromResult(FixExpressionLambda(context.Document, root, lambda, invocation)),
+                        ct => Task.FromResult(FixExpressionLambda(context.Document, root, lambda, core)),
                         equivalenceKey: UIThreadAffinityAnalyzer.DiagnosticId),
                     diagnostic);
             }
@@ -94,10 +107,11 @@ public sealed class UIThreadAffinityCodeFix : CodeFixProvider
         Document document,
         SyntaxNode root,
         ExpressionStatementSyntax statement,
-        InvocationExpressionSyntax invocation)
+        ExpressionSyntax core)
     {
-        var declaration = BuildDispatcherDeclaration();
-        var dispatchIf = BuildDispatchIf(invocation);
+        var name = PickDispatcherName(core);
+        var declaration = BuildDispatcherDeclaration(name);
+        var dispatchIf = BuildDispatchIf(core, name);
 
         SyntaxNode newRoot;
         if (statement.Parent is BlockSyntax block)
@@ -133,9 +147,10 @@ public sealed class UIThreadAffinityCodeFix : CodeFixProvider
         Document document,
         SyntaxNode root,
         LambdaExpressionSyntax lambda,
-        InvocationExpressionSyntax invocation)
+        ExpressionSyntax core)
     {
-        var block = SyntaxFactory.Block(BuildDispatcherDeclaration(), BuildDispatchIf(invocation));
+        var name = PickDispatcherName(core);
+        var block = SyntaxFactory.Block(BuildDispatcherDeclaration(name), BuildDispatchIf(core, name));
 
         LambdaExpressionSyntax newLambda = lambda switch
         {
@@ -154,8 +169,34 @@ public sealed class UIThreadAffinityCodeFix : CodeFixProvider
         return document.WithSyntaxRoot(root.ReplaceNode(lambda, newLambda));
     }
 
-    /// <summary>Builds <c>var d = ReactorApp.UIDispatcher;</c>.</summary>
-    private static LocalDeclarationStatementSyntax BuildDispatcherDeclaration()
+    /// <summary>
+    /// Pick a local name for the dispatcher that does not collide with any
+    /// identifier already used in the enclosing member — prefers <c>d</c> (matching
+    /// the documented idiom), falling back to <c>dispatcher</c>, <c>dispatcher2</c>, …
+    /// </summary>
+    private static string PickDispatcherName(SyntaxNode core)
+    {
+        var scope = core.FirstAncestorOrSelf<MemberDeclarationSyntax>();
+        var used = new HashSet<string>(StringComparer.Ordinal);
+        if (scope is not null)
+        {
+            foreach (var token in scope.DescendantTokens())
+            {
+                if (token.IsKind(SyntaxKind.IdentifierToken))
+                    used.Add(token.ValueText);
+            }
+        }
+
+        if (!used.Contains("d")) return "d";
+        for (var i = 1; ; i++)
+        {
+            var candidate = i == 1 ? "dispatcher" : "dispatcher" + i.ToString(CultureInfo.InvariantCulture);
+            if (!used.Contains(candidate)) return candidate;
+        }
+    }
+
+    /// <summary>Builds <c>var &lt;name&gt; = ReactorApp.UIDispatcher;</c>.</summary>
+    private static LocalDeclarationStatementSyntax BuildDispatcherDeclaration(string name)
     {
         var dispatcherAccess = SyntaxFactory
             .ParseExpression("global::Microsoft.UI.Reactor.ReactorApp.UIDispatcher")
@@ -165,34 +206,35 @@ public sealed class UIThreadAffinityCodeFix : CodeFixProvider
             SyntaxFactory.VariableDeclaration(
                 SyntaxFactory.IdentifierName("var"),
                 SyntaxFactory.SingletonSeparatedList(
-                    SyntaxFactory.VariableDeclarator(SyntaxFactory.Identifier("d"))
+                    SyntaxFactory.VariableDeclarator(SyntaxFactory.Identifier(name))
                         .WithInitializer(SyntaxFactory.EqualsValueClause(dispatcherAccess)))))
             .WithAdditionalAnnotations(Formatter.Annotation);
     }
 
     /// <summary>
-    /// Builds <c>if (d is null) &lt;call&gt;; else d.TryEnqueue(() =&gt; &lt;call&gt;);</c>.
+    /// Builds <c>if (&lt;name&gt; is null) &lt;core&gt;; else &lt;name&gt;.TryEnqueue(() =&gt; &lt;core&gt;);</c>
+    /// where <c>&lt;core&gt;</c> is the flagged call or property-set assignment.
     /// </summary>
-    private static IfStatementSyntax BuildDispatchIf(InvocationExpressionSyntax invocation)
+    private static IfStatementSyntax BuildDispatchIf(ExpressionSyntax core, string name)
     {
         var condition = SyntaxFactory.IsPatternExpression(
-            SyntaxFactory.IdentifierName("d"),
+            SyntaxFactory.IdentifierName(name),
             SyntaxFactory.ConstantPattern(
                 SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)));
 
-        var directCall = SyntaxFactory.ExpressionStatement(invocation.WithoutTrivia());
+        var directCall = SyntaxFactory.ExpressionStatement((ExpressionSyntax)core.WithoutTrivia());
 
         var marshaledCall = SyntaxFactory.ExpressionStatement(
             SyntaxFactory.InvocationExpression(
                 SyntaxFactory.MemberAccessExpression(
                     SyntaxKind.SimpleMemberAccessExpression,
-                    SyntaxFactory.IdentifierName("d"),
+                    SyntaxFactory.IdentifierName(name),
                     SyntaxFactory.IdentifierName("TryEnqueue")),
                 SyntaxFactory.ArgumentList(
                     SyntaxFactory.SingletonSeparatedList(
                         SyntaxFactory.Argument(
                             SyntaxFactory.ParenthesizedLambdaExpression()
-                                .WithExpressionBody(invocation.WithoutTrivia()))))));
+                                .WithExpressionBody((ExpressionSyntax)core.WithoutTrivia()))))));
 
         return SyntaxFactory.IfStatement(condition, directCall)
             .WithElse(SyntaxFactory.ElseClause(marshaledCall))
