@@ -50,7 +50,6 @@ public sealed class EffectCleanupAnalyzer : DiagnosticAnalyzer
     private const string RenderContextType = "Microsoft.UI.Reactor.Core.RenderContext";
 
     /// <summary>
-    /// <summary>
     /// Simple type names whose <c>new</c> construction inside an effect body denotes a producer
     /// that keeps running until explicitly stopped/disposed. Every entry must be constructible with
     /// <c>new</c> — this set is only consulted for object-creation nodes. <c>System.Threading.Timer</c>,
