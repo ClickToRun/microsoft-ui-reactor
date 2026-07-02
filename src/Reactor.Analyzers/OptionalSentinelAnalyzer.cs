@@ -10,7 +10,7 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// <summary>
 /// REACTOR_OPT_001: Detects an object-initializer / <c>with</c> member assignment
 /// where the member is a selection sentinel (<c>SelectedIndex</c>,
-/// <c>SelectedPageIndex</c>, <c>Date</c>, <c>Time</c>) typed <c>Optional&lt;T&gt;</c>
+/// <c>SelectedPageIndex</c>, <c>Date</c>) typed <c>Optional&lt;T&gt;</c>
 /// and the right-hand side is the XAML-habit "nothing selected" literal
 /// (<c>-1</c> / <c>null</c>).
 /// </summary>
@@ -49,13 +49,21 @@ public sealed class OptionalSentinelAnalyzer : DiagnosticAnalyzer
     /// or <c>false</c> is a legitimate value, not a "nothing selected" sentinel.
     /// <c>SelectedItem</c>/<c>SelectedValue</c> are handled by CTRL_001.
     /// </summary>
+    /// <remarks>
+    /// <c>Time</c> is intentionally omitted although spec 060 §4.2 lists it: the only
+    /// <c>Time</c> member (<c>TimePickerElement.Time</c>) is <c>Optional&lt;TimeSpan&gt;</c>
+    /// — a non-nullable value type — so neither the <c>-1</c> nor the <c>null</c> sentinel
+    /// is type-compatible and the entry could never fire on compilable code (it would only
+    /// mislead). <c>Date</c> stays because <c>CalendarDatePickerElement.Date</c> is
+    /// <c>Optional&lt;DateTimeOffset?&gt;</c> (nullable), so <c>Date = null</c> does compile
+    /// into the silent <c>Optional.Of(null)</c> force-assert this rule targets.
+    /// </remarks>
     internal static readonly ImmutableHashSet<string> SelectionMembers =
         ImmutableHashSet.Create(
             StringComparer.Ordinal,
             "SelectedIndex",
             "SelectedPageIndex",
-            "Date",
-            "Time");
+            "Date");
 
     private static readonly LocalizableString Title =
         "Selection sentinel literal force-asserts instead of Optional<T>.Unset";

@@ -65,6 +65,12 @@ namespace Microsoft.UI.Reactor
     public sealed record MiscElement
     {
         public Optional<int> Offset { get; init; }
+
+        // 'Time' is deliberately NOT in the analyzer allowlist (the real
+        // TimePickerElement.Time is Optional<TimeSpan>, which can take neither -1
+        // nor null). Typed Optional<int> here only so 'Time = -1' compiles and the
+        // negative test can assert the allowlist — not the type — excludes it.
+        public Optional<int> Time { get; init; }
     }
 }
 ";
@@ -157,6 +163,23 @@ namespace App
         var source = WithUsing(@"
         MiscElement M(MiscElement el)
             => el with { Offset = -1 };");
+
+        await new CSharpAnalyzerTest<OptionalSentinelAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_Time_Excluded_From_Allowlist()
+    {
+        // 'Time' is intentionally omitted from the allowlist: the real
+        // TimePickerElement.Time is Optional<TimeSpan> (non-nullable), so -1/null
+        // are never type-compatible there. Even a sentinel-compatible Optional<int>
+        // Time must not fire — the exclusion is by member name, not type.
+        var source = WithUsing(@"
+        MiscElement M(MiscElement el)
+            => el with { Time = -1 };");
 
         await new CSharpAnalyzerTest<OptionalSentinelAnalyzer, DefaultVerifier>
         {
