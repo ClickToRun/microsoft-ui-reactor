@@ -52,7 +52,7 @@ how often you need them.
 | `REACTOR_A11Y_001` | analyzer | Icon-only `Button(icon, action)` without `.AutomationName()`. |
 | `REACTOR_A11Y_002` | analyzer | `Image()` without `.AutomationName()` or `.AccessibilityHidden()`. |
 | `REACTOR_A11Y_003` | analyzer | Form field without `header:` or label modifier. |
-| `REACTOR_A11Y_004` | analyzer | Clickable container (`Border`/`Grid`/`Canvas`/`Rectangle`/`Ellipse`/`VStack`/`HStack`) with `.OnTapped` but no `.IsTabStop`/`.OnKeyDown`. |
+| `REACTOR_A11Y_004` | analyzer | Clickable container (`Border`/`Grid`/`Canvas`/`Rectangle`/`Ellipse`/`VStack`/`HStack`) with `.OnTapped` but no `.IsTabStop`. |
 
 ## Tier 1 Modifiers
 
@@ -298,7 +298,7 @@ as you type in your IDE:
 | `REACTOR_A11Y_001` | Icon-only `Button(icon, action)` calls without `.AutomationName()` |
 | `REACTOR_A11Y_002` | `Image()` without `.AutomationName()` or `.AccessibilityHidden()` |
 | `REACTOR_A11Y_003` | `TextBox`/`NumberBox`/`PasswordBox` without `header:` arg or label modifier |
-| `REACTOR_A11Y_004` | Clickable `Border`/`Grid`/`Canvas`/`Rectangle`/`Ellipse`/`VStack`/`HStack` (`.OnTapped`) without `.IsTabStop`/`.OnKeyDown` |
+| `REACTOR_A11Y_004` | Clickable `Border`/`Grid`/`Canvas`/`Rectangle`/`Ellipse`/`VStack`/`HStack` (`.OnTapped`) without `.IsTabStop` |
 
 These analyzers run automatically when you reference the `Reactor.Analyzers`
 package. They complement the runtime `AccessibilityScanner` by catching the

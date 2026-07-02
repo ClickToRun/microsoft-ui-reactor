@@ -304,17 +304,17 @@ public sealed class ClickableContainerKeyboardAnalyzer : DiagnosticAnalyzer
             "Border", "Grid", "Canvas", "Rectangle", "Ellipse", "VStack", "HStack");
 
     /// <summary>
-    /// Modifiers that suppress the diagnostic because the author has made the element
-    /// keyboard-accessible. <c>IsTabStop</c> is the reliable fix — the reconciler applies it to any
-    /// <c>FrameworkElement</c> (Reconciler.cs). <c>OnKeyDown</c> wires a routed key handler that
-    /// fires for key events bubbling up from focusable descendants, so it counts as real keyboard
-    /// handling. <c>TabIndex</c> is deliberately NOT here: the reconciler applies TabIndex only to
-    /// <c>Control</c>s (Reconciler.cs — <c>fe is Control</c>), so on these non-Control container /
-    /// shape factories it is a no-op that never adds a tab stop; treating it as a focus affordance
-    /// would silently pass a still-unreachable container.
+    /// The modifier that suppresses the diagnostic. <c>.IsTabStop(true)</c> is the one affordance
+    /// that actually makes these non-<c>Control</c> containers keyboard-reachable — the reconciler
+    /// applies <c>IsTabStop</c> to any <c>FrameworkElement</c> (Reconciler.cs). Deliberately NOT
+    /// suppressors: <c>.TabIndex(n)</c> (the reconciler applies TabIndex only to <c>Control</c>s,
+    /// so it is a no-op on these factories) and <c>.OnKeyDown(...)</c> (wires a key handler but does
+    /// not add the element to the tab order, so a keyboard user still cannot focus it). In both
+    /// cases the correct completion is to add <c>.IsTabStop(true)</c> — exactly what the fix does —
+    /// so treating either as sufficient would silently pass a still-unreachable container.
     /// </summary>
     private static readonly ImmutableHashSet<string> FocusAffordanceModifiers =
-        ImmutableHashSet.Create("IsTabStop", "OnKeyDown");
+        ImmutableHashSet.Create("IsTabStop");
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
         ImmutableArray.Create(Rule);

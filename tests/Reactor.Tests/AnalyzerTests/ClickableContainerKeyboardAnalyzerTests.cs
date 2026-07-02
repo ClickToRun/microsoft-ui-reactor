@@ -136,11 +136,7 @@ namespace App
     public Task Border_With_IsTabStop_No_Diagnostic() =>
         VerifyAsync(@"Border(TextBlock(""hi"")).OnTapped((_, __) => Open()).IsTabStop(true)");
 
-    [Fact]
-    public Task Border_With_OnKeyDown_No_Diagnostic() =>
-        VerifyAsync(@"Border(TextBlock(""hi"")).OnTapped((_, __) => Open()).OnKeyDown((_, __) => Open())");
-
-    // The idiomatic focusable-container shape in this codebase pairs the two.
+    // The idiomatic focusable-container shape in this codebase pairs the two; `.IsTabStop` suppresses.
     [Fact]
     public Task Border_With_IsTabStop_And_OnKeyDown_No_Diagnostic() =>
         VerifyAsync(@"Border(TextBlock(""hi"")).OnTapped((_, __) => Open()).IsTabStop(true).OnKeyDown((_, __) => Open())");
@@ -151,6 +147,12 @@ namespace App
     [Fact]
     public Task Border_With_TabIndex_Only_Still_Fires() =>
         VerifyAsync(@"{|REACTOR_A11Y_004:Border(TextBlock(""hi""))|}.OnTapped((_, __) => Open()).TabIndex(0)");
+
+    // `.OnKeyDown` alone wires key handling but does not add the container to the tab order, so a
+    // keyboard user still can't focus it — the rule must still fire; the fix is `.IsTabStop(true)`.
+    [Fact]
+    public Task Border_With_OnKeyDown_Only_Still_Fires() =>
+        VerifyAsync(@"{|REACTOR_A11Y_004:Border(TextBlock(""hi""))|}.OnTapped((_, __) => Open()).OnKeyDown((_, __) => Open())");
 
     // ── Negatives: a focusable control is already in the tab order ─────
 
