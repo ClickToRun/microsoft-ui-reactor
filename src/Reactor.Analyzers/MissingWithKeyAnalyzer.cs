@@ -232,8 +232,12 @@ public sealed class MissingWithKeyAnalyzer : DiagnosticAnalyzer
                     if (receiver == "Guid" && memberName == "NewGuid") return true;
                     if (receiver == "DateTime" && memberName is "Now" or "UtcNow") return true;
                     if (receiver == "Environment" && memberName is "TickCount" or "TickCount64") return true;
-                    // Random.Shared / Random.Next(…) — the type as a static receiver.
-                    if (receiver == "Random") return true;
+                    // Random.Shared — the only static randomness source on the
+                    // Random type (instance use is caught via `new Random(...)`
+                    // below). Requiring the member name avoids flagging an
+                    // unrelated `Foo.Random.Bar` whose receiver merely reads a
+                    // member named Random.
+                    if (receiver == "Random" && memberName == "Shared") return true;
                     break;
 
                 // new Random(…) / new System.Random(…).

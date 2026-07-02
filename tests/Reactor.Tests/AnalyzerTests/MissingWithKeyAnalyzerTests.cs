@@ -478,6 +478,7 @@ namespace TestApp
     [InlineData("Environment.TickCount.ToString()")]          // Environment.TickCount
     [InlineData("Environment.TickCount64.ToString()")]        // Environment.TickCount64
     [InlineData("new Random().Next().ToString()")]            // new Random()
+    [InlineData("new System.Random().Next().ToString()")]     // new (qualified) Random()
     [InlineData("Random.Shared.Next().ToString()")]           // Random.Shared
     public async Task DSL_002_Fires_On_All_PerRender_Sources(string key)
     {
@@ -618,6 +619,35 @@ namespace TestApp
     {
         public static void Build(List<Row> rows)
             => rows.ForEach(r => { _ = TextBlock(r.Text).WithKey(Guid.NewGuid().ToString()); });
+    }
+}";
+
+        await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task DSL_002_Does_Not_Fire_On_Non_Shared_Random_Member()
+    {
+        // A type named Random accessed via a non-Shared member is not a
+        // per-render source — only `Random.Shared` and `new Random(...)` are.
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System.Linq;
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Core.Factories;
+
+    public record Row(string Id, string Text);
+    public static class Random { public static string Value => ""stable""; }
+
+    public static class C
+    {
+        public static Element Build(IReadOnlyList<Row> rows)
+            => FlexColumn(rows.Select(r => TextBlock(r.Text).WithKey(Random.Value)).ToArray());
     }
 }";
 
