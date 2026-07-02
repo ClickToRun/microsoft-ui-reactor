@@ -110,6 +110,45 @@ class Other
 }");
     }
 
+    // Negative: if the call binds to a Task-returning effect overload (a consumer-added
+    // UseEffect(Func<Task>)), the async lambda is awaited safely — no async void — so it must not fire.
+    [Fact]
+    public async Task Async_UseEffect_Bound_To_FuncTask_Overload_DoesNotFlag()
+    {
+        var test = @"
+using System;
+using System.Threading.Tasks;
+
+namespace Microsoft.UI.Reactor.Core
+{
+    public class RenderContext { }
+
+    public abstract class Component
+    {
+        protected internal RenderContext Context { get; } = new RenderContext();
+        public abstract string Render();
+        protected void UseEffect(Action effect, params object[] deps) { }
+        protected void UseEffect(Func<Task> effect, params object[] deps) { }
+        protected Task FetchAsync() => Task.CompletedTask;
+    }
+}
+
+class C : Microsoft.UI.Reactor.Core.Component
+{
+    public override string Render()
+    {
+        UseEffect(async () => await FetchAsync());
+        return """";
+    }
+}";
+
+        await new CSharpAnalyzerTest<HookRulesAnalyzer, DefaultVerifier>
+        {
+            TestCode = test,
+            ReferenceAssemblies = ReferenceAssemblies.Net.Net80,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
     [Fact]
     public async Task CodeFix_Extracts_Async_Body_Into_Cancelable_Task()
     {

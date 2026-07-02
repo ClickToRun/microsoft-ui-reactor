@@ -90,7 +90,7 @@ public sealed class EagerInitialValueCodeFix : CodeFixProvider
                     ct =>
                     {
                         var wrapped = SyntaxFactory
-                            .ParseExpression($"{prefix}UseMemo{targ}(() => {captured.WithoutTrivia().ToFullString()}, [])")
+                            .ParseExpression($"{prefix}UseMemo{targ}(() => {captured.ToString()}, [])")
                             .WithTriviaFrom(captured);
                         var newRoot = root.ReplaceNode(captured, wrapped);
                         return Task.FromResult(context.Document.WithSyntaxRoot(newRoot));

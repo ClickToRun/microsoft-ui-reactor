@@ -73,7 +73,7 @@ public sealed class ContextProvideCodeFix : CodeFixProvider
                     ct =>
                     {
                         var wrapped = SyntaxFactory
-                            .ParseExpression($"UseMemo{targ}(() => {captured.WithoutTrivia().ToFullString()}, [])")
+                            .ParseExpression($"UseMemo{targ}(() => {captured.ToString()}, [])")
                             .WithTriviaFrom(captured);
                         var newRoot = root.ReplaceNode(captured, wrapped);
                         return Task.FromResult(context.Document.WithSyntaxRoot(newRoot));

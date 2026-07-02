@@ -1072,7 +1072,25 @@ public sealed class HookRulesAnalyzer : DiagnosticAnalyzer
         };
         if (!asyncKeyword.IsKind(SyntaxKind.AsyncKeyword)) return;
 
+        // Only async VOID is the bug. If the call bound to an overload whose effect parameter is a
+        // Task-returning delegate (e.g. a consumer-added UseEffect(Func<Task>)), the async lambda is
+        // awaited safely — don't fire. Reactor itself has no such overload, so the unresolved /
+        // Action / Func<Action> cases still fire.
+        if (context.SemanticModel.GetSymbolInfo(invocation).Symbol is IMethodSymbol { Parameters.Length: > 0 } symbol
+            && symbol.Parameters[0].Type is INamedTypeSymbol { DelegateInvokeMethod: { } invoke }
+            && IsTaskLike(invoke.ReturnType))
+        {
+            return;
+        }
+
         context.ReportDiagnostic(Diagnostic.Create(AsyncEffectRule, first.GetLocation()));
+    }
+
+    private static bool IsTaskLike(ITypeSymbol type)
+    {
+        if (type.Name is not ("Task" or "ValueTask")) return false;
+        var ns = type.ContainingNamespace?.ToDisplayString();
+        return ns == "System.Threading.Tasks";
     }
 
     // ────────────────────────────────────────────────────────────

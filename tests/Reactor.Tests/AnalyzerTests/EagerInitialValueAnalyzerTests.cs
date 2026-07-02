@@ -249,4 +249,37 @@ class C : Microsoft.UI.Reactor.Core.Component
             ReferenceAssemblies = ReferenceAssemblies.Net.Net80,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    // A comment inside the initializer is preserved by the fix (ToString keeps internal trivia).
+    [Fact]
+    public async Task CodeFix_Preserves_Comment_Inside_Initializer()
+    {
+        var before = Stubs + @"
+class C : Microsoft.UI.Reactor.Core.Component
+{
+    public override string Render()
+    {
+        var (items, setItems) = UseState({|REACTOR_HOOKS_013:new System.Collections.Generic.List<string>(/* keep */)|});
+        return """";
+    }
+}";
+
+        var after = Stubs + @"
+class C : Microsoft.UI.Reactor.Core.Component
+{
+    public override string Render()
+    {
+        var (items, setItems) = UseState(UseMemo(() => new System.Collections.Generic.List<string>(/* keep */), []));
+        return """";
+    }
+}";
+
+        await new CSharpCodeFixTest<HookRulesAnalyzer, EagerInitialValueCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            ReferenceAssemblies = ReferenceAssemblies.Net.Net80,
+            CodeActionEquivalenceKey = HookRulesAnalyzer.EagerInitialValueId,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }
