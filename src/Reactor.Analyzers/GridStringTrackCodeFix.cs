@@ -10,6 +10,7 @@ using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeFixes;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Operations;
 
 namespace Microsoft.UI.Reactor.Analyzers;
 
@@ -83,27 +84,35 @@ public sealed class GridStringTrackCodeFix : CodeFixProvider
             // overload — CS0618 at this span could be any other obsolete symbol.
             if (!IsObsoleteGridStringOverload(model, invocation, context.CancellationToken)) continue;
 
-            var args = invocation.ArgumentList.Arguments;
-            if (args.Count < 2) continue;
+            // Bind the columns/rows arguments by parameter (robust to named /
+            // reordered args), never by syntactic position — a named call such as
+            // `Grid(children: [], columns: […], rows: […])` would otherwise let a
+            // non-track argument sit in slot 0/1 and get rewritten.
+            if (!TryGetTrackArguments(model, invocation, context.CancellationToken, out var columnsExpr, out var rowsExpr))
+                continue;
 
-            var columnsExpr = args[0].Expression;
-            var rowsExpr = args[1].Expression;
+            // Render `GridSize` with exactly enough qualification to compile at this
+            // call site: bare `GridSize` when the namespace is imported, otherwise a
+            // qualified name. Mirrors CommandDebounceCodeFix's ToMinimalDisplayString use.
+            var gridSizeName = ResolveGridSizeName(model, invocation.SpanStart);
 
             // Both track arrays must be inline literal arrays whose every element
             // parses to a GridSize. If either can't be rewritten mechanically we
             // offer nothing and let the warning stand (spec 060 §4.5).
-            if (!TryRewriteTrackArray(columnsExpr, out var newColumns)) continue;
-            if (!TryRewriteTrackArray(rowsExpr, out var newRows)) continue;
+            if (!TryRewriteTrackArray(columnsExpr!, gridSizeName, out var newColumns)) continue;
+            if (!TryRewriteTrackArray(rowsExpr!, gridSizeName, out var newRows)) continue;
 
+            var capturedColumns = columnsExpr!;
+            var capturedRows = rowsExpr!;
             context.RegisterCodeFix(
                 CodeAction.Create(
                     "Use typed GridSize tracks",
                     ct =>
                     {
                         var newInvocation = invocation.ReplaceNodes(
-                            new SyntaxNode[] { columnsExpr, rowsExpr },
+                            new SyntaxNode[] { capturedColumns, capturedRows },
                             (original, _) =>
-                                ReferenceEquals(original, columnsExpr) ? newColumns! : newRows!);
+                                ReferenceEquals(original, capturedColumns) ? newColumns! : newRows!);
 
                         var newRoot = root.ReplaceNode(invocation, newInvocation);
                         return Task.FromResult(context.Document.WithSyntaxRoot(newRoot));
@@ -137,12 +146,52 @@ public sealed class GridStringTrackCodeFix : CodeFixProvider
         type is IArrayTypeSymbol { ElementType.SpecialType: SpecialType.System_String };
 
     /// <summary>
+    /// Resolves the syntax of the arguments bound to the <c>columns</c> and
+    /// <c>rows</c> parameters via the invocation operation, so named / reordered
+    /// arguments map correctly (never assume positional slot 0/1).
+    /// </summary>
+    private static bool TryGetTrackArguments(
+        SemanticModel model, InvocationExpressionSyntax invocation, CancellationToken ct,
+        out ExpressionSyntax? columnsExpr, out ExpressionSyntax? rowsExpr)
+    {
+        columnsExpr = null;
+        rowsExpr = null;
+
+        if (model.GetOperation(invocation, ct) is not IInvocationOperation operation) return false;
+
+        foreach (var argument in operation.Arguments)
+        {
+            if (argument.Syntax is not ArgumentSyntax argumentSyntax) continue;
+            switch (argument.Parameter?.Name)
+            {
+                case "columns": columnsExpr = argumentSyntax.Expression; break;
+                case "rows": rowsExpr = argumentSyntax.Expression; break;
+            }
+        }
+
+        return columnsExpr is not null && rowsExpr is not null;
+    }
+
+    /// <summary>
+    /// The shortest name for <c>Microsoft.UI.Reactor.GridSize</c> that is
+    /// unambiguous at <paramref name="position"/> — bare <c>GridSize</c> when the
+    /// namespace is in scope, otherwise a qualified form so the emitted fix always
+    /// compiles (even when the call site imported only
+    /// <c>using static Microsoft.UI.Reactor.Factories;</c>).
+    /// </summary>
+    private static string ResolveGridSizeName(SemanticModel model, int position)
+    {
+        var gridSize = model.Compilation.GetTypeByMetadataName("Microsoft.UI.Reactor.GridSize");
+        return gridSize is null ? "GridSize" : gridSize.ToMinimalDisplayString(model, position);
+    }
+
+    /// <summary>
     /// Rewrites an inline literal track array to the typed <c>GridSize[]</c> form
     /// in place (preserving separators/trivia). Returns <see langword="false"/>
     /// when the argument is not an inline literal array or any element cannot be
     /// mapped to a <c>GridSize</c>.
     /// </summary>
-    private static bool TryRewriteTrackArray(ExpressionSyntax expr, out ExpressionSyntax? rewritten)
+    private static bool TryRewriteTrackArray(ExpressionSyntax expr, string gridSizeName, out ExpressionSyntax? rewritten)
     {
         rewritten = null;
 
@@ -159,26 +208,26 @@ public sealed class GridStringTrackCodeFix : CodeFixProvider
                     literals.Add(literal);
                 }
 
-                if (!TryBuildReplacements(literals, out var map)) return false;
+                if (!TryBuildReplacements(literals, gridSizeName, out var map)) return false;
                 rewritten = collection.ReplaceNodes(literals, (original, _) => map[original]);
                 return true;
             }
 
             // Implicitly typed array: new[] { "*", "Auto" }
             case ImplicitArrayCreationExpressionSyntax implicitArray:
-                return TryRewriteInitializer(implicitArray, implicitArray.Initializer, out rewritten);
+                return TryRewriteInitializer(implicitArray, implicitArray.Initializer, gridSizeName, out rewritten);
 
             // Explicitly typed array: new string[] { "*", "Auto" }
             case ArrayCreationExpressionSyntax explicitArray:
             {
                 if (explicitArray.Initializer is null) return false;
                 if (!IsStringElementType(explicitArray.Type)) return false;
-                if (!TryRewriteInitializer(explicitArray, explicitArray.Initializer, out var withElements)) return false;
+                if (!TryRewriteInitializer(explicitArray, explicitArray.Initializer, gridSizeName, out var withElements)) return false;
 
                 // Swap the element type string -> GridSize so overload resolution
                 // picks the typed Grid overload.
                 var rewrittenArray = (ArrayCreationExpressionSyntax)withElements!;
-                var newElementType = SyntaxFactory.IdentifierName("GridSize")
+                var newElementType = SyntaxFactory.ParseTypeName(gridSizeName)
                     .WithTriviaFrom(explicitArray.Type.ElementType);
                 var newArrayType = rewrittenArray.Type.WithElementType(newElementType);
                 rewritten = rewrittenArray.WithType(newArrayType);
@@ -192,7 +241,7 @@ public sealed class GridStringTrackCodeFix : CodeFixProvider
     }
 
     private static bool TryRewriteInitializer(
-        ExpressionSyntax container, InitializerExpressionSyntax initializer, out ExpressionSyntax? rewritten)
+        ExpressionSyntax container, InitializerExpressionSyntax initializer, string gridSizeName, out ExpressionSyntax? rewritten)
     {
         rewritten = null;
 
@@ -203,18 +252,18 @@ public sealed class GridStringTrackCodeFix : CodeFixProvider
             literals.Add(literal);
         }
 
-        if (!TryBuildReplacements(literals, out var map)) return false;
+        if (!TryBuildReplacements(literals, gridSizeName, out var map)) return false;
         rewritten = container.ReplaceNodes(literals, (original, _) => map[original]);
         return true;
     }
 
     private static bool TryBuildReplacements(
-        List<LiteralExpressionSyntax> literals, out Dictionary<SyntaxNode, SyntaxNode> map)
+        List<LiteralExpressionSyntax> literals, string gridSizeName, out Dictionary<SyntaxNode, SyntaxNode> map)
     {
         map = new Dictionary<SyntaxNode, SyntaxNode>();
         foreach (var literal in literals)
         {
-            if (!TryConvertTrack(literal.Token.ValueText, out var gridSize)) return false;
+            if (!TryConvertTrack(literal.Token.ValueText, gridSizeName, out var gridSize)) return false;
             map[literal] = gridSize!.WithTriviaFrom(literal);
         }
         return true;
@@ -236,9 +285,11 @@ public sealed class GridStringTrackCodeFix : CodeFixProvider
     /// Maps a track string to a <c>GridSize</c> factory expression, mirroring
     /// <c>GridSize.Parse</c>. Returns <see langword="false"/> for any string that
     /// does not map cleanly (so the whole fix is withheld rather than change
-    /// runtime behaviour).
+    /// runtime behaviour). Numeric weights/pixels are re-emitted from the parsed
+    /// value in round-trip invariant form, so lenient-but-not-C#-literal inputs
+    /// (e.g. <c>"5."</c>) still yield a compiling literal (<c>5</c>).
     /// </summary>
-    private static bool TryConvertTrack(string raw, out ExpressionSyntax? gridSize)
+    private static bool TryConvertTrack(string raw, string gridSizeName, out ExpressionSyntax? gridSize)
     {
         gridSize = null;
         var trimmed = raw.Trim();
@@ -247,14 +298,14 @@ public sealed class GridStringTrackCodeFix : CodeFixProvider
         // "Auto" / "auto" -> GridSize.Auto  (property — no parens)
         if (string.Equals(trimmed, "Auto", System.StringComparison.OrdinalIgnoreCase))
         {
-            gridSize = GridSizeAccess("Auto");
+            gridSize = GridSizeAccess(gridSizeName, "Auto");
             return true;
         }
 
         // "*" -> GridSize.Star()
         if (trimmed == "*")
         {
-            gridSize = Call("Star");
+            gridSize = Call(gridSizeName, "Star");
             return true;
         }
 
@@ -265,7 +316,7 @@ public sealed class GridStringTrackCodeFix : CodeFixProvider
             if (numericText.Length == 0) return false;
             if (double.TryParse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture, out var stars) && stars > 0)
             {
-                gridSize = Call("Star", numericText);
+                gridSize = Call(gridSizeName, "Star", FormatNumber(stars));
                 return true;
             }
             return false;
@@ -274,28 +325,30 @@ public sealed class GridStringTrackCodeFix : CodeFixProvider
         // "<n>" -> GridSize.Px(n)
         if (double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out var pixels) && pixels >= 0)
         {
-            gridSize = Call("Px", trimmed);
+            gridSize = Call(gridSizeName, "Px", FormatNumber(pixels));
             return true;
         }
 
         return false;
     }
 
-    private static MemberAccessExpressionSyntax GridSizeAccess(string member) =>
+    /// <summary>Round-trip invariant form that is always a valid C# numeric literal.</summary>
+    private static string FormatNumber(double value) => value.ToString("R", CultureInfo.InvariantCulture);
+
+    private static MemberAccessExpressionSyntax GridSizeAccess(string gridSizeName, string member) =>
         SyntaxFactory.MemberAccessExpression(
             SyntaxKind.SimpleMemberAccessExpression,
-            SyntaxFactory.IdentifierName("GridSize"),
+            SyntaxFactory.ParseExpression(gridSizeName),
             SyntaxFactory.IdentifierName(member));
 
-    private static ExpressionSyntax Call(string member) =>
-        SyntaxFactory.InvocationExpression(GridSizeAccess(member));
+    private static ExpressionSyntax Call(string gridSizeName, string member) =>
+        SyntaxFactory.InvocationExpression(GridSizeAccess(gridSizeName, member));
 
-    private static ExpressionSyntax Call(string member, string numericLiteralText)
+    private static ExpressionSyntax Call(string gridSizeName, string member, string numericLiteralText)
     {
-        var argument = SyntaxFactory.Argument(
-            (ExpressionSyntax)SyntaxFactory.ParseExpression(numericLiteralText));
+        var argument = SyntaxFactory.Argument(SyntaxFactory.ParseExpression(numericLiteralText));
         return SyntaxFactory.InvocationExpression(
-            GridSizeAccess(member),
+            GridSizeAccess(gridSizeName, member),
             SyntaxFactory.ArgumentList(SyntaxFactory.SingletonSeparatedList(argument)));
     }
 

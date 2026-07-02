@@ -53,6 +53,14 @@ namespace Microsoft.UI.Reactor
     {
         public static Element Build() { return null; }
     }
+
+    // Same-named obsolete Grid(string[],string[],...) in a DIFFERENT type — the
+    // symbol gate must reject it (ContainingType != Microsoft.UI.Reactor.Factories).
+    public static class OtherFactories
+    {
+        [System.Obsolete(""A different Grid — not the DSL factory."", error: false)]
+        public static Element Grid(string[] columns, string[] rows, params Element[] children) { return null; }
+    }
 }
 ";
 
@@ -337,5 +345,207 @@ namespace TestApp
 }";
 
         await MakeTest(source, source).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // ── Near-miss: an obsolete Grid(string[],string[],...) in a DIFFERENT type ──
+
+    [Fact]
+    public async Task No_Fix_For_Same_Shape_Grid_In_Different_Type()
+    {
+        // Guards the ContainingType half of the symbol gate: only
+        // Microsoft.UI.Reactor.Factories.Grid is fixable.
+        var source = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor;
+
+    public static class C
+    {
+        public static Element Build() =>
+            {|CS0618:OtherFactories.Grid([""*""], [""*""])|};
+    }
+}";
+
+        await MakeTest(source, source).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // ── No fix: numeric bounds (weight must be > 0, pixels must be >= 0) ──
+
+    [Fact]
+    public async Task No_Fix_When_Star_Weight_Is_Zero()
+    {
+        var source = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor;
+    using static Microsoft.UI.Reactor.Factories;
+
+    public static class C
+    {
+        public static Element Build() =>
+            {|CS0618:Grid([""0*""], [""*""])|};
+    }
+}";
+
+        await MakeTest(source, source).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Fix_When_Pixels_Are_Negative()
+    {
+        var source = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor;
+    using static Microsoft.UI.Reactor.Factories;
+
+    public static class C
+    {
+        public static Element Build() =>
+            {|CS0618:Grid([""-5""], [""*""])|};
+    }
+}";
+
+        await MakeTest(source, source).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // ── Fix emits compiling GridSize even with only the static factory import ──
+
+    [Fact]
+    public async Task Fix_Qualifies_GridSize_When_Namespace_Not_Imported()
+    {
+        // The call site imports ONLY `using static ...Factories;`, so a bare
+        // `GridSize` would not resolve. ToMinimalDisplayString qualifies it.
+        var before = Stubs + @"
+namespace TestApp
+{
+    using static Microsoft.UI.Reactor.Factories;
+
+    public static class C
+    {
+        public static object Build() =>
+            {|CS0618:Grid([""*"", ""Auto""], [""200""])|};
+    }
+}";
+
+        var after = Stubs + @"
+namespace TestApp
+{
+    using static Microsoft.UI.Reactor.Factories;
+
+    public static class C
+    {
+        public static object Build() =>
+            Grid([Microsoft.UI.Reactor.GridSize.Star(), Microsoft.UI.Reactor.GridSize.Auto], [Microsoft.UI.Reactor.GridSize.Px(200)]);
+    }
+}";
+
+        await MakeTest(before, after).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // ── Lenient-but-not-C#-literal numerics normalize to a compiling literal ──
+
+    [Fact]
+    public async Task Fix_Normalizes_Trailing_Dot_Numeric_Tracks()
+    {
+        // "5.*" / "5." parse as doubles at runtime but "5." is not a valid C#
+        // literal; the fix must emit "5", not "5.".
+        var before = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor;
+    using static Microsoft.UI.Reactor.Factories;
+
+    public static class C
+    {
+        public static Element Build() =>
+            {|CS0618:Grid([""5.*""], [""5.""])|};
+    }
+}";
+
+        var after = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor;
+    using static Microsoft.UI.Reactor.Factories;
+
+    public static class C
+    {
+        public static Element Build() =>
+            Grid([GridSize.Star(5)], [GridSize.Px(5)]);
+    }
+}";
+
+        await MakeTest(before, after).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // ── Named / reordered args: only the columns & rows params are rewritten ──
+
+    [Fact]
+    public async Task Fix_Rewrites_Only_Track_Params_With_Reordered_Named_Args()
+    {
+        // `children` named first must NOT be treated as a track array; the fix
+        // must bind columns/rows by parameter, not by syntactic position.
+        var before = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor;
+    using static Microsoft.UI.Reactor.Factories;
+
+    public static class C
+    {
+        public static Element Build() =>
+            {|CS0618:Grid(children: new Element[] { }, columns: [""*""], rows: [""Auto""])|};
+    }
+}";
+
+        var after = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor;
+    using static Microsoft.UI.Reactor.Factories;
+
+    public static class C
+    {
+        public static Element Build() =>
+            Grid(children: new Element[] { }, columns: [GridSize.Star()], rows: [GridSize.Auto]);
+    }
+}";
+
+        await MakeTest(before, after).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // ── Fix-all: every legacy Grid in the document is converted ──────────
+
+    [Fact]
+    public async Task Fix_Converts_Multiple_Call_Sites()
+    {
+        var before = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor;
+    using static Microsoft.UI.Reactor.Factories;
+
+    public static class C
+    {
+        public static Element A() => {|CS0618:Grid([""*""], [""Auto""])|};
+        public static Element B() => {|CS0618:Grid([""2*""], [""200""])|};
+    }
+}";
+
+        var after = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor;
+    using static Microsoft.UI.Reactor.Factories;
+
+    public static class C
+    {
+        public static Element A() => Grid([GridSize.Star()], [GridSize.Auto]);
+        public static Element B() => Grid([GridSize.Star(2)], [GridSize.Px(200)]);
+    }
+}";
+
+        await MakeTest(before, after).RunAsync(TestContext.Current.CancellationToken);
     }
 }
