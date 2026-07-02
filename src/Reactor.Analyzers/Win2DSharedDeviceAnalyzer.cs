@@ -65,8 +65,8 @@ public sealed class Win2DSharedDeviceAnalyzer : DiagnosticAnalyzer
         "UseCanvasResources creates its resources on Win2D's process-wide shared device " +
         "(CanvasDevice.GetSharedDevice()). Win2D resources are device-affine, so a canvas that " +
         "draws them must opt into that same device via .UseSharedDevice(); a default-device canvas " +
-        "drawing a shared-device resource fails with a fatal cross-device stowed exception. See " +
-        "docs/guide/win2d-canvas.md#shared-device.";
+        "drawing a shared-device resource fails with a fatal cross-device stowed exception. See the " +
+        "shared-device section of docs/guide/win2d-canvas.md for the opt-in guidance.";
 
     private static readonly DiagnosticDescriptor Rule = new(
         DiagnosticId,

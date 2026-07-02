@@ -119,8 +119,18 @@ public sealed class Win2DSharedDeviceCodeFix : CodeFixProvider
         return false;
     }
 
-    private static bool IsWin2DUsing(UsingDirectiveSyntax directive) =>
-        directive.Alias is null
-        && directive.StaticKeyword.IsKind(SyntaxKind.None)
-        && directive.Name?.ToString() == Win2DNamespace;
+    private static bool IsWin2DUsing(UsingDirectiveSyntax directive)
+    {
+        if (directive.Alias is not null || !directive.StaticKeyword.IsKind(SyntaxKind.None) || directive.Name is null)
+            return false;
+
+        // Accept `using global::Microsoft.UI.Reactor.Advanced.Win2D;` too, so an already-imported
+        // namespace isn't mistaken for absent (which would insert a duplicate using / CS0105).
+        var name = directive.Name.ToString();
+        const string GlobalPrefix = "global::";
+        if (name.StartsWith(GlobalPrefix, System.StringComparison.Ordinal))
+            name = name.Substring(GlobalPrefix.Length);
+
+        return name == Win2DNamespace;
+    }
 }

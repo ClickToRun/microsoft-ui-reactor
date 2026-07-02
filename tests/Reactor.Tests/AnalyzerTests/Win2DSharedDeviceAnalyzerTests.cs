@@ -316,4 +316,55 @@ namespace TestApp
             CodeActionEquivalenceKey = Win2DSharedDeviceAnalyzer.DiagnosticId,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    [Fact]
+    public async Task CodeFix_Does_Not_Duplicate_A_Global_Qualified_Using()
+    {
+        // The namespace is already imported via `using global::...`, so the fix must recognize it as
+        // in scope and append only .UseSharedDevice() without inserting a duplicate using (CS0105).
+        const string body = @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+    using global::Microsoft.UI.Reactor.Advanced.Win2D;
+    using static Microsoft.UI.Reactor.Advanced.Factories;
+
+    public class F
+    {
+        static void Use(Ref<object> r) { }
+
+        public Element Render(RenderContext ctx)
+        {
+            var sprite = ctx.UseCanvasResources<object>(d => new object());
+            return {|REACTOR_WIN2D_001:Win2DCanvas|}(() => Use(sprite));
+        }
+    }
+}";
+
+        const string fixedBody = @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+    using global::Microsoft.UI.Reactor.Advanced.Win2D;
+    using static Microsoft.UI.Reactor.Advanced.Factories;
+
+    public class F
+    {
+        static void Use(Ref<object> r) { }
+
+        public Element Render(RenderContext ctx)
+        {
+            var sprite = ctx.UseCanvasResources<object>(d => new object());
+            return Win2DCanvas(() => Use(sprite)).UseSharedDevice();
+        }
+    }
+}";
+
+        await new CSharpCodeFixTest<Win2DSharedDeviceAnalyzer, Win2DSharedDeviceCodeFix, DefaultVerifier>
+        {
+            TestCode = Stubs + body,
+            FixedCode = Stubs + fixedBody,
+            CodeActionEquivalenceKey = Win2DSharedDeviceAnalyzer.DiagnosticId,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }
