@@ -88,6 +88,7 @@ Additional flags:
 | `REACTOR_A11Y_001` | warning | Icon-only button missing accessible name | Add `.AutomationName("Delete")` (or similar). |
 | `REACTOR_A11Y_002` | warning | Image missing alt text | Add `.AutomationName(...)` or `.AccessibilityHidden(true)` for decorative images. |
 | `REACTOR_A11Y_003` | warning | Form field missing label | Wrap in `FormField(input, label: "Email", required: true)`. |
+| `REACTOR_DIALOG_001` | warning | WinUI `ContentDialog.ShowAsync()` opened imperatively from a handler | Model it declaratively: `ContentDialog(title, content) with { IsOpen = open, OnClosed = _ => setOpen(false) }`. The dialog stays in the tree and `IsOpen` controls visibility — the imperative dialog has no parent theme and can't be tested. |
 | `CS0103` | error | "The name 'X' does not exist in the current context" | Missing `using` — most often `Microsoft.UI.Reactor.Layout` (FlexAlign), `Microsoft.UI.Xaml.Controls` (InfoBarSeverity, Orientation), or `static Microsoft.UI.Reactor.Factories`. |
 | `CS1061` | error | "'X' does not contain a definition for 'Y'" | Modifier order — type-specific sugar (`.Bold()`, `.Foreground()` on `TextBlockElement`) must come before generic modifiers (`.Margin()`, `.Padding()`) that return base `Element`. |
 | `CS0117` | error | "'Element' does not contain a definition for X" | Same root cause as CS1061 — modifier order, OR you're calling a factory that doesn't exist. Confirm against `reactor-dsl/references/reactor.api.txt`. |
