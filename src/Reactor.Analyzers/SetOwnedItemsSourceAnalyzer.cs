@@ -76,6 +76,12 @@ public sealed class SetOwnedItemsSourceAnalyzer : DiagnosticAnalyzer
         if (leftAccess is null || leftAccess.Name.Identifier.Text != "ItemsSource")
             return;
 
+        // Guard against an unrelated user-defined '.Set' extension on a Reactor element:
+        // the "owns its items via keyed reconciliation" rationale is specific to Reactor's
+        // own .Set setter.
+        if (!SetLambdaHelpers.IsReactorSetInvocation(invocation, context.SemanticModel, context.CancellationToken))
+            return;
+
         // Semantic gate: the receiver's element type must be one of the curated
         // Reactor collection elements (the property name alone is not enough — the
         // curated table is what distinguishes owned collections from the AutoSuggestBox

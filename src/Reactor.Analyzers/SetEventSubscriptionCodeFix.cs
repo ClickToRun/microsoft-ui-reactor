@@ -26,10 +26,11 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// mount/unmount action and lets a fix-all over several <c>.Set</c> subscriptions on one
 /// element stack rather than clobbering each other.</para>
 /// <para>The fix is only offered when the handler <c>h</c> is a stable delegate — a
-/// <c>static</c> method group or a field/property — because <c>.OnMount</c> runs once at
-/// mount and <c>.OnUnmount</c> once at unmount; a per-render captured lambda/local would
-/// make <c>-=</c> remove a different delegate and leak. Otherwise the diagnostic stands
-/// with no fix. Only the subscribe (<c>+=</c>) shape is rewritten.</para>
+/// <c>static</c> method group or a field — because <c>.OnMount</c> runs once at mount and
+/// <c>.OnUnmount</c> once at unmount; a per-render captured lambda/local (or a property
+/// whose getter recomputes the delegate) would make <c>-=</c> remove a different delegate
+/// and leak. Otherwise the diagnostic stands with no fix. Only the subscribe (<c>+=</c>)
+/// shape is rewritten.</para>
 /// </remarks>
 [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(SetEventSubscriptionCodeFix))]
 [Shared]
@@ -104,8 +105,10 @@ public sealed class SetEventSubscriptionCodeFix : CodeFixProvider
 
     /// <summary>
     /// A handler is stable across renders — safe to <c>+=</c> at mount and <c>-=</c> at
-    /// unmount — when it is a <c>static</c> (ordinary) method group or a field/property
-    /// reference. Lambdas, anonymous methods, and locals are unstable.
+    /// unmount — when it is a <c>static</c> (ordinary) method group or a field reference.
+    /// Lambdas, anonymous methods, locals, and <b>properties</b> are treated as unstable: a
+    /// property getter may return a fresh delegate on each call, so the mount <c>+=</c> and
+    /// unmount <c>-=</c> could reference different delegates and leak.
     /// </summary>
     private static bool IsStableHandler(ExpressionSyntax handler, SemanticModel model, CancellationToken ct)
     {
@@ -119,7 +122,6 @@ public sealed class SetEventSubscriptionCodeFix : CodeFixProvider
         {
             IMethodSymbol method => method.IsStatic && method.MethodKind == MethodKind.Ordinary,
             IFieldSymbol => true,
-            IPropertySymbol => true,
             _ => false,
         };
     }

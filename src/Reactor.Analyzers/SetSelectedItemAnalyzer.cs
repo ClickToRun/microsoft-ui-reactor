@@ -81,6 +81,11 @@ public sealed class SetSelectedItemAnalyzer : DiagnosticAnalyzer
         if (member != "SelectedItem" && member != "SelectedValue")
             return;
 
+        // Guard against an unrelated user-defined '.Set' extension on a Reactor element:
+        // the destructive delete-fix is only sound for Reactor's own .Set setter.
+        if (!SetLambdaHelpers.IsReactorSetInvocation(invocation, context.SemanticModel, context.CancellationToken))
+            return;
+
         // Semantic gate 1: receiver is one of the curated SelectedIndex-controlled elements.
         var receiverType = context.SemanticModel
             .GetTypeInfo(memberAccess.Expression, context.CancellationToken).Type;

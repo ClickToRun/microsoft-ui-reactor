@@ -131,6 +131,7 @@ public sealed class SetVisibilityCodeFix : CodeFixProvider
     {
         IdentifierNameSyntax { Identifier.Text: "Visibility" } => true,
         MemberAccessExpressionSyntax { Name.Identifier.Text: "Visibility" } => true,
+        AliasQualifiedNameSyntax { Name.Identifier.Text: "Visibility" } => true,
         _ => false,
     };
 

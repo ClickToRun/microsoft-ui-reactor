@@ -73,6 +73,27 @@ class C
     }
 
     [Fact]
+    public async Task Fires_And_Fixes_Collapsed_Global_Qualified()
+    {
+        // global::Microsoft.UI.Xaml.Visibility.Collapsed still resolves to the Visibility enum.
+        var before = Stubs + @"
+class C
+{
+    BorderElement M(BorderElement b) => {|REACTOR_VIS_001:b.Set(c => c.Visibility = global::Microsoft.UI.Xaml.Visibility.Collapsed)|};
+}";
+        var after = Stubs + @"
+class C
+{
+    BorderElement M(BorderElement b) => b.IsVisible(false);
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, SetVisibilityCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task Fires_And_Fixes_Visible()
     {
         var before = Stubs + @"

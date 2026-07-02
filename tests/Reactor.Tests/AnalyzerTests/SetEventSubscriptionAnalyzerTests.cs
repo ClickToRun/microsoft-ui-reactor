@@ -163,6 +163,24 @@ class C
     }
 
     [Fact]
+    public async Task Fires_But_No_Fix_For_Property_Handler()
+    {
+        // A property getter can recompute the delegate on each call, so '+=' at mount and
+        // '-=' at unmount could reference different delegates — the fix is withheld.
+        var code = Stubs + @"
+class C
+{
+    System.EventHandler Handler => (s, e) => { };
+    ButtonElement M(ButtonElement b) => {|REACTOR_LIFECYCLE_001:b.Set(c => c.Click += Handler)|};
+}";
+        await new CSharpCodeFixTest<SetEventSubscriptionAnalyzer, SetEventSubscriptionCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task No_Diagnostic_For_NonReactor_Set_Helper()
     {
         // A '.Set' that is not a Reactor DSL setter (different namespace) must not fire even
