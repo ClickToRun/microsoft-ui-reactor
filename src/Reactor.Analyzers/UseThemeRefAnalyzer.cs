@@ -192,22 +192,28 @@ public sealed class UseThemeRefAnalyzer : DiagnosticAnalyzer
     }
 
     // Accept only the WinUI static Colors class: bare `Colors` (with `using Microsoft.UI;`), or the
-    // qualified `Microsoft.UI.Colors` / `Windows.UI.Colors`. A look-alike such as
-    // `MyCompany.UI.Colors` or an unrelated `Foo.White` is intentionally rejected so the code fix
-    // never maps a non-WinUI palette. (The code fix additionally confirms the SolidColorBrush type
-    // semantically before rewriting.)
+    // qualified `Microsoft.UI.Colors` / `Windows.UI.Colors` (optionally `global::`-qualified). A
+    // look-alike such as `MyCompany.UI.Colors` or an unrelated `Foo.White` is intentionally rejected
+    // so the code fix never maps a non-WinUI palette. (The code fix additionally confirms the
+    // SolidColorBrush type semantically before rewriting.)
     private static bool IsColorsReceiver(ExpressionSyntax receiver) => receiver switch
     {
         IdentifierNameSyntax { Identifier.Text: "Colors" } => true,
         MemberAccessExpressionSyntax
         {
             Name.Identifier.Text: "Colors",
-            Expression: MemberAccessExpressionSyntax
-            {
-                Name.Identifier.Text: "UI",
-                Expression: IdentifierNameSyntax { Identifier.Text: "Microsoft" or "Windows" }
-            }
-        } => true,
+            Expression: MemberAccessExpressionSyntax { Name.Identifier.Text: "UI", Expression: var root }
+        } => IsMicrosoftOrWindowsRoot(root),
+        _ => false,
+    };
+
+    // The `Microsoft` / `Windows` root of `Microsoft.UI.Colors` / `Windows.UI.Colors`, allowing a
+    // `global::` alias qualifier (e.g. `global::Microsoft.UI.Colors`, common in generated/qualified
+    // code — the framework itself uses it).
+    private static bool IsMicrosoftOrWindowsRoot(ExpressionSyntax root) => root switch
+    {
+        IdentifierNameSyntax { Identifier.Text: "Microsoft" or "Windows" } => true,
+        AliasQualifiedNameSyntax { Name.Identifier.Text: "Microsoft" or "Windows" } => true,
         _ => false,
     };
 

@@ -540,4 +540,45 @@ namespace TestApp
             FixedCode = code,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    [Fact]
+    public async Task Fix_Rewrites_Global_Qualified_WinUi_Colors()
+    {
+        // The framework itself writes `global::Microsoft.UI.Colors.X`; that fully-qualified form must
+        // still map + auto-fix.
+        var test = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Xaml.Media;
+    using Microsoft.UI.Reactor.Core;
+
+    class C
+    {
+        void M(dynamic el)
+        {
+            el.Background({|REACTOR_THEME_004:new SolidColorBrush(global::Microsoft.UI.Colors.White)|});
+        }
+    }
+}";
+        var fixedCode = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Xaml.Media;
+    using Microsoft.UI.Reactor.Core;
+
+    class C
+    {
+        void M(dynamic el)
+        {
+            el.Background(Theme.SolidBackground);
+        }
+    }
+}";
+        await new CSharpCodeFixTest<UseThemeRefAnalyzer, UseThemeRefCodeFix, DefaultVerifier>
+        {
+            TestCode = test,
+            FixedCode = fixedCode,
+            CodeActionEquivalenceKey = "REACTOR_THEME_004_SolidBackground",
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }
