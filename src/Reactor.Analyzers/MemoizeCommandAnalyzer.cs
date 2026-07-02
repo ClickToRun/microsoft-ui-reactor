@@ -209,7 +209,11 @@ public sealed class MemoizeCommandAnalyzer : DiagnosticAnalyzer
     {
         for (var t = type; t is not null; t = t.BaseType)
         {
-            var name = t.OriginalDefinition.ToDisplayString();
+            // Fully-qualified (global::-stripped) so the compare never depends on a minimally-qualified
+            // display name — mirrors HookRulesAnalyzer.IsOrDerivesFrom.
+            var name = t.OriginalDefinition
+                .ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                .Replace("global::", "");
             if (name is "Microsoft.UI.Reactor.Core.Component" or "Microsoft.UI.Reactor.Core.RenderContext"
                 || name.StartsWith("Microsoft.UI.Reactor.Core.Component<", System.StringComparison.Ordinal))
                 return true;

@@ -140,6 +140,7 @@ public sealed class MemoizeCommandCodeFix : CodeFixProvider
     private static ImmutableArray<string> ComputeDependencies(
         SemanticModel model, ExpressionSyntax creation, System.Threading.CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         var flow = model.AnalyzeDataFlow(creation);
         if (flow is null || !flow.Succeeded) return ImmutableArray<string>.Empty;
 
