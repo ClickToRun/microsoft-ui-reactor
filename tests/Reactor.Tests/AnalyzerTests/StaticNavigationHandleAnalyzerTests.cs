@@ -11,8 +11,8 @@ namespace Microsoft.UI.Reactor.Tests.AnalyzerTests;
 /// Stubs a minimal Reactor-shaped <c>NavigationHandle&lt;TRoute&gt;</c> (in the real
 /// <c>Microsoft.UI.Reactor.Navigation</c> namespace the analyzer keys on) plus a
 /// <c>Component</c> base exposing <c>UseNavigation</c>, so the pure symbol gate fires
-/// without pulling the framework in. The analyzer flags a <c>static</c> field typed
-/// <c>NavigationHandle&lt;&gt;</c> regardless of how the value flows in — the handle's
+/// without pulling the framework in. The analyzer flags a <c>static</c> field or property
+/// typed <c>NavigationHandle&lt;&gt;</c> regardless of how the value flows in — the handle's
 /// constructor is <c>internal</c>, so consumer code can only get one from
 /// <c>UseNavigation</c>.
 /// </summary>
@@ -110,7 +110,26 @@ class Shell : Component
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 
-    // ── Negative: instance field / local assigned from UseNavigation ──
+    [Fact]
+    public async Task Fires_For_Static_AutoProperty()
+    {
+        // A static auto-property holds the handle for the same static lifetime as a
+        // field; its backing field is implicitly declared, so it's reported here once.
+        var source = Stubs + @"
+class Shell : Component
+{
+    public static NavigationHandle<Route>? {|REACTOR_NAV_001:Nav|} { get; set; }
+
+    public void Render() => Nav = UseNavigation(Route.Home);
+}";
+
+        await new CSharpAnalyzerTest<StaticNavigationHandleAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // ── Negative: instance field / property / local assigned from UseNavigation ──
 
     [Fact]
     public async Task No_Diagnostic_For_Instance_Field()
@@ -125,6 +144,23 @@ class Shell : Component
         var nav = UseNavigation(Route.Home);
         Nav = nav;
     }
+}";
+
+        await new CSharpAnalyzerTest<StaticNavigationHandleAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_Instance_AutoProperty()
+    {
+        var source = Stubs + @"
+class Shell : Component
+{
+    public NavigationHandle<Route>? Nav { get; set; }
+
+    public void Render() => Nav = UseNavigation(Route.Home);
 }";
 
         await new CSharpAnalyzerTest<StaticNavigationHandleAnalyzer, DefaultVerifier>
