@@ -42,6 +42,17 @@ namespace Microsoft.UI.Xaml.Controls
         public Task<ContentDialogResult> ShowAsync() => Task.FromResult(ContentDialogResult.None);
         public Task<ContentDialogResult> ShowAsync(ContentDialogPlacement placement) => Task.FromResult(ContentDialogResult.None);
     }
+
+    // A subclass of the WinUI ContentDialog: ShowAsync is inherited, so the resolved method's
+    // ContainingType is still ContentDialog — a subclass shown imperatively must still fire.
+    public class ConfirmDialog : ContentDialog { }
+
+    // Same namespace as ContentDialog, different type name, own ShowAsync — locks the type-NAME
+    // half of the predicate (namespace matches, name must not).
+    public class PopupDialog
+    {
+        public Task<ContentDialogResult> ShowAsync() => Task.FromResult(ContentDialogResult.None);
+    }
 }
 
 namespace Microsoft.UI.Reactor.Core
@@ -75,6 +86,16 @@ namespace Unrelated
     // A different type that happens to expose a ShowAsync — trips the syntactic name gate but
     // must be rejected by the semantic ContainingType check.
     public class MessageDialog
+    {
+        public Task ShowAsync() => Task.CompletedTask;
+    }
+}
+
+namespace OtherUi
+{
+    // Same simple type name as WinUI ContentDialog, different namespace, own ShowAsync — locks
+    // the NAMESPACE half of the predicate (name matches, namespace must not).
+    public class ContentDialog
     {
         public Task ShowAsync() => Task.CompletedTask;
     }
@@ -182,6 +203,26 @@ class C
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 
+    [Fact]
+    public async Task Fires_For_Subclass_ShowAsync()
+    {
+        // A ContentDialog subclass shown imperatively — ShowAsync is inherited, so the resolved
+        // method's ContainingType is still Microsoft.UI.Xaml.Controls.ContentDialog.
+        var source = Stubs + @"
+class C
+{
+    async Task M()
+    {
+        await {|REACTOR_DIALOG_001:new Microsoft.UI.Xaml.Controls.ConfirmDialog().ShowAsync()|};
+    }
+}";
+
+        await new CSharpAnalyzerTest<ImperativeContentDialogAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
     // ── Negative: the controlled Reactor path ───────────────────────────────
 
     [Fact]
@@ -235,6 +276,70 @@ class C
         await new CSharpAnalyzerTest<ImperativeContentDialogAnalyzer, DefaultVerifier>
         {
             TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_NonWinUi_SameName_ContentDialog()
+    {
+        // Same simple type name (ContentDialog) but a different namespace — the namespace half of
+        // the predicate rejects it, so a look-alike type is not flagged.
+        var source = Stubs + @"
+class C
+{
+    async Task M()
+    {
+        var d = new OtherUi.ContentDialog();
+        await d.ShowAsync();
+    }
+}";
+
+        await new CSharpAnalyzerTest<ImperativeContentDialogAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_SameNamespace_NonContentDialog()
+    {
+        // Same namespace (Microsoft.UI.Xaml.Controls) but a different type name — the type-name
+        // half of the predicate rejects it, so a sibling WinUI type with ShowAsync is not flagged.
+        var source = Stubs + @"
+class C
+{
+    async Task M()
+    {
+        var p = new Microsoft.UI.Xaml.Controls.PopupDialog();
+        await p.ShowAsync();
+    }
+}";
+
+        await new CSharpAnalyzerTest<ImperativeContentDialogAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_Unresolved_ShowAsync()
+    {
+        // Incomplete / mid-edit code: the receiver can't be resolved, so GetSymbolInfo yields no
+        // IMethodSymbol and the analyzer stays silent rather than firing a false positive.
+        // CompilerDiagnostics.None because the source intentionally has an unresolved identifier.
+        var source = Stubs + @"
+class C
+{
+    void M()
+    {
+        undefinedDialog.ShowAsync();
+    }
+}";
+
+        await new CSharpAnalyzerTest<ImperativeContentDialogAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+            CompilerDiagnostics = CompilerDiagnostics.None,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 }
