@@ -30,7 +30,8 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// Low false-positive posture — fires only when the <c>keySelector</c> is a
 /// single-parameter lambda whose body <em>provably</em> does not depend on the item:
 /// the parameter is never referenced <b>and</b> the body contains no invocation,
-/// object-creation, or <c>await</c> (any of which could vary per item). It then
+/// object-creation, <c>await</c>, or in-place mutation (increment / decrement /
+/// assignment) — any of which could vary per item. It then
 /// semantically confirms the argument binds to a <c>keySelector</c> parameter of type
 /// <c>Func&lt;T, string&gt;</c> on <c>Microsoft.UI.Reactor.Factories</c>, so the
 /// untyped selection overloads' <c>onSelectedIndexChanged</c> callback, the
@@ -185,9 +186,10 @@ public sealed class ConstantKeySelectorAnalyzer : DiagnosticAnalyzer
     /// <summary>
     /// True when the lambda body evaluates to the same value for every item: the
     /// parameter is never referenced, and the body contains no invocation,
-    /// object-creation, or await (each a source of per-call variation). Both a
-    /// constant key (duplicates) and a null key trip this; a body that reads the
-    /// item, or that calls a helper (which could return unique values), does not.
+    /// object-creation, await, or in-place mutation (increment/decrement/assignment)
+    /// — each a source of per-call variation. Both a constant key (duplicates) and a
+    /// null key trip this; a body that reads the item, calls a helper (which could
+    /// return unique values), or mutates state (e.g. <c>_ =&gt; $"{n++}"</c>) does not.
     /// </summary>
     private static bool BodyProvablyIgnoresItem(LambdaExpressionSyntax lambda, string parameterName)
     {
@@ -204,6 +206,13 @@ public sealed class ConstantKeySelectorAnalyzer : DiagnosticAnalyzer
                 case ImplicitObjectCreationExpressionSyntax:
                 case AnonymousObjectCreationExpressionSyntax:
                 case AwaitExpressionSyntax:
+                case AssignmentExpressionSyntax:
+                    return false;
+                case PrefixUnaryExpressionSyntax pre
+                    when pre.IsKind(SyntaxKind.PreIncrementExpression) || pre.IsKind(SyntaxKind.PreDecrementExpression):
+                    return false;
+                case PostfixUnaryExpressionSyntax post
+                    when post.IsKind(SyntaxKind.PostIncrementExpression) || post.IsKind(SyntaxKind.PostDecrementExpression):
                     return false;
                 case IdentifierNameSyntax id
                     when id.Identifier.ValueText == parameterName && !IsMemberName(id):

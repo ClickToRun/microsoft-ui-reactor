@@ -69,6 +69,7 @@ namespace TestApp
     using Microsoft.UI.Reactor;
     public sealed class Item : IReactorKeyed { public string Id { get; set; } public string Key => Id; }
     public static class Keys { public const string Row = ""row""; public static string KeyOf(Item i) => i.Id; }
+    public static class Config { public const string x = ""row""; }
 }
 ";
 
@@ -124,6 +125,12 @@ namespace TestApp
     public Task Fires_For_Block_Body_Returning_Constant() =>
         Verify(@"            ListView(items, {|REACTOR_DSL_003:_ => { return ""row""; }|}, (i, idx) => Text(i.Id));");
 
+    [Fact]
+    public Task Fires_When_Member_Name_Matches_Param_Name() =>
+        // `x => Config.x` — the `x` after the dot is a member name, not a reference to
+        // the lambda parameter, so the selector still ignores its item (IsMemberName arm).
+        Verify(@"            ListView(items, {|REACTOR_DSL_003:x => Config.x|}, (i, idx) => Text(i.Id));");
+
     // ── Negative: does not fire ────────────────────────────────────────
 
     [Fact]
@@ -143,6 +150,13 @@ namespace TestApp
     public Task No_Diagnostic_When_Body_Has_Opaque_Helper_Call() =>
         // Ignores the item but calls a helper that could return unique values — bail.
         Verify(@"            ListView(items, _ => System.Guid.NewGuid().ToString(), (i, idx) => Text(i.Id));");
+
+    [Fact]
+    public Task No_Diagnostic_When_Body_Mutates_State_Per_Call() =>
+        // Ignores the item but produces a unique key per call via increment — this is
+        // NOT the duplicate-key bug the rule reports, so it must not fire.
+        Verify(@"            var n = 0;
+            ListView(items, _ => $""{n++}"", (i, idx) => Text(i.Id));");
 
     [Fact]
     public Task No_Diagnostic_For_IReactorKeyed_ViewBuilder_Overload() =>
