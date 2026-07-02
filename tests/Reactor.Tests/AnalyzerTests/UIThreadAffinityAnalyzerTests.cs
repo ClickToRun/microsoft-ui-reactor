@@ -503,4 +503,70 @@ class C
             FixedCode = after,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    [Fact]
+    public async Task Fires_For_Marked_Property_Compound_Assignment()
+    {
+        // A compound assignment still invokes the guarded setter.
+        var source = Stubs + @"
+class C
+{
+    void M()
+    {
+        var window = new FakeWindow();
+        Task.Run(() => {|REACTOR_THREAD_001:window.Title += ""!""|});
+    }
+}";
+
+        await new CSharpAnalyzerTest<UIThreadAffinityAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Preserves_Sibling_Statements_And_Comment()
+    {
+        // Only the flagged statement is wrapped; the sibling call and the comment
+        // above the flagged statement are preserved (no whole-block churn).
+        var before = Stubs + @"
+class C
+{
+    void M()
+    {
+        var window = new FakeWindow();
+        Task.Run(() =>
+        {
+            window.SafeMethod();
+            // marshal me
+            {|REACTOR_THREAD_001:window.Close()|};
+        });
+    }
+}";
+
+        var after = Stubs + @"
+class C
+{
+    void M()
+    {
+        var window = new FakeWindow();
+        Task.Run(() =>
+        {
+            window.SafeMethod();
+            // marshal me
+            var d = ReactorApp.UIDispatcher;
+            if (d is null)
+                window.Close();
+            else
+                d.TryEnqueue(() => window.Close());
+        });
+    }
+}";
+
+        await new CSharpCodeFixTest<UIThreadAffinityAnalyzer, UIThreadAffinityCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }

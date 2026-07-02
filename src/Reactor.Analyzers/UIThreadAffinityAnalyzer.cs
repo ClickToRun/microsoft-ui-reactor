@@ -63,7 +63,24 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.EnableConcurrentExecution();
         context.RegisterSyntaxNodeAction(AnalyzeInvocation, SyntaxKind.InvocationExpression);
-        context.RegisterSyntaxNodeAction(AnalyzeAssignment, SyntaxKind.SimpleAssignmentExpression);
+
+        // Every assignment kind whose target property setter runs — a compound
+        // assignment (`p += x`, `p ??= x`, …) invokes the setter just like `p = x`.
+        context.RegisterSyntaxNodeAction(
+            AnalyzeAssignment,
+            SyntaxKind.SimpleAssignmentExpression,
+            SyntaxKind.AddAssignmentExpression,
+            SyntaxKind.SubtractAssignmentExpression,
+            SyntaxKind.MultiplyAssignmentExpression,
+            SyntaxKind.DivideAssignmentExpression,
+            SyntaxKind.ModuloAssignmentExpression,
+            SyntaxKind.AndAssignmentExpression,
+            SyntaxKind.OrAssignmentExpression,
+            SyntaxKind.ExclusiveOrAssignmentExpression,
+            SyntaxKind.LeftShiftAssignmentExpression,
+            SyntaxKind.RightShiftAssignmentExpression,
+            SyntaxKind.UnsignedRightShiftAssignmentExpression,
+            SyntaxKind.CoalesceAssignmentExpression);
     }
 
     private static void AnalyzeInvocation(SyntaxNodeAnalysisContext context)

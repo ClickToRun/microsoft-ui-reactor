@@ -115,23 +115,31 @@ public sealed class UIThreadAffinityCodeFix : CodeFixProvider
         SyntaxNode newRoot;
         if (statement.Parent is BlockSyntax block)
         {
-            // Reformat the whole enclosing block so the declaration + guard land
-            // cleanly next to the block's other statements.
+            // Insert the declaration + guard in place of the flagged statement,
+            // leaving the block's other statements (and their comments/directives)
+            // untouched. Preserve the flagged statement's own leading trivia so a
+            // comment above it survives; format only the inserted nodes.
             var index = block.Statements.IndexOf(statement);
+            var declarationStmt = declaration
+                .NormalizeWhitespace(elasticTrivia: true)
+                .WithLeadingTrivia(statement.GetLeadingTrivia())
+                .WithAdditionalAnnotations(Formatter.Annotation);
+            var guardStmt = dispatchIf
+                .NormalizeWhitespace(elasticTrivia: true)
+                .WithLeadingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed)
+                .WithTrailingTrivia(statement.GetTrailingTrivia())
+                .WithAdditionalAnnotations(Formatter.Annotation);
             var newStatements = block.Statements
                 .RemoveAt(index)
-                .Insert(index, dispatchIf)
-                .Insert(index, declaration);
-            var newBlock = block.WithStatements(newStatements)
-                .NormalizeWhitespace(elasticTrivia: true)
-                .WithTriviaFrom(block)
-                .WithAdditionalAnnotations(Formatter.Annotation);
-            newRoot = root.ReplaceNode(block, newBlock);
+                .Insert(index, guardStmt)
+                .Insert(index, declarationStmt);
+            newRoot = root.ReplaceNode(block, block.WithStatements(newStatements));
         }
         else
         {
             // Embedded (braceless) or switch-section context — wrap in a block so
-            // the two replacement statements stay well-formed.
+            // the two replacement statements stay well-formed, carrying the
+            // statement's trivia onto the wrapper.
             var wrapper = SyntaxFactory.Block(declaration, dispatchIf)
                 .NormalizeWhitespace(elasticTrivia: true)
                 .WithTriviaFrom(statement)
