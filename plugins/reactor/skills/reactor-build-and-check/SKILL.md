@@ -88,6 +88,10 @@ Additional flags:
 | `REACTOR_A11Y_001` | warning | Icon-only button missing accessible name | Add `.AutomationName("Delete")` (or similar). |
 | `REACTOR_A11Y_002` | warning | Image missing alt text | Add `.AutomationName(...)` or `.AccessibilityHidden(true)` for decorative images. |
 | `REACTOR_A11Y_003` | warning | Form field missing label | Wrap in `FormField(input, label: "Email", required: true)`. |
+| `REACTOR_ITEMS_001` | warning | `.Set(x => x.ItemsSource = ...)` on a Reactor-owned collection (ListView/GridView/TreeView/TabView/Pivot/FlipView/SelectorBar) | Pass the data through the element's `items` factory argument — Reactor owns the items via keyed reconciliation. (AutoSuggestBox is exempt.) |
+| `REACTOR_CTRL_001` | warning | `.Set(x => x.SelectedItem/SelectedValue = ...)` on a selector that also sets `SelectedIndex` | Delete the `.Set(...)` — controlled `SelectedIndex` is the authority. Don't drive selection from two places. |
+| `REACTOR_VIS_001` | warning | Imperative `.Set(c => c.Visibility = Visibility.Collapsed)` | Use `.IsVisible(false)` / `.IsVisible(true)` (or conditional inclusion `cond ? el : null`). `.Set` writes aren't reconciled. |
+| `REACTOR_LIFECYCLE_001` | warning | Event subscription via `.Set(c => c.Event += h)` (re-subscribes every render) | Use `.OnMount(c => ((TControl)c).Event += h).OnUnmount(c => ((TControl)c).Event -= h)`. Keep `h` a stable delegate (static method or field). |
 | `CS0103` | error | "The name 'X' does not exist in the current context" | Missing `using` — most often `Microsoft.UI.Reactor.Layout` (FlexAlign), `Microsoft.UI.Xaml.Controls` (InfoBarSeverity, Orientation), or `static Microsoft.UI.Reactor.Factories`. |
 | `CS1061` | error | "'X' does not contain a definition for 'Y'" | Modifier order — type-specific sugar (`.Bold()`, `.Foreground()` on `TextBlockElement`) must come before generic modifiers (`.Margin()`, `.Padding()`) that return base `Element`. |
 | `CS0117` | error | "'Element' does not contain a definition for X" | Same root cause as CS1061 — modifier order, OR you're calling a factory that doesn't exist. Confirm against `reactor-dsl/references/reactor.api.txt`. |

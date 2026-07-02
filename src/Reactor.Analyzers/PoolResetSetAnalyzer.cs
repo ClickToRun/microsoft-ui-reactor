@@ -12,6 +12,8 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// <c>PROP</c> is a FrameworkElement property that <c>ElementPool.CleanElement</c>
 /// resets on pool return (or that the reconciler clears between renders), and a
 /// Reactor modifier exists that survives the reset. Suggests the fluent modifier.
+/// Also reports REACTOR_VIS_001 for the closely-related imperative
+/// <c>.Set(c =&gt; c.Visibility = ...)</c> case (see <see cref="VisibilityDiagnosticId"/>).
 /// </summary>
 /// <remarks>
 /// The pool reset is intentional — it's how Reactor guarantees a clean rental.
@@ -23,6 +25,17 @@ namespace Microsoft.UI.Reactor.Analyzers;
 public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
 {
     public const string DiagnosticId = "REACTOR_POOL_001";
+
+    /// <summary>
+    /// REACTOR_VIS_001: an imperative <c>.Set(c =&gt; c.Visibility = Visibility.X)</c>
+    /// that should be the declarative <c>.IsVisible(bool)</c> modifier. This is the same
+    /// failure mode as POOL_001 — an un-reconciled imperative write lost on re-render /
+    /// pool reuse — but <c>Visibility</c> is deliberately kept out of
+    /// <see cref="TrappedProperties"/> because its modifier has a different signature
+    /// (enum property vs. <c>bool</c> modifier), so it needs its own descriptor and a
+    /// dedicated bool-translating code fix (<c>SetVisibilityCodeFix</c>).
+    /// </summary>
+    public const string VisibilityDiagnosticId = "REACTOR_VIS_001";
 
     /// <summary>
     /// FrameworkElement property → Reactor modifier method name.
@@ -72,8 +85,30 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
         isEnabledByDefault: true,
         description: Description);
 
+    private static readonly LocalizableString VisibilityTitle =
+        "Use .IsVisible(...) modifier instead of imperative .Set(Visibility = ...)";
+
+    private static readonly LocalizableString VisibilityMessageFormat =
+        "'.Set(c => c.Visibility = ...)' is imperative and not reconciled; the value is lost on the next render or on pool reuse. Use the '.IsVisible(bool)' modifier instead.";
+
+    private static readonly LocalizableString VisibilityDescription =
+        "Setting Visibility through '.Set(...)' bypasses the declarative modifier chain " +
+        "the reconciler re-applies each render, so — like the pool-reset properties — the " +
+        "value survives the first render but disappears on the next reconcile or when the " +
+        "pooled control is reused. Use the '.IsVisible(bool)' modifier (or conditional " +
+        "inclusion) so visibility is reconciled every render.";
+
+    private static readonly DiagnosticDescriptor VisibilityRule = new(
+        VisibilityDiagnosticId,
+        VisibilityTitle,
+        VisibilityMessageFormat,
+        "Reactor.Layout",
+        DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: VisibilityDescription);
+
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-        ImmutableArray.Create(Rule);
+        ImmutableArray.Create(Rule, VisibilityRule);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -86,16 +121,12 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
     {
         var invocation = (InvocationExpressionSyntax)context.Node;
 
-        if (invocation.Expression is not MemberAccessExpressionSyntax memberAccess)
-            return;
-        if (memberAccess.Name.Identifier.Text != "Set")
+        if (!SetLambdaHelpers.IsSetInvocation(invocation, out var memberAccess))
             return;
 
-        var args = invocation.ArgumentList.Arguments;
-        if (args.Count != 1)
-            return;
+        var lambdaExpr = invocation.ArgumentList.Arguments[0].Expression;
 
-        var assignment = TryGetLambdaAssignment(args[0].Expression);
+        var assignment = SetLambdaHelpers.TryGetLambdaAssignment(lambdaExpr);
         if (assignment is null)
             return;
         if (assignment.Kind() != SyntaxKind.SimpleAssignmentExpression)
@@ -105,6 +136,33 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
             return;
 
         var propName = leftAccess.Name.Identifier.Text;
+
+        // REACTOR_VIS_001 — imperative Visibility toggling. Handled here as a POOL_001
+        // extension: 'Visibility' is intentionally NOT in TrappedProperties (its modifier,
+        // .IsVisible(bool), has a different signature than the enum property), so it gets a
+        // distinct descriptor and its own bool-translating code fix. Requires the assignment
+        // target be the lambda parameter's own control deriving from UIElement, so the
+        // '.IsVisible(...)' rewrite is always sound.
+        if (propName == "Visibility")
+        {
+            var lambdaParam = SetLambdaHelpers.GetSingleLambdaParameter(lambdaExpr);
+            if (lambdaParam is null)
+                return;
+            if (leftAccess.Expression is not IdentifierNameSyntax paramRef ||
+                paramRef.Identifier.Text != lambdaParam.Identifier.Text)
+                return;
+
+            var receiverType = context.SemanticModel
+                .GetTypeInfo(leftAccess.Expression, context.CancellationToken).Type;
+            if (SetLambdaHelpers.InheritsFrom(receiverType, "UIElement", "Microsoft.UI.Xaml"))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    VisibilityRule,
+                    invocation.GetLocation()));
+            }
+            return;
+        }
+
         if (!TrappedProperties.TryGetValue(propName, out var modifierName))
             return;
 
@@ -113,30 +171,5 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
             invocation.GetLocation(),
             propName,
             modifierName));
-    }
-
-    /// <summary>
-    /// Extract the single assignment expression from a lambda passed to <c>.Set(...)</c>.
-    /// Supports both expression-body lambdas (<c>fe =&gt; fe.X = v</c>) and block-body
-    /// lambdas with a single assignment statement (<c>fe =&gt; { fe.X = v; }</c>).
-    /// Multi-statement blocks return <c>null</c> — the codefix can't safely rewrite them.
-    /// </summary>
-    internal static AssignmentExpressionSyntax? TryGetLambdaAssignment(ExpressionSyntax lambdaExpr)
-    {
-        SyntaxNode? exprOrBlock = lambdaExpr switch
-        {
-            SimpleLambdaExpressionSyntax simple => (SyntaxNode?)simple.ExpressionBody ?? simple.Block,
-            ParenthesizedLambdaExpressionSyntax paren => (SyntaxNode?)paren.ExpressionBody ?? paren.Block,
-            _ => null,
-        };
-
-        return exprOrBlock switch
-        {
-            AssignmentExpressionSyntax a => a,
-            BlockSyntax block when block.Statements.Count == 1
-                && block.Statements[0] is ExpressionStatementSyntax es
-                && es.Expression is AssignmentExpressionSyntax ba => ba,
-            _ => null,
-        };
     }
 }
