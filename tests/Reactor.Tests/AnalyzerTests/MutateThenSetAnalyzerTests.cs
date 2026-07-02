@@ -223,4 +223,42 @@ class C : Microsoft.UI.Reactor.Core.Component
             ReferenceAssemblies = ReferenceAssemblies.Net.Net80,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    // A comment on the mutated line is preserved rather than silently dropped by the removal.
+    [Fact]
+    public async Task CodeFix_Preserves_Comment_On_Mutator_Line()
+    {
+        var before = Stubs + @"
+class C : Microsoft.UI.Reactor.Core.Component
+{
+    public override string Render()
+    {
+        var (items, setItems) = UseState(Seed);
+        // keep me
+        items.Add(""x"");
+        {|REACTOR_HOOKS_010:setItems(items)|};
+        return """";
+    }
+}";
+
+        var after = Stubs + @"
+class C : Microsoft.UI.Reactor.Core.Component
+{
+    public override string Render()
+    {
+        var (items, setItems) = UseState(Seed);
+        // keep me
+                setItems([.. items, ""x""]);
+        return """";
+    }
+}";
+
+        await new CSharpCodeFixTest<HookRulesAnalyzer, MutateThenSetCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            ReferenceAssemblies = ReferenceAssemblies.Net.Net80,
+            CodeActionEquivalenceKey = HookRulesAnalyzer.MutateThenSetId,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }

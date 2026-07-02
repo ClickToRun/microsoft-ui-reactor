@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Composition;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
@@ -76,8 +77,17 @@ public sealed class MutateThenSetCodeFix : CodeFixProvider
                             .WithTriviaFrom(itemsExpr);
                         editor.ReplaceNode(itemsExpr, collection);
 
-                        // Drop the now-redundant `items.Add(v);` statement.
-                        editor.RemoveNode(mutatorStatement, SyntaxRemoveOptions.KeepNoTrivia);
+                        // Drop the now-redundant `items.Add(v);` statement. Preserve leading
+                        // comments / #directives when present (so we don't silently delete a user
+                        // comment on that line); otherwise remove cleanly with no leftover blank line.
+                        var keepTrivia = mutatorStatement.ContainsDirectives
+                            || mutatorStatement.GetLeadingTrivia().Any(static t =>
+                                t.IsKind(SyntaxKind.SingleLineCommentTrivia)
+                                || t.IsKind(SyntaxKind.MultiLineCommentTrivia));
+                        var removeOptions = keepTrivia
+                            ? SyntaxRemoveOptions.KeepLeadingTrivia | SyntaxRemoveOptions.KeepDirectives
+                            : SyntaxRemoveOptions.KeepNoTrivia;
+                        editor.RemoveNode(mutatorStatement, removeOptions);
 
                         return Task.FromResult(context.Document.WithSyntaxRoot(editor.GetChangedRoot()));
                     },
