@@ -60,6 +60,13 @@ namespace Microsoft.UI.Xaml.Controls
     {
         public Task<ContentDialogResult> ShowAsync() => Task.FromResult(ContentDialogResult.None);
     }
+
+    // A subclass that DECLARES its own ShowAsync (hides the base). The resolved method's
+    // ContainingType is CustomDialog, not ContentDialog, so only a base-type-chain walk catches it.
+    public class CustomDialog : ContentDialog
+    {
+        public new Task<ContentDialogResult> ShowAsync() => Task.FromResult(ContentDialogResult.None);
+    }
 }
 
 namespace Microsoft.UI.Reactor.Core
@@ -241,6 +248,46 @@ class C
     async Task M()
     {
         await {|REACTOR_DIALOG_001:new Microsoft.UI.Xaml.Controls.ContentDialog { Title = ""x"" }.@ShowAsync()|};
+    }
+}";
+
+        await new CSharpAnalyzerTest<ImperativeContentDialogAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_For_Subclass_Declaring_Own_ShowAsync()
+    {
+        // The subclass hides ShowAsync, so the resolved method's ContainingType is the subclass;
+        // the base-type-chain walk still recognizes it as a WinUI ContentDialog.
+        var source = Stubs + @"
+class C
+{
+    async Task M()
+    {
+        await {|REACTOR_DIALOG_001:new Microsoft.UI.Xaml.Controls.CustomDialog().ShowAsync()|};
+    }
+}";
+
+        await new CSharpAnalyzerTest<ImperativeContentDialogAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_For_Implicit_Receiver_In_Subclass()
+    {
+        // A bare `ShowAsync()` with an implicit receiver inside a ContentDialog subclass — the
+        // IdentifierNameSyntax gate arm + the base-type walk catch it.
+        var source = Stubs + @"
+class MyDlg : Microsoft.UI.Xaml.Controls.ContentDialog
+{
+    async Task Open()
+    {
+        await {|REACTOR_DIALOG_001:ShowAsync()|};
     }
 }";
 
