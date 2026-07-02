@@ -1267,6 +1267,19 @@ public sealed class HookRulesAnalyzer : DiagnosticAnalyzer
         int fixedArity = parameters.Length - 1;
         var args = invocation.ArgumentList.Arguments;
 
+        // A named `dependencies:` argument passes the whole params array by name
+        // (`Memo(render, dependencies: [dep])`). Unwrap its container element-wise, or check it as a
+        // single dep. (Positional handling continues below.)
+        var namedDeps = args.FirstOrDefault(a => a.NameColon?.Name.Identifier.Text == "dependencies");
+        if (namedDeps is not null)
+        {
+            if (ReferenceArrayDepElements(model, namedDeps.Expression) is { } namedElements)
+                foreach (var element in namedElements) CheckMemoDependency(context, element, model);
+            else
+                CheckMemoDependency(context, namedDeps.Expression, model);
+            return;
+        }
+
         // When a single trailing arg IS the params container — an object?[]-shaped array/collection
         // literal (`Memo(render, new object[] { a, b })` / `Memo(render, [a, b])`) — its ELEMENTS are
         // the deps (compared element-wise by Equals at runtime, Reconciler DepsEqual), NOT one dep.

@@ -133,6 +133,23 @@ namespace TestApp
 }");
     }
 
+    // Named `dependencies:` argument passes the whole params array by name — still analyzed.
+    [Fact]
+    public async Task Memo_With_Named_Dependencies_Arg_Flags()
+    {
+        await Verify(@"
+namespace TestApp
+{
+    using static Microsoft.UI.Reactor.Factories;
+    using Microsoft.UI.Reactor.Core;
+
+    class C
+    {
+        Element M() => Memo(ctx => new TextElement(""x""), dependencies: new object[] { {|REACTOR_HOOKS_012:new System.Collections.Generic.List<int>()|} });
+    }
+}");
+    }
+
     // Negative: a freshly-allocated record compares by value, so the memo still hits its stable path.
     [Fact]
     public async Task Memo_With_Fresh_Record_Dep_DoesNotFlag()

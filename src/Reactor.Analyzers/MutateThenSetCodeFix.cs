@@ -143,6 +143,11 @@ public sealed class MutateThenSetCodeFix : CodeFixProvider
         {
             rebuilt.Add(SyntaxFactory.Space);
             rebuilt.AddRange(comments);
+            // No end-of-line followed the setter (e.g. a single-line block `{ …; setItems(…); }`).
+            // A // line comment would otherwise swallow the rest of the line — including the closing
+            // brace — so terminate it with a newline to keep the code compiling.
+            if (comments.Any(static c => c.IsKind(SyntaxKind.SingleLineCommentTrivia)))
+                rebuilt.Add(SyntaxFactory.CarriageReturnLineFeed);
         }
         return SyntaxFactory.TriviaList(rebuilt);
     }
