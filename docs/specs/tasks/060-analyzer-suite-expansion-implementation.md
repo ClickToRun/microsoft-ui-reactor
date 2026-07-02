@@ -6,8 +6,8 @@ The spec is the **design + grounding** source of truth; this doc is the
 ("the flight") without divergence or merge thrash. Read the spec section named in
 each packet for the full detect/fix/FP reasoning — this doc does not re-derive it.
 
-> **Status:** Foundation landed. Waves A–E unstarted. Update the tracking table
-> (bottom) as packets merge.
+> **Status:** This doc *is* the foundation contract for spec 060. Implementation
+> waves A–E unstarted. Update the tracking table (bottom) as packets merge.
 
 ---
 
