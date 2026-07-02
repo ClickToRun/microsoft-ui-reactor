@@ -47,13 +47,14 @@ public sealed class RawCommandCallbackAnalyzer : DiagnosticAnalyzer
 
     /// <summary>
     /// The own click/toggle callback(s) for one command-capable element.
-    /// <see cref="InitializerCallbacks"/> are settable via an object initializer / <c>with</c>
-    /// (checked in order); <see cref="CtorCallbackParam"/> is the constructor parameter that
-    /// <i>is</i> that callback (the positional shape, e.g. <c>new ButtonElement("Save", DoThing)</c>).
+    /// <see cref="InitializerCallbacks"/> is the set of callback property names settable via an
+    /// object initializer / <c>with</c>; the analyzer reports the first such assignment found in
+    /// source order. <see cref="CtorCallbackParam"/> is the constructor parameter that <i>is</i>
+    /// that callback (the positional shape, e.g. <c>new ButtonElement("Save", DoThing)</c>).
     /// </summary>
     internal readonly struct CallbackInfo
     {
-        /// <summary>Callback names settable via an object initializer / <c>with</c> (checked in order).</summary>
+        /// <summary>The set of callback property names settable via an object initializer / <c>with</c>.</summary>
         public readonly ImmutableArray<string> InitializerCallbacks;
 
         /// <summary>The constructor parameter that <i>is</i> the callback (the positional shape).</summary>
@@ -217,10 +218,12 @@ public sealed class RawCommandCallbackAnalyzer : DiagnosticAnalyzer
     }
 
     /// <summary>
-    /// The argument bound to the callback constructor parameter, or <c>null</c>. Handles the named
-    /// form (<c>OnClick: h</c>) and the pure-positional form (mapped by the resolved parameter
-    /// ordinal). Calls that mix named and positional arguments are skipped — a rare, intentional
-    /// false negative that avoids brittle positional-slot accounting.
+    /// The argument bound to the callback constructor parameter, or <c>null</c>. A <b>named</b>
+    /// callback argument (<c>OnClick: h</c>) is matched regardless of the other arguments. The
+    /// <b>positional</b> callback (mapped by the resolved parameter ordinal) is only resolved when
+    /// the call is entirely positional; a call that mixes named and positional arguments skips the
+    /// positional path — a rare, intentional false negative that avoids brittle positional-slot
+    /// accounting.
     /// </summary>
     private static ArgumentSyntax? FindCtorCallbackArgument(ArgumentListSyntax argumentList, IMethodSymbol? constructor, string parameterName)
     {
