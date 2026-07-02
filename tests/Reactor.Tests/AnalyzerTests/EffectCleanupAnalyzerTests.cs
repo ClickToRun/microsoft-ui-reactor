@@ -23,33 +23,68 @@ namespace System.Runtime.CompilerServices { public static class IsExternalInit {
 
 namespace Fakes
 {
-    // Simple-named producer types the analyzer recognizes syntactically.
+    // Simple-named producer types the analyzer recognizes.
     public sealed class PeriodicTimer : IDisposable
     {
         public PeriodicTimer(TimeSpan period) { }
         public void Dispose() { }
+        public System.Threading.Tasks.ValueTask DisposeAsync() => default;
         public System.Threading.Tasks.Task<bool> WaitForNextTickAsync() =>
             System.Threading.Tasks.Task.FromResult(true);
     }
 
-    public sealed class Timer
+    // Real System.Threading.Timer / System.Timers.Timer are IDisposable.
+    public sealed class Timer : IDisposable
     {
         public Timer(Action callback) { }
         public void Dispose() { }
+    }
+
+    // Distinctive dispatcher-timer name that exposes Start/Stop instead of IDisposable.
+    public sealed class DispatcherQueueTimer
+    {
+        public void Start() { }
+        public void Stop() { }
     }
 
     public sealed class Subscription : IDisposable { public void Dispose() { } }
 
     public sealed class Ticker
     {
-        // Rx-shaped: Subscribe returns IDisposable.
+        // Rx-shaped: Subscribe returns System.IDisposable directly.
         public IDisposable Subscribe(Action onNext) => new Subscription();
+    }
+
+    public sealed class ConcreteTicker
+    {
+        // Subscribe returns a concrete type that implements IDisposable (interface-set path).
+        public Subscription Subscribe(Action onNext) => new Subscription();
+    }
+
+    public sealed class VoidTicker
+    {
+        public void Subscribe(Action onNext) { }
+    }
+
+    public sealed class PlainTicker
+    {
+        // Subscribe returns a non-disposable value.
+        public int Subscribe(Action onNext) => 0;
     }
 
     public sealed class Producer
     {
         public event Action Ping;
         public void Raise() => Ping?.Invoke();
+    }
+}
+
+namespace UserCode
+{
+    // A user type that merely shares the `Timer` simple name but is not disposable — must NOT fire.
+    public sealed class Timer
+    {
+        public Timer(System.Action callback) { }
     }
 }
 
@@ -61,6 +96,8 @@ namespace Microsoft.UI.Reactor.Core
     {
         public void UseEffect(Action effect, params object[] dependencies) { }
         public void UseEffect(Func<Action> effectWithCleanup, params object[] dependencies) { }
+        public void UseEffect<T1>(Action effect, T1 d1) { }
+        public void UseEffect<T1>(Func<Action> effectWithCleanup, T1 d1) { }
     }
 
     public abstract class Component
@@ -71,6 +108,9 @@ namespace Microsoft.UI.Reactor.Core
             => Context.UseEffect(effect, dependencies);
         protected void UseEffect(Func<Action> effectWithCleanup, params object[] dependencies)
             => Context.UseEffect(effectWithCleanup, dependencies);
+        protected void UseEffect<T1>(Action effect, T1 d1) => Context.UseEffect(effect, d1);
+        protected void UseEffect<T1>(Func<Action> effectWithCleanup, T1 d1)
+            => Context.UseEffect(effectWithCleanup, d1);
         protected (int, Action<Func<int, int>>) UseReducer(int initial) => (0, _ => { });
     }
 }
@@ -468,6 +508,296 @@ namespace TestApp
             Context.UseLayoutEffect(() =>
             {
                 var t = new PeriodicTimer(TimeSpan.FromSeconds(1));
+            }, Array.Empty<object>());
+            return """";
+        }
+    }
+}");
+
+    // ── Added coverage: producer branches, overloads, and bail paths ─────
+
+    // Target-typed `new(...)` — the type comes from the declared variable, resolved semantically.
+    [Fact]
+    public Task Fires_On_TargetTyped_New_Timer()
+        => Verify(@"
+namespace TestApp
+{
+    using System;
+    using Microsoft.UI.Reactor.Core;
+    using Fakes;
+
+    public sealed class Comp : Component
+    {
+        public override string Render()
+        {
+            UseEffect(() =>
+            {
+                PeriodicTimer t = {|REACTOR_LIFECYCLE_002:new(TimeSpan.FromSeconds(1))|};
+            }, Array.Empty<object>());
+            return """";
+        }
+    }
+}");
+
+    // A distinctive dispatcher-timer name (not IDisposable) is matched by name.
+    [Fact]
+    public Task Fires_On_DispatcherQueueTimer()
+        => Verify(@"
+namespace TestApp
+{
+    using System;
+    using Microsoft.UI.Reactor.Core;
+    using Fakes;
+
+    public sealed class Comp : Component
+    {
+        public override string Render()
+        {
+            UseEffect(() =>
+            {
+                var t = {|REACTOR_LIFECYCLE_002:new DispatcherQueueTimer()|};
+                t.Start();
+            }, Array.Empty<object>());
+            return """";
+        }
+    }
+}");
+
+    // Subscribe returning a concrete IDisposable implementer (interface-set path).
+    [Fact]
+    public Task Fires_On_Subscribe_Concrete_Disposable()
+        => Verify(@"
+namespace TestApp
+{
+    using System;
+    using Microsoft.UI.Reactor.Core;
+    using Fakes;
+
+    public sealed class Comp : Component
+    {
+        public override string Render()
+        {
+            var ticker = new ConcreteTicker();
+            UseEffect(() =>
+            {
+                {|REACTOR_LIFECYCLE_002:ticker.Subscribe(() => { })|};
+            }, Array.Empty<object>());
+            return """";
+        }
+    }
+}");
+
+    // Typed arity-1 Action overload is still the no-cleanup overload → fires.
+    [Fact]
+    public Task Fires_On_Typed_Arity_Action_Overload()
+        => Verify(@"
+namespace TestApp
+{
+    using System;
+    using Microsoft.UI.Reactor.Core;
+    using Fakes;
+
+    public sealed class Comp : Component
+    {
+        public override string Render()
+        {
+            var dep = 5;
+            UseEffect(() =>
+            {
+                var t = {|REACTOR_LIFECYCLE_002:new PeriodicTimer(TimeSpan.FromSeconds(1))|};
+            }, dep);
+            return """";
+        }
+    }
+}");
+
+    // An anonymous-method effect body is inspected like a lambda.
+    [Fact]
+    public Task Fires_On_AnonymousMethod_Effect()
+        => Verify(@"
+namespace TestApp
+{
+    using System;
+    using Microsoft.UI.Reactor.Core;
+    using Fakes;
+
+    public sealed class Comp : Component
+    {
+        public override string Render()
+        {
+            UseEffect(delegate
+            {
+                var t = {|REACTOR_LIFECYCLE_002:new PeriodicTimer(TimeSpan.FromSeconds(1))|};
+            }, Array.Empty<object>());
+            return """";
+        }
+    }
+}");
+
+    // Multiple producers in one body → exactly one diagnostic (on the first).
+    [Fact]
+    public Task Reports_Single_Diagnostic_For_Multiple_Producers()
+        => Verify(@"
+namespace TestApp
+{
+    using System;
+    using Microsoft.UI.Reactor.Core;
+    using Fakes;
+
+    public sealed class Comp : Component
+    {
+        void OnPing() { }
+
+        public override string Render()
+        {
+            var producer = new Producer();
+            UseEffect(() =>
+            {
+                var t = {|REACTOR_LIFECYCLE_002:new PeriodicTimer(TimeSpan.FromSeconds(1))|};
+                producer.Ping += OnPing;
+            }, Array.Empty<object>());
+            return """";
+        }
+    }
+}");
+
+    // A user type that merely shares the `Timer` name but is not disposable → must NOT fire.
+    [Fact]
+    public Task NoFire_On_UserDefined_NonDisposable_Timer()
+        => Verify(@"
+namespace TestApp
+{
+    using System;
+    using Microsoft.UI.Reactor.Core;
+
+    public sealed class Comp : Component
+    {
+        public override string Render()
+        {
+            UseEffect(() =>
+            {
+                var t = new UserCode.Timer(() => { });
+            }, Array.Empty<object>());
+            return """";
+        }
+    }
+}");
+
+    // Typed arity-1 Func<Action> (cleanup) overload → not the Action overload → must NOT fire,
+    // even with a no-op cleanup (we trust the cleanup contract; adequacy is unprovable).
+    [Fact]
+    public Task NoFire_On_Typed_Arity_Cleanup_Overload()
+        => Verify(@"
+namespace TestApp
+{
+    using System;
+    using Microsoft.UI.Reactor.Core;
+    using Fakes;
+
+    public sealed class Comp : Component
+    {
+        public override string Render()
+        {
+            var dep = 5;
+            UseEffect(() =>
+            {
+                var t = new PeriodicTimer(TimeSpan.FromSeconds(1));
+                return () => { };
+            }, dep);
+            return """";
+        }
+    }
+}");
+
+    // Subscribe returning void is not a subscription handle → must NOT fire.
+    [Fact]
+    public Task NoFire_On_Void_Subscribe()
+        => Verify(@"
+namespace TestApp
+{
+    using System;
+    using Microsoft.UI.Reactor.Core;
+    using Fakes;
+
+    public sealed class Comp : Component
+    {
+        public override string Render()
+        {
+            var ticker = new VoidTicker();
+            UseEffect(() =>
+            {
+                ticker.Subscribe(() => { });
+            }, Array.Empty<object>());
+            return """";
+        }
+    }
+}");
+
+    // Subscribe returning a non-disposable value → must NOT fire.
+    [Fact]
+    public Task NoFire_On_NonDisposable_Subscribe()
+        => Verify(@"
+namespace TestApp
+{
+    using System;
+    using Microsoft.UI.Reactor.Core;
+    using Fakes;
+
+    public sealed class Comp : Component
+    {
+        public override string Render()
+        {
+            var ticker = new PlainTicker();
+            UseEffect(() =>
+            {
+                ticker.Subscribe(() => { });
+            }, Array.Empty<object>());
+            return """";
+        }
+    }
+}");
+
+    // `using (...) { }` block statement form is a teardown signal → must NOT fire.
+    [Fact]
+    public Task NoFire_On_Using_Statement_Block()
+        => Verify(@"
+namespace TestApp
+{
+    using System;
+    using Microsoft.UI.Reactor.Core;
+    using Fakes;
+
+    public sealed class Comp : Component
+    {
+        public override string Render()
+        {
+            UseEffect(() =>
+            {
+                using (var t = new PeriodicTimer(TimeSpan.FromSeconds(1))) { }
+            }, Array.Empty<object>());
+            return """";
+        }
+    }
+}");
+
+    // DisposeAsync in the body is a teardown signal → must NOT fire.
+    [Fact]
+    public Task NoFire_On_DisposeAsync_In_Body()
+        => Verify(@"
+namespace TestApp
+{
+    using System;
+    using Microsoft.UI.Reactor.Core;
+    using Fakes;
+
+    public sealed class Comp : Component
+    {
+        public override string Render()
+        {
+            UseEffect(() =>
+            {
+                var t = new PeriodicTimer(TimeSpan.FromSeconds(1));
+                _ = t.DisposeAsync();
             }, Array.Empty<object>());
             return """";
         }

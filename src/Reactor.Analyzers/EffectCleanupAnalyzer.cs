@@ -205,12 +205,17 @@ public sealed class EffectCleanupAnalyzer : DiagnosticAnalyzer
     private static (SyntaxNode? node, string kind) FindLifetimeAllocation(
         SyntaxNode body, SemanticModel model, System.Threading.CancellationToken ct)
     {
-        foreach (var node in EnumerateExcludingNestedFunctions(body))
+        // Walk the body in document order but do not descend into nested lambdas / local functions —
+        // allocations there have their own lifetime and are not the effect's setup work. The body
+        // node itself is included so an expression-bodied effect (`() => source.Subscribe(...)`) is
+        // inspected.
+        foreach (var node in body.DescendantNodesAndSelf(
+            descendIntoChildren: n => n is not AnonymousFunctionExpressionSyntax and not LocalFunctionStatementSyntax))
         {
             switch (node)
             {
-                case ObjectCreationExpressionSyntax oc when IsKnownTimer(oc.Type):
-                    return (oc, $"a {SimpleTypeName(oc.Type)}");
+                case BaseObjectCreationExpressionSyntax creation when TryGetKnownTimer(creation, model, ct) is { } timerName:
+                    return (creation, $"a {timerName}");
 
                 case InvocationExpressionSyntax inv
                     when inv.Expression is MemberAccessExpressionSyntax { Name.Identifier.Text: "Subscribe" }
@@ -227,25 +232,41 @@ public sealed class EffectCleanupAnalyzer : DiagnosticAnalyzer
     }
 
     /// <summary>
-    /// Pre-order walk (document order) of <paramref name="node"/> and its descendants that does not
-    /// enter the body of a nested lambda, anonymous method, or local function — allocations there
-    /// have their own lifetime and are not the effect's setup work. The node itself is yielded so an
-    /// expression-bodied effect (<c>() =&gt; source.Subscribe(...)</c>) is still inspected.
+    /// If <paramref name="creation"/> constructs a known timer type, returns its simple name;
+    /// otherwise <c>null</c>. Resolves the type semantically so target-typed <c>new(...)</c> is
+    /// covered and a user type that merely shares a timer's simple name is not matched. Falls back
+    /// to the written simple name only for an explicit <c>new T(...)</c> whose symbol is unresolved
+    /// (incomplete compile).
     /// </summary>
-    private static IEnumerable<SyntaxNode> EnumerateExcludingNestedFunctions(SyntaxNode node)
+    private static string? TryGetKnownTimer(BaseObjectCreationExpressionSyntax creation, SemanticModel model, System.Threading.CancellationToken ct)
     {
-        yield return node;
-        foreach (var child in node.ChildNodes())
-        {
-            if (child is AnonymousFunctionExpressionSyntax or LocalFunctionStatementSyntax)
-                continue;
-            foreach (var descendant in EnumerateExcludingNestedFunctions(child))
-                yield return descendant;
-        }
+        if (model.GetTypeInfo(creation, ct).Type is { } type)
+            return IsKnownTimerType(type) ? type.Name : null;
+
+        if (creation is ObjectCreationExpressionSyntax oc && KnownTimerTypes.Contains(SimpleTypeName(oc.Type)))
+            return SimpleTypeName(oc.Type);
+
+        return null;
     }
 
-    private static bool IsKnownTimer(TypeSyntax type)
-        => KnownTimerTypes.Contains(SimpleTypeName(type));
+    /// <summary>
+    /// True when <paramref name="type"/> is one of the known lifetime-bearing timer types. The
+    /// distinctive names (<c>PeriodicTimer</c> and the dispatcher-timer family, which expose
+    /// Start/Stop rather than <c>IDisposable</c>) are matched by name — a user type coincidentally
+    /// sharing one is implausible. The bare <c>Timer</c> name is common enough to collide, so it is
+    /// only matched when the type is actually disposable (both <c>System.Threading.Timer</c> and
+    /// <c>System.Timers.Timer</c> are), which filters out an unrelated user <c>Timer</c>.
+    /// </summary>
+    private static bool IsKnownTimerType(ITypeSymbol type)
+    {
+        if (!KnownTimerTypes.Contains(type.Name))
+            return false;
+        return type.Name != "Timer" || ImplementsIDisposable(type);
+    }
+
+    private static bool ImplementsIDisposable(ITypeSymbol type)
+        => type.AllInterfaces.Any(i =>
+            i.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::System.IDisposable");
 
     private static string SimpleTypeName(TypeSyntax type)
         => type switch
