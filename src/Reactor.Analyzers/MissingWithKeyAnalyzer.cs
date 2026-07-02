@@ -30,7 +30,7 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// sits inside a <c>Select</c>/<c>ForEach</c> projection lambda and flags two
 /// shapes: (1) a positional key whose only referenced lambda parameter is the
 /// index (never the item), and (2) a per-render-random key built from
-/// <c>Guid.NewGuid()</c>, <c>DateTime.Now</c>, <c>Random</c>, or
+/// <c>Guid.NewGuid()</c>, <c>DateTime.Now</c>/<c>UtcNow</c>, <c>Random</c>, or
 /// <c>Environment.TickCount</c>. Both re-mount rows on insert/reorder just like a
 /// missing key. Info severity + no fix: a positional key is only wrong for lists
 /// that reorder/insert, and the framework can't synthesize the real identity.</para>
@@ -53,7 +53,7 @@ public sealed class MissingWithKeyAnalyzer : DiagnosticAnalyzer
     private static readonly DiagnosticDescriptor NonStableKeyRule = new(
         NonStableKeyId,
         "Non-stable list key in .WithKey",
-        ".WithKey(...) uses a non-stable key (the list index or a per-render value such as Guid.NewGuid()/DateTime.Now/DateTime.UtcNow/Random/Environment.TickCount). On insert/reorder the reconciler re-mounts every row — losing focus, animation, and ElementRef state — the same failure a missing key causes. Key off the item's stable id instead.",
+        ".WithKey(...) uses a non-stable key (the list index or a per-render value such as Guid.NewGuid()/DateTime.Now/UtcNow/Random/Environment.TickCount). On insert/reorder the reconciler re-mounts every row — losing focus, animation, and ElementRef state — the same failure a missing key causes. Key off the item's stable id instead.",
         "Reactor.Dsl",
         DiagnosticSeverity.Info,
         isEnabledByDefault: true,
