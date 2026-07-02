@@ -95,6 +95,8 @@ namespace TestApp
     public static class C
     {
         internal static int Val() => 1;
+        internal static int Fld = 1;
+        internal static int Prop => 1;
 " + body + @"
     }
 }";
@@ -310,6 +312,42 @@ namespace TestApp
         var source = App(@"
         public static Element Build()
             => {|REACTOR_MOD_001:Text(""hi"").Grid(row: 1).Margin(4).Grid(column: 2)|};");
+
+        await new CSharpCodeFixTest<DuplicateAtomicModifierAnalyzer, DuplicateAtomicModifierCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Merges_When_Argument_Is_Field()
+    {
+        // A field read is side-effect-free, so the fix still applies.
+        var before = App(@"
+        public static Element Build()
+            => {|REACTOR_MOD_001:Text(""hi"").Grid(row: Fld).Grid(column: 2)|};");
+
+        var after = App(@"
+        public static Element Build()
+            => Text(""hi"").Grid(row: Fld, column: 2);");
+
+        await new CSharpCodeFixTest<DuplicateAtomicModifierAnalyzer, DuplicateAtomicModifierCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            CodeActionEquivalenceKey = $"{DuplicateAtomicModifierAnalyzer.DiagnosticId}_Merge",
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Withheld_When_Argument_Is_Property()
+    {
+        // `Prop` is a property whose getter could run user code; the later call
+        // overrides `row`, so a naive merge would drop that getter call. Withhold.
+        var source = App(@"
+        public static Element Build()
+            => {|REACTOR_MOD_001:Text(""hi"").Grid(row: Prop).Grid(row: 2)|};");
 
         await new CSharpCodeFixTest<DuplicateAtomicModifierAnalyzer, DuplicateAtomicModifierCodeFix, DefaultVerifier>
         {

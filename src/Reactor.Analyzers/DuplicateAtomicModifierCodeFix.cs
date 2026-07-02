@@ -25,10 +25,25 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// author almost certainly intended — the current chain silently drops every
 /// argument except those on the final call.
 ///
-/// The fix withholds itself when the calls do not all bind to the same modifier
-/// overload, or when an argument can't be mapped to a named parameter (e.g. a
-/// <c>params</c> slot) — cases where a single merged call can't be produced
-/// safely. The diagnostic still fires so the author can merge by hand.
+/// Because the merge can drop an overridden argument and re-orders arguments into
+/// parameter-declaration order, the fix withholds itself whenever applying it
+/// could change program behaviour, namely when:
+/// <list type="bullet">
+/// <item><description>the duplicate calls are not <b>directly chained</b> (an
+///   intervening modifier sits between them) — collapsing would move an argument
+///   across that call;</description></item>
+/// <item><description>a merged argument is not provably <b>side-effect-free</b>
+///   (only literals and reads of locals/parameters/fields/consts/enums qualify;
+///   calls, object creation, <c>await</c>, assignments, increments, and
+///   property/indexer/conditional access do not);</description></item>
+/// <item><description>a merged argument carries a <b>comment</b> the rebuild
+///   would delete;</description></item>
+/// <item><description>the calls don't all bind to the same modifier overload, or
+///   an argument can't be mapped to a named parameter (e.g. a <c>params</c>
+///   slot).</description></item>
+/// </list>
+/// In every withheld case the diagnostic still fires so the author can merge by
+/// hand.
 /// </remarks>
 [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(DuplicateAtomicModifierCodeFix))]
 [Shared]
@@ -132,9 +147,9 @@ public sealed class DuplicateAtomicModifierCodeFix : CodeFixProvider
                 // merge can drop an argument (when a later call overrides the same
                 // parameter) or re-order emission into parameter order, and it
                 // rebuilds each argument without its trivia. Dropping/reordering a
-                // side-effecting call or deleting a comment would silently change
-                // the program — leave those for the author.
-                if (!IsMergeSafeArgument(argument))
+                // side-effecting expression or deleting a comment would silently
+                // change the program — leave those for the author.
+                if (!IsMergeSafeArgument(argument, model, ct))
                     return null;
 
                 IParameterSymbol? parameter;
@@ -170,11 +185,14 @@ public sealed class DuplicateAtomicModifierCodeFix : CodeFixProvider
 
     /// <summary>
     /// An argument is safe to merge only when it has no comment trivia (which the
-    /// rebuild would delete) and its expression is free of side effects — no call,
-    /// object creation, await, assignment, or increment/decrement. Such an
-    /// expression can be dropped or re-ordered without changing behaviour.
+    /// rebuild would delete) and its expression is provably side-effect-free — so
+    /// dropping it (a later call overrides the same parameter) or re-ordering it
+    /// into parameter order can't change behaviour. Side-effect-free means built
+    /// solely from literals and reads of locals/parameters/fields/consts/enums;
+    /// calls, object creation, <c>await</c>, assignments, increments, and
+    /// property/indexer/conditional access are all treated as unsafe.
     /// </summary>
-    private static bool IsMergeSafeArgument(ArgumentSyntax argument)
+    private static bool IsMergeSafeArgument(ArgumentSyntax argument, SemanticModel model, CancellationToken ct)
     {
         var hasComment = argument.GetLeadingTrivia()
             .Concat(argument.DescendantTrivia())
@@ -186,27 +204,59 @@ public sealed class DuplicateAtomicModifierCodeFix : CodeFixProvider
         if (hasComment)
             return false;
 
-        foreach (var node in argument.Expression.DescendantNodesAndSelf())
-        {
-            switch (node)
-            {
-                case InvocationExpressionSyntax:
-                case ObjectCreationExpressionSyntax:
-                case AwaitExpressionSyntax:
-                case AssignmentExpressionSyntax:
-                    return false;
-                case PostfixUnaryExpressionSyntax post
-                    when post.IsKind(SyntaxKind.PostIncrementExpression)
-                      || post.IsKind(SyntaxKind.PostDecrementExpression):
-                    return false;
-                case PrefixUnaryExpressionSyntax pre
-                    when pre.IsKind(SyntaxKind.PreIncrementExpression)
-                      || pre.IsKind(SyntaxKind.PreDecrementExpression):
-                    return false;
-            }
-        }
-        return true;
+        return IsSideEffectFreeExpression(argument.Expression, model, ct);
     }
+
+    /// <summary>
+    /// A conservative, semantic-model-backed purity check: literals and reads of
+    /// locals/parameters/fields/consts/enum members (composed with parentheses,
+    /// casts, non-mutating unary, and binary operators) are side-effect-free.
+    /// Anything that can execute user code — a call, object creation, indexer or
+    /// property getter, conditional access, <c>await</c>, or a mutation — is not.
+    /// </summary>
+    private static bool IsSideEffectFreeExpression(ExpressionSyntax expression, SemanticModel model, CancellationToken ct)
+    {
+        switch (expression)
+        {
+            case LiteralExpressionSyntax:
+            case DefaultExpressionSyntax:
+            case ThisExpressionSyntax:
+                return true;
+            case ParenthesizedExpressionSyntax paren:
+                return IsSideEffectFreeExpression(paren.Expression, model, ct);
+            case CastExpressionSyntax cast:
+                return IsSideEffectFreeExpression(cast.Expression, model, ct);
+            case PrefixUnaryExpressionSyntax unary
+                when !unary.IsKind(SyntaxKind.PreIncrementExpression)
+                  && !unary.IsKind(SyntaxKind.PreDecrementExpression):
+                return IsSideEffectFreeExpression(unary.Operand, model, ct);
+            case BinaryExpressionSyntax binary:
+                return IsSideEffectFreeExpression(binary.Left, model, ct)
+                    && IsSideEffectFreeExpression(binary.Right, model, ct);
+            case IdentifierNameSyntax:
+                return IsSideEffectFreeSymbol(model.GetSymbolInfo(expression, ct).Symbol);
+            case MemberAccessExpressionSyntax member
+                when member.IsKind(SyntaxKind.SimpleMemberAccessExpression):
+                // e.g. `Type.Field` / `local.field` — the accessed member must be a
+                // field/const/enum and the receiver must itself be side-effect-free.
+                return IsSideEffectFreeSymbol(model.GetSymbolInfo(member, ct).Symbol)
+                    && IsSideEffectFreeExpression(member.Expression, model, ct);
+            default:
+                // invocation, object creation, await, element/conditional access,
+                // assignment, etc. — potentially side-effecting.
+                return false;
+        }
+    }
+
+    private static bool IsSideEffectFreeSymbol(ISymbol? symbol) => symbol switch
+    {
+        ILocalSymbol => true,
+        IParameterSymbol => true,
+        IFieldSymbol => true,            // includes const and enum members
+        INamedTypeSymbol => true,        // static-member-access receiver (Type.Field)
+        INamespaceSymbol => true,        // namespace-qualified receiver
+        _ => false,                      // property, method, event, indexer, dynamic, null
+    };
 
     private static ArgumentSyntax MakeNamedArgument(string parameterName, ExpressionSyntax value)
     {
