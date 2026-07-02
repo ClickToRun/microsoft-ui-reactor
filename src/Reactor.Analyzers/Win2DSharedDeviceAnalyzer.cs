@@ -41,11 +41,12 @@ public sealed class Win2DSharedDeviceAnalyzer : DiagnosticAnalyzer
     private const string AnimatedElementFqn = "Microsoft.UI.Reactor.Advanced.Win2D.Win2DAnimatedCanvasElement";
     private const string VirtualElementFqn = "Microsoft.UI.Reactor.Advanced.Win2D.Win2DVirtualCanvasElement";
     private const string HookHolderFqn = "Microsoft.UI.Reactor.Advanced.Win2D.UseCanvasResourcesHook";
-    private const string RenderContextFqn = "Microsoft.UI.Reactor.Core.RenderContext";
 
     private const string SharedDeviceModifier = "UseSharedDevice";
     private const string RawSetter = "Set";
     private const string Hook = "UseCanvasResources";
+    private const string DrawCallbackParam = "onDraw";
+    private const string RegionDrawCallbackParam = "onRegionDraw";
 
     private static readonly SymbolDisplayFormat FqnFormat = SymbolDisplayFormat.FullyQualifiedFormat;
 
@@ -115,9 +116,11 @@ public sealed class Win2DSharedDeviceAnalyzer : DiagnosticAnalyzer
         if (hasRawSetter || IsOpaqueContext(outer))
             return;
 
-        // Causal link: this canvas must actually draw a shared-device resource, evidenced by the
-        // canvas expression referencing a local whose initializer is a UseCanvasResources call.
-        if (!CanvasReferencesSharedResource(context, outer))
+        // Causal link: this canvas must actually DRAW a shared-device resource, evidenced by the
+        // factory's draw callback (onDraw / onRegionDraw) referencing a local whose initializer is a
+        // UseCanvasResources call. Restricting to the draw callback (vs. onUpdate, redrawKey, or an
+        // event-handler modifier) is what ties the diagnostic to the actual cross-device draw.
+        if (!CanvasDrawsSharedResource(context, invocation))
             return;
 
         context.ReportDiagnostic(Diagnostic.Create(Rule, GetFactoryNameLocation(invocation)));
@@ -152,7 +155,13 @@ public sealed class Win2DSharedDeviceAnalyzer : DiagnosticAnalyzer
                 && ma.Parent is InvocationExpressionSyntax next)
             {
                 var modifier = ma.Name.Identifier.ValueText;
-                if (modifier == SharedDeviceModifier) hasSharedDevice = true;
+                if (modifier == SharedDeviceModifier)
+                {
+                    // .UseSharedDevice() / .UseSharedDevice(true) opt in. A dynamic argument might be
+                    // true at runtime, so treat it as opted-in to avoid a false Error. Only a literal
+                    // .UseSharedDevice(false) is a provable opt-out that should still be reported.
+                    if (!IsExplicitlyDisabled(next)) hasSharedDevice = true;
+                }
                 else if (modifier == RawSetter) hasRawSetter = true;
 
                 outermost = next;
@@ -192,6 +201,17 @@ public sealed class Win2DSharedDeviceAnalyzer : DiagnosticAnalyzer
         return node;
     }
 
+    /// <summary>
+    /// True for a literal <c>.UseSharedDevice(false)</c> — the only argument shape that provably
+    /// leaves the canvas on its own device (and therefore still crashes when it draws a shared
+    /// resource). A missing/true/dynamic argument is treated as opted-in.
+    /// </summary>
+    private static bool IsExplicitlyDisabled(InvocationExpressionSyntax useSharedDeviceCall)
+    {
+        var args = useSharedDeviceCall.ArgumentList.Arguments;
+        return args.Count == 1 && args[0].Expression.IsKind(SyntaxKind.FalseLiteralExpression);
+    }
+
     private static bool ReturnsWin2DCanvasElement(SyntaxNodeAnalysisContext context, InvocationExpressionSyntax invocation)
     {
         if (context.SemanticModel.GetSymbolInfo(invocation, context.CancellationToken).Symbol is not IMethodSymbol method)
@@ -204,33 +224,60 @@ public sealed class Win2DSharedDeviceAnalyzer : DiagnosticAnalyzer
     }
 
     /// <summary>
-    /// True when the canvas expression references a local/field whose initializer is a
-    /// <c>UseCanvasResources</c> hook call — i.e. the canvas draws a shared-device resource.
+    /// True when the canvas draws a shared-device resource: the factory's draw callback
+    /// (the argument bound to the <c>onDraw</c> / <c>onRegionDraw</c> parameter) references a local
+    /// whose initializer is a <c>UseCanvasResources</c> hook call. References elsewhere — a scalar
+    /// <c>redrawKey:</c>, an animated <c>onUpdate</c> tick, or an event-handler modifier — do not
+    /// count, because the cross-device crash happens only when the resource is actually drawn.
     /// </summary>
-    private static bool CanvasReferencesSharedResource(SyntaxNodeAnalysisContext context, InvocationExpressionSyntax outer)
+    private static bool CanvasDrawsSharedResource(SyntaxNodeAnalysisContext context, InvocationExpressionSyntax factory)
     {
-        var model = context.SemanticModel;
+        var drawCallback = GetDrawCallbackArgument(context, factory);
+        if (drawCallback is null)
+            return false;
 
-        foreach (var identifier in outer.DescendantNodes().OfType<IdentifierNameSyntax>())
+        var model = context.SemanticModel;
+        foreach (var identifier in drawCallback.DescendantNodesAndSelf().OfType<IdentifierNameSyntax>())
         {
-            var symbol = model.GetSymbolInfo(identifier, context.CancellationToken).Symbol;
-            if (symbol is not ILocalSymbol and not IFieldSymbol)
+            if (model.GetSymbolInfo(identifier, context.CancellationToken).Symbol is not ILocalSymbol local)
                 continue;
 
-            if (SymbolInitializerIsHook(model, symbol, outer, context.CancellationToken))
+            if (SymbolInitializerIsHook(model, local, factory, context.CancellationToken))
                 return true;
         }
 
         return false;
     }
 
+    /// <summary>
+    /// Returns the expression passed as the canvas factory's draw callback (the argument bound to the
+    /// <c>onDraw</c> or <c>onRegionDraw</c> parameter), matched by named argument or positional index.
+    /// </summary>
+    private static ExpressionSyntax? GetDrawCallbackArgument(SyntaxNodeAnalysisContext context, InvocationExpressionSyntax factory)
+    {
+        var method = context.SemanticModel.GetSymbolInfo(factory, context.CancellationToken).Symbol as IMethodSymbol;
+        var args = factory.ArgumentList.Arguments;
+
+        for (var i = 0; i < args.Count; i++)
+        {
+            var arg = args[i];
+            var parameterName = arg.NameColon?.Name.Identifier.ValueText
+                ?? (method is not null && i < method.Parameters.Length ? method.Parameters[i].Name : null);
+
+            if (parameterName is DrawCallbackParam or RegionDrawCallbackParam)
+                return arg.Expression;
+        }
+
+        return null;
+    }
+
     private static bool SymbolInitializerIsHook(SemanticModel model, ISymbol symbol, SyntaxNode contextNode, System.Threading.CancellationToken ct)
     {
         foreach (var reference in symbol.DeclaringSyntaxReferences)
         {
-            // Locals (the idiomatic `var res = ctx.UseCanvasResources(...)`) always declare in the
-            // same tree as the canvas that captures them; only inspect same-tree declarations so a
-            // single SemanticModel stays valid.
+            // The idiomatic `var res = ctx.UseCanvasResources(...)` local always declares in the same
+            // tree as the canvas that captures it; only inspect same-tree declarations so a single
+            // SemanticModel stays valid.
             if (reference.SyntaxTree != contextNode.SyntaxTree)
                 continue;
 
@@ -254,31 +301,12 @@ public sealed class Win2DSharedDeviceAnalyzer : DiagnosticAnalyzer
         if (model.GetSymbolInfo(invocation, ct).Symbol is not IMethodSymbol method)
             return false;
 
-        // The hook lives on the static UseCanvasResourcesHook class as an extension on RenderContext.
-        if (method.Name != Hook)
-            return false;
-
-        if (method.ContainingType is { } holder
-            && holder.ToDisplayString(FqnFormat).Replace("global::", "") == HookHolderFqn)
-        {
-            return true;
-        }
-
-        return method.IsExtensionMethod
-            && method.ReceiverType is INamedTypeSymbol receiver
-            && IsOrDerivesFrom(receiver, RenderContextFqn);
-    }
-
-    private static bool IsOrDerivesFrom(INamedTypeSymbol? type, string fullyQualifiedName)
-    {
-        for (var current = type; current is not null; current = current.BaseType)
-        {
-            var name = current.ToDisplayString(FqnFormat).Replace("global::", "");
-            if (name == fullyQualifiedName || name.StartsWith(fullyQualifiedName + "<", System.StringComparison.Ordinal))
-                return true;
-        }
-
-        return false;
+        // Require the exact hook: the UseCanvasResources method on the static UseCanvasResourcesHook
+        // class. Matching only the name + a RenderContext receiver would let an unrelated app-defined
+        // UseCanvasResources extension trip this Error rule — matching the containing type avoids that.
+        return method.Name == Hook
+            && method.ContainingType is { } holder
+            && holder.ToDisplayString(FqnFormat).Replace("global::", "") == HookHolderFqn;
     }
 
     private static string? GetInvokedSimpleName(InvocationExpressionSyntax invocation) => invocation.Expression switch

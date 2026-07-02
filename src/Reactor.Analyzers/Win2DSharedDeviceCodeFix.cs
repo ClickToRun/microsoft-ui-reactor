@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Composition;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
@@ -15,17 +16,18 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// <c>Win2DCanvas(draw).ClearColor(c)</c> → <c>Win2DCanvas(draw).ClearColor(c).UseSharedDevice()</c>.
 /// </summary>
 /// <remarks>
-/// The bare <c>.UseSharedDevice()</c> call always resolves at the fix site: the rule only fires
-/// when <c>UseCanvasResources</c> — an extension method in
-/// <c>Microsoft.UI.Reactor.Advanced.Win2D</c> — is in scope, which means that namespace is already
-/// imported, and <c>.UseSharedDevice()</c> (defined on <c>Win2DCanvasModifiers</c> in the same
-/// namespace) is therefore in scope too. No <c>using</c> insertion or qualification is needed.
+/// <c>.UseSharedDevice()</c> is an extension in <c>Microsoft.UI.Reactor.Advanced.Win2D</c>. That
+/// namespace is almost always already imported at the fix site (the rule fires on a canvas paired
+/// with the <c>UseCanvasResources</c> hook from the same namespace), but a caller could reach the
+/// hook via a fully-qualified static call, so the fix adds the <c>using</c> when it is absent to
+/// guarantee the appended call binds.
 /// </remarks>
 [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(Win2DSharedDeviceCodeFix))]
 [Shared]
 public sealed class Win2DSharedDeviceCodeFix : CodeFixProvider
 {
     private const string Title = "Append .UseSharedDevice() to the canvas";
+    private const string Win2DNamespace = "Microsoft.UI.Reactor.Advanced.Win2D";
 
     public override ImmutableArray<string> FixableDiagnosticIds =>
         ImmutableArray.Create(Win2DSharedDeviceAnalyzer.DiagnosticId);
@@ -56,6 +58,11 @@ public sealed class Win2DSharedDeviceCodeFix : CodeFixProvider
 
     private static Document AppendUseSharedDevice(Document document, SyntaxNode root, InvocationExpressionSyntax outer)
     {
+        // Determine whether the Win2D namespace is in scope AT THE FIX SITE (compilation unit or an
+        // enclosing namespace of `outer`) before we rewrite the tree. A using in a sibling namespace
+        // does not put the extension in scope here, so it must not suppress the insertion.
+        var needsUsing = !IsWin2DNamespaceInScope(root, outer);
+
         // Keep the chain's leading trivia on the receiver and move its trailing trivia past the
         // appended call so `...Height(220)\n` becomes `...Height(220).UseSharedDevice()\n`.
         var trailing = outer.GetTrailingTrivia();
@@ -68,6 +75,37 @@ public sealed class Win2DSharedDeviceCodeFix : CodeFixProvider
                 SyntaxFactory.IdentifierName("UseSharedDevice")))
             .WithTrailingTrivia(trailing);
 
-        return document.WithSyntaxRoot(root.ReplaceNode(outer, appended));
+        var newRoot = root.ReplaceNode(outer, appended);
+
+        if (needsUsing && newRoot is CompilationUnitSyntax compilationUnit)
+        {
+            var directive = SyntaxFactory.UsingDirective(SyntaxFactory.ParseName(Win2DNamespace))
+                .NormalizeWhitespace()
+                .WithTrailingTrivia(SyntaxFactory.CarriageReturnLineFeed);
+            // A compilation-unit using is in scope for every namespace in the file, so it fixes the
+            // site regardless of which namespace block the canvas lives in.
+            newRoot = compilationUnit.AddUsings(directive);
+        }
+
+        return document.WithSyntaxRoot(newRoot);
     }
+
+    private static bool IsWin2DNamespaceInScope(SyntaxNode root, SyntaxNode anchor)
+    {
+        if (root is CompilationUnitSyntax compilationUnit && compilationUnit.Usings.Any(IsWin2DUsing))
+            return true;
+
+        for (var node = anchor.Parent; node is not null; node = node.Parent)
+        {
+            if (node is BaseNamespaceDeclarationSyntax ns && ns.Usings.Any(IsWin2DUsing))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsWin2DUsing(UsingDirectiveSyntax directive) =>
+        directive.Alias is null
+        && directive.StaticKeyword.IsKind(SyntaxKind.None)
+        && directive.Name?.ToString() == Win2DNamespace;
 }

@@ -68,8 +68,9 @@ namespace Microsoft.UI.Reactor.Advanced
     public static class Factories
     {
         public static Win2DCanvasElement Win2DCanvas(Action onDraw) => new();
-        public static Win2DAnimatedCanvasElement Win2DAnimatedCanvas(Action onDraw) => new();
-        public static Win2DVirtualCanvasElement Win2DVirtualCanvas(Action onDraw) => new();
+        public static Win2DCanvasElement Win2DCanvas(Action onDraw, object redrawKey) => new();
+        public static Win2DAnimatedCanvasElement Win2DAnimatedCanvas(Action onUpdate, Action onDraw) => new();
+        public static Win2DVirtualCanvasElement Win2DVirtualCanvas(Action onRegionDraw) => new();
     }
 }
 ";
@@ -86,6 +87,7 @@ namespace TestApp
     {
         static void Use(Ref<object> r) { }
         static void DoNothing() { }
+        static bool Flag() => true;
 
         public Element Render(RenderContext ctx)
         {
@@ -118,12 +120,17 @@ namespace TestApp
     [Fact]
     public Task Fires_On_Animated_Canvas_Nested_In_Layout_Container() => Analyze(@"
             var sprite = ctx.UseCanvasResources<object>(d => new object());
-            return VStack(TextBlock(""x""), {|REACTOR_WIN2D_001:Win2DAnimatedCanvas|}(() => Use(sprite)).ClearColor(0));");
+            return VStack(TextBlock(""x""), {|REACTOR_WIN2D_001:Win2DAnimatedCanvas|}(() => DoNothing(), () => Use(sprite)).ClearColor(0));");
 
     [Fact]
     public Task Fires_On_Virtual_Canvas_Drawing_Resource_Without_SharedDevice() => Analyze(@"
             var sprite = ctx.UseCanvasResources<object>(d => new object());
             return {|REACTOR_WIN2D_001:Win2DVirtualCanvas|}(() => Use(sprite));");
+
+    [Fact]
+    public Task Fires_When_UseSharedDevice_Explicitly_False() => Analyze(@"
+            var sprite = ctx.UseCanvasResources<object>(d => new object());
+            return {|REACTOR_WIN2D_001:Win2DCanvas|}(() => Use(sprite)).UseSharedDevice(false);");
 
     // ── Negative — does not fire ────────────────────────────────────────
 
@@ -147,6 +154,65 @@ namespace TestApp
     public Task No_Diagnostic_When_Hook_But_No_Canvas_Returned() => Analyze(@"
             var sprite = ctx.UseCanvasResources<object>(d => new object());
             return TextBlock(sprite.Current.ToString());");
+
+    [Fact]
+    public Task No_Diagnostic_When_UseSharedDevice_True() => Analyze(@"
+            var sprite = ctx.UseCanvasResources<object>(d => new object());
+            return Win2DCanvas(() => Use(sprite)).UseSharedDevice(true);");
+
+    [Fact]
+    public Task No_Diagnostic_When_UseSharedDevice_Dynamic_Argument() => Analyze(@"
+            var sprite = ctx.UseCanvasResources<object>(d => new object());
+            return Win2DCanvas(() => Use(sprite)).UseSharedDevice(Flag());");
+
+    [Fact]
+    public Task No_Diagnostic_When_Resource_Only_In_Non_Callback_Argument() => Analyze(@"
+            var sprite = ctx.UseCanvasResources<object>(d => new object());
+            return Win2DCanvas(() => DoNothing(), sprite);");
+
+    [Fact]
+    public Task No_Diagnostic_When_Resource_Only_In_Animated_OnUpdate() => Analyze(@"
+            var sprite = ctx.UseCanvasResources<object>(d => new object());
+            return Win2DAnimatedCanvas(() => Use(sprite), () => DoNothing());");
+
+    [Fact]
+    public Task No_Diagnostic_When_Canvas_Is_Assignment_Rhs() => Analyze(@"
+            var sprite = ctx.UseCanvasResources<object>(d => new object());
+            Element canvas = null;
+            canvas = Win2DCanvas(() => Use(sprite));
+            return canvas;");
+
+    [Fact]
+    public async Task No_Diagnostic_On_Unrelated_Same_Named_Factory()
+    {
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System;
+    using Microsoft.UI.Reactor.Core;
+    using Microsoft.UI.Reactor.Advanced.Win2D;
+
+    public class D
+    {
+        // An unrelated, app-defined factory that merely shares the name and returns a non-Win2D type.
+        static object Win2DCanvas(Action onDraw) => null!;
+        static void Use(Ref<object> r) { }
+
+        public Element Render(RenderContext ctx)
+        {
+            var sprite = ctx.UseCanvasResources<object>(d => new object());
+            var canvas = Win2DCanvas(() => Use(sprite));
+            System.GC.KeepAlive(canvas);
+            return null!;
+        }
+    }
+}";
+
+        await new CSharpAnalyzerTest<Win2DSharedDeviceAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 
     // ── Near-miss — almost trips the fast path, but bails ───────────────
 
@@ -192,8 +258,58 @@ namespace TestApp
     public Task CodeFix_Appends_UseSharedDevice_After_Existing_Modifier() => Fix(
         before: @"
             var sprite = ctx.UseCanvasResources<object>(d => new object());
-            return VStack({|REACTOR_WIN2D_001:Win2DAnimatedCanvas|}(() => Use(sprite)).ClearColor(0));",
+            return VStack({|REACTOR_WIN2D_001:Win2DAnimatedCanvas|}(() => DoNothing(), () => Use(sprite)).ClearColor(0));",
         after: @"
             var sprite = ctx.UseCanvasResources<object>(d => new object());
-            return VStack(Win2DAnimatedCanvas(() => Use(sprite)).ClearColor(0).UseSharedDevice());");
+            return VStack(Win2DAnimatedCanvas(() => DoNothing(), () => Use(sprite)).ClearColor(0).UseSharedDevice());");
+
+    [Fact]
+    public async Task CodeFix_Adds_Win2D_Using_When_Hook_Is_Fully_Qualified()
+    {
+        // The hook is reached via its fully-qualified static form, so the file never imports
+        // Microsoft.UI.Reactor.Advanced.Win2D. The fix must add that using so the appended
+        // .UseSharedDevice() extension binds.
+        const string body = @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Advanced.Factories;
+
+    public class E
+    {
+        static void Use(Ref<object> r) { }
+
+        public Element Render(RenderContext ctx)
+        {
+            var sprite = Microsoft.UI.Reactor.Advanced.Win2D.UseCanvasResourcesHook.UseCanvasResources<object>(ctx, d => new object());
+            return {|REACTOR_WIN2D_001:Win2DCanvas|}(() => Use(sprite));
+        }
+    }
+}";
+
+        const string fixedBody = @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Advanced.Factories;
+
+    public class E
+    {
+        static void Use(Ref<object> r) { }
+
+        public Element Render(RenderContext ctx)
+        {
+            var sprite = Microsoft.UI.Reactor.Advanced.Win2D.UseCanvasResourcesHook.UseCanvasResources<object>(ctx, d => new object());
+            return Win2DCanvas(() => Use(sprite)).UseSharedDevice();
+        }
+    }
+}";
+
+        await new CSharpCodeFixTest<Win2DSharedDeviceAnalyzer, Win2DSharedDeviceCodeFix, DefaultVerifier>
+        {
+            TestCode = Stubs + body,
+            FixedCode = Stubs.Replace("using System;", "using System;\r\nusing Microsoft.UI.Reactor.Advanced.Win2D;") + fixedBody,
+            CodeActionEquivalenceKey = Win2DSharedDeviceAnalyzer.DiagnosticId,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }
