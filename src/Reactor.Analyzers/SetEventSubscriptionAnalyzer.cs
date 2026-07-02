@@ -27,14 +27,15 @@ public sealed class SetEventSubscriptionAnalyzer : DiagnosticAnalyzer
         "Wire events through .OnMount/.OnUnmount, not .Set";
 
     private static readonly LocalizableString MessageFormat =
-        "Event '{0}' is wired imperatively through '.Set(...)', which re-runs on every render. Subscribe in '.OnMount(...)' and unsubscribe in '.OnUnmount(...)' instead.";
+        "Event '{0}' is wired imperatively through '.Set(...)', which re-runs on every render. Subscribe in '.OnMountAdd(...)' and unsubscribe in '.OnUnmountAdd(...)' instead.";
 
     private static readonly LocalizableString Description =
         "'.Set(...)' setters are re-applied on every reconcile, so wiring an event there is " +
         "wrong in both directions: a '+=' subscription adds a new handler each render (the " +
         "handler multiplies its invocations and old closures leak), and a '-=' repeatedly " +
-        "runs teardown. Use '.OnMount(c => control.Event += h)' for the one-time subscription " +
-        "and '.OnUnmount(c => control.Event -= h)' for teardown.";
+        "runs teardown. Use '.OnMountAdd(c => control.Event += h)' for the one-time " +
+        "subscription and '.OnUnmountAdd(c => control.Event -= h)' for teardown (the composing " +
+        "Add variants preserve any existing mount/unmount wiring).";
 
     private static readonly DiagnosticDescriptor Rule = new(
         DiagnosticId,

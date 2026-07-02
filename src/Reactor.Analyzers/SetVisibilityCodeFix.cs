@@ -99,8 +99,12 @@ public sealed class SetVisibilityCodeFix : CodeFixProvider
     }
 
     /// <summary>
-    /// Recognizes <c>Visibility.Visible</c> / <c>Visibility.Collapsed</c> (however the
-    /// <c>Visibility</c> enum is qualified) and maps it to the <c>.IsVisible</c> boolean.
+    /// Recognizes <c>Visibility.Visible</c> / <c>Visibility.Collapsed</c> written with the
+    /// enum spelled as <c>Visibility</c> — bare (<c>Visibility.Collapsed</c>) or
+    /// namespace-qualified (<c>Microsoft.UI.Xaml.Visibility.Collapsed</c>) — and maps it to
+    /// the <c>.IsVisible</c> boolean. An enum alias, or a bare member brought in via
+    /// <c>using static</c>, is deliberately not recognized and simply yields no fix (the
+    /// analyzer still reports the trap).
     /// </summary>
     private static bool TryGetVisibilityBool(ExpressionSyntax expression, out bool isVisible)
     {

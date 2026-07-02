@@ -132,7 +132,12 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
         if (assignment.Kind() != SyntaxKind.SimpleAssignmentExpression)
             return;
 
-        if (assignment.Left is not MemberAccessExpressionSyntax leftAccess)
+        // Both arms require the assignment target to be the .Set lambda's own parameter
+        // ('fe.X = v', not 'captured.X = v') so the modifier rewrite applies to the pooled
+        // control the .Set configures rather than some other captured object.
+        var lambdaParam = SetLambdaHelpers.GetSingleLambdaParameter(lambdaExpr);
+        var leftAccess = SetLambdaHelpers.GetAssignedMemberAccess(assignment, lambdaParam?.Identifier.Text);
+        if (leftAccess is null)
             return;
 
         var propName = leftAccess.Name.Identifier.Text;
@@ -140,18 +145,10 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
         // REACTOR_VIS_001 — imperative Visibility toggling. Handled here as a POOL_001
         // extension: 'Visibility' is intentionally NOT in TrappedProperties (its modifier,
         // .IsVisible(bool), has a different signature than the enum property), so it gets a
-        // distinct descriptor and its own bool-translating code fix. Requires the assignment
-        // target be the lambda parameter's own control deriving from UIElement, so the
-        // '.IsVisible(...)' rewrite is always sound.
+        // distinct descriptor and its own bool-translating code fix. The receiver must derive
+        // from UIElement so the '.IsVisible(...)' rewrite is always sound.
         if (propName == "Visibility")
         {
-            var lambdaParam = SetLambdaHelpers.GetSingleLambdaParameter(lambdaExpr);
-            if (lambdaParam is null)
-                return;
-            if (leftAccess.Expression is not IdentifierNameSyntax paramRef ||
-                paramRef.Identifier.Text != lambdaParam.Identifier.Text)
-                return;
-
             var receiverType = context.SemanticModel
                 .GetTypeInfo(leftAccess.Expression, context.CancellationToken).Type;
             if (SetLambdaHelpers.InheritsFrom(receiverType, "UIElement", "Microsoft.UI.Xaml"))

@@ -225,6 +225,27 @@ class C
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 
+    [Fact]
+    public async Task No_Diagnostic_When_Assigning_A_Captured_Objects_Property()
+    {
+        // The trapped property is set on a *captured* object, not the .Set lambda
+        // parameter, so the pooled-control modifier rewrite would not apply — must not fire.
+        var source = Stubs + @"
+class C
+{
+    void M(FakeElement other)
+    {
+        var el = new FakeElement();
+        el.Set(fe => other.MaxHeight = 260);
+    }
+}";
+
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
     // ── Block-bodied lambdas ────────────────────────────────────────────
 
     [Fact]
