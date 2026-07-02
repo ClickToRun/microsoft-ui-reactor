@@ -131,10 +131,10 @@ public sealed class UnsafeDropFilesAnalyzer : DiagnosticAnalyzer
             if (current is not LambdaExpressionSyntax lambda)
                 continue;
 
-            // (A) lambda argument to a `.OnDrop(...)` call: el.OnDrop(args => ... TryGetFiles ...).
+            // (A) lambda argument to a `.OnDrop(...)` call — `el.OnDrop(args => ...)` or the
+            //     null-conditional `el?.OnDrop(args => ...)` (GetInvokedName covers both shapes).
             if (lambda.Parent is ArgumentSyntax { Parent: ArgumentListSyntax { Parent: InvocationExpressionSyntax outer } }
-                && outer.Expression is MemberAccessExpressionSyntax outerMember
-                && outerMember.Name.Identifier.Text == OnDropHandlerName)
+                && GetInvokedName(outer)?.Identifier.Text == OnDropHandlerName)
             {
                 return true;
             }

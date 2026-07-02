@@ -197,6 +197,27 @@ class C
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 
+    [Fact]
+    public async Task Fires_For_TryGetFiles_In_Conditional_OnDrop_Call()
+    {
+        // Null-conditional on the OnDrop call itself: `el?.OnDrop(...)`. The outer invocation's
+        // expression is a MemberBindingExpressionSyntax, still recognized as a drop handler.
+        var source = Stubs + @"
+class C
+{
+    void M()
+    {
+        FakeElement el = new FakeElement();
+        el?.OnDrop(args => {|REACTOR_INPUT_002:args.Data.TryGetFiles(out var f)|});
+    }
+}";
+
+        await new CSharpAnalyzerTest<UnsafeDropFilesAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
     // ── Negative ────────────────────────────────────────────────────────
 
     [Fact]
