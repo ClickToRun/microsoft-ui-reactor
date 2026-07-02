@@ -58,10 +58,15 @@ public sealed class ControlledInputCodeFix : CodeFixProvider
                     $"Make read-only intent explicit with .{modifierName}(true)",
                     ct =>
                     {
+                        // Clear only the receiver's leading/trailing edge trivia (the
+                        // wrapped node re-applies the invocation's edges below), leaving
+                        // any trivia inside the argument list untouched.
+                        var receiver = invocation.WithLeadingTrivia().WithTrailingTrivia();
+
                         var wrapped = SyntaxFactory.InvocationExpression(
                             SyntaxFactory.MemberAccessExpression(
                                 SyntaxKind.SimpleMemberAccessExpression,
-                                invocation.WithoutTrivia(),
+                                receiver,
                                 SyntaxFactory.IdentifierName(modifierName)),
                             SyntaxFactory.ArgumentList(SyntaxFactory.SingletonSeparatedList(
                                 SyntaxFactory.Argument(

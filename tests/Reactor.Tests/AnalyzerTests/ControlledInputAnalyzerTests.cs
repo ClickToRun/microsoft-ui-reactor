@@ -361,6 +361,26 @@ class C
 }");
 
     [Fact]
+    public Task CodeFix_Preserves_Trivia_Inside_The_Call() => Fix(
+        // Trivia inside the argument list (e.g. a comment) must survive the rewrite.
+        before: @"
+class C
+{
+    void M(string name)
+    {
+        {|REACTOR_HOOKS_011:TextBox(name, /*keep*/ _ => { })|};
+    }
+}",
+        after: @"
+class C
+{
+    void M(string name)
+    {
+        TextBox(name, /*keep*/ _ => { }).IsReadOnly(true);
+    }
+}");
+
+    [Fact]
     public Task CodeFix_Not_Offered_For_Control_Without_IsReadOnly() => Fix(
         // Slider has no IsReadOnly modifier — nudge only. The warning stands but no
         // rewrite occurs (TestCode == FixedCode).
