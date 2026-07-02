@@ -647,4 +647,35 @@ namespace TestApp
             FixedCode = code,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    [Fact]
+    public async Task No_Fix_For_Look_Alike_Colors_Via_Unqualified_Identifier()
+    {
+        // Bare `Colors` here resolves to a non-WinUI palette (via `using MyCompany.UI;`, no
+        // `using Microsoft.UI;`). The diagnostic fires syntactically, but the fix semantically
+        // confirms the color source is Microsoft.UI/Windows.UI Colors and withholds the rewrite.
+        var code = Stubs + @"
+namespace MyCompany.UI
+{
+    public static class Colors { public static Windows.UI.Color White => default; }
+}
+namespace TestApp
+{
+    using MyCompany.UI;
+    using Microsoft.UI.Xaml.Media;
+
+    class C
+    {
+        void M(dynamic el)
+        {
+            el.Background({|REACTOR_THEME_004:new SolidColorBrush(Colors.White)|});
+        }
+    }
+}";
+        await new CSharpCodeFixTest<UseThemeRefAnalyzer, UseThemeRefCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }

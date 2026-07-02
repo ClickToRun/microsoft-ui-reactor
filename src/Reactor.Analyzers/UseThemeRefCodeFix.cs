@@ -79,10 +79,12 @@ public sealed class UseThemeRefCodeFix : CodeFixProvider
             semanticModel ??= await context.Document
                 .GetSemanticModelAsync(context.CancellationToken).ConfigureAwait(false);
 
-            // The analyzer's brush match is syntactic; before rewriting, confirm the creation is
-            // really WinUI's SolidColorBrush so we never touch an unrelated same-named type.
+            // The analyzer's brush match is syntactic; before rewriting, semantically confirm both the
+            // brush type (WinUI's SolidColorBrush) and the color source (Microsoft.UI/Windows.UI
+            // Colors) so we never rewrite an unrelated same-named type or a non-WinUI palette color.
             if (brushCreation is not null &&
-                !IsWinUiSolidColorBrush(semanticModel, brushCreation, context.CancellationToken))
+                (!IsWinUiSolidColorBrush(semanticModel, brushCreation, context.CancellationToken)
+                 || !IsWinUiColorsArgument(semanticModel, brushCreation, context.CancellationToken)))
                 continue;
 
             var themeAccess = TryBuildThemeReference(semanticModel, target.SpanStart, token, target);
@@ -120,6 +122,32 @@ public sealed class UseThemeRefCodeFix : CodeFixProvider
 
         var actual = semanticModel.GetTypeInfo(creation, cancellationToken).Type;
         return SymbolEqualityComparer.Default.Equals(actual, solidColorBrush);
+    }
+
+    /// <summary>
+    /// Confirms the brush's constructor argument reads from WinUI's <c>Microsoft.UI.Colors</c> (or
+    /// <c>Windows.UI.Colors</c>). <c>TryGetColorName</c> accepts a bare <c>Colors.X</c> syntactically,
+    /// so a look-alike <c>Colors</c> type in scope (e.g. via <c>using MyCompany.UI;</c>) could
+    /// otherwise be rewritten to a theme token even though the color came from a non-WinUI palette.
+    /// </summary>
+    private static bool IsWinUiColorsArgument(
+        SemanticModel? semanticModel, ObjectCreationExpressionSyntax creation, CancellationToken cancellationToken)
+    {
+        if (semanticModel is null)
+            return false;
+
+        var args = creation.ArgumentList?.Arguments;
+        if (args is not { Count: >= 1 } || args.Value[0].Expression is not MemberAccessExpressionSyntax colorAccess)
+            return false;
+
+        var colorsType = semanticModel.GetSymbolInfo(colorAccess.Expression, cancellationToken).Symbol as INamedTypeSymbol;
+        if (colorsType is null)
+            return false;
+
+        var microsoftColors = semanticModel.Compilation.GetTypeByMetadataName("Microsoft.UI.Colors");
+        var windowsColors = semanticModel.Compilation.GetTypeByMetadataName("Windows.UI.Colors");
+        return SymbolEqualityComparer.Default.Equals(colorsType, microsoftColors)
+            || SymbolEqualityComparer.Default.Equals(colorsType, windowsColors);
     }
 
     /// <summary>
