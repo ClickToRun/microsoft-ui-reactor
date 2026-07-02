@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Composition;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
@@ -31,6 +32,8 @@ public sealed class ControlledInputCodeFix : CodeFixProvider
         var root = await context.Document.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
         if (root is null) return;
 
+        SemanticModel? semanticModel = null;
+
         foreach (var diagnostic in context.Diagnostics)
         {
             // Only controls that expose an IsReadOnly modifier carry this property;
@@ -52,6 +55,17 @@ public sealed class ControlledInputCodeFix : CodeFixProvider
                 continue;
 
             var modifierName = modifier!;
+
+            // Only offer the fix when the read-only modifier extension actually resolves in
+            // scope at this call site. The analyzer fires on a fully-qualified factory call
+            // (e.g. Microsoft.UI.Reactor.Factories.TextBox(...)) even without
+            // `using Microsoft.UI.Reactor;`, but .IsReadOnly(...) is an extension method that
+            // only binds when that namespace is imported — appending it otherwise would emit
+            // non-compiling code. If it isn't in scope, nudge only.
+            semanticModel ??= await context.Document.GetSemanticModelAsync(context.CancellationToken).ConfigureAwait(false);
+            if (semanticModel is null) continue;
+            if (!IsModifierInScope(semanticModel, invocation, modifierName, context.CancellationToken))
+                continue;
 
             context.RegisterCodeFix(
                 CodeAction.Create(
@@ -79,5 +93,26 @@ public sealed class ControlledInputCodeFix : CodeFixProvider
                     equivalenceKey: ControlledInputAnalyzer.DiagnosticId + ":" + modifierName),
                 diagnostic);
         }
+    }
+
+    /// <summary>
+    /// True when the read-only modifier (an extension method reduced against the factory
+    /// call's element type) resolves in scope at the call site — i.e. its declaring Reactor
+    /// namespace is imported. Prevents the fix from emitting <c>.IsReadOnly(...)</c> where it
+    /// would not bind (a fully-qualified factory call without <c>using Microsoft.UI.Reactor;</c>).
+    /// </summary>
+    private static bool IsModifierInScope(
+        SemanticModel semanticModel,
+        InvocationExpressionSyntax invocation,
+        string modifierName,
+        System.Threading.CancellationToken cancellationToken)
+    {
+        if (semanticModel.GetTypeInfo(invocation, cancellationToken).Type is not { } elementType)
+            return false;
+
+        return semanticModel
+            .LookupSymbols(invocation.SpanStart, container: elementType, name: modifierName, includeReducedExtensionMethods: true)
+            .Any(symbol => symbol is IMethodSymbol { IsExtensionMethod: true } method
+                && CommandDebounceAnalyzer.IsReactorNamespace(method.ContainingNamespace?.ToDisplayString()));
     }
 }

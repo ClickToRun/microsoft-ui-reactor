@@ -422,4 +422,46 @@ class C
         {|REACTOR_HOOKS_011:TextBox(name, _ => { })|}.IsReadOnly(false);
     }
 }");
+
+    [Fact]
+    public async Task CodeFix_Not_Offered_When_ReadOnly_Extension_Not_In_Scope()
+    {
+        // Fully-qualified factory call WITHOUT `using Microsoft.UI.Reactor;`. The analyzer
+        // still fires (symbol resolution ignores usings), but .IsReadOnly(...) is an
+        // extension method that would not bind here — so no fix is offered and the code is
+        // left unchanged (TestCode == FixedCode).
+        var code = @"
+using System;
+
+namespace Microsoft.UI.Reactor
+{
+    public readonly struct Optional<T>
+    {
+        public static implicit operator Optional<T>(T value) => default;
+    }
+    public class TextBoxElement { }
+    public static partial class Factories
+    {
+        public static TextBoxElement TextBox(Optional<string> value = default, Action<string> onChanged = null, string placeholderText = null, string header = null) => new TextBoxElement();
+    }
+    public static class ControlledInputStubExtensions
+    {
+        public static TextBoxElement IsReadOnly(this TextBoxElement el, bool readOnly = true) => el;
+    }
+}
+
+class C
+{
+    void M(string name)
+    {
+        {|REACTOR_HOOKS_011:Microsoft.UI.Reactor.Factories.TextBox(name, _ => { })|};
+    }
+}";
+
+        await new CSharpCodeFixTest<ControlledInputAnalyzer, ControlledInputCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }
