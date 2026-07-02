@@ -367,4 +367,26 @@ class C
         {|REACTOR_HOOKS_011:Slider(score, 0, 100, _ => { })|};
     }
 }");
+
+    [Fact]
+    public Task CodeFix_Not_Offered_When_IsReadOnly_Already_Present() => Fix(
+        // Explicit .IsReadOnly(false) means the author wants it editable; wrapping with
+        // .IsReadOnly(true) would produce contradictory modifiers, so no fix is offered
+        // (the warning still stands as a nudge to wire the callback).
+        before: @"
+class C
+{
+    void M(string name)
+    {
+        {|REACTOR_HOOKS_011:TextBox(name, _ => { })|}.IsReadOnly(false);
+    }
+}",
+        after: @"
+class C
+{
+    void M(string name)
+    {
+        {|REACTOR_HOOKS_011:TextBox(name, _ => { })|}.IsReadOnly(false);
+    }
+}");
 }

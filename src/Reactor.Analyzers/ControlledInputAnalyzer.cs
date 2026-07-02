@@ -84,7 +84,7 @@ public sealed class ControlledInputAnalyzer : DiagnosticAnalyzer
         };
 
     private static readonly LocalizableString Title =
-        "Controlled input has a state-derived value but an empty change callback";
+        "Controlled input has a state-derived value but an inert change callback";
 
     private static readonly LocalizableString MessageFormat =
         "'{0}' is bound to a state-derived value but its change callback is empty or " +
@@ -192,7 +192,20 @@ public sealed class ControlledInputAnalyzer : DiagnosticAnalyzer
     /// in its fluent chain — the author's declaration of intentional read-only display.
     /// Intervening modifiers (e.g. <c>.Margin(8)</c>) are walked through.
     /// </summary>
-    private static bool IsMarkedReadOnly(InvocationExpressionSyntax invocation)
+    private static bool IsMarkedReadOnly(InvocationExpressionSyntax invocation) =>
+        FindIsReadOnlyInChain(invocation, requireTrue: true);
+
+    /// <summary>
+    /// True when this factory call's fluent chain contains <b>any</b> <c>.IsReadOnly(...)</c>
+    /// call (regardless of argument). Used by the code fix to avoid wrapping a call that
+    /// already sets read-only-ness — appending <c>.IsReadOnly(true)</c> after an explicit
+    /// <c>.IsReadOnly(false)</c> would produce contradictory modifiers whose last-writer
+    /// value is still <c>false</c>.
+    /// </summary>
+    internal static bool HasIsReadOnlyModifier(InvocationExpressionSyntax invocation) =>
+        FindIsReadOnlyInChain(invocation, requireTrue: false);
+
+    private static bool FindIsReadOnlyInChain(InvocationExpressionSyntax invocation, bool requireTrue)
     {
         SyntaxNode current = invocation;
         while (current.Parent is MemberAccessExpressionSyntax memberAccess
@@ -200,7 +213,7 @@ public sealed class ControlledInputAnalyzer : DiagnosticAnalyzer
                && memberAccess.Parent is InvocationExpressionSyntax outerInvocation)
         {
             if (memberAccess.Name.Identifier.ValueText == "IsReadOnly"
-                && IsReadOnlyTrue(outerInvocation.ArgumentList))
+                && (!requireTrue || IsReadOnlyTrue(outerInvocation.ArgumentList)))
                 return true;
             current = outerInvocation;
         }

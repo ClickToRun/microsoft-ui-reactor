@@ -42,6 +42,15 @@ public sealed class ControlledInputCodeFix : CodeFixProvider
             if (root.FindNode(diagnostic.Location.SourceSpan) is not InvocationExpressionSyntax invocation)
                 continue;
 
+            // Don't wrap when the chain already sets read-only-ness (e.g. an explicit
+            // .IsReadOnly(false)): appending .IsReadOnly(true) would produce contradictory
+            // modifiers whose last-writer value stays false, silently silencing the warning
+            // without making the control read-only. An explicit .IsReadOnly(false) also
+            // signals the author wants it editable — so the right move is to wire the
+            // callback (which we can't synthesize), not force read-only. Nudge only.
+            if (ControlledInputAnalyzer.HasIsReadOnlyModifier(invocation))
+                continue;
+
             var modifierName = modifier!;
 
             context.RegisterCodeFix(
