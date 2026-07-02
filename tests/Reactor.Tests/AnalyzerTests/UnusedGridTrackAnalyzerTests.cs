@@ -192,6 +192,31 @@ class C
         Text(""a"").Grid(column: 1));
 }");
 
+    [Fact]
+    public Task Fires_On_Last_Grid_Wins() => VerifyAsync(@"
+// Two .Grid() calls in one chain: the OUTERMOST (last-applied) wins and resets the column,
+// so the child lands in column 1 and column 0 is unused (not column 1).
+class C
+{
+    Element M() => Grid(
+        [{|REACTOR_GRID_001:GridSize.Auto|}, GridSize.Star()],
+        [GridSize.Auto],
+        Text(""x"").Grid(column: 0).Grid(column: 1));
+}");
+
+    [Fact]
+    public Task Fires_On_Unused_Row_With_Opaque_Columns() => VerifyAsync(@"
+// The columns array is a variable (uncountable), but the rows are literal and a row is unused —
+// the two axes are judged independently, so the row still fires.
+class C
+{
+    Element M(GridSize[] cols) => Grid(
+        cols,
+        [GridSize.Auto, GridSize.Auto, {|REACTOR_GRID_001:GridSize.Auto|}],
+        Text(""a"").Grid(row: 0, column: 0),
+        Text(""b"").Grid(row: 1, column: 0));
+}");
+
     // ── Negatives ───────────────────────────────────────────────────────────
 
     [Fact]
@@ -325,5 +350,31 @@ class C
         new[] { ""Auto"", ""*"" },
         new[] { ""Auto"" },
         Text(""a""));
+}");
+
+    [Fact]
+    public Task No_Diagnostic_For_Helper_Child() => VerifyAsync(@"
+// Cell() is not a Reactor DSL factory — it may hide a .Grid(...) in its body (and here it does),
+// so it must be treated as opaque and bail the grid rather than assumed to sit at (0,0).
+class C
+{
+    static Element Cell() => Text(""x"").Grid(column: 1);
+
+    Element M() => Grid(
+        [GridSize.Auto, GridSize.Star()],
+        [GridSize.Auto],
+        Cell());
+}");
+
+    [Fact]
+    public Task No_Diagnostic_For_Oversized_Span() => VerifyAsync(@"
+// An int.MaxValue span must be clamped to the declared track count (no unbounded loop / hang);
+// here it covers every column, so nothing is unused.
+class C
+{
+    Element M() => Grid(
+        [GridSize.Auto, GridSize.Star(), GridSize.Auto],
+        [GridSize.Auto],
+        Text(""a"").Grid(column: 0, columnSpan: 2147483647));
 }");
 }

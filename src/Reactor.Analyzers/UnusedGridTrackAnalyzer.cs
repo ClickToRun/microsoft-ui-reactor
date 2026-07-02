@@ -37,12 +37,17 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// <item>a non-constant placement arg (<c>.Grid(column: i)</c> / <c>columnSpan: n</c>) could
 /// cover the very track we would flag;</item>
 /// <item>a spread/variable <c>columns</c>/<c>rows</c> array or a children array we cannot
-/// enumerate hides both the track count and the placements.</item>
+/// enumerate hides both the track count and the placements;</item>
+/// <item>a receiverless call that is <b>not</b> a Reactor DSL factory (e.g. a
+/// <c>Cell(r, c) =&gt; e.Grid(r, c)</c> helper that hides its <c>.Grid(...)</c> inside its
+/// body) — its cell is not provable, so it is treated as opaque, not as <c>(0,0)</c>.</item>
 /// </list>
-/// The remaining accepted limitation: a helper that hides a <c>.Grid(...)</c> inside its body
-/// (<c>Cell(r, c, e) =&gt; e.Grid(r, c)</c>) is treated as the default <c>(0,0)</c> at the call
-/// site — an intentional false positive the author can suppress, matching the documented
-/// "a child with no explicit column is at column 0" model.
+/// A child with no <c>.Grid()</c> only counts as the framework default <c>(0,0)</c> when its
+/// root is a known <c>Microsoft.UI.Reactor.Factories</c> factory (<c>Text(...)</c>,
+/// <c>Button(...)</c>, a nested <c>Grid(...)</c>, …) — those return a fresh, unplaced element,
+/// so <c>(0,0)</c> is provable, matching the documented "a child with no explicit column is at
+/// column 0" model. The two axes are judged independently: an unused row is still reported even
+/// when the <c>columns</c> array is opaque, and vice versa.
 /// </para>
 /// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
@@ -116,6 +121,20 @@ public sealed class UnusedGridTrackAnalyzer : DiagnosticAnalyzer
         if (childrenVal is null)
             return;
 
+        // Count the declared tracks up front (per axis, independently). A track array that is a
+        // spread/variable — anything we cannot enumerate — leaves that axis unknown, and an axis
+        // we cannot count is one we never report. If neither axis is countable there is nothing
+        // to say. Counting first also bounds the occupancy loops below by the declared track
+        // count, so a hostile/typo span (e.g. columnSpan: int.MaxValue) can never drive an
+        // unbounded loop that would hang the compiler.
+        var hasColumns = TryGetTrackLocations(columnsVal, out var columnLocations);
+        var hasRows = TryGetTrackLocations(rowsVal, out var rowLocations);
+        if (!hasColumns && !hasRows)
+            return;
+
+        var columnCount = hasColumns ? columnLocations.Count : 0;
+        var rowCount = hasRows ? rowLocations.Count : 0;
+
         // Children must be an inline array we can fully enumerate. A variable/opaque children
         // array means we cannot see every placement → cannot prove any track unused.
         if (!TryGetChildOperations(childrenVal, out var children))
@@ -134,16 +153,27 @@ public sealed class UnusedGridTrackAnalyzer : DiagnosticAnalyzer
             if (placement.Kind == PlacementKind.Skip)
                 continue;
 
-            for (var r = placement.RowStart; r <= placement.RowEnd; r++)
-                occupiedRows.Add(r);
-            for (var c = placement.ColStart; c <= placement.ColEnd; c++)
-                occupiedCols.Add(c);
+            if (hasColumns)
+                MarkOccupied(occupiedCols, placement.Column, placement.ColumnSpan, columnCount);
+            if (hasRows)
+                MarkOccupied(occupiedRows, placement.Row, placement.RowSpan, rowCount);
         }
 
-        if (TryGetTrackLocations(columnsVal, out var columnLocations))
+        if (hasColumns)
             ReportUnusedTracks(context, columnLocations, occupiedCols, "column");
-        if (TryGetTrackLocations(rowsVal, out var rowLocations))
+        if (hasRows)
             ReportUnusedTracks(context, rowLocations, occupiedRows, "row");
+    }
+
+    // Marks the [start, start + span - 1] range within the declared track bounds [0, count - 1].
+    // The upper bound is computed in long and clamped, so a span that overshoots (or overflows
+    // int) can never iterate more than <paramref name="count"/> times.
+    private static void MarkOccupied(HashSet<int> occupied, int start, int span, int count)
+    {
+        var from = System.Math.Max(0, start);
+        var to = (int)System.Math.Min(count - 1L, (long)start + span - 1);
+        for (var i = from; i <= to; i++)
+            occupied.Add(i);
     }
 
     private static void ReportUnusedTracks(
@@ -187,6 +217,13 @@ public sealed class UnusedGridTrackAnalyzer : DiagnosticAnalyzer
             && m.ContainingType?.ToDisplayString() == GridExtensionsType;
     }
 
+    // A receiverless call whose target is a Reactor DSL factory (Factories.*) returns a fresh,
+    // unplaced element, so its cell is provably the framework default (0,0). An arbitrary
+    // receiverless helper could hide a .Grid(...) inside its body, so it is NOT assumed to be
+    // (0,0) — it is treated as opaque and bails the grid.
+    private static bool IsReactorFactory(IMethodSymbol? method) =>
+        method?.ContainingType?.ToDisplayString() == FactoriesType;
+
     // ── Child placement resolution ─────────────────────────────────────────
 
     private enum PlacementKind
@@ -204,18 +241,18 @@ public sealed class UnusedGridTrackAnalyzer : DiagnosticAnalyzer
     private readonly struct Placement
     {
         public readonly PlacementKind Kind;
-        public readonly int RowStart;
-        public readonly int RowEnd;
-        public readonly int ColStart;
-        public readonly int ColEnd;
+        public readonly int Row;
+        public readonly int Column;
+        public readonly int RowSpan;
+        public readonly int ColumnSpan;
 
-        private Placement(PlacementKind kind, int rowStart, int rowEnd, int colStart, int colEnd)
+        private Placement(PlacementKind kind, int row, int column, int rowSpan, int columnSpan)
         {
             Kind = kind;
-            RowStart = rowStart;
-            RowEnd = rowEnd;
-            ColStart = colStart;
-            ColEnd = colEnd;
+            Row = row;
+            Column = column;
+            RowSpan = rowSpan;
+            ColumnSpan = columnSpan;
         }
 
         public static readonly Placement Bail = new(PlacementKind.Bail, 0, 0, 0, 0);
@@ -223,14 +260,15 @@ public sealed class UnusedGridTrackAnalyzer : DiagnosticAnalyzer
         public static readonly Placement Default = Cell(0, 0, 1, 1);
 
         public static Placement Cell(int row, int column, int rowSpan, int columnSpan) =>
-            new(PlacementKind.Known, row, row + rowSpan - 1, column, column + columnSpan - 1);
+            new(PlacementKind.Known, row, column, rowSpan, columnSpan);
     }
 
     /// <summary>
     /// Walk a child's fluent chain to its outermost <c>.Grid(...)</c> placement (the last one
-    /// applied wins), or to the static factory at its root (default <c>(0,0)</c>). Anything else —
-    /// a variable/field reference, a conditional, a raw object creation, or a non-constant
-    /// placement argument — is not provable and returns <see cref="Placement.Bail"/>.
+    /// applied wins). If the chain has no <c>.Grid()</c>, only a Reactor DSL factory root
+    /// (<c>Factories.*</c>) is provably the default <c>(0,0)</c>; anything else — a variable/field
+    /// reference, a conditional, a raw object creation, an unknown receiverless helper, or a
+    /// non-constant placement argument — is not provable and returns <see cref="Placement.Bail"/>.
     /// </summary>
     private static Placement ResolvePlacement(IOperation childOperation)
     {
@@ -254,9 +292,12 @@ public sealed class UnusedGridTrackAnalyzer : DiagnosticAnalyzer
 
                 if (receiver is null)
                 {
-                    // No receiver → a static factory root (Text(...), Grid(...), Component<..>(..))
-                    // with no .Grid() above it → the framework default cell.
-                    return Placement.Default;
+                    // No receiver → a static call. A Reactor DSL factory (Text(...), a nested
+                    // Grid(...), Component<..>(..)) returns a fresh unplaced element → default cell.
+                    // Any other receiverless call could hide a .Grid(...) → not provable.
+                    return IsReactorFactory(invocation.TargetMethod)
+                        ? Placement.Default
+                        : Placement.Bail;
                 }
 
                 current = Unwrap(receiver);
