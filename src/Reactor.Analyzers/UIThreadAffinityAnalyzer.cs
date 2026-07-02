@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Linq;
+using System.Threading;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -94,7 +95,7 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
     private static void AnalyzeInvocation(SyntaxNodeAnalysisContext context)
     {
         var invocation = (InvocationExpressionSyntax)context.Node;
-        if (!IsBackgroundThreadContext(invocation))
+        if (!IsBackgroundThreadContext(invocation, context.SemanticModel, context.CancellationToken))
             return;
 
         // Semantic backstop: confirm the callee carries [UIThreadOnly].
@@ -142,13 +143,19 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
     {
         if (target is not (MemberAccessExpressionSyntax or IdentifierNameSyntax or MemberBindingExpressionSyntax))
             return;
-        if (!IsBackgroundThreadContext(context.Node))
+        if (!IsBackgroundThreadContext(context.Node, context.SemanticModel, context.CancellationToken))
             return;
 
         var symbolInfo = context.SemanticModel.GetSymbolInfo(target, context.CancellationToken);
         var property = symbolInfo.Symbol as IPropertySymbol
             ?? symbolInfo.CandidateSymbols.FirstOrDefault() as IPropertySymbol;
-        if (property is null || !HasUIThreadOnlyAttribute(property))
+        if (property is null)
+            return;
+
+        // The attribute may sit on the property itself or on its set accessor
+        // (`{ get; [UIThreadOnly] set; }`), which is a distinct method symbol.
+        if (!HasUIThreadOnlyAttribute(property) &&
+            !(property.SetMethod is { } setMethod && HasUIThreadOnlyAttribute(setMethod)))
             return;
 
         context.ReportDiagnostic(Diagnostic.Create(
@@ -164,8 +171,9 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
     /// because <c>ThrowIfNotOnUIThread</c> is a no-op while the dispatcher is null,
     /// and skipping it stops the code fix looping on its own output).
     /// </summary>
-    private static bool IsBackgroundThreadContext(SyntaxNode node) =>
-        IsInsideUnmarshaledBackgroundLambda(node) && !IsInsideDispatcherNullFallback(node);
+    private static bool IsBackgroundThreadContext(SyntaxNode node, SemanticModel semanticModel, CancellationToken cancellationToken) =>
+        IsInsideUnmarshaledBackgroundLambda(node, semanticModel, cancellationToken)
+        && !IsInsideDispatcherNullFallback(node, semanticModel, cancellationToken);
 
     /// <summary>
     /// Walk the lexical ancestors of <paramref name="invocation"/>. Returns
@@ -177,14 +185,14 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
     /// resolve correctly: <c>Task.Run(() =&gt; d.TryEnqueue(() =&gt; w.Close()))</c>
     /// hits the TryEnqueue boundary before the Task.Run boundary.
     /// </summary>
-    private static bool IsInsideUnmarshaledBackgroundLambda(SyntaxNode invocation)
+    private static bool IsInsideUnmarshaledBackgroundLambda(SyntaxNode invocation, SemanticModel semanticModel, CancellationToken cancellationToken)
     {
         for (var node = invocation.Parent; node is not null; node = node.Parent)
         {
             switch (node)
             {
                 case AnonymousFunctionExpressionSyntax lambda:
-                    switch (ClassifyLambdaHost(lambda))
+                    switch (ClassifyLambdaHost(lambda, semanticModel, cancellationToken))
                     {
                         case LambdaHost.Marshaled:
                             return false;
@@ -215,7 +223,7 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
     /// <c>TryEnqueue</c> in its else does not hide a genuine off-thread call. Safe
     /// because <c>ThrowIfNotOnUIThread</c> is a no-op while the dispatcher is null.
     /// </summary>
-    private static bool IsInsideDispatcherNullFallback(SyntaxNode node)
+    private static bool IsInsideDispatcherNullFallback(SyntaxNode node, SemanticModel semanticModel, CancellationToken cancellationToken)
     {
         var child = node;
         for (var current = node.Parent; current is not null; child = current, current = current.Parent)
@@ -224,7 +232,7 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
                 ReferenceEquals(child, ifStatement.Statement) &&
                 TryGetNullCheckedIdentifier(ifStatement.Condition) is { } dispatcherName &&
                 ifStatement.Else is { } elseClause &&
-                ElseMarshalsThrough(elseClause, dispatcherName))
+                ElseMarshalsThrough(elseClause, dispatcherName, semanticModel, cancellationToken))
             {
                 return true;
             }
@@ -261,20 +269,26 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
     }
 
     /// <summary>
-    /// The <c>else</c> branch marshals through <c><paramref name="dispatcherName"/>.TryEnqueue(...)</c>.
+    /// The <c>else</c> branch marshals through <c><paramref name="dispatcherName"/>.TryEnqueue(...)</c>
+    /// on an actual <see cref="Microsoft.UI.Dispatching.DispatcherQueue"/>.
     /// </summary>
-    private static bool ElseMarshalsThrough(SyntaxNode elseClause, string dispatcherName) =>
+    private static bool ElseMarshalsThrough(SyntaxNode elseClause, string dispatcherName, SemanticModel semanticModel, CancellationToken cancellationToken) =>
         elseClause.DescendantNodes().OfType<InvocationExpressionSyntax>().Any(invocation =>
         {
             var (methodName, receiverName) = GetInvokedNames(invocation);
-            return methodName == "TryEnqueue" && receiverName == dispatcherName;
+            return methodName == "TryEnqueue"
+                && receiverName == dispatcherName
+                && HostTypeIs(invocation, semanticModel, cancellationToken, DispatcherQueueTypeName);
         });
 
     /// <summary>
     /// Classify a lambda by the method it is passed to: a background launcher, a
-    /// dispatcher marshal (<c>TryEnqueue</c>), or unrelated.
+    /// dispatcher marshal (<c>TryEnqueue</c>), or unrelated. A cheap syntactic
+    /// name/receiver filter runs first, then the resolved method's containing type
+    /// is confirmed semantically so an unrelated same-named API (a non-dispatcher
+    /// <c>TryEnqueue</c>, a user-defined <c>Run</c>) does not misclassify.
     /// </summary>
-    private static LambdaHost ClassifyLambdaHost(AnonymousFunctionExpressionSyntax lambda)
+    private static LambdaHost ClassifyLambdaHost(AnonymousFunctionExpressionSyntax lambda, SemanticModel semanticModel, CancellationToken cancellationToken)
     {
         if (lambda.Parent is not ArgumentSyntax argument ||
             argument.Parent is not ArgumentListSyntax argumentList ||
@@ -286,20 +300,40 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
         var (methodName, receiverName) = GetInvokedNames(hostInvocation);
 
         // DispatcherQueue.TryEnqueue(...) — the call is already marshaled onto the
-        // UI thread regardless of receiver (d / ReactorApp.UIDispatcher / etc.).
+        // UI thread. Confirm the receiver really is a DispatcherQueue so an unrelated
+        // TryEnqueue is not treated as marshaled (which would hide a real bug).
         if (methodName == "TryEnqueue")
-            return LambdaHost.Marshaled;
+            return HostTypeIs(hostInvocation, semanticModel, cancellationToken, DispatcherQueueTypeName)
+                ? LambdaHost.Marshaled
+                : LambdaHost.Unrelated;
 
-        // Background launchers. The receiver check keeps a stray user-defined
-        // Run/StartNew/QueueUserWorkItem from tripping the gate; the [UIThreadOnly]
-        // attribute is the real confirmation downstream.
         return (methodName, receiverName) switch
         {
-            ("Run", "Task") => LambdaHost.Background,
-            ("StartNew", "Factory") => LambdaHost.Background,
-            ("QueueUserWorkItem", "ThreadPool") => LambdaHost.Background,
+            ("Run", "Task") when HostTypeIs(hostInvocation, semanticModel, cancellationToken, TaskTypeName)
+                => LambdaHost.Background,
+            ("StartNew", "Factory") when HostTypeIs(hostInvocation, semanticModel, cancellationToken, TaskFactoryTypeName)
+                => LambdaHost.Background,
+            ("QueueUserWorkItem", "ThreadPool") when HostTypeIs(hostInvocation, semanticModel, cancellationToken, ThreadPoolTypeName)
+                => LambdaHost.Background,
             _ => LambdaHost.Unrelated,
         };
+    }
+
+    private const string DispatcherQueueTypeName = "Microsoft.UI.Dispatching.DispatcherQueue";
+    private const string TaskTypeName = "System.Threading.Tasks.Task";
+    private const string TaskFactoryTypeName = "System.Threading.Tasks.TaskFactory";
+    private const string ThreadPoolTypeName = "System.Threading.ThreadPool";
+
+    /// <summary>
+    /// Confirms the invoked method resolves to a member of
+    /// <paramref name="fullyQualifiedTypeName"/>.
+    /// </summary>
+    private static bool HostTypeIs(InvocationExpressionSyntax invocation, SemanticModel semanticModel, CancellationToken cancellationToken, string fullyQualifiedTypeName)
+    {
+        var symbolInfo = semanticModel.GetSymbolInfo(invocation, cancellationToken);
+        var method = symbolInfo.Symbol as IMethodSymbol
+            ?? symbolInfo.CandidateSymbols.FirstOrDefault() as IMethodSymbol;
+        return method?.ContainingType?.ToDisplayString() == fullyQualifiedTypeName;
     }
 
     /// <summary>

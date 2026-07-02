@@ -57,8 +57,17 @@ public sealed class FakeWindow
     [UIThreadOnly] public string Title { get; set; } = string.Empty;
     [UIThreadOnly] public int Ticks { get; set; }
 
+    // Attribute on the set accessor only (not the property symbol).
+    public int Guarded { get; [UIThreadOnly] set; }
+
     // Not UI-thread-only — background use is legitimate.
     public void SafeMethod() { }
+}
+
+// A non-dispatcher type that happens to expose a TryEnqueue method.
+public sealed class NotADispatcher
+{
+    public bool TryEnqueue(Action callback) { callback(); return true; }
 }
 ";
 
@@ -656,6 +665,50 @@ class C
         {
             TestCode = before,
             FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // ── Semantic precision: attribute on the set accessor; real vs. fake dispatcher ──
+
+    [Fact]
+    public async Task Fires_For_Attribute_On_Set_Accessor()
+    {
+        // [UIThreadOnly] on the setter (SetMethod), not on the property symbol.
+        var source = Stubs + @"
+class C
+{
+    void M()
+    {
+        var window = new FakeWindow();
+        Task.Run(() => {|REACTOR_THREAD_001:window.Guarded = 5|});
+    }
+}";
+
+        await new CSharpAnalyzerTest<UIThreadAffinityAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_When_TryEnqueue_Receiver_Is_Not_A_DispatcherQueue()
+    {
+        // An unrelated TryEnqueue (not Microsoft.UI.Dispatching.DispatcherQueue) must
+        // not be treated as marshaling — the call still runs on the background thread.
+        var source = Stubs + @"
+class C
+{
+    void M()
+    {
+        var window = new FakeWindow();
+        var other = new NotADispatcher();
+        Task.Run(() => other.TryEnqueue(() => {|REACTOR_THREAD_001:window.Close()|}));
+    }
+}";
+
+        await new CSharpAnalyzerTest<UIThreadAffinityAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 }
