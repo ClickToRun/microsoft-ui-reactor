@@ -21,6 +21,7 @@ each packet for the full detect/fix/FP reasoning — this doc does not re-derive
 4. Add your descriptor **and** your release row in the same PR (§2.2 — they are
    coupled both ways; do not pre-seed rows).
 5. Run your rule against `samples/` (§2.4) before opening the PR.
+6. If your rule is app-author-facing, add its cheat-table row (§2.6) in the same PR.
 
 ---
 
@@ -78,6 +79,19 @@ high-coverage samples (`ReactorGallery`, `StylingGallery`, `TodoApp`); full swee
 Ship at the severity in your packet. The five **Info** nudge-class rules
 (`HOOKS_002`, `CTX_001`, `OPT_001`, `DSL_002`, `CMD_001`) are deliberate — do not
 promote. No core rule ships `Error` (the only `Error` is Batch-2 `WIN2D_001`).
+
+### 2.6 Agent-kit cheat table
+The shipped `reactor-build-and-check` skill carries a curated **common-build-errors
+cheat table** (`plugins/reactor/skills/reactor-build-and-check/SKILL.md`, "Common
+build errors — cheat table") that authors rely on to fix a `REACTOR_*` warning. It is
+**curated, not exhaustive** (niche / library-author rules like `POOL_001` are already
+omitted). When your rule is an **app-author-facing** diagnostic (the XAML-habit
+Warning/Info rules — `HOOKS_010/011/013`, `THEME_004`, `VIS_001`, `OPT_001`,
+`CMD_001`, `ITEMS_001`, `CTRL_001`, `LIFECYCLE_001`, `THREAD_001/002`, `DSL_002`,
+`PERSIST_001`, `CTX_001`, `STATE_001`, plus the Batch-2 author rules), add a one-row
+entry (`ID | severity | trigger | fix`) in the same PR. Skip it for
+control-author / niche rules (`DESC_001`, `WIN2D_001`) — the analyzer DLL's own
+message carries those.
 
 ---
 
@@ -178,6 +192,10 @@ CTX_001 is a separate analyzer file consuming the extracted classifier.
 | `REACTOR_HOOKS_013` | Reactor.Hooks | Warning | ✔ | `HookRulesAnalyzer.cs` (per-overload initial-value arg) | §4.1 |
 | `REACTOR_CTX_001` | Reactor.Context | Info | ✔ | new `ContextProvideAnalyzer` | §4.1 |
 
+> `HOOKS_003` fix is `~`, not `✔`: the spec §4 **summary** table marks it ✔, but
+> §4.1 (and the §10 round-2 relabel) specify a **template/preview** fix that hoists
+> the async body into a `Task`-returning local — not a silent one-click rewrite.
+
 Key gotchas (from spec): HOOKS_010 fix is `setItems([.. items, v])` (setter is
 `Action<T>`, **not** a functional updater); restrict to mutable/non-`IEquatable`
 types. HOOKS_012 message-only (no HOOKS_004 fixer exists); disambiguate the two
@@ -209,14 +227,17 @@ REACTOR_THREAD_001 | Reactor.Threading | Warning | UIThreadAffinityAnalyzer - UI
 Batch 2 is endorsed but not source-hardened (spec §12) — **each packet starts with
 a verification pass** against the cited anchors before implementing. IDs are
 reserved here; categories per spec §12 (short `Reactor.*`, except `A11Y_004`).
-Reuse the Wave C classifier for `ANIM_002`. Doc-named (build to make docs true):
-`INPUT_001`, `PERF_FUNCREF`, `GRID_001` (unused-column), `A11Y_004`.
+Reuse the Wave C classifier for `REACTOR_ANIM_002`. Doc-named (build to make docs
+true): `REACTOR_INPUT_001`, `REACTOR_PERF_FUNCREF`, `REACTOR_GRID_001`
+(unused-column), `REACTOR_A11Y_004`.
 
-`INPUT_001`⭐, `PERF_FUNCREF`⭐, `GRID_001`⭐ (Reactor.Layout, unused-column — distinct
-from the id-less §4.5 fixer), `A11Y_004`⭐ (Microsoft.UI.Reactor.Accessibility),
-`DIALOG_001`, `NAV_001`, `ANIM_002`, `LIFECYCLE_002`, `INPUT_002`, `MOD_001`,
-`ANIM_003`, `DSL_003`, `MEDIA_001`, `MEMO_001`, `WIN2D_001` (Error). See spec §12
-table + terse entries for detect/grounding/vote.
+`REACTOR_INPUT_001`⭐, `REACTOR_PERF_FUNCREF`⭐, `REACTOR_GRID_001`⭐ (Reactor.Layout,
+unused-column — distinct from the id-less §4.5 fixer), `REACTOR_A11Y_004`⭐
+(Microsoft.UI.Reactor.Accessibility), `REACTOR_DIALOG_001`, `REACTOR_NAV_001`,
+`REACTOR_ANIM_002`, `REACTOR_LIFECYCLE_002`, `REACTOR_INPUT_002`, `REACTOR_MOD_001`,
+`REACTOR_ANIM_003`, `REACTOR_DSL_003`, `REACTOR_MEDIA_001`, `REACTOR_MEMO_001`,
+`REACTOR_WIN2D_001` (Error). See spec §12 table + terse entries for
+detect/grounding/vote.
 
 ---
 
