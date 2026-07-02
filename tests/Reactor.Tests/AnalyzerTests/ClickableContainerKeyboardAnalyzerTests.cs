@@ -25,7 +25,9 @@ namespace Stubs
     public sealed class BorderElement : Element { }
     public sealed class GridElement : Element { }
     public sealed class StackElement : Element { }
+    public sealed class CanvasElement : Element { }
     public sealed class RectangleElement : Element { }
+    public sealed class EllipseElement : Element { }
     public sealed class ButtonElement : Element { }
     public sealed class TextBlockElement : Element { }
 
@@ -36,9 +38,11 @@ namespace Stubs
     {
         public static BorderElement Border(Element child) => new BorderElement();
         public static GridElement Grid(params Element[] children) => new GridElement();
+        public static CanvasElement Canvas(params Element[] children) => new CanvasElement();
         public static StackElement HStack(params Element[] children) => new StackElement();
         public static StackElement VStack(params Element[] children) => new StackElement();
         public static RectangleElement Rectangle() => new RectangleElement();
+        public static EllipseElement Ellipse() => new EllipseElement();
         public static ButtonElement Button(string text, System.Action onClick) => new ButtonElement();
         public static TextBlockElement TextBlock(string text) => new TextBlockElement();
     }
@@ -65,6 +69,7 @@ namespace App
     public static class C
     {
         public static void Open() { }
+        public static readonly Stubs.TappedArgs Sink = new Stubs.TappedArgs();
 
         public static Element Build() =>
             " + body + @";
@@ -92,8 +97,20 @@ namespace App
         VerifyAsync(@"{|REACTOR_A11Y_004:HStack(TextBlock(""hi""))|}.OnTapped((_, __) => Open())");
 
     [Fact]
+    public Task VStack_With_OnTapped_And_No_Focus_Fires() =>
+        VerifyAsync(@"{|REACTOR_A11Y_004:VStack(TextBlock(""hi""))|}.OnTapped((_, __) => Open())");
+
+    [Fact]
+    public Task Canvas_With_OnTapped_And_No_Focus_Fires() =>
+        VerifyAsync(@"{|REACTOR_A11Y_004:Canvas(TextBlock(""hi""))|}.OnTapped((_, __) => Open())");
+
+    [Fact]
     public Task Rectangle_With_OnTapped_And_No_Focus_Fires() =>
         VerifyAsync(@"{|REACTOR_A11Y_004:Rectangle()|}.OnTapped((_, __) => Open())");
+
+    [Fact]
+    public Task Ellipse_With_OnTapped_And_No_Focus_Fires() =>
+        VerifyAsync(@"{|REACTOR_A11Y_004:Ellipse()|}.OnTapped((_, __) => Open())");
 
     [Fact]
     public Task Border_With_OnTapped_Before_Other_Modifiers_Fires() =>
@@ -103,6 +120,16 @@ namespace App
     public Task Border_With_Actionable_Block_Tap_Fires() =>
         VerifyAsync(@"{|REACTOR_A11Y_004:Border(TextBlock(""hi""))|}.OnTapped((_, e) => { Open(); e.Handled = true; })");
 
+    // A pure swallow tap followed by a real actionable tap still needs keyboard focus.
+    [Fact]
+    public Task Border_With_Swallow_Then_Actionable_Tap_Fires() =>
+        VerifyAsync(@"{|REACTOR_A11Y_004:Border(TextBlock(""hi""))|}.OnTapped((_, e) => e.Handled = true).OnTapped((_, __) => Open())");
+
+    // `.Handled = true` on something other than the tap event-args parameter is not a swallow.
+    [Fact]
+    public Task Border_With_Handled_On_Other_Receiver_Fires() =>
+        VerifyAsync(@"{|REACTOR_A11Y_004:Border(TextBlock(""hi""))|}.OnTapped((_, e) => Sink.Handled = true)");
+
     // ── Negatives: an explicit keyboard-focus affordance suppresses ────
 
     [Fact]
@@ -110,12 +137,20 @@ namespace App
         VerifyAsync(@"Border(TextBlock(""hi"")).OnTapped((_, __) => Open()).IsTabStop(true)");
 
     [Fact]
-    public Task Border_With_TabIndex_No_Diagnostic() =>
-        VerifyAsync(@"Border(TextBlock(""hi"")).OnTapped((_, __) => Open()).TabIndex(0)");
-
-    [Fact]
     public Task Border_With_OnKeyDown_No_Diagnostic() =>
         VerifyAsync(@"Border(TextBlock(""hi"")).OnTapped((_, __) => Open()).OnKeyDown((_, __) => Open())");
+
+    // The idiomatic focusable-container shape in this codebase pairs the two.
+    [Fact]
+    public Task Border_With_IsTabStop_And_OnKeyDown_No_Diagnostic() =>
+        VerifyAsync(@"Border(TextBlock(""hi"")).OnTapped((_, __) => Open()).IsTabStop(true).OnKeyDown((_, __) => Open())");
+
+    // `.TabIndex(n)` is NOT a suppressor: the reconciler applies TabIndex only to Controls, so on a
+    // non-Control container it is a no-op that never adds a tab stop — the container is still
+    // unreachable, so the rule must still fire.
+    [Fact]
+    public Task Border_With_TabIndex_Only_Still_Fires() =>
+        VerifyAsync(@"{|REACTOR_A11Y_004:Border(TextBlock(""hi""))|}.OnTapped((_, __) => Open()).TabIndex(0)");
 
     // ── Negatives: a focusable control is already in the tab order ─────
 

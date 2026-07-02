@@ -52,15 +52,19 @@ public sealed class ClickableContainerKeyboardCodeFix : CodeFixProvider
                     "Add .IsTabStop(true) for keyboard focus",
                     ct =>
                     {
+                        // Preserve the receiver's leading and internal trivia; move only the
+                        // outermost node's trailing trivia to sit after the appended call so
+                        // multi-line chains keep their formatting.
+                        var trailing = outermost.GetTrailingTrivia();
                         var newOutermost = SyntaxFactory.InvocationExpression(
                             SyntaxFactory.MemberAccessExpression(
                                 SyntaxKind.SimpleMemberAccessExpression,
-                                outermost.WithoutTrivia(),
+                                outermost.WithoutTrailingTrivia(),
                                 SyntaxFactory.IdentifierName("IsTabStop")),
                             SyntaxFactory.ArgumentList(SyntaxFactory.SingletonSeparatedList(
                                 SyntaxFactory.Argument(
                                     SyntaxFactory.LiteralExpression(SyntaxKind.TrueLiteralExpression)))))
-                            .WithTriviaFrom(outermost);
+                            .WithTrailingTrivia(trailing);
 
                         var newRoot = root.ReplaceNode(outermost, newOutermost);
                         return Task.FromResult(context.Document.WithSyntaxRoot(newRoot));

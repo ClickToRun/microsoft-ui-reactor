@@ -280,8 +280,8 @@ public sealed class ClickableContainerKeyboardAnalyzer : DiagnosticAnalyzer
     private static readonly LocalizableString Description =
         "A non-focusable container (Border, Grid, Canvas, Rectangle, Ellipse, VStack, HStack) with " +
         "a tap handler is hit-testable for pointer input but not in the keyboard tab order, so " +
-        "keyboard users cannot reach it. Add .IsTabStop(true) (or .TabIndex(n)) to put it in the tab " +
-        "order, and pair it with .OnKeyDown for Enter/Space activation.";
+        "keyboard users cannot reach it. Add .IsTabStop(true) to put it in the tab order, and pair " +
+        "it with .OnKeyDown for Enter/Space activation.";
 
     private static readonly DiagnosticDescriptor Rule = new(
         DiagnosticId,
@@ -304,12 +304,17 @@ public sealed class ClickableContainerKeyboardAnalyzer : DiagnosticAnalyzer
             "Border", "Grid", "Canvas", "Rectangle", "Ellipse", "VStack", "HStack");
 
     /// <summary>
-    /// Modifiers that either place the element in the tab order (<c>IsTabStop</c>/<c>TabIndex</c>)
-    /// or wire keyboard handling (<c>OnKeyDown</c>). Any one signals the author addressed keyboard
-    /// access, so the container is left alone.
+    /// Modifiers that suppress the diagnostic because the author has made the element
+    /// keyboard-accessible. <c>IsTabStop</c> is the reliable fix — the reconciler applies it to any
+    /// <c>FrameworkElement</c> (Reconciler.cs). <c>OnKeyDown</c> wires a routed key handler that
+    /// fires for key events bubbling up from focusable descendants, so it counts as real keyboard
+    /// handling. <c>TabIndex</c> is deliberately NOT here: the reconciler applies TabIndex only to
+    /// <c>Control</c>s (Reconciler.cs — <c>fe is Control</c>), so on these non-Control container /
+    /// shape factories it is a no-op that never adds a tab stop; treating it as a focus affordance
+    /// would silently pass a still-unreachable container.
     /// </summary>
     private static readonly ImmutableHashSet<string> FocusAffordanceModifiers =
-        ImmutableHashSet.Create("IsTabStop", "TabIndex", "OnKeyDown");
+        ImmutableHashSet.Create("IsTabStop", "OnKeyDown");
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
         ImmutableArray.Create(Rule);
@@ -384,7 +389,8 @@ public sealed class ClickableContainerKeyboardAnalyzer : DiagnosticAnalyzer
     /// (<c>(_, e) =&gt; e.Handled = true</c>, or a block whose sole statement is that assignment).
     /// Such a handler is a pointer-event sink — e.g. a modal backdrop that blocks clicks reaching
     /// the content beneath — not an actionable command, so there is nothing to make
-    /// keyboard-reachable.
+    /// keyboard-reachable. The assignment target must be the handler's own event-args parameter, so
+    /// an unrelated <c>somethingElse.Handled = true</c> does not falsely suppress.
     /// </summary>
     private static bool IsPureHandledSwallow(InvocationExpressionSyntax onTapped)
     {
@@ -392,25 +398,50 @@ public sealed class ClickableContainerKeyboardAnalyzer : DiagnosticAnalyzer
         if (args.Count != 1)
             return false;
 
-        var body = args[0].Expression switch
+        // The tap handler is Action<object, TappedRoutedEventArgs>; the event-args parameter (the
+        // one carrying .Handled) is the last lambda parameter.
+        IReadOnlyList<ParameterSyntax> parameters;
+        CSharpSyntaxNode? body;
+        switch (args[0].Expression)
         {
-            ParenthesizedLambdaExpressionSyntax p => p.Body,
-            SimpleLambdaExpressionSyntax s => s.Body,
-            _ => null,
-        };
+            case ParenthesizedLambdaExpressionSyntax p:
+                parameters = p.ParameterList.Parameters;
+                body = p.Body;
+                break;
+            case SimpleLambdaExpressionSyntax s:
+                parameters = new[] { s.Parameter };
+                body = s.Body;
+                break;
+            default:
+                return false;
+        }
+
+        if (parameters.Count == 0 || body is null)
+            return false;
+
+        // A discard `_` can't be dereferenced, so it can't be the swallow shape.
+        var eventArgsName = parameters[parameters.Count - 1].Identifier.Text;
+        if (eventArgsName is "_" or "")
+            return false;
 
         return body switch
         {
-            AssignmentExpressionSyntax assign => IsHandledTrue(assign),
+            AssignmentExpressionSyntax assign => IsHandledTrue(assign, eventArgsName),
             BlockSyntax block when block.Statements.Count == 1
                 && block.Statements[0] is ExpressionStatementSyntax { Expression: AssignmentExpressionSyntax a }
-                => IsHandledTrue(a),
+                => IsHandledTrue(a, eventArgsName),
             _ => false,
         };
     }
 
-    private static bool IsHandledTrue(AssignmentExpressionSyntax assign) =>
+    /// <summary>True for <c>&lt;eventArgsName&gt;.Handled = true</c>.</summary>
+    private static bool IsHandledTrue(AssignmentExpressionSyntax assign, string eventArgsName) =>
         assign.IsKind(SyntaxKind.SimpleAssignmentExpression)
-        && assign.Left is MemberAccessExpressionSyntax { Name.Identifier.Text: "Handled" }
+        && assign.Left is MemberAccessExpressionSyntax
+        {
+            Expression: IdentifierNameSyntax receiver,
+            Name.Identifier.Text: "Handled"
+        }
+        && receiver.Identifier.Text == eventArgsName
         && assign.Right.IsKind(SyntaxKind.TrueLiteralExpression);
 }
