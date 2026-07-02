@@ -81,13 +81,28 @@ public sealed class Win2DSharedDeviceCodeFix : CodeFixProvider
         {
             var directive = SyntaxFactory.UsingDirective(SyntaxFactory.ParseName(Win2DNamespace))
                 .NormalizeWhitespace()
-                .WithTrailingTrivia(SyntaxFactory.CarriageReturnLineFeed);
+                .WithTrailingTrivia(DetectEndOfLine(root));
             // A compilation-unit using is in scope for every namespace in the file, so it fixes the
             // site regardless of which namespace block the canvas lives in.
             newRoot = compilationUnit.AddUsings(directive);
         }
 
         return document.WithSyntaxRoot(newRoot);
+    }
+
+    /// <summary>
+    /// Returns the newline the document already uses (so the inserted using matches the file's
+    /// convention — LF per the repo's .editorconfig — instead of forcing a fixed style).
+    /// </summary>
+    private static SyntaxTrivia DetectEndOfLine(SyntaxNode root)
+    {
+        foreach (var trivia in root.DescendantTrivia())
+        {
+            if (trivia.IsKind(SyntaxKind.EndOfLineTrivia))
+                return trivia;
+        }
+
+        return SyntaxFactory.LineFeed;
     }
 
     private static bool IsWin2DNamespaceInScope(SyntaxNode root, SyntaxNode anchor)

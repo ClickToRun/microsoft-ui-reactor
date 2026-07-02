@@ -305,10 +305,14 @@ namespace TestApp
     }
 }";
 
+        // Match whatever newline the compiled source strings use (LF in CI, CRLF locally), so the
+        // expected fixed source lines up with the code fix's document-newline detection.
+        var newLine = Stubs.Contains("\r\n") ? "\r\n" : "\n";
+
         await new CSharpCodeFixTest<Win2DSharedDeviceAnalyzer, Win2DSharedDeviceCodeFix, DefaultVerifier>
         {
             TestCode = Stubs + body,
-            FixedCode = Stubs.Replace("using System;", "using System;\r\nusing Microsoft.UI.Reactor.Advanced.Win2D;") + fixedBody,
+            FixedCode = Stubs.Replace("using System;", "using System;" + newLine + "using Microsoft.UI.Reactor.Advanced.Win2D;") + fixedBody,
             CodeActionEquivalenceKey = Win2DSharedDeviceAnalyzer.DiagnosticId,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
