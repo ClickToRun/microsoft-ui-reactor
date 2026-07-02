@@ -409,6 +409,30 @@ namespace TestApp
         await MakeTest(source, source).RunAsync(TestContext.Current.CancellationToken);
     }
 
+    // ── No fix: non-finite tracks (parse to Infinity — no valid C# literal) ──
+
+    [Theory]
+    [InlineData(@"""Infinity""")]   // literal +Infinity
+    [InlineData(@"""Infinity*""")]  // +Infinity star weight
+    [InlineData(@"""1e400""")]      // overflows to +Infinity
+    public async Task No_Fix_When_Track_Is_Non_Finite(string track)
+    {
+        var source = Stubs + $@"
+namespace TestApp
+{{
+    using Microsoft.UI.Reactor;
+    using static Microsoft.UI.Reactor.Factories;
+
+    public static class C
+    {{
+        public static Element Build() =>
+            {{|CS0618:Grid([{track}], [""*""])|}};
+    }}
+}}";
+
+        await MakeTest(source, source).RunAsync(TestContext.Current.CancellationToken);
+    }
+
     // ── Fix emits compiling GridSize even with only the static factory import ──
 
     [Fact]

@@ -314,7 +314,8 @@ public sealed class GridStringTrackCodeFix : CodeFixProvider
         {
             var numericText = trimmed.Substring(0, trimmed.Length - 1).Trim();
             if (numericText.Length == 0) return false;
-            if (double.TryParse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture, out var stars) && stars > 0)
+            if (double.TryParse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture, out var stars)
+                && stars > 0 && IsFinite(stars))
             {
                 gridSize = Call(gridSizeName, "Star", FormatNumber(stars));
                 return true;
@@ -323,7 +324,8 @@ public sealed class GridStringTrackCodeFix : CodeFixProvider
         }
 
         // "<n>" -> GridSize.Px(n)
-        if (double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out var pixels) && pixels >= 0)
+        if (double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out var pixels)
+            && pixels >= 0 && IsFinite(pixels))
         {
             gridSize = Call(gridSizeName, "Px", FormatNumber(pixels));
             return true;
@@ -331,6 +333,12 @@ public sealed class GridStringTrackCodeFix : CodeFixProvider
 
         return false;
     }
+
+    // NumberStyles.Float accepts "Infinity"/"-Infinity" and overflows (e.g. "1e400")
+    // to ±Infinity; "R" would then emit "Infinity", which is not a valid C# numeric
+    // literal (and GridLength rejects non-finite anyway). Withhold the fix instead.
+    // (netstandard2.0 has no double.IsFinite.)
+    private static bool IsFinite(double value) => !double.IsInfinity(value) && !double.IsNaN(value);
 
     /// <summary>Round-trip invariant form that is always a valid C# numeric literal.</summary>
     private static string FormatNumber(double value) => value.ToString("R", CultureInfo.InvariantCulture);
