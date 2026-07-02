@@ -18,10 +18,13 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// <remarks>
 /// Info-severity nudge, no code-fix (the correct value is intent-specific — a
 /// state counter the author increments only when they mean to retrigger).
-/// Purely syntactic: gates on a <c>.Keyframes(name, trigger, configure)</c>
-/// invocation shape and classifies the <c>trigger</c> argument. See the terse
-/// spec entry (docs/specs/060-analyzer-suite-expansion.md §12) and
-/// docs/guide/animation.md "Re-running keyframes on every render".
+/// Follows the spec §3 pattern: a cheap syntactic gate (a
+/// <c>.Keyframes(name, trigger, configure)</c> invocation whose trigger argument
+/// classifies as per-render-varying) runs first, then a single semantic check
+/// confirms the invocation binds to Reactor's <c>ElementExtensions.Keyframes</c>
+/// (not an unrelated method of the same name). See the terse spec entry
+/// (docs/specs/060-analyzer-suite-expansion.md §12) and docs/guide/animation.md
+/// "Re-running keyframes on every render".
 /// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class KeyframeTriggerAnalyzer : DiagnosticAnalyzer
@@ -66,7 +69,7 @@ public sealed class KeyframeTriggerAnalyzer : DiagnosticAnalyzer
     {
         var invocation = (InvocationExpressionSyntax)context.Node;
 
-        // Syntactic gate: `<receiver>.Keyframes(name, trigger, configure)`.
+        // Cheap syntactic gate: `<receiver>.Keyframes(name, trigger, configure)`.
         // The extension is always called with instance syntax, so the three
         // declared parameters (name, trigger, configure) map to three
         // arguments — the receiver is the member-access target, not an argument.
@@ -87,30 +90,63 @@ public sealed class KeyframeTriggerAnalyzer : DiagnosticAnalyzer
         if (kind is null)
             return;
 
+        // Semantic confirmation (runs only after the cheap gate matched a
+        // candidate): the invocation must bind to Reactor's
+        // ElementExtensions.Keyframes, not an unrelated method named Keyframes.
+        if (!BindsToReactorKeyframes(context.SemanticModel, invocation, context.CancellationToken))
+            return;
+
         context.ReportDiagnostic(Diagnostic.Create(Rule, triggerExpr.GetLocation(), kind));
     }
     // </snippet:keyframe-trigger-rule>
 
     /// <summary>
+    /// Confirms the invocation resolves to Reactor's
+    /// <c>Microsoft.UI.Reactor.ElementExtensions.Keyframes</c> extension. Binding
+    /// to the resolved symbol (rather than checking the receiver's type) keeps
+    /// generic <c>T : Element</c> call sites firing and keeps a same-named
+    /// third-party extension from producing a Reactor diagnostic.
+    /// </summary>
+    private static bool BindsToReactorKeyframes(
+        SemanticModel model, InvocationExpressionSyntax invocation, System.Threading.CancellationToken ct)
+    {
+        if (model.GetSymbolInfo(invocation, ct).Symbol is not IMethodSymbol method)
+            return false;
+
+        // Unwrap the reduced extension form (`el.Keyframes(...)`) to its definition.
+        var def = method.ReducedFrom ?? method;
+        if (def.Name != "Keyframes")
+            return false;
+
+        var containing = def.ContainingType;
+        if (containing?.Name != "ElementExtensions")
+            return false;
+
+        var ns = containing.ContainingNamespace?.ToDisplayString();
+        return ns is not null
+            && (ns == "Microsoft.UI.Reactor"
+                || ns.StartsWith("Microsoft.UI.Reactor.", System.StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// Resolves the <c>trigger</c> argument. A named <c>trigger:</c> argument
-    /// wins (so reordered named args are handled correctly); otherwise, for an
-    /// all-positional call, it is index 1 (<c>name</c>, <c>trigger</c>,
-    /// <c>configure</c>). If some arguments are named but none is
-    /// <c>trigger</c>, positional order is unreliable, so bail.
+    /// wins (so reordered named args are handled correctly). Otherwise the
+    /// trigger is the positional argument at index 1 (<c>name</c>,
+    /// <c>trigger</c>, <c>configure</c>) — this still holds when a later
+    /// parameter is passed by name (e.g. <c>("x", value, configure: ...)</c>).
+    /// If index 1 is itself bound by name to a different parameter, positional
+    /// mapping is unreliable, so bail.
     /// </summary>
     private static ExpressionSyntax? ResolveTriggerArgument(SeparatedSyntaxList<ArgumentSyntax> args)
     {
-        var anyNamed = false;
         foreach (var arg in args)
         {
-            if (arg.NameColon is not { } nc)
-                continue;
-            anyNamed = true;
-            if (nc.Name.Identifier.ValueText == "trigger")
+            if (arg.NameColon is { } nc && nc.Name.Identifier.ValueText == "trigger")
                 return arg.Expression;
         }
 
-        return anyNamed ? null : args[1].Expression;
+        var second = args[1];
+        return second.NameColon is null ? second.Expression : null;
     }
 
     /// <summary>
@@ -122,10 +158,18 @@ public sealed class KeyframeTriggerAnalyzer : DiagnosticAnalyzer
     /// NOTE (consolidation): mirrors the restricted subset of
     /// <c>HookRulesAnalyzer.ClassifyDepExpression</c>. Wave C (spec §3.2) extracts
     /// a shared <c>AllocationAnalysis</c> classifier; when that lands on this
-    /// branch, replace the allocation arm here with the shared helper. Tuples and
-    /// lambdas are intentionally excluded — a tuple has value equality (stable
-    /// when its members are), and a bare lambda cannot bind to the
-    /// <c>object? trigger</c> parameter.
+    /// branch, replace the allocation arm here with the shared helper.
+    ///
+    /// This rule's re-fire test is <c>!Equals(prevTrigger, trigger)</c>
+    /// (<c>Reconciler.ApplyKeyframeAnimations</c>), so only shapes that yield a
+    /// DIFFERENT value/identity each render are flagged. Object / array /
+    /// collection creations default to reference equality → a fresh instance each
+    /// render → re-fire. <b>Tuples and anonymous objects are excluded</b>: both
+    /// have structural (value) equality, so a stable-valued literal does NOT
+    /// re-fire, and flagging it would be a false "changes every render". (This
+    /// diverges from spec §3.2's allocation-focused subset, which lists anonymous
+    /// objects — correct there because HOOKS_013 is about allocation cost, not
+    /// <c>Equals</c> identity. Verified against source for ANIM_002.)
     /// </remarks>
     private static string? ClassifyUnstableTrigger(ExpressionSyntax expr)
     {
@@ -141,8 +185,6 @@ public sealed class KeyframeTriggerAnalyzer : DiagnosticAnalyzer
                 return "a freshly-allocated array";
             case CollectionExpressionSyntax:
                 return "a freshly-allocated collection";
-            case AnonymousObjectCreationExpressionSyntax:
-                return "a freshly-allocated anonymous object";
         }
 
         // Well-known per-render-varying time / identity sources.
