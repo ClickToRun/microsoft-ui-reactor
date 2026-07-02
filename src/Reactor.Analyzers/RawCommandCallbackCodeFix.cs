@@ -66,6 +66,14 @@ public sealed class RawCommandCallbackCodeFix : CodeFixProvider
                 if (argument?.Parent is not ArgumentListSyntax argumentList)
                     continue;
 
+                // Deleting the callback argument is only safe when no *positional* argument follows
+                // it: a following positional would shift down into the callback parameter's slot and
+                // rebind (e.g. removing OnClick from `new SplitButtonElement("S", h, flyout)` would
+                // bind `flyout` to `OnClick`). A named argument can always be removed. When it isn't
+                // safe we withhold the fix — the analyzer still reports, the author removes by hand.
+                if (!IsSafeToRemoveArgument(argumentList, argument))
+                    continue;
+
                 context.RegisterCodeFix(
                     CodeAction.Create(
                         title,
@@ -96,5 +104,25 @@ public sealed class RawCommandCallbackCodeFix : CodeFixProvider
 
         var newDocument = document.WithSyntaxRoot(root.ReplaceNode(argumentList, newArgumentList));
         return Formatter.FormatAsync(newDocument, Formatter.Annotation, cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
+    /// A named argument is always safe to delete. A positional argument is safe only when no
+    /// positional argument follows it — otherwise removing it would shift a later positional
+    /// argument into the deleted parameter's slot and silently rebind it.
+    /// </summary>
+    private static bool IsSafeToRemoveArgument(ArgumentListSyntax argumentList, ArgumentSyntax argument)
+    {
+        if (argument.NameColon is not null)
+            return true;
+
+        var index = argumentList.Arguments.IndexOf(argument);
+        for (var i = index + 1; i < argumentList.Arguments.Count; i++)
+        {
+            if (argumentList.Arguments[i].NameColon is null)
+                return false;
+        }
+
+        return true;
     }
 }

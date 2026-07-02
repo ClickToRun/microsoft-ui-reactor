@@ -141,6 +141,15 @@ public sealed class RawCommandCallbackAnalyzer : DiagnosticAnalyzer
         if (type.ContainingNamespace?.ToDisplayString() != ElementNamespace)
             return;
 
+        // A provably metadata-only command — an inline `new Command { … }` / `new() { … }` that
+        // assigns neither Execute nor ExecuteAsync — has no delegate to invoke (Invokable(cmd) is
+        // null), so the callback is the ONLY executable path and is NOT shadowing the command. Do
+        // not fire (and never suggest deleting the sole handler). Opaque commands (a variable,
+        // field, or factory result) are undecidable syntactically and stay covered by the match;
+        // spec §4.3 rates that residual false positive low.
+        if (IsProvablyMetadataOnlyCommand(commandAssignment.Right))
+            return;
+
         // (a) Redundant callback assigned via the object initializer / `with`.
         var initCallback = FindInitializerCallback(initializer, info.InitializerCallbacks);
         if (initCallback is not null)
@@ -242,4 +251,39 @@ public sealed class RawCommandCallbackAnalyzer : DiagnosticAnalyzer
         expression.IsKind(SyntaxKind.NullLiteralExpression) ||
         expression.IsKind(SyntaxKind.DefaultLiteralExpression) ||
         expression is DefaultExpressionSyntax;
+
+    /// <summary>
+    /// True when <paramref name="commandExpr"/> is an <b>inline</b> command creation
+    /// (<c>new Command { … }</c> / <c>new() { … }</c>) that assigns neither <c>Execute</c> nor
+    /// <c>ExecuteAsync</c> to a non-null delegate — i.e. a statically-provable metadata-only
+    /// command that has nothing to run. Anything else (a variable, field, factory result, or
+    /// <c>with</c> expression) is opaque and returns <c>false</c>.
+    /// </summary>
+    private static bool IsProvablyMetadataOnlyCommand(ExpressionSyntax commandExpr)
+    {
+        InitializerExpressionSyntax? initializer;
+        switch (commandExpr)
+        {
+            case ObjectCreationExpressionSyntax oce:
+                initializer = oce.Initializer;
+                break;
+            case ImplicitObjectCreationExpressionSyntax ioce:
+                initializer = ioce.Initializer;
+                break;
+            default:
+                return false;
+        }
+
+        // No initializer (e.g. `new Command()`) => nothing assigned => metadata-only.
+        if (initializer is null)
+            return true;
+
+        var hasExecute = initializer.Expressions
+            .OfType<AssignmentExpressionSyntax>()
+            .Any(a => a.Left is IdentifierNameSyntax id
+                && (id.Identifier.ValueText == "Execute" || id.Identifier.ValueText == "ExecuteAsync")
+                && !IsNullish(a.Right));
+
+        return !hasExecute;
+    }
 }
