@@ -9,8 +9,9 @@ namespace Microsoft.UI.Reactor.Tests.AnalyzerTests;
 /// <summary>
 /// Tests for <see cref="ClickableContainerKeyboardAnalyzer"/> (<c>REACTOR_A11Y_004</c>) and its
 /// <see cref="ClickableContainerKeyboardCodeFix"/>. A non-focusable container carrying an
-/// actionable <c>.OnTapped</c> but no <c>.IsTabStop</c>/<c>.TabIndex</c>/<c>.OnKeyDown</c> is
-/// mouse/touch-hittable yet skipped by Tab.
+/// actionable <c>.OnTapped</c> but no <c>.IsTabStop(true)</c> is mouse/touch-hittable yet skipped
+/// by Tab. Only <c>.IsTabStop(true)</c> (or <c>.IsTabStop()</c>) suppresses; <c>.TabIndex</c> and
+/// <c>.OnKeyDown</c> do not put a non-Control container in the tab order, so they still warn.
 ///
 /// The analyzer is purely syntactic, so the stubs only need to make the fluent chain compile —
 /// generic <c>where T : Element</c> modifiers mirror the real DSL shape (a chain of
@@ -135,6 +136,16 @@ namespace App
     [Fact]
     public Task Border_With_IsTabStop_No_Diagnostic() =>
         VerifyAsync(@"Border(TextBlock(""hi"")).OnTapped((_, __) => Open()).IsTabStop(true)");
+
+    // `.IsTabStop()` with the argument omitted defaults to true, so it still suppresses.
+    [Fact]
+    public Task Border_With_IsTabStop_NoArg_No_Diagnostic() =>
+        VerifyAsync(@"Border(TextBlock(""hi"")).OnTapped((_, __) => Open()).IsTabStop()");
+
+    // `.IsTabStop(false)` explicitly removes the element from the tab order — it must NOT suppress.
+    [Fact]
+    public Task Border_With_IsTabStop_False_Still_Fires() =>
+        VerifyAsync(@"{|REACTOR_A11Y_004:Border(TextBlock(""hi""))|}.OnTapped((_, __) => Open()).IsTabStop(false)");
 
     // The idiomatic focusable-container shape in this codebase pairs the two; `.IsTabStop` suppresses.
     [Fact]

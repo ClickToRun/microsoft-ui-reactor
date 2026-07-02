@@ -263,9 +263,8 @@ public sealed class FormFieldLabelAnalyzer : DiagnosticAnalyzer
 /// REACTOR_A11Y_004: Clickable containers need keyboard focus.
 /// Detects a non-focusable container factory (<c>Border</c>, <c>Grid</c>, <c>Canvas</c>,
 /// <c>Rectangle</c>, <c>Ellipse</c>, <c>VStack</c>, <c>HStack</c>) carrying an actionable
-/// <c>.OnTapped(...)</c> handler but no <c>.IsTabStop()</c>/<c>.TabIndex()</c>/<c>.OnKeyDown()</c>
-/// in the fluent chain. Such an element is mouse/touch-hittable but skipped by Tab, so keyboard
-/// users can never reach it.
+/// <c>.OnTapped(...)</c> handler but no <c>.IsTabStop(true)</c> in the fluent chain. Such an
+/// element is mouse/touch-hittable but skipped by Tab, so keyboard users can never reach it.
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class ClickableContainerKeyboardAnalyzer : DiagnosticAnalyzer
@@ -303,19 +302,6 @@ public sealed class ClickableContainerKeyboardAnalyzer : DiagnosticAnalyzer
         ImmutableHashSet.Create(
             "Border", "Grid", "Canvas", "Rectangle", "Ellipse", "VStack", "HStack");
 
-    /// <summary>
-    /// The modifier that suppresses the diagnostic. <c>.IsTabStop(true)</c> is the one affordance
-    /// that actually makes these non-<c>Control</c> containers keyboard-reachable — the reconciler
-    /// applies <c>IsTabStop</c> to any <c>FrameworkElement</c> (Reconciler.cs). Deliberately NOT
-    /// suppressors: <c>.TabIndex(n)</c> (the reconciler applies TabIndex only to <c>Control</c>s,
-    /// so it is a no-op on these factories) and <c>.OnKeyDown(...)</c> (wires a key handler but does
-    /// not add the element to the tab order, so a keyboard user still cannot focus it). In both
-    /// cases the correct completion is to add <c>.IsTabStop(true)</c> — exactly what the fix does —
-    /// so treating either as sufficient would silently pass a still-unreachable container.
-    /// </summary>
-    private static readonly ImmutableHashSet<string> FocusAffordanceModifiers =
-        ImmutableHashSet.Create("IsTabStop");
-
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
         ImmutableArray.Create(Rule);
 
@@ -345,10 +331,16 @@ public sealed class ClickableContainerKeyboardAnalyzer : DiagnosticAnalyzer
         // (Border(x).A(..).OnTapped(..).B(..)); never ascend past the point where the chain
         // result is passed as an argument, so modifiers on an enclosing element are not
         // mis-attributed to this container.
+        //
+        // Suppress only when the chain enables the one affordance that actually makes these
+        // non-Control containers keyboard-reachable: `.IsTabStop(true)` (the reconciler applies
+        // IsTabStop to any FrameworkElement). `.TabIndex(n)` is a no-op here — the reconciler applies
+        // it only to Controls — and `.OnKeyDown` does not add the element to the tab order, so
+        // neither suppresses; `.IsTabStop(false)` explicitly opts out and must not suppress either.
         foreach (var modifier in EnumerateChainModifiers(invocation))
         {
             var name = modifier.MemberAccess.Name.Identifier.Text;
-            if (FocusAffordanceModifiers.Contains(name))
+            if (name == "IsTabStop" && !IsExplicitlyFalse(modifier.Invocation))
             {
                 hasFocusAffordance = true;
             }
@@ -382,6 +374,19 @@ public sealed class ClickableContainerKeyboardAnalyzer : DiagnosticAnalyzer
             yield return (memberAccess, outer);
             current = outer;
         }
+    }
+
+    /// <summary>
+    /// True when the call passes an explicit <c>false</c> as its first argument — e.g.
+    /// <c>.IsTabStop(false)</c>, which turns the affordance OFF. Such a call must NOT suppress the
+    /// diagnostic: it leaves the container out of the tab order, so it is still unreachable.
+    /// <c>.IsTabStop()</c> (argument omitted, defaults to <c>true</c>) and <c>.IsTabStop(true)</c>
+    /// both enable it and so do suppress.
+    /// </summary>
+    private static bool IsExplicitlyFalse(InvocationExpressionSyntax invocation)
+    {
+        var args = invocation.ArgumentList.Arguments;
+        return args.Count >= 1 && args[0].Expression.IsKind(SyntaxKind.FalseLiteralExpression);
     }
 
     /// <summary>
