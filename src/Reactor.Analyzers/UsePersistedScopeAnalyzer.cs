@@ -102,9 +102,10 @@ public sealed class UsePersistedScopeAnalyzer : DiagnosticAnalyzer
         if (!IsDefaultScopeUsePersistedOverload(method))
             return;
 
-        // Report against the key argument specifically — it is the first positional
-        // argument, but a caller may reorder named arguments (e.g.
-        // `UsePersisted(initialValue: x, key: k)`), so prefer an explicit `key:` when present.
+        // The diagnostic underlines the whole invocation (see location below); only the
+        // message's {0} placeholder uses the key. A caller may reorder named arguments
+        // (e.g. `UsePersisted(initialValue: x, key: k)`), so resolve an explicit `key:`
+        // argument for the message, falling back to the first positional argument.
         var keyExpression = args.FirstOrDefault(static a => a.NameColon?.Name.Identifier.ValueText == KeyParameterName)?.Expression
             ?? args[0].Expression;
 
