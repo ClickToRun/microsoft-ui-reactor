@@ -115,6 +115,7 @@ via `.editorconfig`.
 | `REACTOR_A11Y_001` | Warning | Icon-only button needs an accessible name | `AccessibilityAnalyzers.cs` |
 | `REACTOR_A11Y_002` | Warning | Image needs alt text or AccessibilityHidden | `AccessibilityAnalyzers.cs` |
 | `REACTOR_A11Y_003` | Warning | Form field needs a label | `AccessibilityAnalyzers.cs` |
+| `REACTOR_A11Y_004` | Warning | Clickable container (`.OnTapped`) needs keyboard focus | `AccessibilityAnalyzers.cs` |
 | `REACTOR_THEME_001` | Warning | Use ThemeRef instead of hard-coded color | `UseThemeRefAnalyzer.cs` |
 | `REACTOR_THEME_002` | Warning | Prefer lightweight styling | `UseLightweightStylingAnalyzer.cs` |
 | `REACTOR_THEME_003` | Warning | RequestedTheme set on a non-root element | `RequestedThemeSetAnalyzer.cs` |

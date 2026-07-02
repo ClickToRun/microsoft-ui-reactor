@@ -15,6 +15,7 @@ REACTOR_HOOKS_009 | Reactor.Hooks | Warning | CommandDebounceAnalyzer - Command.
 REACTOR_A11Y_001 | Microsoft.UI.Reactor.Accessibility | Warning | AccessibilityAnalyzers - Icon-only button needs an accessible name
 REACTOR_A11Y_002 | Microsoft.UI.Reactor.Accessibility | Warning | AccessibilityAnalyzers - Image needs alt text or AccessibilityHidden
 REACTOR_A11Y_003 | Microsoft.UI.Reactor.Accessibility | Warning | AccessibilityAnalyzers - Form field needs a label
+REACTOR_A11Y_004 | Microsoft.UI.Reactor.Accessibility | Warning | AccessibilityAnalyzers - Clickable container (.OnTapped) is not keyboard-reachable; add .IsTabStop(true)
 REACTOR_REF_001 | Reactor.Reference | Warning | ReferenceCurrentReadAnalyzer - Use descriptor.Reference/binding.Reference instead of assigning ElementRef.Current to reference properties
 REACTOR_DSL_001 | Reactor.Dsl | Warning | MissingWithKeyAnalyzer - Dynamic list item missing .WithKey
 REACTOR_DOCK_001 | Reactor.Docking | Warning | OnLiveLayoutRoundTripAnalyzer - OnLiveLayoutChanged feeds the live layout back into state
