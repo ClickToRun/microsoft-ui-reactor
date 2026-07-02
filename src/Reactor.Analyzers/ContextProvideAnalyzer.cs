@@ -13,13 +13,15 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// </summary>
 /// <remarks>
 /// Context values are diffed with <c>ContextValuesEqual</c>, which compares each value via
-/// <c>Equals</c> (<c>Element.cs:1358</c>) — <b>not</b> reference identity. A freshly allocated
-/// <c>record</c>/<c>struct</c> (or a class overriding <c>Equals</c> / implementing
-/// <c>IEquatable&lt;T&gt;</c>) with unchanged fields therefore compares <b>equal</b> and does not
-/// thrash consumers, so it must NOT fire. Only a reference-equality type — a plain class, an array,
-/// a mutable collection — re-allocated each render compares unequal and forces every
-/// <c>UseContext</c> consumer in the subtree to re-render. Because that is an allocation/perf nudge
-/// (not a correctness bug), the rule ships at <see cref="DiagnosticSeverity.Info"/>.
+/// <c>object.Equals</c> (<c>Element.cs:1358</c>) — <b>not</b> reference identity. A freshly
+/// allocated <c>record</c>/<c>struct</c> (or a class overriding <c>Equals(object)</c>) with
+/// unchanged fields therefore compares <b>equal</b> and does not thrash consumers, so it must NOT
+/// fire. A reference type that uses reference equality under <c>object.Equals</c> — a plain class,
+/// an array, a mutable collection, <b>or a bare <c>IEquatable&lt;T&gt;</c> that does not also
+/// override <c>Equals(object)</c></b> (which falls back to reference equality here) — re-allocated
+/// each render compares unequal and forces every <c>UseContext</c> consumer in the subtree to
+/// re-render. Because that is an allocation/perf nudge (not a correctness bug), the rule ships at
+/// <see cref="DiagnosticSeverity.Info"/>.
 /// <para>
 /// The value-equality check is <b>mandatory</b>: without it the rule is wrong (this was a blocking
 /// error in the spec's first draft). <c>Provide</c> is the extension method
@@ -38,7 +40,7 @@ public sealed class ContextProvideAnalyzer : DiagnosticAnalyzer
         "Reactor.Context",
         DiagnosticSeverity.Info,
         isEnabledByDefault: true,
-        description: "Context values are diffed with Equals (Element.ContextValuesEqual), not reference identity. A reference-equality type (plain class / array / mutable collection) allocated fresh each render compares unequal and thrashes every consumer. Wrap it in UseMemo so the same instance is reused across renders. Records, structs, IEquatable<T> types, and classes overriding Equals compare by value and do not fire.");
+        description: "Context values are diffed with object.Equals (Element.ContextValuesEqual), not reference identity. A reference type that uses reference equality under object.Equals (a plain class / array / mutable collection, or a bare IEquatable<T> that does not also override Equals(object)) allocated fresh each render compares unequal and thrashes every consumer. Wrap it in UseMemo so the same instance is reused across renders. Records, structs, and classes overriding Equals(object) compare by value and do not fire.");
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
         ImmutableArray.Create(Rule);

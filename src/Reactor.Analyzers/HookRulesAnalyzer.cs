@@ -45,8 +45,9 @@ namespace Microsoft.UI.Reactor.Analyzers;
 ///   flush pipeline, cleanup decouples from the <c>await</c>, and the setter can fire after
 ///   unmount. There is no <c>Func&lt;Task&gt;</c> overload.</description></item>
 /// <item><description><c>REACTOR_HOOKS_010</c> — reference state is mutated in place and the
-///   <em>same reference</em> is passed back to its setter (<c>items.Add(x); setItems(items);</c>).
-///   The setter compares by reference and returns early, so no re-render is
+///   <em>same instance</em> is passed back to its setter (<c>items.Add(x); setItems(items);</c>).
+///   The setter compares the new value to the stored one with <c>EqualityComparer&lt;T&gt;.Default</c>;
+///   the same instance compares equal (<c>x.Equals(x)</c>), so it returns early and no re-render is
 ///   scheduled.</description></item>
 /// <item><description><c>REACTOR_HOOKS_012</c> — <c>Memo(builder, deps)</c> is given a
 ///   freshly-allocated dependency whose type compares by reference, so the memo never hits

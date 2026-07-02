@@ -233,7 +233,68 @@ namespace TestApp
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 
-    // Target-typed `new()` must be expanded to an explicit UseMemo<T> so the wrapped call compiles.
+    // The fix is also withheld when the value reads a render-varying member (here DateTime.Now)
+    // that data-flow analysis does not surface — memoizing with `[]` would freeze it.
+    [Fact]
+    public async Task CodeFix_Withheld_For_Property_Read()
+    {
+        var source = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+    class C : Component
+    {
+        private Context<ThemeConfig> Ctx = new();
+        public override Element Render()
+            => new TextElement(""x"").Provide(Ctx, {|REACTOR_CTX_001:new ThemeConfig { IsDark = System.DateTime.Now.Hour > 0 }|});
+    }
+}";
+
+        await new CSharpCodeFixTest<ContextProvideAnalyzer, ContextProvideCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
+            ReferenceAssemblies = ReferenceAssemblies.Net.Net80,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // A capture-free object initializer with only literals IS still offered the fix (the initializer
+    // member target `IsDark` is a write, not a render-varying read).
+    [Fact]
+    public async Task CodeFix_Offered_For_Literal_Object_Initializer()
+    {
+        var before = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+    class C : Component
+    {
+        private Context<ThemeConfig> Ctx = new();
+        public override Element Render()
+            => new TextElement(""x"").Provide(Ctx, {|REACTOR_CTX_001:new ThemeConfig { IsDark = true }|});
+    }
+}";
+
+        var after = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+    class C : Component
+    {
+        private Context<ThemeConfig> Ctx = new();
+        public override Element Render()
+            => new TextElement(""x"").Provide(Ctx, UseMemo(() => new ThemeConfig { IsDark = true }, []));
+    }
+}";
+
+        await new CSharpCodeFixTest<ContextProvideAnalyzer, ContextProvideCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            ReferenceAssemblies = ReferenceAssemblies.Net.Net80,
+            CodeActionEquivalenceKey = ContextProvideAnalyzer.Id,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
     [Fact]
     public async Task CodeFix_TargetTyped_New_Emits_Explicit_Type_Argument()
     {
