@@ -191,17 +191,22 @@ public sealed class UseThemeRefAnalyzer : DiagnosticAnalyzer
         return null;
     }
 
+    // Accept only the WinUI static Colors class: bare `Colors` (with `using Microsoft.UI;`), or the
+    // qualified `Microsoft.UI.Colors` / `Windows.UI.Colors`. A look-alike such as
+    // `MyCompany.UI.Colors` or an unrelated `Foo.White` is intentionally rejected so the code fix
+    // never maps a non-WinUI palette. (The code fix additionally confirms the SolidColorBrush type
+    // semantically before rewriting.)
     private static bool IsColorsReceiver(ExpressionSyntax receiver) => receiver switch
     {
-        // Bare `Colors` (with `using Microsoft.UI;`).
         IdentifierNameSyntax { Identifier.Text: "Colors" } => true,
-        // A qualified `...UI.Colors` (Microsoft.UI.Colors / global::Microsoft.UI.Colors /
-        // Windows.UI.Colors). A nested `MyPalette.Colors.White` or an unrelated `Foo.White` is
-        // intentionally rejected so the code fix never maps a non-WinUI color.
         MemberAccessExpressionSyntax
         {
             Name.Identifier.Text: "Colors",
-            Expression: MemberAccessExpressionSyntax { Name.Identifier.Text: "UI" }
+            Expression: MemberAccessExpressionSyntax
+            {
+                Name.Identifier.Text: "UI",
+                Expression: IdentifierNameSyntax { Identifier.Text: "Microsoft" or "Windows" }
+            }
         } => true,
         _ => false,
     };

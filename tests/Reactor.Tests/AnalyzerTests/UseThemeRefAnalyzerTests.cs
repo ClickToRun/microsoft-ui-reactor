@@ -511,4 +511,33 @@ namespace TestApp
             FixedCode = code,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    [Fact]
+    public async Task No_Fix_For_Look_Alike_Colors_Class()
+    {
+        // A non-WinUI `MyCompany.UI.Colors.White` must not be mapped to a theme token: the diagnostic
+        // still fires (inline brush) but with a generic suggestion and no auto-fix.
+        var code = Stubs + @"
+namespace MyCompany.UI
+{
+    public static class Colors { public static Windows.UI.Color White => default; }
+}
+namespace TestApp
+{
+    using Microsoft.UI.Xaml.Media;
+
+    class C
+    {
+        void M(dynamic el)
+        {
+            el.Background({|REACTOR_THEME_004:new SolidColorBrush(MyCompany.UI.Colors.White)|});
+        }
+    }
+}";
+        await new CSharpCodeFixTest<UseThemeRefAnalyzer, UseThemeRefCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }
