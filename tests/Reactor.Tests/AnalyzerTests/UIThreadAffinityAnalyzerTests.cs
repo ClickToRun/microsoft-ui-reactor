@@ -55,6 +55,7 @@ public sealed class FakeWindow
 
     // UI-thread-only property: the setter would call ThrowIfNotOnUIThread.
     [UIThreadOnly] public string Title { get; set; } = string.Empty;
+    [UIThreadOnly] public int Ticks { get; set; }
 
     // Not UI-thread-only — background use is legitimate.
     public void SafeMethod() { }
@@ -374,13 +375,19 @@ class C
     [Fact]
     public async Task CodeFix_Marshals_Property_Set()
     {
+        // Property-set fix uses the block form: `Task.Run(() => window.Title = ...)`
+        // as an expression body binds to Func<string>, so the fix is (correctly) not
+        // offered there — see No_Fix_For_Value_Producing_Expression_Lambda.
         var before = Stubs + @"
 class C
 {
     void M()
     {
         var window = new FakeWindow();
-        Task.Run(() => {|REACTOR_THREAD_001:window.Title = ""hi""|});
+        Task.Run(() =>
+        {
+            {|REACTOR_THREAD_001:window.Title = ""hi""|};
+        });
     }
 }";
 
@@ -397,6 +404,88 @@ class C
                 window.Title = ""hi"";
             else
                 d.TryEnqueue(() => window.Title = ""hi"");
+        });
+    }
+}";
+
+        await new CSharpCodeFixTest<UIThreadAffinityAnalyzer, UIThreadAffinityCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Fix_For_Value_Producing_Expression_Lambda()
+    {
+        // `() => window.Title = "hi"` binds to Func<string> (Task.Run(Func<T>)), so
+        // rewriting the expression body into a statement block would change overload
+        // resolution. The analyzer still fires; no fix is offered (TestCode == FixedCode).
+        var code = Stubs + @"
+class C
+{
+    void M()
+    {
+        var window = new FakeWindow();
+        Task.Run(() => {|REACTOR_THREAD_001:window.Title = ""hi""|});
+    }
+}";
+
+        await new CSharpCodeFixTest<UIThreadAffinityAnalyzer, UIThreadAffinityCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_For_Marked_Property_Increment()
+    {
+        var source = Stubs + @"
+class C
+{
+    void M()
+    {
+        var window = new FakeWindow();
+        Task.Run(() => {|REACTOR_THREAD_001:window.Ticks++|});
+    }
+}";
+
+        await new CSharpAnalyzerTest<UIThreadAffinityAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Marshals_Property_Increment_In_Block()
+    {
+        var before = Stubs + @"
+class C
+{
+    void M()
+    {
+        var window = new FakeWindow();
+        Task.Run(() =>
+        {
+            {|REACTOR_THREAD_001:window.Ticks++|};
+        });
+    }
+}";
+
+        var after = Stubs + @"
+class C
+{
+    void M()
+    {
+        var window = new FakeWindow();
+        Task.Run(() =>
+        {
+            var d = ReactorApp.UIDispatcher;
+            if (d is null)
+                window.Ticks++;
+            else
+                d.TryEnqueue(() => window.Ticks++);
         });
     }
 }";

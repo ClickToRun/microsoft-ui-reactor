@@ -56,15 +56,17 @@ public sealed class UIThreadAffinityCodeFix : CodeFixProvider
         {
             var node = root.FindNode(diagnostic.Location.SourceSpan, getInnermostNodeForTie: true);
 
-            // The flagged node is either a UI-thread-only call or a property-set
-            // assignment; both are marshaled the same way. Identify it by its exact
-            // reported span.
+            // The flagged node is a UI-thread-only call, a property-set assignment,
+            // or an increment/decrement; all are marshaled the same way. Identify it
+            // by its exact reported span.
             var core = node.AncestorsAndSelf()
                 .FirstOrDefault(n => n is InvocationExpressionSyntax or AssignmentExpressionSyntax
+                        or PrefixUnaryExpressionSyntax or PostfixUnaryExpressionSyntax
                     && n.Span == diagnostic.Location.SourceSpan) as ExpressionSyntax;
             if (core is null) continue;
 
-            // Shape A: the call/assignment is a stand-alone statement.
+            // Shape A: the call/assignment is a stand-alone statement — always safe
+            // to wrap, since the enclosing lambda/method body is already statement-bodied.
             if (core.Parent is ExpressionStatementSyntax statement)
             {
                 context.RegisterCodeFix(
@@ -77,20 +79,21 @@ public sealed class UIThreadAffinityCodeFix : CodeFixProvider
             }
 
             // Shape B: it is the expression body of the background lambda
-            // (`Task.Run(() => window.Close())`). For an invocation, only rewrite a
-            // void call — otherwise turning the lambda into a block would drop its
-            // produced value. An assignment expression body is always safe to wrap.
+            // (`Task.Run(() => window.Close())`). Turning the expression body into a
+            // block only preserves semantics when the lambda is bound to a
+            // void-returning delegate (Action/Action<T>) — otherwise a value-producing
+            // body (a call with a result, an assignment, or an increment) may be bound
+            // to a Func<T> overload whose result is consumed, and the rewrite would
+            // change overload resolution / return type. Marshaling is fire-and-forget,
+            // so a produced value cannot be carried across the dispatcher anyway.
             if (core.Parent is LambdaExpressionSyntax lambda && lambda.ExpressionBody == core)
             {
-                if (core is InvocationExpressionSyntax)
-                {
-                    var semanticModel = await context.Document
-                        .GetSemanticModelAsync(context.CancellationToken).ConfigureAwait(false);
-                    if (semanticModel is null) continue;
-                    if (semanticModel.GetSymbolInfo(core, context.CancellationToken).Symbol
-                            is not IMethodSymbol { ReturnsVoid: true })
-                        continue;
-                }
+                var semanticModel = await context.Document
+                    .GetSemanticModelAsync(context.CancellationToken).ConfigureAwait(false);
+                if (semanticModel is null) continue;
+                if (semanticModel.GetTypeInfo(lambda, context.CancellationToken).ConvertedType
+                        is not INamedTypeSymbol { DelegateInvokeMethod.ReturnsVoid: true })
+                    continue;
 
                 context.RegisterCodeFix(
                     CodeAction.Create(

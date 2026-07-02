@@ -81,6 +81,14 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
             SyntaxKind.RightShiftAssignmentExpression,
             SyntaxKind.UnsignedRightShiftAssignmentExpression,
             SyntaxKind.CoalesceAssignmentExpression);
+
+        // Increment / decrement also invoke the property setter (`progress.Value++`).
+        context.RegisterSyntaxNodeAction(
+            AnalyzeIncrementOrDecrement,
+            SyntaxKind.PreIncrementExpression,
+            SyntaxKind.PostIncrementExpression,
+            SyntaxKind.PreDecrementExpression,
+            SyntaxKind.PostDecrementExpression);
     }
 
     private static void AnalyzeInvocation(SyntaxNodeAnalysisContext context)
@@ -109,12 +117,35 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
         // Only a property write hits a UI-thread-guarded setter. The flagged node is
         // the whole assignment so the code fix can wrap `x.P = v` in the dispatcher
         // marshal the same way it wraps a call.
-        if (assignment.Left is not (MemberAccessExpressionSyntax or IdentifierNameSyntax or MemberBindingExpressionSyntax))
-            return;
-        if (!IsBackgroundThreadContext(assignment))
+        ReportIfUIThreadOnlyProperty(context, assignment, assignment.Left);
+    }
+
+    private static void AnalyzeIncrementOrDecrement(SyntaxNodeAnalysisContext context)
+    {
+        var operand = context.Node switch
+        {
+            PrefixUnaryExpressionSyntax prefix => prefix.Operand,
+            PostfixUnaryExpressionSyntax postfix => postfix.Operand,
+            _ => null,
+        };
+        if (operand is null)
             return;
 
-        var symbolInfo = context.SemanticModel.GetSymbolInfo(assignment.Left, context.CancellationToken);
+        // `progress.Value++` / `--progress.Value` invoke the setter too.
+        ReportIfUIThreadOnlyProperty(context, context.Node, operand);
+    }
+
+    private static void ReportIfUIThreadOnlyProperty(
+        SyntaxNodeAnalysisContext context,
+        SyntaxNode reportNode,
+        ExpressionSyntax target)
+    {
+        if (target is not (MemberAccessExpressionSyntax or IdentifierNameSyntax or MemberBindingExpressionSyntax))
+            return;
+        if (!IsBackgroundThreadContext(context.Node))
+            return;
+
+        var symbolInfo = context.SemanticModel.GetSymbolInfo(target, context.CancellationToken);
         var property = symbolInfo.Symbol as IPropertySymbol
             ?? symbolInfo.CandidateSymbols.FirstOrDefault() as IPropertySymbol;
         if (property is null || !HasUIThreadOnlyAttribute(property))
@@ -122,7 +153,7 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
 
         context.ReportDiagnostic(Diagnostic.Create(
             Rule,
-            assignment.GetLocation(),
+            reportNode.GetLocation(),
             property.Name));
     }
 
