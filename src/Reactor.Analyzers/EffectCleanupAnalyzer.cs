@@ -10,8 +10,8 @@ namespace Microsoft.UI.Reactor.Analyzers;
 
 /// <summary>
 /// <c>REACTOR_LIFECYCLE_002</c> — flags a <c>UseEffect(Action, …)</c> whose body allocates a
-/// long-lived producer (a timer, an <c>IObservable</c> subscription, or a CLR event
-/// subscription) but returns <b>no cleanup</b>.
+/// long-lived producer (a timer, a disposable subscription, or a CLR event subscription) but
+/// returns <b>no cleanup</b>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -19,12 +19,13 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// (<c>RenderContext.cs:363</c> and the arity-1..3 forms) run a fire-and-forget side effect and
 /// have <b>no way to return a teardown</b>, while the <c>Func&lt;Action&gt;</c> overloads
 /// (<c>RenderContext.cs:379</c>) return a cleanup that the reconciler runs before the next effect
-/// and on unmount. When an author creates a <c>PeriodicTimer</c> / <c>Timer</c>, subscribes to an
-/// <c>IObservable</c>, or wires a CLR event inside the <c>Action</c> overload, the producer
-/// outlives the component: after unmount it keeps firing, its handler calls a state setter on a
-/// dead <see cref="!:RenderContext"/> (which throws, or silently leaks the captured closure tree).
-/// This is the "Missing cleanup" pitfall documented in <c>docs/guide/effects.md</c> §"Missing
-/// cleanup" (lines 340-376).
+/// and on unmount. When an author creates a <c>PeriodicTimer</c> / <c>Timer</c>, calls a
+/// <c>.Subscribe(...)</c> that returns an <see cref="!:System.IDisposable"/>, or wires a CLR event
+/// inside the <c>Action</c> overload, the producer outlives the component: after unmount it keeps
+/// running and its callback can still fire against a torn-down component — at best leaking the
+/// captured closure tree, and (if the callback touches component state, e.g. a state setter)
+/// running against a dead <see cref="!:RenderContext"/>. This is the "Missing cleanup" pitfall
+/// documented in <c>docs/guide/effects.md</c> §"Missing cleanup" (lines 340-376).
 /// </para>
 /// <para>
 /// Detection is deliberately conservative (nudge, not a mechanical fix — the correct teardown
@@ -34,9 +35,9 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// argument must be a lambda whose body is visible; a known-lifetime allocation must appear at the
 /// <b>top level</b> of that body (not inside a nested lambda / local function, whose lifetime is
 /// its own); and there must be <b>no</b> teardown signal anywhere in the body (<c>using</c>,
-/// <c>Dispose</c>/<c>DisposeAsync</c>, or a matching event <c>-=</c>). Any of those bails the rule.
-/// The fix is a template nudge: return a cleanup <c>Action</c> (which selects the
-/// <c>Func&lt;Action&gt;</c> overload).
+/// <c>Dispose</c>/<c>DisposeAsync</c>, or any event <c>-=</c> — the unsubscription is not checked
+/// against the specific <c>+=</c> handler). Any of those bails the rule. The fix is a template
+/// nudge: return a cleanup <c>Action</c> (which selects the <c>Func&lt;Action&gt;</c> overload).
 /// </para>
 /// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
