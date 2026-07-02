@@ -1,0 +1,152 @@
+using System;
+using System.Collections.Immutable;
+using System.Linq;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Diagnostics;
+
+namespace Microsoft.UI.Reactor.Analyzers;
+
+/// <summary>
+/// <c>REACTOR_PERSIST_001</c> — flags a two-argument
+/// <c>UsePersisted(key, initialValue)</c> call. That overload is
+/// <c>=&gt; UsePersisted(key, initialValue, PersistedScope.Application)</c>
+/// (<c>RenderContext.cs:824</c>), so the value is <b>process-wide</b> and bleeds
+/// across windows/tabs that share the key — invisible until two windows are open
+/// at once. The rule asks the author to state the scope explicitly.
+/// </summary>
+/// <remarks>
+/// Detection is a cheap syntactic gate (name <c>UsePersisted</c>, exactly two
+/// arguments, no explicit <c>scope:</c>) followed by a single semantic check that
+/// the call really binds to <c>RenderContext.UsePersisted&lt;T&gt;(string, T)</c>.
+/// The two-argument overload with an explicit third scope argument, or any call on
+/// a same-named method that is not <c>RenderContext</c>, is left alone (spec 060
+/// §4.8). The paired <see cref="UsePersistedScopeCodeFix"/> offers
+/// <c>PersistedScope.Window</c> (recommended) or <c>PersistedScope.Application</c>.
+/// </remarks>
+[DiagnosticAnalyzer(LanguageNames.CSharp)]
+public sealed class UsePersistedScopeAnalyzer : DiagnosticAnalyzer
+{
+    public const string DiagnosticId = "REACTOR_PERSIST_001";
+
+    private const string MethodName = "UsePersisted";
+    private const string ContainingTypeName = "RenderContext";
+    private const string ReactorNamespacePrefix = "Microsoft.UI.Reactor";
+    private const string ScopeParameterName = "scope";
+    private const string ScopeTypeName = "PersistedScope";
+
+    private static readonly LocalizableString Title =
+        "UsePersisted defaults to Application (process-wide) scope";
+
+    private static readonly LocalizableString MessageFormat =
+        "UsePersisted({0}, …) uses the two-argument overload, which defaults to PersistedScope.Application (process-wide — state is shared across windows). Specify PersistedScope.Window (host lifetime) or PersistedScope.Application (make the current behavior explicit).";
+
+    private static readonly LocalizableString Description =
+        "The two-argument RenderContext.UsePersisted<T>(string, T) overload delegates to " +
+        "PersistedScope.Application, so the persisted value lives for the whole process and " +
+        "bleeds across windows or tabs that share the same key. This is invisible until two " +
+        "windows are open at once. Call the three-argument overload and pass " +
+        "PersistedScope.Window for host-scoped state, or PersistedScope.Application to make the " +
+        "process-wide intent explicit (spec 033 §2 / spec 060 §4.8).";
+
+    private static readonly DiagnosticDescriptor Rule = new(
+        DiagnosticId,
+        Title,
+        MessageFormat,
+        "Reactor.Persistence",
+        DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: Description);
+
+    public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
+        ImmutableArray.Create(Rule);
+
+    public override void Initialize(AnalysisContext context)
+    {
+        context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
+        context.EnableConcurrentExecution();
+        context.RegisterSyntaxNodeAction(AnalyzeInvocation, SyntaxKind.InvocationExpression);
+    }
+
+    private static void AnalyzeInvocation(SyntaxNodeAnalysisContext context)
+    {
+        var invocation = (InvocationExpressionSyntax)context.Node;
+
+        // Syntactic gate #1 — the invoked simple name is UsePersisted. Handles
+        // `ctx.UsePersisted(...)`, unqualified `UsePersisted(...)`, and the
+        // explicit type-argument forms `ctx.UsePersisted<T>(...)` / `UsePersisted<T>(...)`.
+        if (GetInvokedName(invocation) != MethodName)
+            return;
+
+        // Syntactic gate #2 — exactly two arguments (the shape of the default-scope overload).
+        var args = invocation.ArgumentList.Arguments;
+        if (args.Count != 2)
+            return;
+
+        // Syntactic gate #3 — the author has not already named a `scope:` argument.
+        // (No valid call to the (string, T) overload names `scope`, but a same-named
+        // overload that takes a scope could, and this keeps the fast path honest.)
+        if (args.Any(static a => a.NameColon?.Name.Identifier.ValueText == ScopeParameterName))
+            return;
+
+        // Semantic confirmation — the call actually binds to
+        // RenderContext.UsePersisted<T>(string, T). One GetSymbolInfo, gated behind
+        // the syntactic checks above (spec 060 §3).
+        if (context.SemanticModel.GetSymbolInfo(invocation, context.CancellationToken).Symbol is not IMethodSymbol method)
+            return;
+        if (!IsRenderContextDefaultScopeOverload(method))
+            return;
+
+        context.ReportDiagnostic(Diagnostic.Create(
+            Rule,
+            invocation.GetLocation(),
+            args[0].Expression.ToString()));
+    }
+
+    /// <summary>
+    /// True when <paramref name="method"/> is the two-argument
+    /// <c>RenderContext.UsePersisted&lt;T&gt;(string key, T initialValue)</c> overload
+    /// (the one that silently defaults to <c>PersistedScope.Application</c>).
+    /// </summary>
+    private static bool IsRenderContextDefaultScopeOverload(IMethodSymbol method)
+    {
+        if (method.Name != MethodName)
+            return false;
+
+        var containingType = method.ContainingType;
+        if (containingType?.Name != ContainingTypeName)
+            return false;
+
+        if (!IsReactorNamespace(containingType.ContainingNamespace?.ToDisplayString()))
+            return false;
+
+        // The target overload is (string key, T initialValue): exactly two
+        // parameters and no PersistedScope among them. This distinguishes it from
+        // the three-argument overload and from any (string, PersistedScope) shape.
+        if (method.Parameters.Length != 2)
+            return false;
+        if (method.Parameters.Any(static p => p.Type.Name == ScopeTypeName))
+            return false;
+
+        return true;
+    }
+
+    private static bool IsReactorNamespace(string? ns) =>
+        ns is not null
+            && (ns == ReactorNamespacePrefix
+                || ns.StartsWith(ReactorNamespacePrefix + ".", StringComparison.Ordinal));
+
+    private static string? GetInvokedName(InvocationExpressionSyntax invocation) => invocation.Expression switch
+    {
+        IdentifierNameSyntax id => id.Identifier.ValueText,
+        GenericNameSyntax g => g.Identifier.ValueText,
+        MemberAccessExpressionSyntax m => m.Name switch
+        {
+            GenericNameSyntax gn => gn.Identifier.ValueText,
+            { } simple => simple.Identifier.ValueText,
+        },
+        MemberBindingExpressionSyntax mb => mb.Name.Identifier.ValueText,
+        _ => null,
+    };
+}
