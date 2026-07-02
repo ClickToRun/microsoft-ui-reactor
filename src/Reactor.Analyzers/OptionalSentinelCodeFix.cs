@@ -52,6 +52,11 @@ public sealed class OptionalSentinelCodeFix : CodeFixProvider
                 ?? node.FirstAncestorOrSelf<AssignmentExpressionSyntax>();
             if (assignment is null) continue;
 
+            // Re-validate against the current document: only offer the rewrite while the
+            // RHS is still the -1/null sentinel the analyzer flagged. Guards the rare case
+            // where the source changed between diagnostic report and fix application.
+            if (!OptionalSentinelAnalyzer.IsSentinelLiteral(assignment.Right)) continue;
+
             var optionalType = ResolveOptionalTypeName(semanticModel, assignment, diagnostic);
             if (optionalType is null) continue;
 
