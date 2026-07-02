@@ -82,11 +82,12 @@ public sealed class ImperativeContentDialogAnalyzer : DiagnosticAnalyzer
         // The Reactor controlled path — the `ContentDialog(...)` DSL factory — is an
         // IdentifierNameSyntax invocation and never calls `.ShowAsync()`, so it can never reach
         // the semantic check below. Any argument count matches (ShowAsync() and the
-        // ShowAsync(ContentDialogPlacement) overload).
+        // ShowAsync(ContentDialogPlacement) overload). ValueText (not Text) so an escaped call
+        // like `dialog.@ShowAsync()` still matches the "ShowAsync" identifier.
         var invokedName = invocation.Expression switch
         {
-            MemberAccessExpressionSyntax member => member.Name.Identifier.Text,
-            MemberBindingExpressionSyntax binding => binding.Name.Identifier.Text, // dialog?.ShowAsync()
+            MemberAccessExpressionSyntax member => member.Name.Identifier.ValueText,
+            MemberBindingExpressionSyntax binding => binding.Name.Identifier.ValueText, // dialog?.ShowAsync()
             _ => null,
         };
         if (invokedName != ShowAsyncName)

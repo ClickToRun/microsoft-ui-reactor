@@ -28,6 +28,13 @@ using System.Threading.Tasks;
 using Microsoft.UI.Reactor.Core;
 using static Microsoft.UI.Reactor.Factories;
 
+namespace System.Runtime.CompilerServices
+{
+    // Required for `record` types + `init` accessors under older runtime metadata — supply a
+    // stub so the test source compiles self-contained across reference-assembly sets.
+    public static class IsExternalInit { }
+}
+
 namespace Microsoft.UI.Xaml.Controls
 {
     public enum ContentDialogResult { None, Primary, Secondary }
@@ -214,6 +221,26 @@ class C
     async Task M()
     {
         await {|REACTOR_DIALOG_001:new Microsoft.UI.Xaml.Controls.ConfirmDialog().ShowAsync()|};
+    }
+}";
+
+        await new CSharpAnalyzerTest<ImperativeContentDialogAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_For_Escaped_Identifier_ShowAsync()
+    {
+        // Escaped identifier: ValueText (not Text) decodes `@ShowAsync` to `ShowAsync`, so the
+        // gate still matches and the diagnostic fires.
+        var source = Stubs + @"
+class C
+{
+    async Task M()
+    {
+        await {|REACTOR_DIALOG_001:new Microsoft.UI.Xaml.Controls.ContentDialog { Title = ""x"" }.@ShowAsync()|};
     }
 }";
 
