@@ -3,12 +3,14 @@ using System;
 namespace Microsoft.UI.Reactor.Hosting;
 
 /// <summary>
-/// Marks a member that must be invoked on the UI thread — every member so
-/// annotated calls <see cref="ThreadAffinity.ThrowIfNotOnUIThread"/>, which throws
+/// Marks a method or property setter that must be invoked on the UI thread — the
+/// annotated method (or the property's setter) calls
+/// <see cref="ThreadAffinity.ThrowIfNotOnUIThread"/>, which throws
 /// <see cref="InvalidOperationException"/> when reached from a background thread
 /// once the UI dispatcher has been captured. (The guard is a no-op before the
 /// first window bootstraps, while <see cref="Microsoft.UI.Reactor.ReactorApp.UIDispatcher"/>
-/// is still null.)
+/// is still null.) Property getters are not guarded, so the REACTOR_THREAD_001
+/// analyzer flags writes to an annotated property, not reads.
 /// </summary>
 /// <remarks>
 /// <para>
