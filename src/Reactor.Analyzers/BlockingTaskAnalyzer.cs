@@ -351,14 +351,27 @@ public sealed class BlockingTaskAnalyzer : DiagnosticAnalyzer
             return false;
         }
 
-        // Fallback for an unresolved/overload-ambiguous call: the effect is the first
-        // positional argument, and we check the receiver's declared type.
+        // Fallback for an unresolved/overload-ambiguous call (incremental/errored compile):
+        // the effect is the first positional argument, and the call is either a
+        // `receiver.UseEffect(...)` whose receiver derives from RenderContext/Component, or a
+        // bare implicit-receiver `UseEffect(...)` inside a Component-derived class. Mirrors
+        // HookRulesAnalyzer.IsLikelyReactorHook so the rule stays useful mid-edit.
         if (argumentList.Arguments.IndexOf(argument) != 0)
             return false;
 
         if (invocation.Expression is MemberAccessExpressionSyntax memberAccess &&
             model.GetTypeInfo(memberAccess.Expression).Type is INamedTypeSymbol receiverType &&
             (IsOrDerivesFrom(receiverType, RenderContextType) || IsOrDerivesFrom(receiverType, ComponentType)))
+        {
+            return true;
+        }
+
+        // Implicit receiver (`UseEffect(...)` inside a Component) — the symbol may be null
+        // while the build is mid-type-binding; anchor on the enclosing class instead.
+        if (invocation.Expression is IdentifierNameSyntax &&
+            invocation.FirstAncestorOrSelf<ClassDeclarationSyntax>() is { } enclosingClass &&
+            model.GetDeclaredSymbol(enclosingClass) is INamedTypeSymbol classSymbol &&
+            IsOrDerivesFrom(classSymbol, ComponentType))
         {
             return true;
         }
