@@ -36,7 +36,10 @@ public sealed class UnsafeDropFilesAnalyzer : DiagnosticAnalyzer
 
     private const string DragDataTypeName = "DragData";
     private const string DragDataNamespace = "Microsoft.UI.Reactor.Input";
-    private const string OnDropMethodName = "OnDrop";
+
+    // The drop-handler member: both the fluent `.OnDrop(...)` modifier and the raw
+    // DropTargetConfig.OnDrop callback (DragConfigs.cs) carry this name.
+    private const string OnDropHandlerName = "OnDrop";
 
     private static readonly LocalizableString Title =
         "Unsafe TryGetFiles in a drop handler; prefer TryGetSafeLocalFiles";
@@ -81,8 +84,8 @@ public sealed class UnsafeDropFilesAnalyzer : DiagnosticAnalyzer
         if (memberAccess.Name.Identifier.Text != UnsafeMethodName)
             return;
 
-        // Drop-context gate (syntactic): lexically inside a `.OnDrop(...)` lambda.
-        if (!IsInsideOnDropLambda(invocation))
+        // Drop-context gate (syntactic): lexically inside a `.OnDrop(...)` handler.
+        if (!IsInsideDropHandlerLambda(invocation))
             return;
 
         // Semantic confirm: the method resolves to Microsoft.UI.Reactor.Input.DragData.
@@ -99,24 +102,42 @@ public sealed class UnsafeDropFilesAnalyzer : DiagnosticAnalyzer
     }
 
     /// <summary>
-    /// True when <paramref name="node"/> is lexically inside a lambda passed to a
-    /// <c>.OnDrop(...)</c> invocation. Walks every enclosing lambda so a call nested in an
-    /// inner closure (e.g. <c>.OnDrop(a =&gt; list.ForEach(x =&gt; a.Data.TryGetFiles(...)))</c>)
-    /// still counts — it runs during the drop.
+    /// True when <paramref name="node"/> is lexically inside a drop handler — either a lambda
+    /// passed to a <c>.OnDrop(...)</c> invocation (the fluent modifier) or a lambda assigned to
+    /// an <c>OnDrop</c> member (the raw <c>DropTargetConfig { OnDrop = ... }</c> / <c>with</c> /
+    /// <c>cfg.OnDrop = ...</c> form). Walks every enclosing lambda so a call nested in an inner
+    /// closure (e.g. <c>.OnDrop(a =&gt; list.ForEach(x =&gt; a.Data.TryGetFiles(...)))</c>) still
+    /// counts — it runs during the drop.
     /// </summary>
-    private static bool IsInsideOnDropLambda(SyntaxNode node)
+    private static bool IsInsideDropHandlerLambda(SyntaxNode node)
     {
         for (var current = node.Parent; current is not null; current = current.Parent)
         {
             if (current is not LambdaExpressionSyntax lambda)
                 continue;
+
+            // (A) lambda argument to a `.OnDrop(...)` call: el.OnDrop(args => ... TryGetFiles ...).
             if (lambda.Parent is ArgumentSyntax { Parent: ArgumentListSyntax { Parent: InvocationExpressionSyntax outer } }
                 && outer.Expression is MemberAccessExpressionSyntax outerMember
-                && outerMember.Name.Identifier.Text == OnDropMethodName)
+                && outerMember.Name.Identifier.Text == OnDropHandlerName)
+            {
+                return true;
+            }
+
+            // (B) lambda assigned to an `OnDrop` member: new DropTargetConfig { OnDrop = ... },
+            //     cfg with { OnDrop = ... }, or cfg.OnDrop = ....
+            if (lambda.Parent is AssignmentExpressionSyntax { Left: var left } && IsOnDropTarget(left))
             {
                 return true;
             }
         }
         return false;
     }
+
+    private static bool IsOnDropTarget(ExpressionSyntax left) => left switch
+    {
+        IdentifierNameSyntax id => id.Identifier.Text == OnDropHandlerName,             // { OnDrop = ... }
+        MemberAccessExpressionSyntax member => member.Name.Identifier.Text == OnDropHandlerName, // cfg.OnDrop = ...
+        _ => false,
+    };
 }

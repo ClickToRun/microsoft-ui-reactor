@@ -36,6 +36,12 @@ namespace Microsoft.UI.Reactor.Input
     {
         public DragData Data { get; } = new DragData();
     }
+
+    // Raw target-side config (mirrors DragConfigs.cs): OnDrop is a public handler member.
+    public sealed class DropTargetConfig
+    {
+        public Action<DragTargetArgs> OnDrop;
+    }
 }
 
 // Decoy: same method name, different (non-DragData) type.
@@ -114,6 +120,49 @@ class C
             System.Action run = () => { {|REACTOR_INPUT_002:args.Data.TryGetFiles(out var f)|}; };
             run();
         });
+    }
+}";
+
+        await new CSharpAnalyzerTest<UnsafeDropFilesAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_For_Generic_OnDrop_Call()
+    {
+        // Explicit type argument makes the OnDrop name a GenericNameSyntax at the gate.
+        var source = Stubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        el.OnDrop<FakeElement>(args => {|REACTOR_INPUT_002:args.Data.TryGetFiles(out var f)|});
+    }
+}";
+
+        await new CSharpAnalyzerTest<UnsafeDropFilesAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_For_TryGetFiles_In_DropTargetConfig_Initializer()
+    {
+        // The raw DropTargetConfig { OnDrop = ... } form is also a drop handler — the source
+        // still picks the files, so the rule fires on the assignment form too.
+        var source = Stubs + @"
+class C
+{
+    void M()
+    {
+        var cfg = new Microsoft.UI.Reactor.Input.DropTargetConfig
+        {
+            OnDrop = args => {|REACTOR_INPUT_002:args.Data.TryGetFiles(out var f)|}
+        };
     }
 }";
 
@@ -248,6 +297,47 @@ class C
         {
             args.Data.TryGetSafeLocalFiles(out var f);
         });
+    }
+}";
+
+        await new CSharpCodeFixTest<UnsafeDropFilesAnalyzer, UnsafeDropFilesCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Swaps_All_Occurrences_In_One_File()
+    {
+        // Two unsafe calls in the same file — the BatchFixer FixAll provider rewrites both.
+        var before = Stubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        el.OnDrop(args => {|REACTOR_INPUT_002:args.Data.TryGetFiles(out var f)|});
+
+        var cfg = new Microsoft.UI.Reactor.Input.DropTargetConfig
+        {
+            OnDrop = args => {|REACTOR_INPUT_002:args.Data.TryGetFiles(out var g)|}
+        };
+    }
+}";
+
+        var after = Stubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        el.OnDrop(args => args.Data.TryGetSafeLocalFiles(out var f));
+
+        var cfg = new Microsoft.UI.Reactor.Input.DropTargetConfig
+        {
+            OnDrop = args => args.Data.TryGetSafeLocalFiles(out var g)
+        };
     }
 }";
 
