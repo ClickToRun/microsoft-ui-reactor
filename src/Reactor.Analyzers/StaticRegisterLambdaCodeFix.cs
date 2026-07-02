@@ -70,10 +70,38 @@ public sealed class StaticRegisterLambdaCodeFix : CodeFixProvider
         SemanticModel semanticModel, AnonymousFunctionExpressionSyntax lambda)
     {
         var dataFlow = semanticModel.AnalyzeDataFlow(lambda);
-        // Be conservative: only claim "no captures" when the analysis succeeded and the lambda
-        // captured no variables (CapturedInside reports what lambdas within the region — i.e.
-        // this lambda — close over, including the implicit `this` parameter).
-        return dataFlow is { Succeeded: true } && dataFlow.CapturedInside.IsEmpty;
+        if (dataFlow is not { Succeeded: true })
+            return false;
+
+        // CapturedInside reports every variable closed over anywhere inside the region — which
+        // includes locals declared *inside* this factory that its own nested lambdas capture.
+        // Those don't stop THIS lambda from being static; only captures of enclosing state
+        // (the implicit `this`, or a local/parameter declared in an outer scope) do.
+        foreach (var captured in dataFlow.CapturedInside)
+        {
+            if (IsEnclosingCapture(captured, lambda))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsEnclosingCapture(ISymbol symbol, AnonymousFunctionExpressionSyntax lambda)
+    {
+        // The implicit `this` parameter is always an enclosing capture — a static lambda may not
+        // reference `this`/`base`.
+        if (symbol is IParameterSymbol { IsThis: true })
+            return true;
+
+        // A symbol declared inside the lambda (its own parameter/local, or a local of a nested
+        // lambda) is not an enclosing capture. Anything declared in an outer scope is.
+        foreach (var reference in symbol.DeclaringSyntaxReferences)
+        {
+            if (lambda.Span.Contains(reference.Span))
+                return false;
+        }
+
+        return true;
     }
 
     private static AnonymousFunctionExpressionSyntax WithStaticModifier(AnonymousFunctionExpressionSyntax lambda)

@@ -51,7 +51,7 @@ public sealed class StaticRegisterLambdaAnalyzer : DiagnosticAnalyzer
         "ControlRegistry registration lambda should be static";
 
     private static readonly LocalizableString MessageFormat =
-        "The handler factory passed to 'ControlRegistry.{0}' should be a 'static' lambda for trim/AOT hygiene";
+        "The handler factory passed to 'ControlRegistry.{0}' should be a 'static' lambda for trim/AOT hygiene (refactor out any captured state so it can be marked static)";
 
     private static readonly LocalizableString Description =
         "ControlRegistry registration factories should be static lambdas. A non-capturing " +
