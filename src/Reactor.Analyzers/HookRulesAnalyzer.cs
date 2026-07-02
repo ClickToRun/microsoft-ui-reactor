@@ -1291,7 +1291,7 @@ public sealed class HookRulesAnalyzer : DiagnosticAnalyzer
         // is the idiomatic "render once" form (zero deps), not a freshly-allocated dependency, so
         // it must not fire. (For UseState/UsePersisted/Provide an empty `[]` IS a real per-render
         // value allocation, which is why this guard lives here and not in the shared classifier.)
-        if (IsEmptyDepsContainer(expr)) return;
+        if (IsEmptyDepsContainer(expr, model)) return;
 
         var (unstable, kind) = AllocationAnalysis.ClassifyRestricted(expr);
         if (!unstable) return;
@@ -1306,7 +1306,7 @@ public sealed class HookRulesAnalyzer : DiagnosticAnalyzer
         context.ReportDiagnostic(Diagnostic.Create(MemoUnstableDepRule, expr.GetLocation(), kind));
     }
 
-    private static bool IsEmptyDepsContainer(ExpressionSyntax expr)
+    private static bool IsEmptyDepsContainer(ExpressionSyntax expr, SemanticModel model)
     {
         expr = UnwrapCasts(expr);
         return expr switch
@@ -1318,7 +1318,9 @@ public sealed class HookRulesAnalyzer : DiagnosticAnalyzer
                     ? init.Expressions.Count == 0
                     : arr.Type.RankSpecifiers.Count > 0
                         && arr.Type.RankSpecifiers[0].Sizes.Count == 1
-                        && arr.Type.RankSpecifiers[0].Sizes[0] is LiteralExpressionSyntax { Token.ValueText: "0" },
+                        // A constant-folded zero size (literal `0`, or `const int Zero = 0`) is still
+                        // an empty deps container.
+                        && model.GetConstantValue(arr.Type.RankSpecifiers[0].Sizes[0]) is { HasValue: true, Value: 0 },
             _ => false,
         };
     }

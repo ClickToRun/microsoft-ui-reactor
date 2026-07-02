@@ -219,6 +219,24 @@ namespace TestApp
 }");
     }
 
+    // Negative: a constant-folded zero-length array is still an empty deps container.
+    [Fact]
+    public async Task Memo_With_Const_Zero_Length_Array_DoesNotFlag()
+    {
+        await Verify(@"
+namespace TestApp
+{
+    using static Microsoft.UI.Reactor.Factories;
+    using Microsoft.UI.Reactor.Core;
+
+    class C
+    {
+        const int Zero = 0;
+        Element M() => Memo(ctx => new TextElement(""x""), new object[Zero]);
+    }
+}");
+    }
+
     // An explicit object[] deps CONTAINER is compared element-wise: only the element lacking value
     // equality is flagged, not the container itself.
     [Fact]
