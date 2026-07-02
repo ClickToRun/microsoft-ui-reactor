@@ -61,6 +61,21 @@ namespace App
     {
         public int Result => 42;
     }
+
+    // A non-Task type exposing Wait()/Result()/GetAwaiter().GetResult() members whose
+    // names match the syntactic fast path but whose receiver is not Task-like — the
+    // semantic receiver-type check must reject all of these.
+    public sealed class NotATask
+    {
+        public void Wait() { }
+        public int Result() => 0;              // a method named Result, not the Task property
+        public CustomAwaiter GetAwaiter() => new CustomAwaiter();
+    }
+
+    public sealed class CustomAwaiter
+    {
+        public int GetResult() => 0;
+    }
 }
 ";
 
@@ -322,6 +337,233 @@ namespace App
         private static async void Load()
         {
             var data = await Data.FetchAsync();
+        }
+    }
+}");
+    }
+
+    // ── Positive: null-conditional blocking forms ──────────────────────
+
+    [Fact]
+    public async Task Fires_For_Conditional_Result_In_Render()
+    {
+        await VerifyAsync(@"
+namespace App
+{
+    using Microsoft.UI.Reactor.Core;
+    public sealed class C : Component
+    {
+        public override Element Render()
+        {
+            var data = {|REACTOR_THREAD_002:Data.FetchAsync()?.Result|};
+            return new TextElement(data.ToString());
+        }
+    }
+}");
+    }
+
+    [Fact]
+    public async Task Fires_For_Conditional_Wait_In_Render()
+    {
+        await VerifyAsync(@"
+namespace App
+{
+    using Microsoft.UI.Reactor.Core;
+    public sealed class C : Component
+    {
+        public override Element Render()
+        {
+            {|REACTOR_THREAD_002:Data.RunAsync()?.Wait()|};
+            return new TextElement(""hi"");
+        }
+    }
+}");
+    }
+
+    [Fact]
+    public async Task Fires_For_Conditional_GetAwaiter_GetResult_In_Render()
+    {
+        await VerifyAsync(@"
+namespace App
+{
+    using Microsoft.UI.Reactor.Core;
+    public sealed class C : Component
+    {
+        public override Element Render()
+        {
+            var data = {|REACTOR_THREAD_002:Data.FetchAsync()?.GetAwaiter().GetResult()|};
+            return new TextElement(data.ToString());
+        }
+    }
+}");
+    }
+
+    [Fact]
+    public async Task Fires_For_Conditional_Result_In_UseEffect_Lambda()
+    {
+        await VerifyAsync(@"
+namespace App
+{
+    using Microsoft.UI.Reactor.Core;
+    public sealed class C : Component
+    {
+        public override Element Render()
+        {
+            UseEffect(() =>
+            {
+                var data = {|REACTOR_THREAD_002:Data.FetchAsync()?.Result|};
+            }, System.Array.Empty<object>());
+            return new TextElement(""hi"");
+        }
+    }
+}");
+    }
+
+    // ── Negative: .Result inside nested Task.Run within an effect ───────
+
+    [Fact]
+    public async Task No_Diagnostic_For_Result_Inside_Nested_TaskRun_In_Effect()
+    {
+        await VerifyAsync(@"
+namespace App
+{
+    using Microsoft.UI.Reactor.Core;
+    using System.Threading.Tasks;
+    public sealed class C : Component
+    {
+        public override Element Render()
+        {
+            UseEffect(() =>
+            {
+                _ = Task.Run(() =>
+                {
+                    var data = Data.FetchAsync().Result;
+                    return data;
+                });
+            }, System.Array.Empty<object>());
+            return new TextElement(""hi"");
+        }
+    }
+}");
+    }
+
+    // ── Near-miss: invocation fast-path shapes on non-Task receivers ────
+
+    [Fact]
+    public async Task No_Diagnostic_For_Wait_On_Non_Task()
+    {
+        await VerifyAsync(@"
+namespace App
+{
+    using Microsoft.UI.Reactor.Core;
+    public sealed class C : Component
+    {
+        public override Element Render()
+        {
+            new NotATask().Wait();
+            return new TextElement(""hi"");
+        }
+    }
+}");
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_Result_Method_On_Non_Task()
+    {
+        await VerifyAsync(@"
+namespace App
+{
+    using Microsoft.UI.Reactor.Core;
+    public sealed class C : Component
+    {
+        public override Element Render()
+        {
+            var value = new NotATask().Result();
+            return new TextElement(value.ToString());
+        }
+    }
+}");
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_GetAwaiter_GetResult_On_Non_Task()
+    {
+        await VerifyAsync(@"
+namespace App
+{
+    using Microsoft.UI.Reactor.Core;
+    public sealed class C : Component
+    {
+        public override Element Render()
+        {
+            var value = new NotATask().GetAwaiter().GetResult();
+            return new TextElement(value.ToString());
+        }
+    }
+}");
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_Wait_With_Timeout_Argument()
+    {
+        // Only zero-arg .Wait() is in scope; the timeout overload (returns bool and
+        // includes the non-blocking Wait(0) poll) is intentionally excluded.
+        await VerifyAsync(@"
+namespace App
+{
+    using Microsoft.UI.Reactor.Core;
+    public sealed class C : Component
+    {
+        public override Element Render()
+        {
+            _ = Data.RunAsync().Wait(0);
+            return new TextElement(""hi"");
+        }
+    }
+}");
+    }
+
+    // ── Accepted false negative: blocking inside a non-effect nested function ──
+
+    [Fact]
+    public async Task No_Diagnostic_For_Result_In_NonEffect_Nested_Lambda_In_Render()
+    {
+        // Blocking inside a nested lambda that is not the UseEffect effect (here a LINQ
+        // projection) is intentionally NOT flagged: a syntactic analyzer cannot prove the
+        // lambda runs synchronously on the render thread, so it is treated as a deferred
+        // boundary to keep false positives near zero (see ClassifyContext).
+        await VerifyAsync(@"
+namespace App
+{
+    using Microsoft.UI.Reactor.Core;
+    using System.Linq;
+    public sealed class C : Component
+    {
+        public override Element Render()
+        {
+            var ids = new[] { 1, 2 };
+            var first = ids.Select(i => Data.FetchAsync().Result).First();
+            return new TextElement(first.ToString());
+        }
+    }
+}");
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_Result_In_Local_Function_In_Render()
+    {
+        // A local function is a deferred boundary — blocking inside one is not flagged
+        // even though it is declared in Render.
+        await VerifyAsync(@"
+namespace App
+{
+    using Microsoft.UI.Reactor.Core;
+    public sealed class C : Component
+    {
+        public override Element Render()
+        {
+            int Load() => Data.FetchAsync().Result;
+            return new TextElement(Load().ToString());
         }
     }
 }");

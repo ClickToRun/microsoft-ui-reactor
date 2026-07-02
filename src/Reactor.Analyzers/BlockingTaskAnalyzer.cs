@@ -84,6 +84,8 @@ public sealed class BlockingTaskAnalyzer : DiagnosticAnalyzer
                 ctx => AnalyzeMemberAccess(ctx, known), SyntaxKind.SimpleMemberAccessExpression);
             start.RegisterSyntaxNodeAction(
                 ctx => AnalyzeInvocation(ctx, known), SyntaxKind.InvocationExpression);
+            start.RegisterSyntaxNodeAction(
+                ctx => AnalyzeConditionalAccess(ctx, known), SyntaxKind.ConditionalAccessExpression);
         });
     }
 
@@ -165,6 +167,69 @@ public sealed class BlockingTaskAnalyzer : DiagnosticAnalyzer
         Report(context, invocation, blockingForm, flag);
     }
 
+    /// <summary>
+    /// Handles the null-conditional forms — <c>task?.Result</c>, <c>task?.Wait()</c>,
+    /// and <c>task?.GetAwaiter().GetResult()</c> — where the blocking member binds
+    /// directly to the null-conditioned receiver. These are <c>ConditionalAccessExpression</c>
+    /// nodes (the member is a <c>MemberBindingExpression</c>, not a <c>MemberAccessExpression</c>),
+    /// so the two handlers above never see them.
+    /// </summary>
+    private static void AnalyzeConditionalAccess(SyntaxNodeAnalysisContext context, TaskTypes known)
+    {
+        var conditional = (ConditionalAccessExpressionSyntax)context.Node;
+
+        var blockingForm = ClassifyConditionalWhenNotNull(conditional.WhenNotNull);
+        if (blockingForm is null)
+            return;
+
+        // The receiver whose type must be Task-like is the null-conditioned expression.
+        if (!known.IsTaskLike(context.SemanticModel.GetTypeInfo(conditional.Expression).Type))
+            return;
+
+        var flag = ClassifyContext(context.SemanticModel, conditional);
+        if (flag == FlagContext.None)
+            return;
+
+        Report(context, conditional, blockingForm, flag);
+    }
+
+    /// <summary>
+    /// Returns the blocking-form label when a conditional-access continuation is a
+    /// blocking member bound directly to the receiver, else <c>null</c>. Only the direct
+    /// binding is matched — a longer chain like <c>x?.Foo.Result</c> is left to the
+    /// non-conditional handlers on its inner nodes.
+    /// </summary>
+    private static string? ClassifyConditionalWhenNotNull(ExpressionSyntax whenNotNull) =>
+        whenNotNull switch
+        {
+            // x?.Result
+            MemberBindingExpressionSyntax { Name.Identifier.Text: "Result" } => ".Result",
+
+            // x?.Wait()  (zero-arg only — timeout overloads are out of scope)
+            InvocationExpressionSyntax
+            {
+                Expression: MemberBindingExpressionSyntax { Name.Identifier.Text: "Wait" },
+                ArgumentList.Arguments.Count: 0,
+            } => ".Wait()",
+
+            // x?.GetAwaiter().GetResult()
+            InvocationExpressionSyntax
+            {
+                Expression: MemberAccessExpressionSyntax
+                {
+                    Name.Identifier.Text: "GetResult",
+                    Expression: InvocationExpressionSyntax
+                    {
+                        Expression: MemberBindingExpressionSyntax { Name.Identifier.Text: "GetAwaiter" },
+                        ArgumentList.Arguments.Count: 0,
+                    },
+                },
+                ArgumentList.Arguments.Count: 0,
+            } => ".GetAwaiter().GetResult()",
+
+            _ => null,
+        };
+
     private static void Report(SyntaxNodeAnalysisContext context, SyntaxNode location, string blockingForm, FlagContext flag)
     {
         var contextLabel = flag == FlagContext.Effect ? "a UseEffect effect" : "Render()";
@@ -181,12 +246,22 @@ public sealed class BlockingTaskAnalyzer : DiagnosticAnalyzer
     /// boundary (lambda, local function, or method declaration) is decisive:
     /// <list type="bullet">
     /// <item>a <c>UseEffect</c> effect lambda → <see cref="FlagContext.Effect"/>;</item>
-    /// <item>any other lambda or local function → <see cref="FlagContext.None"/> (the call
-    /// is deferred — a nested <c>Task.Run</c>, an event handler, a LINQ projection — and no
-    /// longer runs on the render/effect thread);</item>
+    /// <item>any other lambda or local function → <see cref="FlagContext.None"/>;</item>
     /// <item>a <c>Render()</c> override reached with no intervening lambda →
     /// <see cref="FlagContext.Render"/>.</item>
     /// </list>
+    /// <para>
+    /// Treating <b>every</b> non-effect nested function as a boundary (rather than only
+    /// <c>Task.Run</c>) is deliberate. It is what excludes the spec's named case —
+    /// <c>Task.Run(() =&gt; t.Result)</c> — but it also covers the other background-dispatch
+    /// forms (<c>Task.Factory.StartNew</c>, <c>ThreadPool.QueueUserWorkItem</c>) and every
+    /// deferred callback whose execution timing is decoupled from render (event handlers,
+    /// LINQ projections, stored delegates). A syntactic analyzer cannot prove whether such a
+    /// lambda runs synchronously during render or later on another thread, so blocking inside
+    /// one is left unflagged to keep false positives near zero — the accepted cost is a false
+    /// negative on a helper that <i>is</i> invoked synchronously in the render path. This
+    /// mirrors the deferred-execution-boundary convention in <c>HookRulesAnalyzer</c>.
+    /// </para>
     /// </summary>
     private static FlagContext ClassifyContext(SemanticModel model, SyntaxNode node)
     {
