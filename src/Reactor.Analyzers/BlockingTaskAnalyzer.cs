@@ -140,9 +140,11 @@ public sealed class BlockingTaskAnalyzer : DiagnosticAnalyzer
         }
         else if (name == "GetResult")
         {
-            // Require the exact `<task>.GetAwaiter().GetResult()` idiom so we never fire on
-            // an unrelated `GetResult()`. The task receiver is what `.GetAwaiter()` is called on.
-            if (memberAccess.Expression is not InvocationExpressionSyntax getAwaiterInvocation ||
+            // Require the exact zero-arg `<task>.GetAwaiter().GetResult()` idiom (both calls
+            // parameterless) so we never fire on an unrelated `GetResult(x)`. The task
+            // receiver is what `.GetAwaiter()` is called on.
+            if (invocation.ArgumentList.Arguments.Count != 0 ||
+                memberAccess.Expression is not InvocationExpressionSyntax getAwaiterInvocation ||
                 getAwaiterInvocation.Expression is not MemberAccessExpressionSyntax getAwaiterAccess ||
                 getAwaiterAccess.Name.Identifier.Text != "GetAwaiter" ||
                 getAwaiterInvocation.ArgumentList.Arguments.Count != 0)
@@ -411,7 +413,20 @@ public sealed class BlockingTaskAnalyzer : DiagnosticAnalyzer
             return symbol.IsOverride && IsOrDerivesFrom(symbol.ContainingType, ComponentType);
         }
 
-        return method.Modifiers.Any(SyntaxKind.OverrideKeyword);
+        // Fallback: the method symbol is unresolved (mid-edit). Require the `override`
+        // modifier, and still anchor on the enclosing class — a Component is a class, so a
+        // non-class parent or a resolvable non-Component class rules the override out. Only
+        // when even the class symbol is unavailable do we keep the loose name heuristic.
+        if (!method.Modifiers.Any(SyntaxKind.OverrideKeyword))
+            return false;
+
+        if (method.Parent is not ClassDeclarationSyntax enclosingClass)
+            return false;
+
+        if (model.GetDeclaredSymbol(enclosingClass) is INamedTypeSymbol classSymbol)
+            return IsOrDerivesFrom(classSymbol, ComponentType);
+
+        return true;
     }
 
     private static string? GetInvokedSimpleName(InvocationExpressionSyntax invocation) =>

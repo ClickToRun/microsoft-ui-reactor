@@ -330,11 +330,11 @@ namespace App
     {
         public override Element Render()
         {
-            UseEffect(() => Load(), System.Array.Empty<object>());
+            UseEffect(() => { _ = Load(); }, System.Array.Empty<object>());
             return new TextElement(""hi"");
         }
 
-        private static async void Load()
+        private static async System.Threading.Tasks.Task Load()
         {
             var data = await Data.FetchAsync();
         }
