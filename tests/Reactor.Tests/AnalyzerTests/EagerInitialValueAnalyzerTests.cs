@@ -225,4 +225,28 @@ class C : Microsoft.UI.Reactor.Core.Component
             CodeActionEquivalenceKey = HookRulesAnalyzer.EagerInitialValueId,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    // The fix is withheld when the initializer calls a method (potential side effect): wrapping in
+    // UseMemo(..., []) would change how often that method runs. The diagnostic still fires.
+    [Fact]
+    public async Task CodeFix_Withheld_When_Initializer_Calls_A_Method()
+    {
+        var source = Stubs + @"
+class C : Microsoft.UI.Reactor.Core.Component
+{
+    int GetSeed() => 4;
+    public override string Render()
+    {
+        var (items, setItems) = UseState({|REACTOR_HOOKS_013:new System.Collections.Generic.List<int>(GetSeed())|});
+        return """";
+    }
+}";
+
+        await new CSharpCodeFixTest<HookRulesAnalyzer, EagerInitialValueCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
+            ReferenceAssemblies = ReferenceAssemblies.Net.Net80,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }

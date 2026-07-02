@@ -74,6 +74,13 @@ public sealed class EagerInitialValueCodeFix : CodeFixProvider
             var typeArg = CodeFixHelpers.UseMemoTypeArgument(initExpr, semanticModel, context.CancellationToken);
             if (typeArg is null) continue;
 
+            // Wrapping in UseMemo(..., []) changes the initializer from "evaluated every render" to
+            // "evaluated once". That is purely a win for an allocation, but if the initializer calls
+            // a method it may have side effects whose frequency would change — withhold the fix in
+            // that case (the diagnostic still nudges) rather than silently altering behavior.
+            if (initExpr.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>().Any())
+                continue;
+
             var captured = initExpr;
             var prefix = receiverPrefix;
             var targ = typeArg;

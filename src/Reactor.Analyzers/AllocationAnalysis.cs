@@ -50,11 +50,11 @@ internal static class AllocationAnalysis
             ImplicitArrayCreationExpressionSyntax => (true, "array"),
             CollectionExpressionSyntax => (true, "collection"),
             AnonymousObjectCreationExpressionSyntax => (true, "anonymous object"),
-            // `value with { … }` copies the value, so it heap-allocates a fresh instance each
-            // render exactly like `new …`. Recognising it closes the known false-negative called
-            // out in spec §3.2 / §4.1 (CTX_001/HOOKS_013). The value-equality gate below still
-            // filters record/struct `with` results for HOOKS_012 / CTX_001; HOOKS_013 (pure
-            // allocation, no equality gate) correctly flags it.
+            // `value with { … }` copies the value, so a reference-type record allocates a fresh
+            // instance each render exactly like `new …`. Recognising it closes the known
+            // false-negative called out in spec §3.2 / §4.1 (CTX_001/HOOKS_013). The value-equality
+            // gate (HOOKS_012 / CTX_001) and HOOKS_013's own value-type skip both filter out
+            // record-struct `with` results, which are stack values and do not heap-allocate.
             WithExpressionSyntax => (true, "object"),
             _ => (false, ""),
         };
