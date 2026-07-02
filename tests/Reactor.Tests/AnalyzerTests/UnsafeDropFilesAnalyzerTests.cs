@@ -218,7 +218,52 @@ class C
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 
+    [Fact]
+    public async Task Fires_For_TryGetFiles_In_Anonymous_Method_OnDrop_Handler()
+    {
+        // Old-style anonymous method: delegate(DragTargetArgs args) { ... } is an
+        // AnonymousFunctionExpression (not a lambda), still a drop handler.
+        var source = Stubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        el.OnDrop(delegate(Microsoft.UI.Reactor.Input.DragTargetArgs args)
+        {
+            {|REACTOR_INPUT_002:args.Data.TryGetFiles(out var f)|};
+        });
+    }
+}";
+
+        await new CSharpAnalyzerTest<UnsafeDropFilesAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
     // ── Negative ────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task No_Diagnostic_For_Bare_Assignment_To_Local_Named_OnDrop()
+    {
+        // `OnDrop` here is an unrelated local delegate assigned outside any object/with
+        // initializer, so the assignment form must NOT be treated as a drop handler.
+        var source = Stubs + @"
+class C
+{
+    void M()
+    {
+        System.Action<Microsoft.UI.Reactor.Input.DragData> OnDrop = null;
+        OnDrop = d => d.TryGetFiles(out var f);
+    }
+}";
+
+        await new CSharpAnalyzerTest<UnsafeDropFilesAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 
     [Fact]
     public async Task No_Diagnostic_When_TryGetSafeLocalFiles_Already_Used()

@@ -117,31 +117,34 @@ public sealed class UnsafeDropFilesAnalyzer : DiagnosticAnalyzer
         };
 
     /// <summary>
-    /// True when <paramref name="node"/> is lexically inside a drop handler — either a lambda
-    /// passed to a <c>.OnDrop(...)</c> invocation (the fluent modifier) or a lambda assigned to
-    /// an <c>OnDrop</c> member (the raw <c>DropTargetConfig { OnDrop = ... }</c> / <c>with</c> /
-    /// <c>cfg.OnDrop = ...</c> form). Walks every enclosing lambda so a call nested in an inner
-    /// closure (e.g. <c>.OnDrop(a =&gt; list.ForEach(x =&gt; a.Data.TryGetFiles(...)))</c>) still
-    /// counts — it runs during the drop.
+    /// True when <paramref name="node"/> is lexically inside a drop handler — either a lambda /
+    /// anonymous method passed to a <c>.OnDrop(...)</c> invocation (the fluent modifier) or one
+    /// assigned to an <c>OnDrop</c> member (the raw <c>DropTargetConfig { OnDrop = ... }</c> /
+    /// <c>with</c> / <c>cfg.OnDrop = ...</c> form). Walks every enclosing lambda/anonymous method
+    /// so a call nested in an inner closure (e.g.
+    /// <c>.OnDrop(a =&gt; list.ForEach(x =&gt; a.Data.TryGetFiles(...)))</c>) still counts — it
+    /// runs during the drop.
     /// </summary>
     private static bool IsInsideDropHandlerLambda(SyntaxNode node)
     {
         for (var current = node.Parent; current is not null; current = current.Parent)
         {
-            if (current is not LambdaExpressionSyntax lambda)
+            // Covers lambdas (`args => ...`, `(args) => ...`) and anonymous methods
+            // (`delegate(DragTargetArgs args) { ... }`).
+            if (current is not AnonymousFunctionExpressionSyntax func)
                 continue;
 
-            // (A) lambda argument to a `.OnDrop(...)` call — `el.OnDrop(args => ...)` or the
-            //     null-conditional `el?.OnDrop(args => ...)` (GetInvokedName covers both shapes).
-            if (lambda.Parent is ArgumentSyntax { Parent: ArgumentListSyntax { Parent: InvocationExpressionSyntax outer } }
+            // (A) handler argument to a `.OnDrop(...)` call — `el.OnDrop(...)` or the
+            //     null-conditional `el?.OnDrop(...)` (GetInvokedName covers both shapes).
+            if (func.Parent is ArgumentSyntax { Parent: ArgumentListSyntax { Parent: InvocationExpressionSyntax outer } }
                 && GetInvokedName(outer)?.Identifier.Text == OnDropHandlerName)
             {
                 return true;
             }
 
-            // (B) lambda assigned to an `OnDrop` member: new DropTargetConfig { OnDrop = ... },
+            // (B) handler assigned to an `OnDrop` member: new DropTargetConfig { OnDrop = ... },
             //     cfg with { OnDrop = ... }, or cfg.OnDrop = ....
-            if (lambda.Parent is AssignmentExpressionSyntax { Left: var left } && IsOnDropTarget(left))
+            if (func.Parent is AssignmentExpressionSyntax assignment && IsOnDropTarget(assignment))
             {
                 return true;
             }
@@ -149,9 +152,13 @@ public sealed class UnsafeDropFilesAnalyzer : DiagnosticAnalyzer
         return false;
     }
 
-    private static bool IsOnDropTarget(ExpressionSyntax left) => left switch
+    private static bool IsOnDropTarget(AssignmentExpressionSyntax assignment) => assignment.Left switch
     {
-        IdentifierNameSyntax id => id.Identifier.Text == OnDropHandlerName,             // { OnDrop = ... }
+        // A bare `OnDrop = ...` counts only inside an object/with initializer
+        // (`new DropTargetConfig { OnDrop = ... }` / `cfg with { OnDrop = ... }`), never a plain
+        // local/field/property named OnDrop that is unrelated to a drop target.
+        IdentifierNameSyntax id => id.Identifier.Text == OnDropHandlerName
+            && assignment.Parent is InitializerExpressionSyntax,
         MemberAccessExpressionSyntax member => member.Name.Identifier.Text == OnDropHandlerName, // cfg.OnDrop = ...
         _ => false,
     };
