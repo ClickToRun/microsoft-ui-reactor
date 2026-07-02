@@ -4,9 +4,11 @@ namespace Microsoft.UI.Reactor.Hosting;
 
 /// <summary>
 /// Marks a member that must be invoked on the UI thread — every member so
-/// annotated calls <see cref="ThreadAffinity.ThrowIfNotOnUIThread"/> and will
-/// throw <see cref="InvalidOperationException"/> when reached from a background
-/// thread.
+/// annotated calls <see cref="ThreadAffinity.ThrowIfNotOnUIThread"/>, which throws
+/// <see cref="InvalidOperationException"/> when reached from a background thread
+/// once the UI dispatcher has been captured. (The guard is a no-op before the
+/// first window bootstraps, while <see cref="ReactorApp.UIDispatcher"/> is still
+/// null.)
 /// </summary>
 /// <remarks>
 /// <para>

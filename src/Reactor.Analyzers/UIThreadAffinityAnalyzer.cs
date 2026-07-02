@@ -19,7 +19,7 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// The framework is a metadata-only reference in a consumer compilation, so the
 /// analyzer cannot inspect a callee's body for the runtime guard. The committed
 /// mechanism is the <c>[UIThreadOnly]</c> marker attribute
-/// (<see cref="M:Microsoft.UI.Reactor.Hosting.ThreadAffinity"/> annotations),
+/// (applied to the members that call <c>ThreadAffinity.ThrowIfNotOnUIThread</c>),
 /// which is metadata-visible. The syntactic background-lambda gate runs first;
 /// the attribute check is the semantic backstop that keeps false positives low.
 /// (spec 060 §4.6)
