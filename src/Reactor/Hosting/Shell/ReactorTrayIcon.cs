@@ -352,6 +352,7 @@ public sealed class ReactorTrayIcon : IDisposable
     /// <summary>
     /// Remove the icon from the tray and dispose. UI-thread only. Idempotent.
     /// </summary>
+    [UIThreadOnly]
     public void Close() => Dispose();
 
     /// <inheritdoc />
