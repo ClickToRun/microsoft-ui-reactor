@@ -215,9 +215,9 @@ public sealed class MemoizeCommandCodeFix : CodeFixProvider
     /// <summary>
     /// Rebuilds a target-typed <c>new() { … }</c> as an explicit <c>new Command&lt;T&gt; { … }</c>
     /// using the resolved <paramref name="type"/>, preserving the initializer (and any constructor
-    /// arguments) verbatim. The type name is rendered with
-    /// <see cref="SymbolDisplayExtensions.ToMinimalDisplayString"/> so it stays short yet unambiguous
-    /// at this position. Mirrors <see cref="CommandDebounceCodeFix"/>.
+    /// arguments) verbatim — including any trivia between <c>new(…)</c> and the initializer brace. The
+    /// type name is rendered with <see cref="SymbolDisplayExtensions.ToMinimalDisplayString"/> so it
+    /// stays short yet unambiguous at this position. Mirrors <see cref="CommandDebounceCodeFix"/>.
     /// </summary>
     private static ObjectCreationExpressionSyntax MakeExplicit(
         ImplicitObjectCreationExpressionSyntax implicitNew, ITypeSymbol type, SemanticModel semanticModel)
@@ -229,9 +229,12 @@ public sealed class MemoizeCommandCodeFix : CodeFixProvider
         if (argumentList is null || argumentList.Arguments.Count == 0)
             argumentList = null;
 
-        // Force exactly one space before the initializer brace so the result is a clean
-        // `new Command { … }` regardless of the original `new()`/`new() { … }` spacing.
-        var initializer = implicitNew.Initializer!.WithLeadingTrivia(SyntaxFactory.Space);
+        // Preserve the initializer verbatim (keeps any comments/newlines the author placed before the
+        // brace). Only when the dropped `()` leaves the type directly abutting an initializer with no
+        // leading trivia do we add a single separating space, so the result is never `Command{ … }`.
+        var initializer = implicitNew.Initializer!;
+        if (argumentList is null && initializer.GetLeadingTrivia().Count == 0)
+            typeSyntax = typeSyntax.WithTrailingTrivia(SyntaxFactory.Space);
 
         return SyntaxFactory.ObjectCreationExpression(
             SyntaxFactory.Token(SyntaxKind.NewKeyword).WithTrailingTrivia(SyntaxFactory.Space),
