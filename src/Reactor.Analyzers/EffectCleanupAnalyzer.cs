@@ -50,17 +50,20 @@ public sealed class EffectCleanupAnalyzer : DiagnosticAnalyzer
     private const string RenderContextType = "Microsoft.UI.Reactor.Core.RenderContext";
 
     /// <summary>
-    /// Simple type names whose construction inside an effect body denotes a producer that keeps
-    /// running until explicitly stopped. Kept as simple names so both <c>System.Threading.Timer</c>
-    /// and <c>System.Timers.Timer</c> (and the WinUI dispatcher timers) match without binding.
+    /// <summary>
+    /// Simple type names whose <c>new</c> construction inside an effect body denotes a producer
+    /// that keeps running until explicitly stopped/disposed. Every entry must be constructible with
+    /// <c>new</c> — this set is only consulted for object-creation nodes. <c>System.Threading.Timer</c>,
+    /// <c>System.Timers.Timer</c> and the WinUI <c>DispatcherTimer</c> qualify; the factory-created
+    /// WinRT timers (<c>DispatcherQueueTimer</c> via <c>DispatcherQueue.CreateTimer()</c>,
+    /// <c>ThreadPoolTimer</c> via its static factory) have no public constructor and so are not
+    /// listed here — they would need invocation-based detection.
     /// </summary>
     private static readonly HashSet<string> KnownTimerTypes = new(System.StringComparer.Ordinal)
     {
         "PeriodicTimer",
         "Timer",
         "DispatcherTimer",
-        "DispatcherQueueTimer",
-        "ThreadPoolTimer",
     };
 
     private static readonly DiagnosticDescriptor Rule = new(
@@ -257,7 +260,7 @@ public sealed class EffectCleanupAnalyzer : DiagnosticAnalyzer
 
     /// <summary>
     /// True when <paramref name="type"/> is one of the known lifetime-bearing timer types. The
-    /// distinctive names (<c>PeriodicTimer</c> and the dispatcher-timer family, which expose
+    /// distinctive names (<c>PeriodicTimer</c> and <c>DispatcherTimer</c>, the latter exposing
     /// Start/Stop rather than <c>IDisposable</c>) are matched by name — a user type coincidentally
     /// sharing one is implausible. The bare <c>Timer</c> name is common enough to collide, so it is
     /// only matched when the type is actually disposable (both <c>System.Threading.Timer</c> and

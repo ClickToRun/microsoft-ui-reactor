@@ -40,8 +40,9 @@ namespace Fakes
         public void Dispose() { }
     }
 
-    // Distinctive dispatcher-timer name that exposes Start/Stop instead of IDisposable.
-    public sealed class DispatcherQueueTimer
+    // Distinctive dispatcher-timer name that exposes Start/Stop instead of IDisposable (the real
+    // WinUI DispatcherTimer has a public constructor — see the samples).
+    public sealed class DispatcherTimer
     {
         public void Start() { }
         public void Stop() { }
@@ -541,7 +542,7 @@ namespace TestApp
 
     // A distinctive dispatcher-timer name (not IDisposable) is matched by name.
     [Fact]
-    public Task Fires_On_DispatcherQueueTimer()
+    public Task Fires_On_DispatcherTimer()
         => Verify(@"
 namespace TestApp
 {
@@ -555,7 +556,7 @@ namespace TestApp
         {
             UseEffect(() =>
             {
-                var t = {|REACTOR_LIFECYCLE_002:new DispatcherQueueTimer()|};
+                var t = {|REACTOR_LIFECYCLE_002:new DispatcherTimer()|};
                 t.Start();
             }, Array.Empty<object>());
             return """";
