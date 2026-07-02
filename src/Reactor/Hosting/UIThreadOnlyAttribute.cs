@@ -7,8 +7,8 @@ namespace Microsoft.UI.Reactor.Hosting;
 /// annotated calls <see cref="ThreadAffinity.ThrowIfNotOnUIThread"/>, which throws
 /// <see cref="InvalidOperationException"/> when reached from a background thread
 /// once the UI dispatcher has been captured. (The guard is a no-op before the
-/// first window bootstraps, while <see cref="ReactorApp.UIDispatcher"/> is still
-/// null.)
+/// first window bootstraps, while <see cref="Microsoft.UI.Reactor.ReactorApp.UIDispatcher"/>
+/// is still null.)
 /// </summary>
 /// <remarks>
 /// <para>
