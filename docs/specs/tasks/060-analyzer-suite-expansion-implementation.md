@@ -128,6 +128,13 @@ entry (`ID | severity | trigger | fix`) in the same PR. Skip it for
 control-author / niche rules (`DESC_001`, `WIN2D_001`) — the analyzer DLL's own
 message carries those.
 
+Also append a one-line row to the **analyzer-architecture rules table** — edit the
+TEMPLATE `docs/_pipeline/templates/analyzer-architecture.md.dt` (NOT the generated
+`docs/guide/analyzer-architecture.md`), so the guide stays complete. Same convention as
+the release file and cheat table: each session appends its own row, keep-all-rows on
+conflict, the integrator resolves. **Do not touch the already-stale generated
+`docs/guide/*.md`** — CI recompiles them from templates; editing them just creates churn.
+
 ### 2.7 Review loop — a HARD gate before you report done
 Every PR goes through BOTH review tools before you report the packet complete. **Do not
 message your creator "done" until this loop is clean** — in the ⭐ wave, 2 of 3 code PRs
