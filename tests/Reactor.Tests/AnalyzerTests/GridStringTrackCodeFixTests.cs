@@ -433,6 +433,93 @@ namespace TestApp
         await MakeTest(source, source).RunAsync(TestContext.Current.CancellationToken);
     }
 
+    // ── No fix: literals that DIVERGE from the legacy parser, or don't map ──
+    // ParseColumnDef/ParseRowDef match "*"/"Auto"/"auto" EXACTLY on the raw string
+    // (no trim, no other casing) and fall back to Star(1) otherwise. Converting any of
+    // these would silently change layout, so the fix must withhold and leave CS0618.
+    [Theory]
+    [InlineData("\"AUTO\"")]       // wrong casing → legacy Star(1), NOT Auto
+    [InlineData("\"aUtO\"")]       // wrong casing
+    [InlineData("\" Auto \"")]     // whitespace around Auto → legacy Star(1)
+    [InlineData("\" 2* \"")]       // trailing space defeats legacy raw EndsWith('*') → Star(1)
+    [InlineData("\"\"")]           // empty
+    [InlineData("\"   \"")]        // whitespace only
+    [InlineData("\"-1*\"")]        // negative star weight
+    public async Task No_Fix_When_Track_Diverges_From_Legacy_Parser(string track)
+    {
+        var source = Stubs + $@"
+namespace TestApp
+{{
+    using Microsoft.UI.Reactor;
+    using static Microsoft.UI.Reactor.Factories;
+
+    public static class C
+    {{
+        public static Element Build() =>
+            {{|CS0618:Grid([{track}], [""*""])|}};
+    }}
+}}";
+
+        await MakeTest(source, source).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // ── Faithful: whitespace-padded numerics still convert (Float allows the
+    //    surrounding whitespace, matching the legacy parser's double.TryParse) ──
+    [Fact]
+    public async Task Fix_Converts_Whitespace_Padded_Pixels()
+    {
+        var before = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor;
+    using static Microsoft.UI.Reactor.Factories;
+
+    public static class C
+    {
+        public static Element Build() =>
+            {|CS0618:Grid(["" 200 ""], [""*""])|};
+    }
+}";
+
+        var after = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor;
+    using static Microsoft.UI.Reactor.Factories;
+
+    public static class C
+    {
+        public static Element Build() =>
+            Grid([GridSize.Px(200)], [GridSize.Star()]);
+    }
+}";
+
+        await MakeTest(before, after).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // ── No fix: interpolated-string and collection-spread elements ──
+    [Fact]
+    public async Task No_Fix_When_Element_Is_Interpolated_Or_Spread()
+    {
+        var source = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor;
+    using static Microsoft.UI.Reactor.Factories;
+
+    public static class C
+    {
+        public static Element Interp(int w) =>
+            {|CS0618:Grid([$""{w}""], [""*""])|};
+
+        public static Element Spread(string[] tracks) =>
+            {|CS0618:Grid([""*"", ..tracks], [""*""])|};
+    }
+}";
+
+        await MakeTest(source, source).RunAsync(TestContext.Current.CancellationToken);
+    }
+
     // ── Fix emits compiling GridSize even with only the static factory import ──
 
     [Fact]

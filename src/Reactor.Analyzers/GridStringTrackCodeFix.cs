@@ -40,12 +40,14 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// and the <c>CS0618</c> warning is left to stand.
 /// </para>
 /// <para>
-/// The string→<c>GridSize</c> mapping mirrors <c>GridSize.Parse</c> (which agrees
-/// with the runtime layout parse on every valid track): <c>"Auto"</c>
-/// (case-insensitive) → <c>GridSize.Auto</c>; <c>"*"</c> → <c>GridSize.Star()</c>;
-/// <c>"&lt;n&gt;*"</c> → <c>GridSize.Star(n)</c>; <c>"&lt;n&gt;"</c> →
-/// <c>GridSize.Px(n)</c>. Any other literal cannot be mapped safely, so the whole
-/// fix is withheld.
+/// The string→<c>GridSize</c> mapping mirrors the obsolete overload's runtime
+/// parser <c>PanelAttachedHooks.ParseColumnDef</c>/<c>ParseRowDef</c> EXACTLY (raw
+/// string, exact matches): <c>"*"</c> → <c>GridSize.Star()</c>; <c>"Auto"</c>/<c>"auto"</c>
+/// (exact) → <c>GridSize.Auto</c>; a whole-string numeric (incl. surrounding
+/// whitespace, which <c>NumberStyles.Float</c> allows) → <c>GridSize.Px(n)</c>; a raw
+/// <c>*</c>-suffixed numeric → <c>GridSize.Star(n)</c>. The legacy parser's catch-all
+/// is <c>Star(1)</c>; the fix withholds there (and on non-finite/out-of-range) so
+/// those keep the <c>CS0618</c> warning rather than risk a silent layout change.
 /// </para>
 /// </remarks>
 [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(GridStringTrackCodeFix))]
@@ -282,55 +284,63 @@ public sealed class GridStringTrackCodeFix : CodeFixProvider
     }
 
     /// <summary>
-    /// Maps a track string to a <c>GridSize</c> factory expression, mirroring
-    /// <c>GridSize.Parse</c>. Returns <see langword="false"/> for any string that
-    /// does not map cleanly (so the whole fix is withheld rather than change
-    /// runtime behaviour). Numeric weights/pixels are re-emitted from the parsed
+    /// Maps a track string to a <c>GridSize</c> factory expression, mirroring the
+    /// obsolete overload's runtime parser <c>ParseColumnDef</c>/<c>ParseRowDef</c>
+    /// exactly (raw string, exact <c>"*"</c>/<c>"Auto"</c>/<c>"auto"</c>). Returns
+    /// <see langword="false"/> for anything that would hit the legacy <c>Star(1)</c>
+    /// catch-all or is non-finite/out-of-range, so the whole fix is withheld rather than
+    /// change runtime behaviour. Numeric weights/pixels are re-emitted from the parsed
     /// value in round-trip invariant form, so lenient-but-not-C#-literal inputs
     /// (e.g. <c>"5."</c>) still yield a compiling literal (<c>5</c>).
     /// </summary>
     private static bool TryConvertTrack(string raw, string gridSizeName, out ExpressionSyntax? gridSize)
     {
         gridSize = null;
-        var trimmed = raw.Trim();
-        if (trimmed.Length == 0) return false;
 
-        // "Auto" / "auto" -> GridSize.Auto  (property — no parens)
-        if (string.Equals(trimmed, "Auto", System.StringComparison.OrdinalIgnoreCase))
-        {
-            gridSize = GridSizeAccess(gridSizeName, "Auto");
-            return true;
-        }
+        // Mirror the obsolete overload's ACTUAL runtime parser
+        // (PanelAttachedHooks.ParseColumnDef/ParseRowDef) EXACTLY, so the rewrite can
+        // never change layout: switch on the RAW string, match "*"/"Auto"/"auto"
+        // exactly (no Trim, no extra casing), then the whole-string numeric parse, then
+        // the raw '*' suffix. The legacy catch-all is Star(1); we WITHHOLD there (and on
+        // non-finite / out-of-range) so those keep the CS0618 warning rather than risk a
+        // silent change. Note NumberStyles.Float already allows surrounding whitespace,
+        // so a faithful " 200 " still converts to Px(200) — matching the legacy parser.
 
         // "*" -> GridSize.Star()
-        if (trimmed == "*")
+        if (raw == "*")
         {
             gridSize = Call(gridSizeName, "Star");
             return true;
         }
 
-        // "<n>*" -> GridSize.Star(n)
-        if (trimmed[trimmed.Length - 1] == '*')
+        // "Auto" / "auto" (exact) -> GridSize.Auto  (property — no parens)
+        if (raw == "Auto" || raw == "auto")
         {
-            var numericText = trimmed.Substring(0, trimmed.Length - 1).Trim();
-            if (numericText.Length == 0) return false;
-            if (double.TryParse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture, out var stars)
-                && stars > 0 && IsFinite(stars))
-            {
-                gridSize = Call(gridSizeName, "Star", FormatNumber(stars));
-                return true;
-            }
-            return false;
+            gridSize = GridSizeAccess(gridSizeName, "Auto");
+            return true;
         }
 
         // "<n>" -> GridSize.Px(n)
-        if (double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out var pixels)
+        if (double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var pixels)
             && pixels >= 0 && IsFinite(pixels))
         {
             gridSize = Call(gridSizeName, "Px", FormatNumber(pixels));
             return true;
         }
 
+        // "<n>*" -> GridSize.Star(n). The legacy parser tests raw.EndsWith('*'), so a
+        // trailing space defeats it (and it falls back to Star(1)); match that exactly by
+        // testing the RAW final char rather than a trimmed string.
+        if (raw.Length > 0 && raw[raw.Length - 1] == '*'
+            && double.TryParse(raw.Substring(0, raw.Length - 1), NumberStyles.Float, CultureInfo.InvariantCulture, out var stars)
+            && stars > 0 && IsFinite(stars))
+        {
+            gridSize = Call(gridSizeName, "Star", FormatNumber(stars));
+            return true;
+        }
+
+        // Legacy fallback is Star(1); withhold so the CS0618 warning stands (safe — no
+        // semantic change, the author converts by hand).
         return false;
     }
 
