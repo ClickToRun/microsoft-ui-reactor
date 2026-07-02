@@ -1,0 +1,69 @@
+using System.Collections.Immutable;
+using System.Composition;
+using System.Threading.Tasks;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CodeActions;
+using Microsoft.CodeAnalysis.CodeFixes;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+
+namespace Microsoft.UI.Reactor.Analyzers;
+
+/// <summary>
+/// Code fix for <see cref="ControlledInputAnalyzer"/> (<c>REACTOR_HOOKS_011</c>).
+/// For controls that expose a read-only modifier (TextBox, RatingControl) it wraps
+/// the factory call — <c>TextBox(name, _ =&gt; { })</c> → <c>TextBox(name, _ =&gt; { }).IsReadOnly(true)</c>
+/// — making the "display only" intent explicit. Controls with no <c>IsReadOnly</c>
+/// modifier get no auto-fix (nudge only); the analyzer signals fix availability via
+/// <see cref="ControlledInputAnalyzer.ReadOnlyModifierProperty"/>.
+/// </summary>
+[ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(ControlledInputCodeFix))]
+[Shared]
+public sealed class ControlledInputCodeFix : CodeFixProvider
+{
+    public override ImmutableArray<string> FixableDiagnosticIds =>
+        ImmutableArray.Create(ControlledInputAnalyzer.DiagnosticId);
+
+    public override FixAllProvider GetFixAllProvider() => WellKnownFixAllProviders.BatchFixer;
+
+    public override async Task RegisterCodeFixesAsync(CodeFixContext context)
+    {
+        var root = await context.Document.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
+        if (root is null) return;
+
+        foreach (var diagnostic in context.Diagnostics)
+        {
+            // Only controls that expose an IsReadOnly modifier carry this property;
+            // for the rest the diagnostic stands as a nudge with no auto-fix.
+            if (!diagnostic.Properties.TryGetValue(ControlledInputAnalyzer.ReadOnlyModifierProperty, out var modifier)
+                || string.IsNullOrEmpty(modifier))
+                continue;
+
+            if (root.FindNode(diagnostic.Location.SourceSpan) is not InvocationExpressionSyntax invocation)
+                continue;
+
+            var modifierName = modifier!;
+
+            context.RegisterCodeFix(
+                CodeAction.Create(
+                    $"Make read-only intent explicit with .{modifierName}(true)",
+                    ct =>
+                    {
+                        var wrapped = SyntaxFactory.InvocationExpression(
+                            SyntaxFactory.MemberAccessExpression(
+                                SyntaxKind.SimpleMemberAccessExpression,
+                                invocation.WithoutTrivia(),
+                                SyntaxFactory.IdentifierName(modifierName)),
+                            SyntaxFactory.ArgumentList(SyntaxFactory.SingletonSeparatedList(
+                                SyntaxFactory.Argument(
+                                    SyntaxFactory.LiteralExpression(SyntaxKind.TrueLiteralExpression)))))
+                            .WithTriviaFrom(invocation);
+
+                        var newRoot = root.ReplaceNode(invocation, wrapped);
+                        return Task.FromResult(context.Document.WithSyntaxRoot(newRoot));
+                    },
+                    equivalenceKey: ControlledInputAnalyzer.DiagnosticId + ":" + modifierName),
+                diagnostic);
+        }
+    }
+}
