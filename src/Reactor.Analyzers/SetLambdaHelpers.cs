@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using System.Threading;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -127,6 +128,24 @@ internal static class SetLambdaHelpers
             !(leftAccess.Expression is IdentifierNameSyntax id && id.Identifier.Text == paramName))
             return null;
         return leftAccess;
+    }
+
+    /// <summary>
+    /// Confirms the matched <c>.Set(...)</c> invocation resolves to a Reactor DSL setter —
+    /// an extension method under the <c>Microsoft.UI.Reactor</c> namespace root
+    /// (<c>ElementExtensions.cs</c>). The whole family's diagnostics and fluent-modifier code
+    /// fixes only make sense for Reactor elements, so this keeps them from firing (and
+    /// offering uncompilable fixes) on an unrelated user-defined <c>.Set</c> helper that
+    /// happens to share the syntactic shape.
+    /// </summary>
+    internal static bool IsReactorSetInvocation(
+        InvocationExpressionSyntax invocation, SemanticModel semanticModel, CancellationToken cancellationToken)
+    {
+        if (semanticModel.GetSymbolInfo(invocation, cancellationToken).Symbol is not IMethodSymbol method)
+            return false;
+        var ns = method.ContainingNamespace?.ToDisplayString();
+        return ns is not null &&
+            (ns == "Microsoft.UI.Reactor" || ns.StartsWith("Microsoft.UI.Reactor.", StringComparison.Ordinal));
     }
 
     /// <summary>

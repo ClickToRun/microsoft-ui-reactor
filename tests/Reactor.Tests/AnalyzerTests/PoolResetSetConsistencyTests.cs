@@ -276,13 +276,17 @@ class C
 
         return $@"
 using System;
+using Microsoft.UI.Reactor;
 
 #nullable enable
 
-public class FakeElement
+namespace Microsoft.UI.Reactor
 {{
-    {fields}
-    public FakeElement Set(Action<FakeElement> configure) {{ configure(this); return this; }}
+    public class FakeElement
+    {{
+        {fields}
+        public FakeElement Set(Action<FakeElement> configure) {{ configure(this); return this; }}
+    }}
 }}
 ";
     }

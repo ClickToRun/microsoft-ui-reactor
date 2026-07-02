@@ -163,6 +163,30 @@ class C
     }
 
     [Fact]
+    public async Task No_Diagnostic_For_NonReactor_Set_Helper()
+    {
+        // A '.Set' that is not a Reactor DSL setter (different namespace) must not fire even
+        // though the control derives from FrameworkElement and has a real event — the
+        // OnMount/OnUnmount rewrite only exists for Reactor elements.
+        var source = Stubs + @"
+class C
+{
+    static void OnClick(object s, EventArgs e) { }
+    RawElement M(RawElement r) => r.Set(c => c.Click += OnClick);
+}
+
+public record RawElement;
+public static class GlobalRawExt
+{
+    public static RawElement Set(this RawElement el, Action<Button> configure) => el;
+}";
+        await new CSharpAnalyzerTest<SetEventSubscriptionAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task Fires_But_No_Fix_For_Unsubscribe()
     {
         // '-=' via .Set is also imperative event wiring (flagged), but only the '+=' shape

@@ -24,7 +24,7 @@ public sealed class SetEventSubscriptionAnalyzer : DiagnosticAnalyzer
     public const string DiagnosticId = "REACTOR_LIFECYCLE_001";
 
     private static readonly LocalizableString Title =
-        "Wire events through .OnMount/.OnUnmount, not .Set";
+        "Wire events through .OnMountAdd/.OnUnmountAdd, not .Set";
 
     private static readonly LocalizableString MessageFormat =
         "Event '{0}' is wired imperatively through '.Set(...)', which re-runs on every render. Subscribe in '.OnMountAdd(...)' and unsubscribe in '.OnUnmountAdd(...)' instead.";
@@ -73,8 +73,15 @@ public sealed class SetEventSubscriptionAnalyzer : DiagnosticAnalyzer
             return;
 
         var lambdaParam = SetLambdaHelpers.GetSingleLambdaParameter(lambdaExpr);
-        var leftAccess = SetLambdaHelpers.GetAssignedMemberAccess(assignment, lambdaParam?.Identifier.Text);
+        if (lambdaParam is null)
+            return;
+        var leftAccess = SetLambdaHelpers.GetAssignedMemberAccess(assignment, lambdaParam.Identifier.Text);
         if (leftAccess is null)
+            return;
+
+        // Guard against an unrelated user-defined '.Set' helper with the same shape: the
+        // OnMount/OnUnmount rewrite only compiles for Reactor's own elements.
+        if (!SetLambdaHelpers.IsReactorSetInvocation(invocation, context.SemanticModel, context.CancellationToken))
             return;
 
         // MANDATORY: the assigned member must be an event symbol. Without this the rule

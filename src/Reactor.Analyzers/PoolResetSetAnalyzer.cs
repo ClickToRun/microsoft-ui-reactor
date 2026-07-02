@@ -136,8 +136,15 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
         // ('fe.X = v', not 'captured.X = v') so the modifier rewrite applies to the pooled
         // control the .Set configures rather than some other captured object.
         var lambdaParam = SetLambdaHelpers.GetSingleLambdaParameter(lambdaExpr);
-        var leftAccess = SetLambdaHelpers.GetAssignedMemberAccess(assignment, lambdaParam?.Identifier.Text);
+        if (lambdaParam is null)
+            return;
+        var leftAccess = SetLambdaHelpers.GetAssignedMemberAccess(assignment, lambdaParam.Identifier.Text);
         if (leftAccess is null)
+            return;
+
+        // Guard against an unrelated user-defined '.Set' helper with the same shape: only
+        // Reactor's own .Set setters map to the Reactor modifiers these diagnostics/fixes assume.
+        if (!SetLambdaHelpers.IsReactorSetInvocation(invocation, context.SemanticModel, context.CancellationToken))
             return;
 
         var propName = leftAccess.Name.Identifier.Text;
