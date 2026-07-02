@@ -24,16 +24,17 @@ public sealed class SetEventSubscriptionAnalyzer : DiagnosticAnalyzer
     public const string DiagnosticId = "REACTOR_LIFECYCLE_001";
 
     private static readonly LocalizableString Title =
-        "Do not subscribe to events through .Set(...)";
+        "Wire events through .OnMount/.OnUnmount, not .Set";
 
     private static readonly LocalizableString MessageFormat =
-        "Event '{0}' is subscribed through '.Set(...)', which re-runs every render and accumulates handlers. Subscribe in '.OnMount(...)' and unsubscribe in '.OnUnmount(...)' instead.";
+        "Event '{0}' is wired imperatively through '.Set(...)', which re-runs on every render. Subscribe in '.OnMount(...)' and unsubscribe in '.OnUnmount(...)' instead.";
 
     private static readonly LocalizableString Description =
-        "'.Set(...)' setters are re-applied on every reconcile, so a '+=' event subscription " +
-        "inside one adds a new handler each render — the handler multiplies its invocations " +
-        "and the old closures leak. Use '.OnMount(c => control.Event += h)' for the one-time " +
-        "subscription and '.OnUnmount(c => control.Event -= h)' for teardown.";
+        "'.Set(...)' setters are re-applied on every reconcile, so wiring an event there is " +
+        "wrong in both directions: a '+=' subscription adds a new handler each render (the " +
+        "handler multiplies its invocations and old closures leak), and a '-=' repeatedly " +
+        "runs teardown. Use '.OnMount(c => control.Event += h)' for the one-time subscription " +
+        "and '.OnUnmount(c => control.Event -= h)' for teardown.";
 
     private static readonly DiagnosticDescriptor Rule = new(
         DiagnosticId,

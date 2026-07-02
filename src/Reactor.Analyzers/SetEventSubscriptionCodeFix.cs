@@ -14,13 +14,17 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// <summary>
 /// Code fix for REACTOR_LIFECYCLE_001: rewrites
 /// <c>x.Set(c =&gt; c.Event += h)</c> into
-/// <c>x.OnMount(c =&gt; ((TControl)c).Event += h).OnUnmount(c =&gt; ((TControl)c).Event -= h)</c>.
+/// <c>x.OnMountAdd(c =&gt; ((TControl)c).Event += h).OnUnmountAdd(c =&gt; ((TControl)c).Event -= h)</c>.
 /// </summary>
 /// <remarks>
-/// <para><c>.OnMount</c>/<c>.OnUnmount</c> receive an <c>Action&lt;FrameworkElement&gt;</c>,
+/// <para><c>.OnMountAdd</c>/<c>.OnUnmountAdd</c> receive an <c>Action&lt;FrameworkElement&gt;</c>,
 /// so the lambda casts to the concrete control type. That type is read from the original
 /// <c>.Set</c> lambda parameter (each <c>.Set</c> overload is concrete-typed) and emitted
 /// via <c>ToMinimalDisplayString</c> so it resolves at the call site.</para>
+/// <para>The composing <c>Add</c> variants are used (not plain <c>.OnMount</c>/<c>.OnUnmount</c>,
+/// which overwrite via <c>ElementModifiers.Merge</c>) so the rewrite preserves any existing
+/// mount/unmount action and lets a fix-all over several <c>.Set</c> subscriptions on one
+/// element stack rather than clobbering each other.</para>
 /// <para>The fix is only offered when the handler <c>h</c> is a stable delegate — a
 /// <c>static</c> method group or a field/property — because <c>.OnMount</c> runs once at
 /// mount and <c>.OnUnmount</c> once at unmount; a per-render captured lambda/local would
@@ -80,12 +84,12 @@ public sealed class SetEventSubscriptionCodeFix : CodeFixProvider
             var handlerText = handler.ToString();
 
             var replacementText =
-                $"{receiverText}.OnMount({paramName} => (({controlName}){paramName}).{eventName} += {handlerText})" +
-                $".OnUnmount({paramName} => (({controlName}){paramName}).{eventName} -= {handlerText})";
+                $"{receiverText}.OnMountAdd({paramName} => (({controlName}){paramName}).{eventName} += {handlerText})" +
+                $".OnUnmountAdd({paramName} => (({controlName}){paramName}).{eventName} -= {handlerText})";
 
             context.RegisterCodeFix(
                 CodeAction.Create(
-                    "Move event subscription to .OnMount/.OnUnmount",
+                    "Move event subscription to .OnMountAdd/.OnUnmountAdd",
                     ct =>
                     {
                         var replacement = SyntaxFactory.ParseExpression(replacementText)

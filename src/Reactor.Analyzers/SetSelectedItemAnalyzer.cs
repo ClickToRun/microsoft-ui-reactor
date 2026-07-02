@@ -112,7 +112,12 @@ public sealed class SetSelectedItemAnalyzer : DiagnosticAnalyzer
             switch (current)
             {
                 case InvocationExpressionSyntax inv:
-                    if (ArgumentsSetSelectedIndex(inv, inv.ArgumentList, model, ct))
+                    // Only a Reactor selector factory/modifier argument named 'SelectedIndex'
+                    // authoritatively wires the element's controlled index. An arbitrary
+                    // helper that merely has a like-named parameter must not trip the
+                    // destructive delete-fix.
+                    if (IsReactorSelectorFactory(inv, model, ct)
+                        && ArgumentsSetSelectedIndex(inv, inv.ArgumentList, model, ct))
                         return true;
                     current = inv.Expression is MemberAccessExpressionSyntax ma ? ma.Expression : null;
                     break;
@@ -144,6 +149,28 @@ public sealed class SetSelectedItemAnalyzer : DiagnosticAnalyzer
             }
         }
         return false;
+    }
+
+    /// <summary>
+    /// True when the invocation is a Reactor DSL factory/modifier — a method under the
+    /// <c>Microsoft.UI.Reactor</c> namespace returning one of the curated selector elements.
+    /// This scopes the "argument named <c>SelectedIndex</c>" heuristic to the framework's own
+    /// selector factories so an unrelated user helper that merely has a like-named parameter
+    /// cannot trigger the destructive delete-fix on valid code.
+    /// </summary>
+    private static bool IsReactorSelectorFactory(
+        InvocationExpressionSyntax invocation, SemanticModel model, CancellationToken ct)
+    {
+        if (model.GetSymbolInfo(invocation, ct).Symbol is not IMethodSymbol method)
+            return false;
+
+        var ns = method.ContainingNamespace?.ToDisplayString();
+        if (ns is null ||
+            !(ns == "Microsoft.UI.Reactor" || ns.StartsWith("Microsoft.UI.Reactor.", StringComparison.Ordinal)))
+            return false;
+
+        return method.ReturnType is INamedTypeSymbol returnType
+            && SetLambdaHelpers.SelectedIndexControlledElements.Contains(returnType.Name);
     }
 
     private static bool InitializerSetsSelectedIndex(InitializerExpressionSyntax? initializer)

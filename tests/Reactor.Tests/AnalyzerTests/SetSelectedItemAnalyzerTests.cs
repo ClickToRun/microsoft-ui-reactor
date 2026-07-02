@@ -33,14 +33,20 @@ namespace Microsoft.UI.Reactor
     using System;
     using Microsoft.UI.Xaml.Controls;
 
-    public record ComboBoxElement { public int SelectedIndex { get; init; } }
-    public record ListViewElement { public int SelectedIndex { get; init; } }
-    public record RadioButtonsElement { public int SelectedIndex { get; init; } }
-    public record GridViewElement { public int SelectedIndex { get; init; } }
+    public readonly struct Optional<T>
+    {
+        public static Optional<T> Unset => default;
+        public static implicit operator Optional<T>(T value) => default;
+    }
+
+    public record ComboBoxElement { public Optional<int> SelectedIndex { get; init; } }
+    public record ListViewElement { public Optional<int> SelectedIndex { get; init; } }
+    public record RadioButtonsElement { public Optional<int> SelectedIndex { get; init; } }
+    public record GridViewElement { public Optional<int> SelectedIndex { get; init; } }
 
     public static class Factories
     {
-        public static ComboBoxElement ComboBox(string[] items, int selectedIndex) => new ComboBoxElement { SelectedIndex = selectedIndex };
+        public static ComboBoxElement ComboBox(string[] items, Optional<int> selectedIndex) => new ComboBoxElement { SelectedIndex = selectedIndex };
         public static ComboBoxElement ComboBox(string[] items) => new ComboBoxElement();
     }
 
@@ -128,6 +134,72 @@ class C
 {
     ComboBoxElement M(string h) =>
         ComboBox(new[]{""a""}, 1).Set(cb => cb.Header = h);
+}";
+        await new CSharpAnalyzerTest<SetSelectedItemAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_For_With_Expression_SelectedIndex()
+    {
+        var source = Stubs + @"
+class C
+{
+    ComboBoxElement M(ComboBoxElement combo, object x) =>
+        {|REACTOR_CTRL_001:(combo with { SelectedIndex = 1 }).Set(cb => cb.SelectedItem = x)|};
+}";
+        await new CSharpAnalyzerTest<SetSelectedItemAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_For_Named_SelectedIndex_Argument()
+    {
+        var source = Stubs + @"
+class C
+{
+    ComboBoxElement M(object x) =>
+        {|REACTOR_CTRL_001:ComboBox(new[]{""a""}, selectedIndex: 1).Set(cb => cb.SelectedItem = x)|};
+}";
+        await new CSharpAnalyzerTest<SetSelectedItemAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_When_SelectedIndex_Is_Optional_Unset()
+    {
+        // Near-miss: SelectedIndex present but explicitly Optional<int>.Unset — not a
+        // competing authority.
+        var source = Stubs + @"
+class C
+{
+    ComboBoxElement M(object x) =>
+        new ComboBoxElement { SelectedIndex = Optional<int>.Unset }.Set(cb => cb.SelectedItem = x);
+}";
+        await new CSharpAnalyzerTest<SetSelectedItemAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_NonReactor_Helper_With_SelectedIndex_Param()
+    {
+        // A user helper (not a Reactor factory) that merely has a 'selectedIndex' parameter
+        // must NOT be read as wiring the element's controlled SelectedIndex — otherwise the
+        // destructive delete-fix would corrupt valid code.
+        var source = Stubs + @"
+class C
+{
+    static ComboBoxElement MakeCombo(int selectedIndex) => new ComboBoxElement();
+    ComboBoxElement M(object x) =>
+        MakeCombo(selectedIndex: 3).Set(cb => cb.SelectedItem = x);
 }";
         await new CSharpAnalyzerTest<SetSelectedItemAnalyzer, DefaultVerifier>
         {

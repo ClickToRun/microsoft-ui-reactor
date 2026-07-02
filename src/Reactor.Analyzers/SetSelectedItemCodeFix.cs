@@ -43,7 +43,7 @@ public sealed class SetSelectedItemCodeFix : CodeFixProvider
 
             context.RegisterCodeFix(
                 CodeAction.Create(
-                    "Remove redundant .Set(SelectedItem = ...) call",
+                    "Remove redundant selection .Set(...) call",
                     ct =>
                     {
                         // Drop the '.Set(...)' invocation, keeping its receiver so any

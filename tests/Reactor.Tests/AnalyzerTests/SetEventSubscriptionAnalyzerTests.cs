@@ -49,6 +49,8 @@ namespace Microsoft.UI.Reactor
         public static ButtonElement Set(this ButtonElement el, Action<Button> configure) => el;
         public static T OnMount<T>(this T el, Action<FrameworkElement> action) => el;
         public static T OnUnmount<T>(this T el, Action<FrameworkElement> action) => el;
+        public static T OnMountAdd<T>(this T el, Action<FrameworkElement> action) => el;
+        public static T OnUnmountAdd<T>(this T el, Action<FrameworkElement> action) => el;
     }
 }
 ";
@@ -112,7 +114,7 @@ class C
 class C
 {
     static void OnClick(object s, EventArgs e) { }
-    ButtonElement M(ButtonElement b) => b.OnMount(c => ((Button)c).Click += OnClick).OnUnmount(c => ((Button)c).Click -= OnClick);
+    ButtonElement M(ButtonElement b) => b.OnMountAdd(c => ((Button)c).Click += OnClick).OnUnmountAdd(c => ((Button)c).Click -= OnClick);
 }";
         await new CSharpCodeFixTest<SetEventSubscriptionAnalyzer, SetEventSubscriptionCodeFix, DefaultVerifier>
         {
@@ -134,7 +136,7 @@ class C
 class C
 {
     System.EventHandler _handler;
-    ButtonElement M(ButtonElement b) => b.OnMount(c => ((Button)c).Click += _handler).OnUnmount(c => ((Button)c).Click -= _handler);
+    ButtonElement M(ButtonElement b) => b.OnMountAdd(c => ((Button)c).Click += _handler).OnUnmountAdd(c => ((Button)c).Click -= _handler);
 }";
         await new CSharpCodeFixTest<SetEventSubscriptionAnalyzer, SetEventSubscriptionCodeFix, DefaultVerifier>
         {
@@ -152,6 +154,24 @@ class C
 class C
 {
     ButtonElement M(ButtonElement b) => {|REACTOR_LIFECYCLE_001:b.Set(c => c.Click += (s, e) => { })|};
+}";
+        await new CSharpCodeFixTest<SetEventSubscriptionAnalyzer, SetEventSubscriptionCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_But_No_Fix_For_Unsubscribe()
+    {
+        // '-=' via .Set is also imperative event wiring (flagged), but only the '+=' shape
+        // has a mechanical OnMount/OnUnmount rewrite — '-=' is nudge-only.
+        var code = Stubs + @"
+class C
+{
+    static void OnClick(object s, EventArgs e) { }
+    ButtonElement M(ButtonElement b) => {|REACTOR_LIFECYCLE_001:b.Set(c => c.Click -= OnClick)|};
 }";
         await new CSharpCodeFixTest<SetEventSubscriptionAnalyzer, SetEventSubscriptionCodeFix, DefaultVerifier>
         {

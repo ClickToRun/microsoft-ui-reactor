@@ -114,6 +114,27 @@ class C
     }
 
     [Fact]
+    public async Task Fires_And_Fixes_Conditional_Reverse_Polarity()
+    {
+        // cond ? Visible : Collapsed  →  IsVisible(cond)
+        var before = Stubs + @"
+class C
+{
+    BorderElement M(BorderElement b, bool cond) => {|REACTOR_VIS_001:b.Set(c => c.Visibility = cond ? Visibility.Visible : Visibility.Collapsed)|};
+}";
+        var after = Stubs + @"
+class C
+{
+    BorderElement M(BorderElement b, bool cond) => b.IsVisible(cond);
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, SetVisibilityCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task Fires_But_No_Fix_For_Variable_Rhs()
     {
         // Non-mappable RHS (a Visibility variable): the analyzer flags the trap, but no
