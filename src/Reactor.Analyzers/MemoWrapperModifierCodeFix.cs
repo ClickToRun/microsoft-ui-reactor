@@ -51,7 +51,7 @@ public sealed class MemoWrapperModifierCodeFix : CodeFixProvider
             if (innerModifier.Expression is not MemberAccessExpressionSyntax { Expression: InvocationExpressionSyntax memoInvocation })
                 continue;
 
-            if (!MemoWrapperModifierAnalyzer.TryGetMovableFactory(memoInvocation, out var lambda, out var body))
+            if (!MemoWrapperModifierAnalyzer.TryGetMovableFactory(memoInvocation, out var factoryArgument, out var lambda, out var body))
                 continue;
 
             // Walk up the modifier chain to the LAST Element-returning modifier — but no further.
@@ -69,10 +69,11 @@ public sealed class MemoWrapperModifierCodeFix : CodeFixProvider
             }
 
             var capturedOutermost = outermost;
+            var capturedFactoryArgument = factoryArgument;
             context.RegisterCodeFix(
                 CodeAction.Create(
                     "Move modifiers inside the Memo factory (ensure their inputs are in the key)",
-                    _ => Task.FromResult(MoveModifiersIntoFactory(context.Document, root, capturedOutermost, memoInvocation, lambda, body)),
+                    _ => Task.FromResult(MoveModifiersIntoFactory(context.Document, root, capturedOutermost, memoInvocation, capturedFactoryArgument, lambda, body)),
                     equivalenceKey: MemoWrapperModifierAnalyzer.DiagnosticId),
                 diagnostic);
         }
@@ -83,6 +84,7 @@ public sealed class MemoWrapperModifierCodeFix : CodeFixProvider
         SyntaxNode root,
         InvocationExpressionSyntax outermost,
         InvocationExpressionSyntax memoInvocation,
+        ArgumentSyntax factoryArgument,
         ParenthesizedLambdaExpressionSyntax lambda,
         ExpressionSyntax factoryBody)
     {
@@ -99,8 +101,8 @@ public sealed class MemoWrapperModifierCodeFix : CodeFixProvider
             ? lambda.WithExpressionBody(newFactoryBody)
             : lambda.WithBlock(((BlockSyntax)lambda.Block!).ReplaceNode(factoryBody, newFactoryBody));
 
-        // Rebuild the Memo(...) call with the rewritten factory and no trailing modifiers.
-        var factoryArgument = memoInvocation.ArgumentList.Arguments[1];
+        // Rebuild the Memo(...) call with the rewritten factory (located by identity, so named /
+        // out-of-order arguments are handled) and no trailing modifiers.
         var newArguments = memoInvocation.ArgumentList.Arguments.Replace(
             factoryArgument,
             factoryArgument.WithExpression(newLambda));

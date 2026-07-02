@@ -101,7 +101,7 @@ public sealed class MemoWrapperModifierAnalyzer : DiagnosticAnalyzer
         // Only fire when a mechanical fix is possible: the factory is a movable lambda. This also
         // enforces the keyed overload's 2-argument (key, factory) shape syntactically, so most
         // non-keyed `Memo(...)` calls are rejected before the semantic model is touched.
-        if (!TryGetMovableFactory(memoInvocation, out _, out _))
+        if (!TryGetMovableFactory(memoInvocation, out _, out _, out _))
             return;
 
         // Semantic confirm: the receiver resolves to the KEYED overload. The keyed
@@ -140,12 +140,19 @@ public sealed class MemoWrapperModifierAnalyzer : DiagnosticAnalyzer
     /// parameterless lambda (<c>Func&lt;Element&gt;</c>). A movable factory is one whose body the
     /// code-fix can carry the moved modifiers onto: an expression body, or a single-<c>return</c>
     /// block. Anything else (method group, multi-statement block, non-lambda) is opaque → no fire.
+    /// <para>The factory is located <b>by shape</b> (the parameterless lambda argument), not by
+    /// position, so named / out-of-order argument calls (<c>Memo(factory: () =&gt; …, key: id)</c>)
+    /// are handled uniformly. The keyed overload's <c>TKey key</c> can never be a bare lambda (a
+    /// lambda has no natural type for <c>TKey</c> inference), so exactly one of the two arguments is
+    /// the parameterless-lambda factory; anything ambiguous bails.</para>
     /// </summary>
     internal static bool TryGetMovableFactory(
         InvocationExpressionSyntax memoInvocation,
+        out ArgumentSyntax factoryArgument,
         out ParenthesizedLambdaExpressionSyntax lambda,
         out ExpressionSyntax body)
     {
+        factoryArgument = null!;
         lambda = null!;
         body = null!;
 
@@ -153,25 +160,41 @@ public sealed class MemoWrapperModifierAnalyzer : DiagnosticAnalyzer
         if (arguments.Count != 2)
             return false;
 
-        if (arguments[1].Expression is not ParenthesizedLambdaExpressionSyntax candidate
-            || candidate.ParameterList.Parameters.Count != 0)
-            return false;
-
-        if (candidate.ExpressionBody is { } expressionBody)
+        foreach (var argument in arguments)
         {
+            if (argument.Expression is not ParenthesizedLambdaExpressionSyntax candidate
+                || candidate.ParameterList.Parameters.Count != 0
+                || !TryGetMovableBody(candidate, out var candidateBody))
+                continue;
+
+            // A second movable parameterless lambda would make the factory ambiguous — bail.
+            if (factoryArgument is not null)
+                return false;
+
+            factoryArgument = argument;
             lambda = candidate;
+            body = candidateBody;
+        }
+
+        return factoryArgument is not null;
+    }
+
+    private static bool TryGetMovableBody(ParenthesizedLambdaExpressionSyntax lambda, out ExpressionSyntax body)
+    {
+        if (lambda.ExpressionBody is { } expressionBody)
+        {
             body = expressionBody;
             return true;
         }
 
-        if (candidate.Block is { Statements.Count: 1 } block
+        if (lambda.Block is { Statements.Count: 1 } block
             && block.Statements[0] is ReturnStatementSyntax { Expression: { } returnExpr })
         {
-            lambda = candidate;
             body = returnExpr;
             return true;
         }
 
+        body = null!;
         return false;
     }
 

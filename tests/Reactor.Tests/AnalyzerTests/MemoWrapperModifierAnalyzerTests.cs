@@ -112,6 +112,20 @@ namespace TestApp
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 
+    [Fact]
+    public async Task Fires_On_Keyed_Memo_With_OutOfOrder_Named_Arguments()
+    {
+        // The factory is located by shape, not position, so named/out-of-order args still fire.
+        var source = Program(@"
+        public static Element Build(Item item)
+            => Memo(factory: () => Row(item), key: item.Id).{|REACTOR_MEMO_001:Padding|}(8);");
+
+        await new CSharpAnalyzerTest<MemoWrapperModifierAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
     // ── Analyzer negatives ─────────────────────────────────────────────
 
     [Fact]
@@ -278,6 +292,26 @@ namespace TestApp
         var after = Program(@"
         public static string Build(Item item)
             => Memo(item.Id, () => Row(item).Padding(8)).ToString();");
+
+        await new CSharpCodeFixTest<MemoWrapperModifierAnalyzer, MemoWrapperModifierCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Targets_The_Factory_Argument_By_Identity_With_Named_Args()
+    {
+        // Out-of-order named args: the fix must rewrite the `factory:` argument (located by
+        // identity), leaving the `key:` argument untouched.
+        var before = Program(@"
+        public static Element Build(Item item)
+            => Memo(factory: () => Row(item), key: item.Id).{|REACTOR_MEMO_001:Padding|}(8);");
+
+        var after = Program(@"
+        public static Element Build(Item item)
+            => Memo(factory: () => Row(item).Padding(8), key: item.Id);");
 
         await new CSharpCodeFixTest<MemoWrapperModifierAnalyzer, MemoWrapperModifierCodeFix, DefaultVerifier>
         {
