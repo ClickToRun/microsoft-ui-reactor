@@ -134,4 +134,41 @@ class MyDerived : MyBase
             TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    [Fact]
+    public async Task Fires_When_Inpc_Comes_Via_A_Derived_Interface()
+    {
+        // The 'implements INPC' check walks AllInterfaces, so an interface that
+        // itself extends INotifyPropertyChanged must still trip the rule.
+        var source = Stubs + @"
+interface IObservableComponent : System.ComponentModel.INotifyPropertyChanged { }
+
+class {|REACTOR_STATE_001:MyComponent|} : Component, IObservableComponent
+{
+    public event System.ComponentModel.PropertyChangedEventHandler PropertyChanged;
+}";
+
+        await new CSharpAnalyzerTest<ComponentInpcAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_When_Reactor_Component_Not_Referenced()
+    {
+        // The compilation-start early-out registers no symbol callback when
+        // Microsoft.UI.Reactor.Core.Component cannot be resolved. Without the stubs
+        // the Reactor base is absent, so even a plain INPC class must stay quiet.
+        var source = @"
+class MyViewModel : System.ComponentModel.INotifyPropertyChanged
+{
+    public event System.ComponentModel.PropertyChangedEventHandler PropertyChanged;
+}";
+
+        await new CSharpAnalyzerTest<ComponentInpcAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }
