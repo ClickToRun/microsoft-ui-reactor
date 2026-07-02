@@ -298,7 +298,7 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
     {
         var symbol = semanticModel.GetSymbolInfo(expression, cancellationToken).Symbol;
         return symbol is { Name: "UIDispatcher" }
-            && symbol.ContainingType?.ToDisplayString() == "Microsoft.UI.Reactor.ReactorApp";
+            && FullyQualifiedName(symbol.ContainingType) == "Microsoft.UI.Reactor.ReactorApp";
     }
 
     /// <summary>
@@ -371,7 +371,7 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
         var symbolInfo = semanticModel.GetSymbolInfo(invocation, cancellationToken);
         var method = symbolInfo.Symbol as IMethodSymbol
             ?? symbolInfo.CandidateSymbols.FirstOrDefault() as IMethodSymbol;
-        return method?.ContainingType?.ToDisplayString() == fullyQualifiedTypeName;
+        return FullyQualifiedName(method?.ContainingType) == fullyQualifiedTypeName;
     }
 
     /// <summary>
@@ -407,10 +407,17 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
     {
         foreach (var attribute in member.GetAttributes())
         {
-            if (attribute.AttributeClass?.ToDisplayString() == UIThreadOnlyAttributeMetadataName)
+            if (FullyQualifiedName(attribute.AttributeClass) == UIThreadOnlyAttributeMetadataName)
                 return true;
         }
 
         return false;
     }
+
+    /// <summary>
+    /// Fully-qualified name without the <c>global::</c> prefix, matching the
+    /// symbol-identity comparison idiom used by the other analyzers in this repo.
+    /// </summary>
+    private static string? FullyQualifiedName(ISymbol? symbol) =>
+        symbol?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).Replace("global::", "");
 }
