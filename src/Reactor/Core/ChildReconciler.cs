@@ -213,9 +213,17 @@ internal static class ChildReconciler
         // of the COM fetch a membership check would cost on the hot skip-floor.
         var oldEl = oldChildren[i];
         var newEl = newChildren[i];
+        UIElement? existingControl = null;
         if (Element.CanSkipUpdate(oldEl, newEl)
             && !reconciler.ForceRenderThroughWrapper(newEl))
         {
+            if (reconciler.HasActiveContextValues)
+            {
+                existingControl = children.Get(i);
+                if (reconciler.HasConsumedContextChangedInSubtree(existingControl))
+                    goto perform_update;
+            }
+
             reconciler.DebugElementsSkipped++;
             // Refresh Tag when the element carries callbacks. The skip short-
             // circuits Update, so without this the event trampoline keeps
@@ -229,7 +237,7 @@ internal static class ChildReconciler
             if ((newEl.HasCallbacks
                     || Reconciler.HasGestureOrDragSlots(newEl.Modifiers)
                     || Reconciler.HasGestureOrDragSlots(oldEl.Modifiers))
-                && children.Get(i) is FrameworkElement fe)
+                && (existingControl ??= children.Get(i)) is FrameworkElement fe)
             {
                 if (newEl.HasCallbacks)
                     Reconciler.SetElementTag(fe, newEl);
@@ -238,9 +246,10 @@ internal static class ChildReconciler
             return;
         }
 
+perform_update:
         if (reconciler.CanUpdate(oldEl, newEl))
         {
-            var existingControl = children.Get(i);
+            existingControl ??= children.Get(i);
             var replacement = reconciler.UpdateChild(oldEl, newEl, existingControl, requestRerender);
             if (replacement is not null)
             {

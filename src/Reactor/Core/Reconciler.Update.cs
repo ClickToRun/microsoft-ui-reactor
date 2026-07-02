@@ -78,11 +78,16 @@ public sealed partial class Reconciler
         // in UpdateXxx never gets to attach the WinRT event. If presence
         // changes, force Update so EnsureXxxWiring (poolable) or the diff-based
         // null→non-null checks (non-poolable) can subscribe.
+        bool subtreeContextChanged = false;
+        if (HasActiveContextValues)
+            subtreeContextChanged = HasConsumedContextChangedInSubtree(control);
+
         if (Element.ShallowEquals(oldEl, newEl)
             && Element.ModifiersEqual(oldModifiers, modifiers)
             && oldEl.HasCallbacks == newEl.HasCallbacks
             && !ForceRenderThroughWrapper(newEl)
-            && !IsOnDirtyAncestorPath(control))
+            && !IsOnDirtyAncestorPath(control)
+            && !subtreeContextChanged)
         {
             DebugElementsSkipped++;
             // Refresh Tag so the event trampoline dispatches into the new element's
