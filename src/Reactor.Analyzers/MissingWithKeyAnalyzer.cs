@@ -122,7 +122,8 @@ public sealed class MissingWithKeyAnalyzer : DiagnosticAnalyzer
     // REACTOR_DSL_002 — inspect the key expression of a `.WithKey(arg)` call.
     // Purely syntactic (no GetSymbolInfo): identifiers are matched by name
     // against the enclosing Select/ForEach lambda's parameters, and the
-    // per-render-random calls are matched by their well-known member names.
+    // per-render-random sources are matched by their well-known type and
+    // member names.
     static void AnalyzeNonStableKey(SyntaxNodeAnalysisContext ctx, InvocationExpressionSyntax withKeyInv)
     {
         // WithKey takes exactly one argument (the key).
@@ -157,8 +158,9 @@ public sealed class MissingWithKeyAnalyzer : DiagnosticAnalyzer
     }
 
     // Walk up to the nearest enclosing lambda and return it only when that
-    // lambda is the argument to a `Select`/`ForEach` invocation. Returns null
-    // when the WithKey sits in some other (non-projection) lambda or none at all.
+    // lambda is the projection argument to a LINQ `Select` or Reactor's `ForEach`
+    // factory (per the per-branch conditions below). Returns null when the
+    // WithKey sits in some other (non-projection) lambda or none at all.
     static LambdaExpressionSyntax? EnclosingProjectionLambda(SyntaxNode node)
     {
         for (var cur = node.Parent; cur is not null; cur = cur.Parent)
