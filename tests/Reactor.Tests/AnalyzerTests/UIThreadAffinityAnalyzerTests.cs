@@ -711,4 +711,26 @@ class C
             TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    [Fact]
+    public async Task Fires_For_StartNew_On_A_Local_TaskFactory()
+    {
+        // Receiver is a local (`factory`), not the literal `Task.Factory`. The type
+        // confirmation (TaskFactory), not the receiver name, drives the gate.
+        var source = Stubs + @"
+class C
+{
+    void M()
+    {
+        var window = new FakeWindow();
+        var factory = Task.Factory;
+        factory.StartNew(() => {|REACTOR_THREAD_001:window.Close()|});
+    }
+}";
+
+        await new CSharpAnalyzerTest<UIThreadAffinityAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }

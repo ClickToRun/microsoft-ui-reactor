@@ -297,7 +297,12 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
             return LambdaHost.Unrelated;
         }
 
-        var (methodName, receiverName) = GetInvokedNames(hostInvocation);
+        // Cheap syntactic filter on the method name, then a semantic confirm of the
+        // resolved containing type. The receiver identifier is intentionally not
+        // constrained — HostTypeIs is authoritative — so `using static Task; Run(...)`,
+        // `taskFactory.StartNew(...)`, `new TaskFactory().StartNew(...)`, etc. are all
+        // recognized.
+        var methodName = GetInvokedNames(hostInvocation).methodName;
 
         // DispatcherQueue.TryEnqueue(...) — the call is already marshaled onto the
         // UI thread. Confirm the receiver really is a DispatcherQueue so an unrelated
@@ -307,13 +312,13 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
                 ? LambdaHost.Marshaled
                 : LambdaHost.Unrelated;
 
-        return (methodName, receiverName) switch
+        return methodName switch
         {
-            ("Run", "Task") when HostTypeIs(hostInvocation, semanticModel, cancellationToken, TaskTypeName)
+            "Run" when HostTypeIs(hostInvocation, semanticModel, cancellationToken, TaskTypeName)
                 => LambdaHost.Background,
-            ("StartNew", "Factory") when HostTypeIs(hostInvocation, semanticModel, cancellationToken, TaskFactoryTypeName)
+            "StartNew" when HostTypeIs(hostInvocation, semanticModel, cancellationToken, TaskFactoryTypeName)
                 => LambdaHost.Background,
-            ("QueueUserWorkItem", "ThreadPool") when HostTypeIs(hostInvocation, semanticModel, cancellationToken, ThreadPoolTypeName)
+            "QueueUserWorkItem" when HostTypeIs(hostInvocation, semanticModel, cancellationToken, ThreadPoolTypeName)
                 => LambdaHost.Background,
             _ => LambdaHost.Unrelated,
         };
@@ -369,14 +374,8 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
     {
         foreach (var attribute in member.GetAttributes())
         {
-            var attributeClass = attribute.AttributeClass;
-            if (attributeClass is null)
-                continue;
-            if (attributeClass.Name == "UIThreadOnlyAttribute" &&
-                attributeClass.ContainingNamespace?.ToDisplayString() == "Microsoft.UI.Reactor.Hosting")
-            {
+            if (attribute.AttributeClass?.ToDisplayString() == UIThreadOnlyAttributeMetadataName)
                 return true;
-            }
         }
 
         return false;
