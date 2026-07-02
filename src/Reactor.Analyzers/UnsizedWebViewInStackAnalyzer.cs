@@ -29,6 +29,12 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// <c>WebView2</c> is wrapped in another element (e.g. a sized <c>Border</c>/<c>Grid</c>),
 /// or when any size is set (<c>.Width</c>/<c>.Height</c>/<c>.Size</c>, or an imperative
 /// <c>.Set(w =&gt; w.Width = …)</c>).
+///
+/// It fires only when the chain pins <em>neither</em> dimension; pinning either
+/// <c>.Width</c> <em>or</em> <c>.Height</c> (or <c>.Size</c>) suppresses it. That is a
+/// deliberate low-false-positive stance — a partly-sized <c>WebView2</c> already signals
+/// the author is controlling its bounds, so the nudge would be noise. The message still
+/// advises pinning both, which is the correct guidance for the neither-pinned case it fires on.
 /// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class UnsizedWebViewInStackAnalyzer : DiagnosticAnalyzer
@@ -150,13 +156,21 @@ public sealed class UnsizedWebViewInStackAnalyzer : DiagnosticAnalyzer
                         return true;
                     }
 
-                    // A size is pinned (fluent, or an imperative .Set) → not a candidate.
+                    // A size is pinned (fluent .Width/.Height/.Size, or an imperative
+                    // .Set that assigns Width/Height) → the author controls the bounds,
+                    // so suppress. Pinning either dimension is enough to bail (see the
+                    // deliberate neither-pinned contract in the class remarks).
                     if (SizeModifiers.Contains(name))
                         return false;
                     if (name == "Set" && SetAssignsSize(invocation))
                         return false;
 
-                    // An ordinary modifier (event handler, etc.) — keep peeling inward.
+                    // An ordinary modifier (event handler, .Margin, .WithKey, etc.). Fluent
+                    // modifiers preserve the element (they return the same Element type), so
+                    // peeling through an unrecognized one to reach the WebView2 root is safe:
+                    // a true wrapper is a *factory* call taking the element as an argument
+                    // (e.g. Border(WebView2())), which fails the WebView2-root checks above
+                    // and bails there, not here.
                     current = member.Expression;
                     continue;
 
@@ -171,20 +185,37 @@ public sealed class UnsizedWebViewInStackAnalyzer : DiagnosticAnalyzer
 
     /// <summary>
     /// True when a <c>.Set(x =&gt; x.Width = …)</c> / <c>.Set(x =&gt; { x.Height = …; })</c>
-    /// lambda assigns to a <c>Width</c>/<c>Height</c> member — an imperative size pin.
+    /// lambda assigns to the lambda parameter's own <c>Width</c>/<c>Height</c> member — an
+    /// imperative size pin. The assignment receiver must be the parameter itself, so sizing
+    /// an unrelated object or a nested child (<c>x.Child.Width = …</c>) does not wrongly
+    /// suppress the diagnostic for a genuinely unsized <c>WebView2</c>.
     /// </summary>
     private static bool SetAssignsSize(InvocationExpressionSyntax setInvocation)
     {
         var args = setInvocation.ArgumentList.Arguments;
         if (args.Count != 1)
             return false;
-        if (args[0].Expression is not (SimpleLambdaExpressionSyntax or ParenthesizedLambdaExpressionSyntax))
+
+        var lambda = args[0].Expression;
+        var parameterName = lambda switch
+        {
+            SimpleLambdaExpressionSyntax simple => simple.Parameter.Identifier.ValueText,
+            ParenthesizedLambdaExpressionSyntax paren when paren.ParameterList.Parameters.Count == 1
+                => paren.ParameterList.Parameters[0].Identifier.ValueText,
+            _ => null,
+        };
+        if (parameterName is null)
             return false;
 
-        foreach (var assignment in args[0].Expression.DescendantNodes().OfType<AssignmentExpressionSyntax>())
+        foreach (var assignment in lambda.DescendantNodes().OfType<AssignmentExpressionSyntax>())
         {
-            if (assignment.Left is MemberAccessExpressionSyntax lhs && SizeMembers.Contains(lhs.Name.Identifier.ValueText))
+            if (assignment.Left is MemberAccessExpressionSyntax lhs
+                && SizeMembers.Contains(lhs.Name.Identifier.ValueText)
+                && lhs.Expression is IdentifierNameSyntax receiver
+                && receiver.Identifier.ValueText == parameterName)
+            {
                 return true;
+            }
         }
 
         return false;

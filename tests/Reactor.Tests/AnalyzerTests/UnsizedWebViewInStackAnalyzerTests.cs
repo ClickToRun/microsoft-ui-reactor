@@ -33,6 +33,7 @@ public sealed class WebView2Control
     public double Width;
     public double Height;
     public string DefaultBackgroundColor = string.Empty;
+    public WebView2Control Child;
 }
 
 public static class Factories
@@ -45,6 +46,7 @@ public static class Factories
     public static FlexElement FlexColumn(params Element[] children) => new FlexElement();
     public static BorderElement Border(Element child) => new BorderElement();
     public static ImageElement Image(string source) => new ImageElement();
+    public static Func<Element> WebFactory() => () => new WebView2Element();
 }
 
 public static class ElementExtensions
@@ -101,6 +103,23 @@ class C
     public Task Fires_When_Set_Does_Not_Assign_Size() =>
         Verify(@"        HStack({|REACTOR_MEDIA_001:WebView2()|}.Set(w => w.DefaultBackgroundColor = ""white""));");
 
+    [Fact]
+    public Task Fires_When_Set_Sizes_An_Unrelated_Receiver()
+    {
+        // The .Set lambda assigns Width, but to an unrelated object — not the
+        // WebView2 parameter — so the WebView2 itself is still unsized and fires.
+        return Verify(@"        var other = new WebView2Control();
+        HStack({|REACTOR_MEDIA_001:WebView2()|}.Set(w => other.Width = 800));");
+    }
+
+    [Fact]
+    public Task Fires_When_Set_Sizes_A_Nested_Child()
+    {
+        // Sizing a nested member (w.Child.Width) is not sizing the WebView2 itself —
+        // the assignment receiver is a member-access, not the lambda parameter — so it fires.
+        return Verify(@"        HStack({|REACTOR_MEDIA_001:WebView2()|}.Set(w => w.Child.Width = 800));");
+    }
+
     // ── Positive: spacing overload + sibling children (child is still direct) ─
 
     [Fact]
@@ -139,6 +158,14 @@ class C
     public Task No_Diagnostic_When_Size_Set_Imperatively_Via_Set() =>
         Verify(@"        HStack(WebView2().Set(w => w.Width = 800));");
 
+    [Fact]
+    public Task No_Diagnostic_When_Size_Set_Via_BlockBody_Set() =>
+        Verify(@"        HStack(WebView2().Set(w => { w.Width = 800; w.Height = 600; }));");
+
+    [Fact]
+    public Task No_Diagnostic_When_Size_Set_Via_Parenthesized_Set() =>
+        Verify(@"        HStack(WebView2().Set((w) => w.Height = 600));");
+
     // ── Negative: not a direct child of a stack ──────────────────────────────
 
     [Fact]
@@ -167,5 +194,21 @@ class C
         // to a syntactic pass — bail rather than risk a false positive.
         return Verify(@"        var w = WebView2();
         HStack(w);");
+    }
+
+    [Fact]
+    public Task No_Diagnostic_For_Conditional_Child()
+    {
+        // A conditional child is not the literal inline WebView2(...) shape the rule
+        // matches — analysing through the branches is out of scope, so it stays quiet.
+        return Verify(@"        HStack(true ? WebView2() : WebView2());");
+    }
+
+    [Fact]
+    public Task No_Diagnostic_For_Exotic_Invocation_Child()
+    {
+        // An invocation whose callee is itself an invocation (a factory-returning-factory)
+        // is neither an identifier nor a member-access call — the peel bails safely.
+        return Verify(@"        HStack(WebFactory()());");
     }
 }
