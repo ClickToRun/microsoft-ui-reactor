@@ -95,11 +95,17 @@ public sealed class ComponentInpcAnalyzer : DiagnosticAnalyzer
         if (!ImplementsInterface(type, inpcType))
             return;
 
-        // Report only where INPC is introduced. If a base type already implements it, that
-        // base is the mistake site (and is flagged itself when it is a source Component), so
-        // skipping the derived type avoids a cascade of duplicate diagnostics down the chain.
-        if (type.BaseType is INamedTypeSymbol baseType && ImplementsInterface(baseType, inpcType))
+        // Report only where INPC is introduced. If the immediate base type is declared in
+        // source and also implements INPC, that base is the mistake site and is flagged on
+        // its own, so we skip this derived type to avoid a duplicate cascade. When the base
+        // comes from metadata (a referenced assembly) it is not analyzed here — so we still
+        // flag the derived source type, otherwise the anti-pattern would produce no warning.
+        if (type.BaseType is INamedTypeSymbol baseType
+            && baseType.Locations.Any(loc => loc.IsInSource)
+            && ImplementsInterface(baseType, inpcType))
+        {
             return;
+        }
 
         context.ReportDiagnostic(Diagnostic.Create(
             Rule,

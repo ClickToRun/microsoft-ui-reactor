@@ -1,6 +1,9 @@
 using Microsoft.UI.Reactor.Analyzers;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Testing;
 using Microsoft.CodeAnalysis.Testing;
+using System.IO;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -117,8 +120,9 @@ class MyThing : System.ComponentModel.Component, System.ComponentModel.INotifyPr
     [Fact]
     public async Task Reports_Once_On_Base_Not_Cascaded_To_Derived()
     {
-        // When a base Component introduces INPC, only the base (the mistake site) is flagged;
-        // a derived type that merely inherits INPC must not produce a duplicate diagnostic.
+        // When a base Component declared IN SOURCE introduces INPC, only the base (the mistake
+        // site, flagged on its own) is reported; a derived type that merely inherits INPC in the
+        // same compilation must not produce a duplicate diagnostic.
         var source = Stubs + @"
 class {|REACTOR_STATE_001:MyBase|} : Component, System.ComponentModel.INotifyPropertyChanged
 {
@@ -170,5 +174,57 @@ class MyViewModel : System.ComponentModel.INotifyPropertyChanged
         {
             TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_On_Derived_When_Inpc_Component_Base_Is_From_Metadata()
+    {
+        // The cascade suppression must only fire for a base declared IN SOURCE. Here the
+        // Component + INPC base is compiled into a real referenced ASSEMBLY (PE metadata), so
+        // its symbol's locations are not in source and it is not analyzed in this compilation.
+        // The derived source type must therefore still warn — otherwise the anti-pattern would
+        // produce no diagnostic at all (the false-negative this guard is designed to avoid).
+        const string baseLib = @"
+using System.ComponentModel;
+
+namespace Microsoft.UI.Reactor.Core
+{
+    public abstract class Component { }
+}
+
+namespace Lib
+{
+    public abstract class ObservableComponentBase : Microsoft.UI.Reactor.Core.Component, INotifyPropertyChanged
+    {
+        public event PropertyChangedEventHandler PropertyChanged;
+    }
+}";
+
+        var references = await ReferenceAssemblies.Default.ResolveAsync(
+            LanguageNames.CSharp, TestContext.Current.CancellationToken);
+        var baseCompilation = CSharpCompilation.Create(
+            "ReactorMetadataBaseLib",
+            new[] { CSharpSyntaxTree.ParseText(baseLib, cancellationToken: TestContext.Current.CancellationToken) },
+            references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        using var peStream = new MemoryStream();
+        var emitResult = baseCompilation.Emit(peStream, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.True(emitResult.Success, string.Join("\n", emitResult.Diagnostics));
+        peStream.Position = 0;
+        var baseReference = MetadataReference.CreateFromStream(peStream);
+
+        const string appCode = @"
+class {|REACTOR_STATE_001:MyScreen|} : Lib.ObservableComponentBase
+{
+}";
+
+        var test = new CSharpAnalyzerTest<ComponentInpcAnalyzer, DefaultVerifier>
+        {
+            TestCode = appCode,
+        };
+        test.TestState.AdditionalReferences.Add(baseReference);
+
+        await test.RunAsync(TestContext.Current.CancellationToken);
     }
 }
