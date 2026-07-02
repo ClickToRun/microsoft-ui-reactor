@@ -217,6 +217,18 @@ class C
         Text(""b"").Grid(row: 1, column: 0));
 }");
 
+    [Fact]
+    public Task Fires_On_Unused_Row_With_Empty_Columns() => VerifyAsync(@"
+// An empty columns list ([]) is a non-reportable axis and must not suppress the row analysis.
+class C
+{
+    Element M() => Grid(
+        [],
+        [GridSize.Auto, GridSize.Auto, {|REACTOR_GRID_001:GridSize.Auto|}],
+        Text(""a"").Grid(row: 0, column: 0),
+        Text(""b"").Grid(row: 1, column: 0));
+}");
+
     // ── Negatives ───────────────────────────────────────────────────────────
 
     [Fact]

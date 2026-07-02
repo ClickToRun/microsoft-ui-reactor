@@ -378,31 +378,33 @@ public sealed class UnusedGridTrackAnalyzer : DiagnosticAnalyzer
 
     private static bool TryGetTrackLocations(IOperation? trackValue, out IReadOnlyList<Location> locations)
     {
+        locations = System.Array.Empty<Location>();
+
         if (trackValue is not null)
         {
             switch (Unwrap(trackValue).Syntax)
             {
-                case CollectionExpressionSyntax collection:
-                    // [GridSize.Auto, GridSize.Star()] — bail if any element is a spread (..x).
-                    if (collection.Elements.All(e => e is ExpressionElementSyntax))
-                    {
-                        locations = collection.Elements.Select(e => e.GetLocation()).ToArray();
-                        return true;
-                    }
+                case CollectionExpressionSyntax collection
+                    when collection.Elements.All(e => e is ExpressionElementSyntax):
+                    // [GridSize.Auto, GridSize.Star()] — a spread (..x) fails the guard and falls
+                    // through to the non-reportable return below.
+                    locations = collection.Elements.Select(e => e.GetLocation()).ToArray();
                     break;
 
                 case ArrayCreationExpressionSyntax { Initializer: { } arrayInit }:
                     locations = arrayInit.Expressions.Select(e => e.GetLocation()).ToArray();
-                    return true;
+                    break;
 
                 case ImplicitArrayCreationExpressionSyntax { Initializer: { } implicitInit }:
                     locations = implicitInit.Expressions.Select(e => e.GetLocation()).ToArray();
-                    return true;
+                    break;
             }
         }
 
-        locations = System.Array.Empty<Location>();
-        return false;
+        // An empty declared track list ([]) has nothing to report AND must not poison the other
+        // axis's analysis or the out-of-range guard (columnCount 0 would make 0 >= 0 bail every
+        // child) — treat it as a non-reportable axis, exactly like an opaque/variable track array.
+        return locations.Count > 0;
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────
