@@ -115,8 +115,12 @@ internal static class AllocationAnalysis
     {
         foreach (var iface in named.AllInterfaces)
         {
+            // Match System.IEquatable<self> specifically — a user-defined interface that happens to
+            // be named IEquatable in another namespace must not count as value equality.
             if (iface.Name == "IEquatable"
                 && iface.TypeArguments.Length == 1
+                && iface.ContainingNamespace is { Name: "System" } ns
+                && ns.ContainingNamespace is { IsGlobalNamespace: true }
                 && SymbolEqualityComparer.Default.Equals(iface.TypeArguments[0], named))
             {
                 return true;

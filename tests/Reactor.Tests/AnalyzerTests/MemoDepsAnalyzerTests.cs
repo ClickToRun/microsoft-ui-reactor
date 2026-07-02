@@ -26,6 +26,17 @@ namespace Microsoft.UI.Reactor.Core
     {
         public bool Equals(EquatableDep other) => true;
     }
+    // Implements a look-alike IEquatable<T> from a NON-System namespace — must not be treated as
+    // value equality, so a fresh one still fires.
+    public class FakeEquatableDep : FakeEq.IEquatable<FakeEquatableDep>
+    {
+        public bool Equals(FakeEquatableDep other) => true;
+    }
+}
+
+namespace FakeEq
+{
+    public interface IEquatable<T> { bool Equals(T other); }
 }
 
 namespace Microsoft.UI.Reactor
@@ -101,6 +112,23 @@ namespace TestApp
     class C
     {
         Element M() => Memo(ctx => new TextElement(""x""), {|REACTOR_HOOKS_012:new EquatableDep()|});
+    }
+}");
+    }
+
+    // Positive: a look-alike IEquatable<T> from a non-System namespace is not value equality.
+    [Fact]
+    public async Task Memo_With_NonSystem_IEquatable_Dep_Flags()
+    {
+        await Verify(@"
+namespace TestApp
+{
+    using static Microsoft.UI.Reactor.Factories;
+    using Microsoft.UI.Reactor.Core;
+
+    class C
+    {
+        Element M() => Memo(ctx => new TextElement(""x""), {|REACTOR_HOOKS_012:new FakeEquatableDep()|});
     }
 }");
     }

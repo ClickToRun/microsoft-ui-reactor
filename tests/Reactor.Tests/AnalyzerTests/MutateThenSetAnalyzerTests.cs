@@ -248,7 +248,7 @@ class C : Microsoft.UI.Reactor.Core.Component
     {
         var (items, setItems) = UseState(Seed);
         // keep me
-                setItems([.. items, ""x""]);
+        setItems([.. items, ""x""]);
         return """";
     }
 }";

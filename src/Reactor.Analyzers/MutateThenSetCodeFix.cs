@@ -58,6 +58,9 @@ public sealed class MutateThenSetCodeFix : CodeFixProvider
             if (mutatorCall.ArgumentList.Arguments.Count != 1) continue;
             var valueExpr = mutatorCall.ArgumentList.Arguments[0].Expression;
 
+            var setterStatement = setterCall.FirstAncestorOrSelf<ExpressionStatementSyntax>();
+            if (setterStatement is null) continue;
+
             var mutatorStatement = mutatorCall.FirstAncestorOrSelf<ExpressionStatementSyntax>();
             if (mutatorStatement is null) continue;
 
@@ -72,22 +75,24 @@ public sealed class MutateThenSetCodeFix : CodeFixProvider
                         var editor = new SyntaxEditor(root, context.Document.Project.Solution.Workspace.Services);
 
                         // setItems(items) → setItems([.. items, v])
-                        var collection = SyntaxFactory
-                            .ParseExpression($"[.. {itemsText}, {valueText}]")
-                            .WithTriviaFrom(itemsExpr);
-                        editor.ReplaceNode(itemsExpr, collection);
+                        var collection = SyntaxFactory.ParseExpression($"[.. {itemsText}, {valueText}]");
+                        var newSetterCall = setterCall.WithArgumentList(
+                            SyntaxFactory.ArgumentList(SyntaxFactory.SingletonSeparatedList(
+                                SyntaxFactory.Argument(collection))));
+                        var newSetterStatement = setterStatement.ReplaceNode(setterCall, newSetterCall);
 
-                        // Drop the now-redundant `items.Add(v);` statement. Preserve leading
-                        // comments / #directives when present (so we don't silently delete a user
-                        // comment on that line); otherwise remove cleanly with no leftover blank line.
-                        var keepTrivia = mutatorStatement.ContainsDirectives
+                        // If the mutator line carried a comment / #directive, move its leading trivia
+                        // onto the setter so the comment survives with correct indentation (rather
+                        // than being silently dropped, or over-indenting via KeepLeadingTrivia).
+                        var hasComments = mutatorStatement.ContainsDirectives
                             || mutatorStatement.GetLeadingTrivia().Any(static t =>
                                 t.IsKind(SyntaxKind.SingleLineCommentTrivia)
                                 || t.IsKind(SyntaxKind.MultiLineCommentTrivia));
-                        var removeOptions = keepTrivia
-                            ? SyntaxRemoveOptions.KeepLeadingTrivia | SyntaxRemoveOptions.KeepDirectives
-                            : SyntaxRemoveOptions.KeepNoTrivia;
-                        editor.RemoveNode(mutatorStatement, removeOptions);
+                        if (hasComments)
+                            newSetterStatement = newSetterStatement.WithLeadingTrivia(mutatorStatement.GetLeadingTrivia());
+
+                        editor.ReplaceNode(setterStatement, newSetterStatement);
+                        editor.RemoveNode(mutatorStatement, SyntaxRemoveOptions.KeepNoTrivia);
 
                         return Task.FromResult(context.Document.WithSyntaxRoot(editor.GetChangedRoot()));
                     },
