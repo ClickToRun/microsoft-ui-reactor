@@ -22,6 +22,8 @@ each packet for the full detect/fix/FP reasoning — this doc does not re-derive
    coupled both ways; do not pre-seed rows).
 5. Run your rule against `samples/` (§2.4) before opening the PR.
 6. If your rule is app-author-facing, add its cheat-table row (§2.6) in the same PR.
+7. Run the review-loop HARD gate (§2.7) — `pr-review` skill + Copilot review until clean —
+   THEN reply to your creator with the clean-pass confirmation. Not done until this is clean.
 
 ---
 
@@ -51,6 +53,25 @@ handoff data travels in `Diagnostic.Properties`, never message text.
 Project already sets `EnforceExtendedAnalyzerRules=true` and nullable enable;
 netstandard2.0; analyzer + code-fix co-located in the one shipped DLL (RS1038 suppressed).
 
+**Battle-tested rules from the ⭐ validation wave (each caught a real HIGH bug — do not skip):**
+- **Anchor hooks on `Component` OR `RenderContext`, not just `RenderContext`.** Hook /
+  persistence / context APIs are re-exposed as `protected` wrappers on `Component` (e.g.
+  `Component.UsePersisted` → `Context.UsePersisted`), so a component author's unqualified
+  `UsePersisted(...)` binds to `Component`, not `RenderContext`. An analyzer that matches
+  only `RenderContext.Xxx` misses the idiomatic call and fires nowhere. Accept both
+  containing types — mirror the shipped `HookRulesAnalyzer.IsLikelyReactorHook` (anchors
+  on Component *or* RenderContext). Applies to HOOKS_*, PERSIST_001, CTX_001.
+- **Code-fixes that insert a type reference must emit a `global::`-qualified name** (e.g.
+  `global::Microsoft.UI.Reactor.Core.PersistedScope.Window`), optionally + `Simplifier.Annotation`
+  to shorten where a `using` exists, or resolve via `ToMinimalDisplayString`. A bare
+  `IdentifierName("PersistedScope")` yields non-compiling code at any call site lacking the
+  `using` (or using a fully-qualified receiver). Never emit a bare type identifier.
+- **When a fix/analyzer reproduces runtime behavior, mirror the EXACT runtime code path.**
+  The Grid fixer mirrored a *parallel* API (`GridSize.Parse`) that only "mostly agrees"
+  with the obsolete overload's real parser (`PanelAttachedHooks.ParseColumnDef`), and
+  silently changed layout on `"AUTO"`/`" 2* "`. Find the actual runtime path, match it
+  exactly, and **withhold** wherever you can't guarantee identical semantics.
+
 ### 2.2 Release tracking (coupled both ways — verified)
 - A descriptor with no row → **RS2000**. A row with no descriptor → **RS2002**.
   So **add your row when you add your descriptor, in the same PR. Never pre-seed.**
@@ -69,6 +90,9 @@ netstandard2.0; analyzer + code-fix co-located in the one shipped DLL (RS1038 su
 - Required per rule (spec §7): **positive**, **negative**, and the **near-miss** that
   almost trips the syntactic fast path. Every ✔ (code-fix) rule adds a **fix
   round-trip** test.
+- Run tests with **`dotnet test tests/Reactor.Tests -p:Platform=x64 --filter FullyQualifiedName~<YourClass>`**
+  — the project is `Platforms=x64;ARM64` + `WindowsAppSDKSelfContained=true`, so a plain
+  `dotnet test` fails with a WindowsAppSDK architecture error.
 
 ### 2.4 Samples sweep (spec §7)
 Before merge, run your assembled rule against `samples/`. A rule that fires
@@ -78,6 +102,13 @@ check, sweep the three high-coverage samples (`ReactorGallery`, `StylingGallery`
 these today (it only AOT-publishes the hello-world samples) — wiring a per-PR
 sample gate + a nightly full sweep is a recommended follow-up (spec §7), not
 current CI.
+- **Analyzers are packed-only, not wired into local framework/sample builds**
+  (`Reactor.csproj`) — a plain local sample build won't surface your diagnostic. The
+  realistic sweep is **grep for the trigger pattern across `samples/` + your unit tests**
+  (or `mur check` / a packed nupkg).
+- **"Fires nowhere in samples" is acceptable for migration/hygiene rules** (e.g.
+  PERSIST_001) whose samples already use the good form — do **not** add a
+  deliberately-bad sample just to make the rule fire.
 
 ### 2.5 Severity (spec §8)
 Ship at the severity in your packet. The five **Info** nudge-class rules
@@ -96,6 +127,26 @@ Warning/Info rules — `HOOKS_010/011/013`, `THEME_004`, `VIS_001`, `OPT_001`,
 entry (`ID | severity | trigger | fix`) in the same PR. Skip it for
 control-author / niche rules (`DESC_001`, `WIN2D_001`) — the analyzer DLL's own
 message carries those.
+
+### 2.7 Review loop — a HARD gate before you report done
+Every PR goes through BOTH review tools before you report the packet complete. **Do not
+message your creator "done" until this loop is clean** — in the ⭐ wave, 2 of 3 code PRs
+shipped real HIGH bugs the review caught, and the two tools are complementary (the
+`pr-review` skill caught a bug Copilot missed; they converged on another).
+1. Run the `pr-review` skill (skill tool, name `pr-review`) on your branch. Apply every
+   Critical/High and every valid Medium/Low finding (verify each against source first).
+2. Request a GitHub Copilot review on your PR:
+   `gh api --method POST /repos/microsoft/microsoft-ui-reactor/pulls/<PR>/requested_reviewers -f "reviewers[]=copilot-pull-request-reviewer[bot]"`
+3. Wait ~90s, read its comments
+   (`gh api "/repos/microsoft/microsoft-ui-reactor/pulls/<PR>/comments?per_page=100"`);
+   verify each against source — reply on the thread if a comment is wrong, fix + commit +
+   push if right.
+4. Re-request and repeat until a Copilot review on your **latest HEAD** adds no new
+   comments (the repo auto-reviews on push and re-anchors old comments — treat only NEW
+   issues on your latest commit as actionable).
+5. THEN reply to your creator with the PR link, final HEAD sha, test count, and a one-line
+   summary of what each review raised + how you resolved it. **This closing reply is the
+   signal the orchestrator waits on — always send it.**
 
 ---
 
