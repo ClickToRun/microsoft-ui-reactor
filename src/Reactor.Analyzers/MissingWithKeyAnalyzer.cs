@@ -53,7 +53,7 @@ public sealed class MissingWithKeyAnalyzer : DiagnosticAnalyzer
     private static readonly DiagnosticDescriptor NonStableKeyRule = new(
         NonStableKeyId,
         "Non-stable list key in .WithKey",
-        ".WithKey(...) uses a non-stable key (the list index or a per-render value such as Guid.NewGuid()/DateTime.Now/Random/Environment.TickCount). On insert/reorder the reconciler re-mounts every row — losing focus, animation, and ElementRef state — the same failure a missing key causes. Key off the item's stable id instead.",
+        ".WithKey(...) uses a non-stable key (the list index or a per-render value such as Guid.NewGuid()/DateTime.Now/DateTime.UtcNow/Random/Environment.TickCount). On insert/reorder the reconciler re-mounts every row — losing focus, animation, and ElementRef state — the same failure a missing key causes. Key off the item's stable id instead.",
         "Reactor.Dsl",
         DiagnosticSeverity.Info,
         isEnabledByDefault: true,
