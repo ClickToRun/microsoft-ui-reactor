@@ -72,6 +72,7 @@ public class Model
     public string Name = string.Empty;
     public double Score;
     public int Index;
+    public string Unset = string.Empty;
 }
 ";
 
@@ -117,6 +118,18 @@ class C
     void M(Model m)
     {
         {|REACTOR_HOOKS_011:TextBox(m.Name, _ => { })|};
+    }
+}");
+
+    [Fact]
+    public Task Fires_For_State_Member_Named_Unset() => Analyze(@"
+class C
+{
+    // Only Optional<T>.Unset is the sentinel; a state member happening to be named
+    // 'Unset' is still a live value.
+    void M(Model m)
+    {
+        {|REACTOR_HOOKS_011:TextBox(m.Unset, _ => { })|};
     }
 }");
 

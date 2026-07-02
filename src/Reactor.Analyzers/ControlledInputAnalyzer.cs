@@ -273,9 +273,30 @@ public sealed class ControlledInputAnalyzer : DiagnosticAnalyzer
         return expression switch
         {
             IdentifierNameSyntax => true,
-            MemberAccessExpressionSyntax ma => ma.Name.Identifier.ValueText != "Unset",
+            MemberAccessExpressionSyntax ma => !IsOptionalUnsetSentinel(ma),
             _ => false,
         };
+    }
+
+    /// <summary>
+    /// True only for the <c>Optional&lt;T&gt;.Unset</c> (or <c>Optional.Unset</c>)
+    /// sentinel — a member access named <c>Unset</c> whose receiver's simple name is
+    /// <c>Optional</c>. A live member access like <c>model.Unset</c> or <c>Props.Unset</c>
+    /// is NOT the sentinel and stays state-derived.
+    /// </summary>
+    private static bool IsOptionalUnsetSentinel(MemberAccessExpressionSyntax memberAccess)
+    {
+        if (memberAccess.Name.Identifier.ValueText != "Unset")
+            return false;
+
+        var receiverName = memberAccess.Expression switch
+        {
+            GenericNameSyntax generic => generic.Identifier.ValueText,            // Optional<T>.Unset
+            IdentifierNameSyntax identifier => identifier.Identifier.ValueText,    // Optional.Unset
+            MemberAccessExpressionSyntax qualified => qualified.Name.Identifier.ValueText, // Ns.Optional[<T>].Unset
+            _ => null,
+        };
+        return receiverName == "Optional";
     }
 
     /// <summary>
