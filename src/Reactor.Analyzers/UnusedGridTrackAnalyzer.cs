@@ -62,7 +62,7 @@ public sealed class UnusedGridTrackAnalyzer : DiagnosticAnalyzer
     private static readonly DiagnosticDescriptor Rule = new(
         DiagnosticId,
         "Grid declares a track that no child occupies",
-        "This Grid declares {0} {1} but no child is placed in it. Remove the unused track or place a child there.",
+        "This Grid declares {0} {1} (0-based) but no child is placed in it. Remove the unused track or place a child there.",
         "Reactor.Layout",
         DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
@@ -313,7 +313,10 @@ public sealed class UnusedGridTrackAnalyzer : DiagnosticAnalyzer
                 continue;
             }
 
-            if (current is ILiteralOperation { ConstantValue: { HasValue: true, Value: null } })
+            // Any compile-time-constant null child (the literal `null`, `default`,
+            // `default(Element)`, or a const-null reference) is filtered at runtime, so it
+            // occupies nothing — skip it rather than bailing an otherwise-provable grid.
+            if (current.ConstantValue is { HasValue: true, Value: null })
                 return Placement.Skip;
 
             // Variable/parameter/field/property reference, conditional, object creation, etc. —

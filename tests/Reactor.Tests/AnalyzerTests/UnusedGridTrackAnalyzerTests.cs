@@ -193,6 +193,19 @@ class C
 }");
 
     [Fact]
+    public Task Default_Element_Child_Occupies_Nothing() => VerifyAsync(@"
+// default(Element) is compile-time null (filtered at runtime) — it must be skipped, not treated
+// as opaque, so an otherwise-provable grid is still analyzed and column 0 is reported unused.
+class C
+{
+    Element M() => Grid(
+        [{|REACTOR_GRID_001:GridSize.Auto|}, GridSize.Star()],
+        [GridSize.Auto],
+        default(Element),
+        Text(""a"").Grid(column: 1));
+}");
+
+    [Fact]
     public Task Fires_On_Last_Grid_Wins() => VerifyAsync(@"
 // Two .Grid() calls in one chain: the OUTERMOST (last-applied) wins and resets the column,
 // so the child lands in column 1 and column 0 is unused (not column 1).
