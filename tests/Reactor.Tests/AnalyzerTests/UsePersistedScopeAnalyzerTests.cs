@@ -349,4 +349,82 @@ class C
             CodeActionEquivalenceKey = UsePersistedScopeAnalyzer.DiagnosticId + ":Window",
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    [Fact]
+    public async Task No_Diagnostic_For_ThreeArg_Component_Call()
+    {
+        // The 3-arg Component wrapper already states the scope — leave it alone.
+        var source = Stubs + @"
+class MyComponent : Component
+{
+    void Build()
+    {
+        UsePersisted(""filter"", """", PersistedScope.Window);
+    }
+}";
+
+        await new CSharpAnalyzerTest<UsePersistedScopeAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Qualifies_Scope_When_Namespace_Not_Imported()
+    {
+        // No `using Microsoft.UI.Reactor.Core;` and a fully-qualified receiver: the fix
+        // must still emit a COMPILING PersistedScope reference. Simplifier keeps it
+        // qualified here (a bare `PersistedScope` would not resolve). The harness fails
+        // the test if the fixed code has any compiler error, so this proves robustness.
+        const string before = @"
+using System;
+
+namespace Microsoft.UI.Reactor.Core
+{
+    public enum PersistedScope { Window, Application }
+    public class RenderContext
+    {
+        public void UsePersisted<T>(string key, T initialValue) { }
+        public void UsePersisted<T>(string key, T initialValue, PersistedScope scope) { }
+    }
+}
+
+class C
+{
+    void M()
+    {
+        var ctx = new Microsoft.UI.Reactor.Core.RenderContext();
+        {|REACTOR_PERSIST_001:ctx.UsePersisted(""filter"", """")|};
+    }
+}";
+
+        const string after = @"
+using System;
+
+namespace Microsoft.UI.Reactor.Core
+{
+    public enum PersistedScope { Window, Application }
+    public class RenderContext
+    {
+        public void UsePersisted<T>(string key, T initialValue) { }
+        public void UsePersisted<T>(string key, T initialValue, PersistedScope scope) { }
+    }
+}
+
+class C
+{
+    void M()
+    {
+        var ctx = new Microsoft.UI.Reactor.Core.RenderContext();
+        ctx.UsePersisted(""filter"", """", Microsoft.UI.Reactor.Core.PersistedScope.Window);
+    }
+}";
+
+        await new CSharpCodeFixTest<UsePersistedScopeAnalyzer, UsePersistedScopeCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            CodeActionEquivalenceKey = UsePersistedScopeAnalyzer.DiagnosticId + ":Window",
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }
