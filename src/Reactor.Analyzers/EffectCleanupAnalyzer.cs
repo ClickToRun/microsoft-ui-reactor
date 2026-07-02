@@ -70,8 +70,9 @@ public sealed class EffectCleanupAnalyzer : DiagnosticAnalyzer
         DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
         description:
-            "The Action overload of UseEffect cannot return a teardown, so a timer, IObservable " +
-            "subscription, or CLR event wired inside it outlives the component. After unmount the " +
+            "The Action overload of UseEffect cannot return a teardown, so a timer, a disposable " +
+            "subscription (a `.Subscribe(...)` that returns IDisposable), or a CLR event wired " +
+            "inside it outlives the component. After unmount the " +
             "producer keeps running and its callback can still fire against a torn-down component — " +
             "at best it leaks the captured closure tree, and if the callback touches component state " +
             "(e.g. a state setter) it runs against a dead RenderContext. Switch to the Func<Action> " +
@@ -224,7 +225,7 @@ public sealed class EffectCleanupAnalyzer : DiagnosticAnalyzer
                 case InvocationExpressionSyntax inv
                     when GetInvokedMethodName(inv) == "Subscribe"
                     && ReturnsDisposable(inv, model, ct):
-                    return (inv, "an IObservable subscription");
+                    return (inv, "a disposable subscription");
 
                 case AssignmentExpressionSyntax add
                     when add.IsKind(SyntaxKind.AddAssignmentExpression)
