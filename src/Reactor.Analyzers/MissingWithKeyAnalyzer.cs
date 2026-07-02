@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using Microsoft.CodeAnalysis;
@@ -21,11 +23,23 @@ namespace Microsoft.UI.Reactor.Analyzers;
 ///
 /// Conservative — fires only on `.Select(...)` whose lambda body's outermost
 /// expression is an invocation (the typical "row factory" pattern).
+///
+/// <para><c>REACTOR_DSL_002</c> is the complement: a key that is *present but
+/// non-stable*. DSL_001 stays silent as soon as any <c>.WithKey(</c> exists, so
+/// DSL_002 inspects the key <em>expression</em> of each <c>.WithKey(arg)</c> that
+/// sits inside a <c>Select</c>/<c>ForEach</c> projection lambda and flags two
+/// shapes: (1) a positional key whose only referenced lambda parameter is the
+/// index (never the item), and (2) a per-render-random key built from
+/// <c>Guid.NewGuid()</c>, <c>DateTime.Now</c>, <c>Random</c>, or
+/// <c>Environment.TickCount</c>. Both re-mount rows on insert/reorder just like a
+/// missing key. Info severity + no fix: a positional key is only wrong for lists
+/// that reorder/insert, and the framework can't synthesize the real identity.</para>
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class MissingWithKeyAnalyzer : DiagnosticAnalyzer
 {
     public const string Id = "REACTOR_DSL_001";
+    public const string NonStableKeyId = "REACTOR_DSL_002";
 
     private static readonly DiagnosticDescriptor Rule = new(
         Id,
@@ -36,8 +50,17 @@ public sealed class MissingWithKeyAnalyzer : DiagnosticAnalyzer
         isEnabledByDefault: true,
         description: "Per SKILL.md gotcha #6 — every dynamic list item should carry a stable key via .WithKey(id). The reconciler uses keys to match elements across renders. Without them, inserting at the head of a list re-mounts every row.");
 
+    private static readonly DiagnosticDescriptor NonStableKeyRule = new(
+        NonStableKeyId,
+        "Non-stable list key in .WithKey",
+        ".WithKey(...) uses a non-stable key (the list index or a per-render value such as Guid.NewGuid()/DateTime.Now/Random). On insert/reorder the reconciler re-mounts every row — losing focus, animation, and ElementRef state — the same failure a missing key causes. Key off the item's stable id instead.",
+        "Reactor.Dsl",
+        DiagnosticSeverity.Info,
+        isEnabledByDefault: true,
+        description: "A positional key (the Select/ForEach index parameter) or a per-render-random key identifies a slot, not a row: it is identical to — or worse than — no key when items are inserted or reordered. Prefer a value carried by the data, e.g. .WithKey(item.Id).");
+
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-        ImmutableArray.Create(Rule);
+        ImmutableArray.Create(Rule, NonStableKeyRule);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -46,14 +69,32 @@ public sealed class MissingWithKeyAnalyzer : DiagnosticAnalyzer
         context.RegisterSyntaxNodeAction(Analyze, SyntaxKind.InvocationExpression);
     }
 
-    // <snippet:with-key-rule>
     static void Analyze(SyntaxNodeAnalysisContext ctx)
     {
         var inv = (InvocationExpressionSyntax)ctx.Node;
 
         if (inv.Expression is not MemberAccessExpressionSyntax member) return;
-        if (member.Name.Identifier.ValueText != "Select") return;
+        var methodName = member.Name.Identifier.ValueText;
 
+        // REACTOR_DSL_002 — a present-but-non-stable key. Anchored on the
+        // `.WithKey(...)` call itself (not the enclosing Select) so each key is
+        // inspected exactly once even when Selects nest.
+        if (methodName == "WithKey")
+        {
+            AnalyzeNonStableKey(ctx, inv);
+            return;
+        }
+
+        // REACTOR_DSL_001 — a missing key on a Select projection.
+        if (methodName == "Select")
+        {
+            AnalyzeMissingKey(ctx, inv);
+        }
+    }
+
+    // <snippet:with-key-rule>
+    static void AnalyzeMissingKey(SyntaxNodeAnalysisContext ctx, InvocationExpressionSyntax inv)
+    {
         // Single lambda argument with an invocation body.
         if (inv.ArgumentList.Arguments.Count != 1) return;
         if (inv.ArgumentList.Arguments[0].Expression is not LambdaExpressionSyntax lambda) return;
@@ -76,6 +117,132 @@ public sealed class MissingWithKeyAnalyzer : DiagnosticAnalyzer
 
         ctx.ReportDiagnostic(Diagnostic.Create(Rule, inv.GetLocation()));
     }
+
+    // REACTOR_DSL_002 — inspect the key expression of a `.WithKey(arg)` call.
+    // Purely syntactic (no GetSymbolInfo): identifiers are matched by name
+    // against the enclosing Select/ForEach lambda's parameters, and the
+    // per-render-random calls are matched by their well-known member names.
+    static void AnalyzeNonStableKey(SyntaxNodeAnalysisContext ctx, InvocationExpressionSyntax withKeyInv)
+    {
+        // WithKey takes exactly one argument (the key).
+        if (withKeyInv.ArgumentList.Arguments.Count != 1) return;
+        var arg = withKeyInv.ArgumentList.Arguments[0].Expression;
+
+        // Scope to list items: the WithKey must live inside a Select/ForEach
+        // projection lambda. A key on a single, static element never reorders,
+        // and the `.WithKey` anchor keeps this off unrelated fluent chains.
+        var lambda = EnclosingProjectionLambda(withKeyInv);
+        if (lambda is null) return;
+
+        // Shape 2 — a per-render-random key (regenerates every render, so it
+        // matches nothing across renders). Independent of parameter count.
+        if (ContainsPerRenderValue(arg))
+        {
+            ctx.ReportDiagnostic(Diagnostic.Create(NonStableKeyRule, arg.GetLocation()));
+            return;
+        }
+
+        // Shape 1 — a positional key. Needs a two-parameter (item, index)
+        // projection lambda; fires only when the key references the index
+        // parameter and never the item parameter (so composites like
+        // $"{item.Id}-{i}" — which reference the item too — are left alone).
+        if (!TryGetItemAndIndexParameters(lambda, out var itemName, out var indexName)) return;
+
+        var referenced = ReferencedIdentifierNames(arg);
+        if (referenced.Contains(indexName) && !referenced.Contains(itemName))
+        {
+            ctx.ReportDiagnostic(Diagnostic.Create(NonStableKeyRule, arg.GetLocation()));
+        }
+    }
+
+    // Walk up to the nearest enclosing lambda and return it only when that
+    // lambda is the argument to a `Select`/`ForEach` invocation. Returns null
+    // when the WithKey sits in some other (non-projection) lambda or none at all.
+    static LambdaExpressionSyntax? EnclosingProjectionLambda(SyntaxNode node)
+    {
+        for (var cur = node.Parent; cur is not null; cur = cur.Parent)
+        {
+            if (cur is LambdaExpressionSyntax lambda)
+            {
+                // The invoked name is read from either an instance/LINQ call
+                // (`items.Select(…)` / `items.ForEach(…)` — a member access) or
+                // the static `ForEach(items, …)` factory imported via
+                // `using static …Factories` (a bare identifier).
+                if (lambda.Parent is ArgumentSyntax { Parent: ArgumentListSyntax { Parent: InvocationExpressionSyntax outer } }
+                    && SimpleName(outer.Expression) is "Select" or "ForEach")
+                {
+                    return lambda;
+                }
+                return null;
+            }
+        }
+        return null;
+    }
+
+    // A projection lambda carries a positional index only in its two-parameter
+    // form: `(item, index) => …` (Select/ForEach both expose that overload).
+    static bool TryGetItemAndIndexParameters(LambdaExpressionSyntax lambda, out string itemName, out string indexName)
+    {
+        itemName = indexName = string.Empty;
+        if (lambda is ParenthesizedLambdaExpressionSyntax { ParameterList.Parameters.Count: 2 } paren)
+        {
+            itemName = paren.ParameterList.Parameters[0].Identifier.ValueText;
+            indexName = paren.ParameterList.Parameters[1].Identifier.ValueText;
+            return itemName.Length > 0 && indexName.Length > 0;
+        }
+        return false;
+    }
+
+    // Identifiers that read a value: excludes the right-hand `.Name` of a member
+    // access (a member/property name is not a reference to a lambda parameter).
+    static HashSet<string> ReferencedIdentifierNames(ExpressionSyntax arg)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var id in arg.DescendantNodesAndSelf().OfType<IdentifierNameSyntax>())
+        {
+            if (id.Parent is MemberAccessExpressionSyntax mae && mae.Name == id) continue;
+            names.Add(id.Identifier.ValueText);
+        }
+        return names;
+    }
+
+    // True when the key expression contains a per-render-random source:
+    // Guid.NewGuid(), DateTime.Now/UtcNow, Environment.TickCount(64), or the
+    // Random type (new Random(), Random.Shared, Random.Next(), …).
+    static bool ContainsPerRenderValue(ExpressionSyntax arg)
+    {
+        foreach (var node in arg.DescendantNodesAndSelf())
+        {
+            switch (node)
+            {
+                case MemberAccessExpressionSyntax mae:
+                    var memberName = mae.Name.Identifier.ValueText;
+                    var receiver = SimpleName(mae.Expression);
+                    if (receiver == "Guid" && memberName == "NewGuid") return true;
+                    if (receiver == "DateTime" && memberName is "Now" or "UtcNow") return true;
+                    if (receiver == "Environment" && memberName is "TickCount" or "TickCount64") return true;
+                    break;
+
+                // `Random` used as a type/static receiver (not as a member name
+                // like `foo.Random`). Covers new Random(), Random.Shared, etc.
+                case IdentifierNameSyntax { Identifier.ValueText: "Random" } id
+                    when !(id.Parent is MemberAccessExpressionSyntax p && p.Name == id):
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    // Rightmost simple name of an expression: for `Guid` (IdentifierName) →
+    // "Guid"; for `System.Guid` or `items.Select` (MemberAccess) → the trailing
+    // name ("Guid" / "Select"). Lets both a bare and a qualified/instance form
+    // match by the same name.
+    static string? SimpleName(ExpressionSyntax expr) => expr switch
+    {
+        IdentifierNameSyntax id => id.Identifier.ValueText,
+        MemberAccessExpressionSyntax m => m.Name.Identifier.ValueText,
+        _ => null,
+    };
 
     static ExpressionSyntax? ExtractReturnExpression(BlockSyntax block)
     {

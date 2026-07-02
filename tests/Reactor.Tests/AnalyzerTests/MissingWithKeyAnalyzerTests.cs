@@ -36,6 +36,11 @@ namespace Microsoft.UI.Reactor.Core
         public static Element FlexRow(params Element[] children) => null!;
         public static Element Grid(params Element[] children) => null!;
         public static TextBlockElement TextBlock(string s) => new(s);
+
+        // Reactor's ForEach factory (Dsl.cs) — a static entry point called as a
+        // bare identifier via `using static ...Factories`, unlike LINQ Select.
+        public static Element ForEach<T>(System.Collections.Generic.IEnumerable<T> items, System.Func<T, Element> render) => null!;
+        public static Element ForEach<T>(System.Collections.Generic.IEnumerable<T> items, System.Func<T, int, Element> render) => null!;
     }
 
     public static class ElementExtensions
@@ -271,6 +276,199 @@ namespace TestApp
             TestCode = before,
             FixedCode = after,
             CodeActionEquivalenceKey = $"{MissingWithKeyAnalyzer.Id}_WithKey_Item_Key",
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // ── REACTOR_DSL_002 — present-but-non-stable key ────────────────────
+
+    [Fact]
+    public async Task DSL_002_Fires_On_Select_Index_Key()
+    {
+        // Shape 1: the key is the Select index parameter (`i`), never the item.
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System.Linq;
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Core.Factories;
+
+    public record Row(string Id, string Text);
+
+    public static class C
+    {
+        public static Element Build(IReadOnlyList<Row> rows)
+            => FlexColumn(rows.Select((r, i) => TextBlock(r.Text).WithKey({|REACTOR_DSL_002:i.ToString()|})).ToArray());
+    }
+}";
+
+        await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task DSL_002_Fires_On_ForEach_Index_Key()
+    {
+        // Shape 1 via the static `ForEach` factory (a bare identifier call, not
+        // a member-access like LINQ Select).
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Core.Factories;
+
+    public record Row(string Id, string Text);
+
+    public static class C
+    {
+        public static Element Build(IReadOnlyList<Row> rows)
+            => ForEach(rows, (r, i) => TextBlock(r.Text).WithKey({|REACTOR_DSL_002:i.ToString()|}));
+    }
+}";
+
+        await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task DSL_002_Fires_On_GuidNewGuid_Key()
+    {
+        // Shape 2: a per-render-random key. Single-param lambda — no index needed.
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System;
+    using System.Linq;
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Core.Factories;
+
+    public record Row(string Id, string Text);
+
+    public static class C
+    {
+        public static Element Build(IReadOnlyList<Row> rows)
+            => FlexColumn(rows.Select(r => TextBlock(r.Text).WithKey({|REACTOR_DSL_002:Guid.NewGuid().ToString()|})).ToArray());
+    }
+}";
+
+        await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task DSL_002_Fires_On_DateTimeNow_Key()
+    {
+        // Shape 2: DateTime.Now nested inside an interpolation.
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System;
+    using System.Linq;
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Core.Factories;
+
+    public record Row(string Id, string Text);
+
+    public static class C
+    {
+        public static Element Build(IReadOnlyList<Row> rows)
+            => FlexColumn(rows.Select(r => TextBlock(r.Text).WithKey({|REACTOR_DSL_002:$""row-{DateTime.Now.Ticks}""|})).ToArray());
+    }
+}";
+
+        await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task DSL_002_Does_Not_Fire_On_Stable_Item_Key()
+    {
+        // Negative: even in the 2-parameter (item, index) form, a key off the
+        // item's Id references the item and never the index — a stable key.
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System.Linq;
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Core.Factories;
+
+    public record Row(string Id, string Text);
+
+    public static class C
+    {
+        public static Element Build(IReadOnlyList<Row> rows)
+            => FlexColumn(rows.Select((r, i) => TextBlock(r.Text).WithKey(r.Id)).ToArray());
+    }
+}";
+
+        await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task DSL_002_Does_Not_Fire_On_Composite_Index_Key()
+    {
+        // Near-miss: `$""{r.Id}-{i}""` references the index but ALSO the item, so
+        // it carries real identity — must not be flagged as positional.
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System.Linq;
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Core.Factories;
+
+    public record Row(string Id, string Text);
+
+    public static class C
+    {
+        public static Element Build(IReadOnlyList<Row> rows)
+            => FlexColumn(rows.Select((r, i) => TextBlock(r.Text).WithKey($""{r.Id}-{i}"")).ToArray());
+    }
+}";
+
+        await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task DSL_002_Does_Not_Fire_Outside_A_Projection_Lambda()
+    {
+        // Scope guard: a non-stable-looking key on a single, static element is
+        // not a list item — DSL_002 only applies inside Select/ForEach.
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System;
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Core.Factories;
+
+    public static class C
+    {
+        public static Element One()
+            => TextBlock(""x"").WithKey(Guid.NewGuid().ToString());
+    }
+}";
+
+        await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 }

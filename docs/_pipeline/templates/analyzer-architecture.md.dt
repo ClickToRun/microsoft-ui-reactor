@@ -120,6 +120,7 @@ via `.editorconfig`.
 | `REACTOR_THEME_003` | Warning | RequestedTheme set on a non-root element | `RequestedThemeSetAnalyzer.cs` |
 | `REACTOR_REF_001` | Warning | ElementRef.Current assigned to a reference property instead of a reactive edge | `ReferenceCurrentReadAnalyzer.cs` |
 | `REACTOR_DSL_001` | Warning | Dynamic list item missing .WithKey | `MissingWithKeyAnalyzer.cs` |
+| `REACTOR_DSL_002` | Info | Non-stable .WithKey (list index or per-render value) | `MissingWithKeyAnalyzer.cs` |
 | `REACTOR_DOCK_001` | Warning | OnLiveLayoutChanged feeds the live layout back into state | `OnLiveLayoutRoundTripAnalyzer.cs` |
 | `REACTOR_DOC_001` | Warning | Public API missing XML doc summary | `XmlDocSummaryAnalyzer.cs` |
 | `REACTOR_POOL_001` | Warning | `.Set` writes to a property that pool reset clears | `PoolResetSetAnalyzer.cs` |
