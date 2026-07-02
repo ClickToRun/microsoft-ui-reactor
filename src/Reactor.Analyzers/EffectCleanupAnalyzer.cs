@@ -65,15 +65,16 @@ public sealed class EffectCleanupAnalyzer : DiagnosticAnalyzer
     private static readonly DiagnosticDescriptor Rule = new(
         DiagnosticId,
         "UseEffect allocates a long-lived resource with no cleanup",
-        "This UseEffect creates {0} but returns no cleanup; after unmount it keeps firing and the state setter runs on a dead RenderContext. Return a cleanup Action (use the Func<Action> overload) that stops/disposes it.",
+        "This UseEffect creates {0} but returns no cleanup; it outlives the component and its callback can still run after unmount. Return a cleanup Action (use the Func<Action> overload) that stops/disposes it.",
         "Reactor.Lifecycle",
         DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
         description:
             "The Action overload of UseEffect cannot return a teardown, so a timer, IObservable " +
             "subscription, or CLR event wired inside it outlives the component. After unmount the " +
-            "producer keeps firing and its handler calls a state setter on a dead RenderContext, " +
-            "which throws or silently leaks the captured closure. Switch to the Func<Action> " +
+            "producer keeps running and its callback can still fire against a torn-down component — " +
+            "at best it leaks the captured closure tree, and if the callback touches component state " +
+            "(e.g. a state setter) it runs against a dead RenderContext. Switch to the Func<Action> " +
             "overload and return a cleanup that cancels/disposes the resource — e.g. " +
             "UseEffect(() => { var t = new PeriodicTimer(...); ...; return () => t.Dispose(); }, ...). " +
             "See docs/guide/effects.md \"Missing cleanup\".");
@@ -132,6 +133,9 @@ public sealed class EffectCleanupAnalyzer : DiagnosticAnalyzer
         => invocation.Expression switch
         {
             MemberAccessExpressionSyntax ma => ma.Name.Identifier.Text,
+            // Conditional access — `ctx?.UseEffect(...)` / `timer?.Dispose()` — binds the member
+            // via a MemberBindingExpressionSyntax. Mirrors CommandDebounceAnalyzer.
+            MemberBindingExpressionSyntax mb => mb.Name.Identifier.Text,
             IdentifierNameSyntax id => id.Identifier.Text,
             GenericNameSyntax gn => gn.Identifier.Text,
             _ => null,
@@ -172,9 +176,10 @@ public sealed class EffectCleanupAnalyzer : DiagnosticAnalyzer
 
     /// <summary>
     /// Scans the whole effect body (including nested lambdas / continuations) for any teardown
-    /// signal: a <c>using</c> statement/declaration, a <c>.Dispose(</c>/<c>.DisposeAsync(</c> call,
-    /// or an event unsubscription (<c>-=</c> whose left side binds to an event). Presence means the
-    /// author is managing the lifetime. A numeric <c>-=</c> (e.g. <c>count -= 1</c>) is not counted.
+    /// signal: a <c>using</c> statement/declaration, a <c>.Dispose(</c>/<c>.DisposeAsync(</c> call
+    /// (including the conditional-access <c>timer?.Dispose()</c> form), or an event unsubscription
+    /// (<c>-=</c> whose left side binds to an event). Presence means the author is managing the
+    /// lifetime. A numeric <c>-=</c> (e.g. <c>count -= 1</c>) is not counted.
     /// </summary>
     private static bool HasCleanupSignal(SyntaxNode body, SemanticModel model, System.Threading.CancellationToken ct)
     {
@@ -189,8 +194,7 @@ public sealed class EffectCleanupAnalyzer : DiagnosticAnalyzer
                     when a.IsKind(SyntaxKind.SubtractAssignmentExpression) && IsEvent(a.Left, model, ct):
                     return true;
                 case InvocationExpressionSyntax inv
-                    when inv.Expression is MemberAccessExpressionSyntax ma
-                    && ma.Name.Identifier.Text is "Dispose" or "DisposeAsync":
+                    when GetInvokedMethodName(inv) is "Dispose" or "DisposeAsync":
                     return true;
             }
         }
@@ -218,7 +222,7 @@ public sealed class EffectCleanupAnalyzer : DiagnosticAnalyzer
                     return (creation, $"a {timerName}");
 
                 case InvocationExpressionSyntax inv
-                    when inv.Expression is MemberAccessExpressionSyntax { Name.Identifier.Text: "Subscribe" }
+                    when GetInvokedMethodName(inv) == "Subscribe"
                     && ReturnsDisposable(inv, model, ct):
                     return (inv, "an IObservable subscription");
 

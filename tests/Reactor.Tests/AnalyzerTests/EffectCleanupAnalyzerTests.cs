@@ -803,4 +803,51 @@ namespace TestApp
         }
     }
 }");
+
+    // Conditional-access UseEffect (`ctx?.UseEffect(...)`) still passes the syntactic fast path.
+    [Fact]
+    public Task Fires_Via_ConditionalAccess_UseEffect()
+        => Verify(@"
+namespace TestApp
+{
+    using System;
+    using Microsoft.UI.Reactor.Core;
+    using Fakes;
+
+    public sealed class Comp : Component
+    {
+        public override string Render()
+        {
+            Context?.UseEffect(() =>
+            {
+                var t = {|REACTOR_LIFECYCLE_002:new PeriodicTimer(TimeSpan.FromSeconds(1))|};
+            }, Array.Empty<object>());
+            return """";
+        }
+    }
+}");
+
+    // Conditional-access disposal (`timer?.Dispose()`) is a teardown signal → must NOT fire.
+    [Fact]
+    public Task NoFire_On_ConditionalAccess_Dispose()
+        => Verify(@"
+namespace TestApp
+{
+    using System;
+    using Microsoft.UI.Reactor.Core;
+    using Fakes;
+
+    public sealed class Comp : Component
+    {
+        public override string Render()
+        {
+            UseEffect(() =>
+            {
+                var t = new PeriodicTimer(TimeSpan.FromSeconds(1));
+                t?.Dispose();
+            }, Array.Empty<object>());
+            return """";
+        }
+    }
+}");
 }
