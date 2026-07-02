@@ -54,10 +54,11 @@ public sealed class MemoWrapperModifierAnalyzer : DiagnosticAnalyzer
         "A keyed 'Memo(key, factory)' row is only served from the virtualized-list cross-recycle " +
         "cache while the wrapper is bare (no modifiers, key, or attached state). Decorating the " +
         "wrapper — e.g. 'Memo(id, () => Row(item)).Padding(8)' — makes the row bypass the cache and " +
-        "rebuild + re-diff on every recycle, silently losing the perf benefit. The reconciler " +
-        "re-applies the wrapper's modifiers to the inner element, so moving them onto the element the " +
-        "factory returns — 'Memo(id, () => Row(item).Padding(8))' — renders identically and keeps the " +
-        "wrapper cacheable.";
+        "rebuild + re-diff on every recycle, silently losing the perf benefit. Move the modifiers " +
+        "onto the element the factory returns — 'Memo(id, () => Row(item).Padding(8))' — to keep the " +
+        "wrapper cacheable. Because the memo then caches the modified element per key, make sure every " +
+        "input the moved modifiers read is captured by the key (fold selection/theme flags into the " +
+        "key, e.g. 'Memo((id, isSelected), () => ...)'); otherwise a cache hit can serve stale content.";
 
     private static readonly DiagnosticDescriptor Rule = new(
         DiagnosticId,
@@ -174,7 +175,7 @@ public sealed class MemoWrapperModifierAnalyzer : DiagnosticAnalyzer
         return false;
     }
 
-    private static bool DerivesFromElement(ITypeSymbol? type)
+    internal static bool DerivesFromElement(ITypeSymbol? type)
     {
         for (var current = type; current is not null; current = current.BaseType)
         {

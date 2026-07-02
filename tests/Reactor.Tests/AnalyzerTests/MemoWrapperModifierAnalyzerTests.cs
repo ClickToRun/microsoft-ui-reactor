@@ -36,6 +36,10 @@ namespace Microsoft.UI.Reactor.Core
     {
         public static MemoElement Memo(System.Func<RenderContext, Element> render, params object[] dependencies) => null!;
         public static KeyedMemoElement Memo<TKey>(TKey key, System.Func<Element> factory) => null!;
+        // Synthetic non-keyed look-alike: same (value, () => Element) call shape as the keyed
+        // overload but returns MemoElement, so only the analyzer's return-type check distinguishes
+        // it. A `bool` key binds this non-generic overload ahead of the generic keyed one.
+        public static MemoElement Memo(bool flag, System.Func<Element> factory) => null!;
         public static Element Text(string s) => null!;
     }
 
@@ -94,6 +98,20 @@ namespace TestApp
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 
+    [Fact]
+    public async Task Fires_On_Fully_Qualified_Factories_Memo_Call()
+    {
+        // Member-access callee form `Factories.Memo(...)` (not the `using static` identifier form).
+        var source = Program(@"
+        public static Element Build(Item item)
+            => Factories.Memo(item.Id, () => Row(item)).{|REACTOR_MEMO_001:Padding|}(8);");
+
+        await new CSharpAnalyzerTest<MemoWrapperModifierAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
     // ── Analyzer negatives ─────────────────────────────────────────────
 
     [Fact]
@@ -118,6 +136,22 @@ namespace TestApp
         var source = Program(@"
         public static Element Build(Item item)
             => Memo(item.Id, () => Row(item));");
+
+        await new CSharpAnalyzerTest<MemoWrapperModifierAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_When_TwoArg_Memo_Resolves_To_NonKeyed_Return()
+    {
+        // Exercises the SEMANTIC return-type guard specifically: this call passes every syntactic
+        // gate (2 args, parameterless-lambda factory, trailing Element modifier) yet resolves to the
+        // non-keyed look-alike returning MemoElement, so only the KeyedMemoElement check stops it.
+        var source = Program(@"
+        public static Element Build(Item item)
+            => Memo(true, () => Row(item)).Padding(8);");
 
         await new CSharpAnalyzerTest<MemoWrapperModifierAnalyzer, DefaultVerifier>
         {
@@ -204,6 +238,46 @@ namespace TestApp
         var after = Program(@"
         public static Element Build(Item item)
             => Memo(item.Id, () => { return Row(item).Padding(8); });");
+
+        await new CSharpCodeFixTest<MemoWrapperModifierAnalyzer, MemoWrapperModifierCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Parenthesizes_A_NonPrimary_Factory_Body()
+    {
+        // A conditional factory body must be wrapped so the moved modifier binds to the whole
+        // expression, not just the else-branch (operator precedence).
+        var before = Program(@"
+        public static Element Build(Item item)
+            => Memo(item.Id, () => item.Id.Length > 0 ? Row(item) : Text(""e"")).{|REACTOR_MEMO_001:Padding|}(8);");
+
+        var after = Program(@"
+        public static Element Build(Item item)
+            => Memo(item.Id, () => (item.Id.Length > 0 ? Row(item) : Text(""e"")).Padding(8));");
+
+        await new CSharpCodeFixTest<MemoWrapperModifierAnalyzer, MemoWrapperModifierCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Leaves_A_Trailing_NonElement_Call_Outside_The_Factory()
+    {
+        // The walk must stop at the last Element modifier: `.ToString()` returns a string, so pulling
+        // it into the factory would break Func<Element>. It stays on the (now bare) wrapper.
+        var before = Program(@"
+        public static string Build(Item item)
+            => Memo(item.Id, () => Row(item)).{|REACTOR_MEMO_001:Padding|}(8).ToString();");
+
+        var after = Program(@"
+        public static string Build(Item item)
+            => Memo(item.Id, () => Row(item).Padding(8)).ToString();");
 
         await new CSharpCodeFixTest<MemoWrapperModifierAnalyzer, MemoWrapperModifierCodeFix, DefaultVerifier>
         {

@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.Composition;
-using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
@@ -38,6 +37,9 @@ public sealed class MemoWrapperModifierCodeFix : CodeFixProvider
         var root = await context.Document.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
         if (root is null) return;
 
+        var model = await context.Document.GetSemanticModelAsync(context.CancellationToken).ConfigureAwait(false);
+        if (model is null) return;
+
         foreach (var diagnostic in context.Diagnostics)
         {
             // The diagnostic is reported on the modifier's name token; the enclosing invocation is
@@ -52,34 +54,39 @@ public sealed class MemoWrapperModifierCodeFix : CodeFixProvider
             if (!MemoWrapperModifierAnalyzer.TryGetMovableFactory(memoInvocation, out var lambda, out var body))
                 continue;
 
+            // Walk up the modifier chain to the LAST Element-returning modifier — but no further.
+            // A trailing non-Element call (e.g. `.ToString()`) is NOT part of the wrapper's modifier
+            // set and must stay outside the factory, otherwise the moved body stops satisfying
+            // Func<Element> and the fix produces non-compiling code.
+            var outermost = innerModifier;
+            while (outermost.Parent is MemberAccessExpressionSyntax parentAccess
+                   && parentAccess.Expression == outermost
+                   && parentAccess.Parent is InvocationExpressionSyntax parentInvocation
+                   && model.GetSymbolInfo(parentInvocation, context.CancellationToken).Symbol is IMethodSymbol parentSymbol
+                   && MemoWrapperModifierAnalyzer.DerivesFromElement(parentSymbol.ReturnType))
+            {
+                outermost = parentInvocation;
+            }
+
+            var capturedOutermost = outermost;
             context.RegisterCodeFix(
                 CodeAction.Create(
-                    "Move modifiers inside the Memo factory",
-                    ct => MoveModifiersIntoFactory(context.Document, root, innerModifier, memoInvocation, lambda, body),
+                    "Move modifiers inside the Memo factory (ensure their inputs are in the key)",
+                    _ => Task.FromResult(MoveModifiersIntoFactory(context.Document, root, capturedOutermost, memoInvocation, lambda, body)),
                     equivalenceKey: MemoWrapperModifierAnalyzer.DiagnosticId),
                 diagnostic);
         }
     }
 
-    private static Task<Document> MoveModifiersIntoFactory(
+    private static Document MoveModifiersIntoFactory(
         Document document,
         SyntaxNode root,
-        InvocationExpressionSyntax innerModifier,
+        InvocationExpressionSyntax outermost,
         InvocationExpressionSyntax memoInvocation,
         ParenthesizedLambdaExpressionSyntax lambda,
         ExpressionSyntax factoryBody)
     {
-        // Walk up the modifier chain to its outermost invocation:
-        //   Memo(k, f).Padding(8).Margin(4)  →  outermost = the `.Margin(4)` invocation.
-        var outermost = innerModifier;
-        while (outermost.Parent is MemberAccessExpressionSyntax parentAccess
-               && parentAccess.Expression == outermost
-               && parentAccess.Parent is InvocationExpressionSyntax parentInvocation)
-        {
-            outermost = parentInvocation;
-        }
-
-        // Re-root the whole chain on the factory body: replacing the Memo(...) sub-node with the
+        // Re-root the modifier chain on the factory body: replacing the Memo(...) sub-node with the
         // body turns `Memo(k, f).Padding(8).Margin(4)` into `body.Padding(8).Margin(4)`.
         var substituteBody = NeedsParentheses(factoryBody)
             ? SyntaxFactory.ParenthesizedExpression(factoryBody.WithoutTrivia())
@@ -102,7 +109,7 @@ public sealed class MemoWrapperModifierCodeFix : CodeFixProvider
             .WithTriviaFrom(outermost);
 
         var newRoot = root.ReplaceNode(outermost, newMemoInvocation);
-        return Task.FromResult(document.WithSyntaxRoot(newRoot));
+        return document.WithSyntaxRoot(newRoot);
     }
 
     /// <summary>
