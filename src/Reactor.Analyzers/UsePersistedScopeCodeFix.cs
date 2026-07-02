@@ -37,6 +37,7 @@ public sealed class UsePersistedScopeCodeFix : CodeFixProvider
 {
     private const string ScopeTypeName = "PersistedScope";
     private const string ScopeTypeMetadataName = "Microsoft.UI.Reactor.Core.PersistedScope";
+    private const string ScopeTypeFullyQualifiedName = "global::Microsoft.UI.Reactor.Core.PersistedScope";
     private const string ScopeParameterName = "scope";
     private const string RecommendedScope = "Window";
     private const string ExplicitScope = "Application";
@@ -66,12 +67,13 @@ public sealed class UsePersistedScopeCodeFix : CodeFixProvider
 
             // Shortest name for PersistedScope that compiles at this call site — bare
             // `PersistedScope` when the namespace is imported (the common case),
-            // otherwise a qualified name. Falls back to the simple name if the symbol
-            // can't be resolved.
+            // otherwise a qualified name. Falls back to the fully-qualified global
+            // name if the symbol can't be resolved (e.g. an ambiguous metadata lookup),
+            // so the emitted fix compiles even without a `using` at the call site.
             var scopeTypeName = semanticModel?.Compilation
                 .GetTypeByMetadataName(ScopeTypeMetadataName)
                 ?.ToMinimalDisplayString(semanticModel, invocation.SpanStart)
-                ?? ScopeTypeName;
+                ?? ScopeTypeFullyQualifiedName;
 
             var useNamedArgument = invocation.ArgumentList.Arguments.Any(static a => a.NameColon is not null);
 
