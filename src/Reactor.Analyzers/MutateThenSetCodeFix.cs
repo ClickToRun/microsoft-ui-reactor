@@ -37,6 +37,8 @@ public sealed class MutateThenSetCodeFix : CodeFixProvider
         var root = await context.Document.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
         if (root is null) return;
 
+        SemanticModel? semanticModel = null;
+
         foreach (var diagnostic in context.Diagnostics)
         {
             // The analyzer only marks the single-arg .Add(v) shape as fixable.
@@ -50,6 +52,14 @@ public sealed class MutateThenSetCodeFix : CodeFixProvider
             var setterArgs = setterCall.ArgumentList.Arguments;
             if (setterArgs.Count != 1) continue;
             var itemsExpr = setterArgs[0].Expression;
+
+            // Only offer the collection-expression rewrite when the state type can actually be
+            // built from a collection expression — otherwise `setItems([.. items, v])` would not
+            // compile for an exotic collection type. The diagnostic still fires for the author.
+            semanticModel ??= await context.Document.GetSemanticModelAsync(context.CancellationToken).ConfigureAwait(false);
+            if (semanticModel is null) continue;
+            var stateType = semanticModel.GetTypeInfo(itemsExpr, context.CancellationToken).Type;
+            if (!SupportsCollectionExpression(stateType)) continue;
 
             // Mutator call: items.Add(v).
             var mutatorCall = root.FindNode(diagnostic.AdditionalLocations[0].SourceSpan, getInnermostNodeForTie: true)
@@ -103,4 +113,33 @@ public sealed class MutateThenSetCodeFix : CodeFixProvider
 
     private static bool IsComment(SyntaxTrivia t) =>
         t.IsKind(SyntaxKind.SingleLineCommentTrivia) || t.IsKind(SyntaxKind.MultiLineCommentTrivia);
+
+    /// <summary>
+    /// True when a value of <paramref name="type"/> can be produced by a collection expression
+    /// (<c>[.. items, v]</c>): an array/span, one of the collection interfaces the compiler
+    /// materializes as a <c>List&lt;T&gt;</c>, or a concrete <c>IEnumerable</c> with an accessible
+    /// parameterless constructor. Withholding the fix for anything else avoids emitting code that
+    /// would not compile for an exotic collection type.
+    /// </summary>
+    private static bool SupportsCollectionExpression(ITypeSymbol? type)
+    {
+        if (type is IArrayTypeSymbol)
+            return true;
+        if (type is not INamedTypeSymbol named)
+            return false;
+
+        if (named.TypeKind == TypeKind.Interface)
+        {
+            var iface = named.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            return iface is "global::System.Collections.Generic.IEnumerable<T>"
+                or "global::System.Collections.Generic.IReadOnlyList<T>"
+                or "global::System.Collections.Generic.IReadOnlyCollection<T>"
+                or "global::System.Collections.Generic.IList<T>"
+                or "global::System.Collections.Generic.ICollection<T>";
+        }
+
+        var implementsEnumerable = named.AllInterfaces.Any(static i => i.SpecialType == SpecialType.System_Collections_IEnumerable);
+        return implementsEnumerable
+            && named.InstanceConstructors.Any(static c => c.DeclaredAccessibility == Accessibility.Public && c.Parameters.Length == 0);
+    }
 }

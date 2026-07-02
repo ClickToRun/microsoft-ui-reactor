@@ -25,6 +25,15 @@ namespace Microsoft.UI.Reactor.Core
         public void Add(string s) { }
     }
 
+    // A reference collection with .Add but NO parameterless constructor — cannot be built from a
+    // collection expression, so the fix must be withheld (the diagnostic still fires).
+    public class NoCtorList : System.Collections.IEnumerable
+    {
+        public NoCtorList(int capacity) { }
+        public void Add(string s) { }
+        public System.Collections.IEnumerator GetEnumerator() => null;
+    }
+
     public abstract class Component
     {
         protected internal RenderContext Context { get; } = new RenderContext();
@@ -34,6 +43,7 @@ namespace Microsoft.UI.Reactor.Core
 
         protected System.Collections.Generic.List<string> Seed = new System.Collections.Generic.List<string>();
         protected ValueList ValueSeed = new ValueList();
+        protected NoCtorList NoCtorSeed = new NoCtorList(1);
     }
 }
 ";
@@ -297,6 +307,31 @@ class C : Microsoft.UI.Reactor.Core.Component
             FixedCode = after,
             ReferenceAssemblies = ReferenceAssemblies.Net.Net80,
             CodeActionEquivalenceKey = HookRulesAnalyzer.MutateThenSetId,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // The fix is withheld when the state type cannot be built from a collection expression (here a
+    // collection with no parameterless constructor); the warning still fires.
+    [Fact]
+    public async Task CodeFix_Not_Offered_When_Type_Has_No_Collection_Expression()
+    {
+        var source = Stubs + @"
+class C : Microsoft.UI.Reactor.Core.Component
+{
+    public override string Render()
+    {
+        var (items, setItems) = UseState(NoCtorSeed);
+        items.Add(""x"");
+        {|REACTOR_HOOKS_010:setItems(items)|};
+        return """";
+    }
+}";
+
+        await new CSharpCodeFixTest<HookRulesAnalyzer, MutateThenSetCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
+            ReferenceAssemblies = ReferenceAssemblies.Net.Net80,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 
