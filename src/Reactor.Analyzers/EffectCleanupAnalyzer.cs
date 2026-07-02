@@ -146,13 +146,17 @@ public sealed class EffectCleanupAnalyzer : DiagnosticAnalyzer
         };
 
     /// <summary>
-    /// True when the resolved <c>UseEffect</c> lives on the Reactor <c>Component</c> (the protected
-    /// wrappers) or <c>RenderContext</c> (the instance methods). Mirrors
-    /// <c>HookRulesAnalyzer.IsLikelyReactorHook</c>'s Component-or-RenderContext anchoring.
+    /// True when the resolved <c>UseEffect</c> is declared <b>exactly</b> on the Reactor
+    /// <c>Component</c> / <c>Component&lt;T&gt;</c> (the protected wrappers) or <c>RenderContext</c>
+    /// (the instance methods) — the types that own the Action-vs-<c>Func&lt;Action&gt;</c> cleanup
+    /// contract. A <c>UseEffect</c> a user declares on their own <c>Component</c> subclass shadows
+    /// (not overrides — the framework methods are non-virtual) the hook and has unknown semantics,
+    /// so an exact-type check (rather than a derives-from walk) avoids a false positive there while
+    /// still accepting the idiomatic unqualified call, which binds to <c>Component.UseEffect</c>.
     /// </summary>
     private static bool IsReactorUseEffect(IMethodSymbol method)
-        => IsOrDerivesFrom(method.ContainingType, ComponentType)
-        || IsOrDerivesFrom(method.ContainingType, RenderContextType);
+        => IsReactorHostType(method.ContainingType, ComponentType)
+        || IsReactorHostType(method.ContainingType, RenderContextType);
 
     /// <summary>
     /// True when the first parameter is the non-generic <see cref="!:System.Action"/> — i.e. the
@@ -167,15 +171,17 @@ public sealed class EffectCleanupAnalyzer : DiagnosticAnalyzer
             && t.ContainingNamespace?.ToDisplayString() == "System";
     }
 
-    private static bool IsOrDerivesFrom(INamedTypeSymbol? type, string fullyQualifiedName)
+    /// <summary>
+    /// True when <paramref name="type"/> is exactly <paramref name="fullyQualifiedName"/> or its
+    /// generic form (<c>Component&lt;T&gt;</c>) — i.e. the type itself, not a derived type.
+    /// </summary>
+    private static bool IsReactorHostType(INamedTypeSymbol? type, string fullyQualifiedName)
     {
-        for (var t = type; t is not null; t = t.BaseType)
-        {
-            var name = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).Replace("global::", "");
-            if (name == fullyQualifiedName || name.StartsWith(fullyQualifiedName + "<", System.StringComparison.Ordinal))
-                return true;
-        }
-        return false;
+        if (type is null)
+            return false;
+        var name = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).Replace("global::", "");
+        return name == fullyQualifiedName
+            || name.StartsWith(fullyQualifiedName + "<", System.StringComparison.Ordinal);
     }
 
     /// <summary>

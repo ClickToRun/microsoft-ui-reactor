@@ -851,4 +851,31 @@ namespace TestApp
         }
     }
 }");
+
+    // A user-declared UseEffect that shadows the framework hook (declared on the subclass, not on
+    // Component/RenderContext) has unknown semantics → must NOT be treated as the Reactor hook.
+    [Fact]
+    public Task NoFire_On_User_Shadowing_UseEffect()
+        => Verify(@"
+namespace TestApp
+{
+    using System;
+    using Microsoft.UI.Reactor.Core;
+    using Fakes;
+
+    public sealed class Comp : Component
+    {
+        // Distinct single-arg overload declared on the subclass; the call below binds to it.
+        public void UseEffect(Action effect) { }
+
+        public override string Render()
+        {
+            UseEffect(() =>
+            {
+                var t = new PeriodicTimer(TimeSpan.FromSeconds(1));
+            });
+            return """";
+        }
+    }
+}");
 }
