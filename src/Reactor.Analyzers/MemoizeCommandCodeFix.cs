@@ -100,10 +100,12 @@ public sealed class MemoizeCommandCodeFix : CodeFixProvider
                     ct =>
                     {
                         // `() => <command>` with explicit single-space arrow trivia so the emitted
-                        // fix reads `() => new Command { … }` regardless of factory defaults.
+                        // fix reads `() => new Command { … }` regardless of factory defaults. Strip only
+                        // the command's OUTER leading/trailing trivia (not WithoutTrivia(), which would
+                        // also drop interior comments/newlines inside the initializer).
                         var lambda = SyntaxFactory.ParenthesizedLambdaExpression(
                             SyntaxFactory.ParameterList(),
-                            innerForClosure.WithoutTrivia())
+                            innerForClosure.WithLeadingTrivia().WithTrailingTrivia())
                             .WithArrowToken(SyntaxFactory.Token(SyntaxKind.EqualsGreaterThanToken)
                                 .WithLeadingTrivia(SyntaxFactory.Space)
                                 .WithTrailingTrivia(SyntaxFactory.Space));
@@ -182,8 +184,11 @@ public sealed class MemoizeCommandCodeFix : CodeFixProvider
                 && assign.Left == id)
                 continue;
 
+            // Skip the member name of a `receiver.Member` access whose receiver is neither `this` nor
+            // `base` — that member belongs to a local/parameter/type whose root is captured as a
+            // dependency (or is static). `this.`/`base.`/implicit instance reads are the stale hazard.
             if (id.Parent is MemberAccessExpressionSyntax ma && ma.Name == id
-                && ma.Expression is not ThisExpressionSyntax)
+                && ma.Expression is not (ThisExpressionSyntax or BaseExpressionSyntax))
                 continue;
 
             if (model.GetSymbolInfo(id, ct).Symbol is IFieldSymbol { IsStatic: false, IsConst: false }

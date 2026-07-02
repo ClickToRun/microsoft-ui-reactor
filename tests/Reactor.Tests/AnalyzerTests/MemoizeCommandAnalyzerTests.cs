@@ -649,4 +649,39 @@ namespace TestApp
             CodeActionEquivalenceKey = MemoizeCommandAnalyzer.Id,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    [Fact]
+    public async Task CodeFix_Not_Offered_When_Command_Reads_Base_Member()
+    {
+        // `base.Member` is a render-time instance read too — the fix must decline (no code action),
+        // just like an implicit-`this` member, so it never memoizes a stale value.
+        var source = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+
+    public abstract class BaseComp : Component
+    {
+        protected string BaseLabel => ""Save"";
+    }
+
+    public sealed class Comp : BaseComp
+    {
+        void Save() { }
+
+        public override Element Render()
+        {
+            var save = {|REACTOR_PERF_FUNCREF:new Command { Label = base.BaseLabel, Execute = Save }|};
+            return Button(save);
+        }
+    }
+}";
+
+        await new CSharpCodeFixTest<MemoizeCommandAnalyzer, MemoizeCommandCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
+            CodeActionEquivalenceKey = MemoizeCommandAnalyzer.Id,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }
