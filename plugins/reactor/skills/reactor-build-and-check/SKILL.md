@@ -82,6 +82,7 @@ Additional flags:
 | `REACTOR_HOOKS_007` | warning | `UseMemoCells` builder closure missing dependencies | Add the captured variable to the deps array. |
 | `REACTOR_HOOKS_009` | warning | `Command.DebounceMs` set on a command bound without `UseCommand` | Route it through `UseCommand`: `var cmd = UseCommand(new Command { …, DebounceMs = 1500 });`. The debounce window lives in the hook store, so a raw bound `Command` never debounces. |
 | `REACTOR_DSL_001` | warning | `Select(...)` projecting into a layout container without `.WithKey(...)` | `items.Select(i => Row(i).WithKey(i.Id)).ToArray<Element?>()`. Keys keep focus + animation state across reorders. |
+| `REACTOR_DSL_003` | warning | Typed collection (`ListView<T>`/`GridView<T>`/`LazyVStack<T>`/…) `keySelector` returns a constant/null or ignores its item | Key by a stable, unique item property: `ListView(items, i => i.Id, (i, _) => Row(i))`. A constant key collides every row → keyed-diff bailout → full list re-realization. |
 | `REACTOR_THEME_001` | warning | Hardcoded color on a themed surface | Use `Theme.*` tokens (e.g. `Theme.PrimaryText`, `Theme.CardBackground`). See `reactor-design`. |
 | `REACTOR_THEME_002` | info | Lightweight styling opportunity | Optional. Use `.Resources(r => r.Set("ButtonBackground", …))` for visual-state overrides. |
 | `REACTOR_THEME_003` | info | `RequestedTheme` modifier available | Use `.RequestedTheme(ElementTheme.Dark)` for subtree theme overrides. |
