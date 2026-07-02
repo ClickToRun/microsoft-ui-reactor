@@ -26,8 +26,13 @@ using Microsoft.UI.Reactor.Navigation;
 namespace Microsoft.UI.Reactor.Navigation
 {
     // Mirrors src/Reactor/Core/Navigation/NavigationHandle.cs — a sealed generic
-    // handle in this exact namespace (name + namespace + arity are the gate).
-    public sealed class NavigationHandle<TRoute> where TRoute : notnull { }
+    // handle in this exact namespace (name + namespace + arity are the gate). Its
+    // constructor is internal (as in the framework), so consumer code can only obtain
+    // one from UseNavigation — which is why static storage of this type is the leak.
+    public sealed class NavigationHandle<TRoute> where TRoute : notnull
+    {
+        internal NavigationHandle() { }
+    }
 }
 
 namespace Microsoft.UI.Reactor.Core

@@ -1,14 +1,13 @@
 using System.Collections.Immutable;
 using System.Linq;
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Diagnostics;
 
 namespace Microsoft.UI.Reactor.Analyzers;
 
 /// <summary>
 /// <c>REACTOR_NAV_001</c> — a <see cref="Navigation.NavigationHandle{TRoute}"/>
-/// returned by <c>UseNavigation</c> must not be stashed in a <c>static</c> field.
+/// returned by <c>UseNavigation</c> must not be stashed in a <c>static</c> field or property.
 /// </summary>
 /// <remarks>
 /// <para>
