@@ -70,7 +70,9 @@ public sealed class SetOwnedItemsSourceAnalyzer : DiagnosticAnalyzer
             return;
 
         var lambdaParam = SetLambdaHelpers.GetSingleLambdaParameter(lambdaExpr);
-        var leftAccess = SetLambdaHelpers.GetAssignedMemberAccess(assignment, lambdaParam?.Identifier.Text);
+        if (lambdaParam is null)
+            return;
+        var leftAccess = SetLambdaHelpers.GetAssignedMemberAccess(assignment, lambdaParam.Identifier.Text);
         if (leftAccess is null || leftAccess.Name.Identifier.Text != "ItemsSource")
             return;
 

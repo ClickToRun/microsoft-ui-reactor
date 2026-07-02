@@ -72,7 +72,9 @@ public sealed class SetSelectedItemAnalyzer : DiagnosticAnalyzer
             return;
 
         var lambdaParam = SetLambdaHelpers.GetSingleLambdaParameter(lambdaExpr);
-        var leftAccess = SetLambdaHelpers.GetAssignedMemberAccess(assignment, lambdaParam?.Identifier.Text);
+        if (lambdaParam is null)
+            return;
+        var leftAccess = SetLambdaHelpers.GetAssignedMemberAccess(assignment, lambdaParam.Identifier.Text);
         if (leftAccess is null)
             return;
         var member = leftAccess.Name.Identifier.Text;
