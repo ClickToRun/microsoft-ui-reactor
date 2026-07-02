@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using Microsoft.CodeAnalysis;
@@ -71,10 +70,10 @@ public sealed class AnimationScopeAsyncAnalyzer : DiagnosticAnalyzer
         "Async lambda to WithAnimation loses the animation scope after await";
 
     private static readonly LocalizableString MessageFormat =
-        "This async lambda passed to '{0}' binds as 'async void'; AnimationScope is [ThreadStatic], " +
-        "so mutations after the 'await' run with an empty scope and don't animate. " +
-        "WithAnimationAsync won't help (it also takes an Action, not a Func<Task>) — split the animated " +
-        "mutations into a separate WithAnimation call per phase, sequenced around each await.";
+        "This async lambda passed to '{0}' binds as 'async void': AnimationScope is [ThreadStatic], " +
+        "so mutations after the first 'await' run with an empty scope and don't animate. " +
+        "Passing an async lambda to WithAnimationAsync won't help either (it also takes an Action). " +
+        "Split the mutations into a separate WithAnimation call per phase, sequenced around each await.";
 
     private static readonly LocalizableString Description =
         "AnimationScope stores the ambient curve in [ThreadStatic] fields and WithAnimation/" +
@@ -152,29 +151,51 @@ public sealed class AnimationScopeAsyncAnalyzer : DiagnosticAnalyzer
     }
 
     /// <summary>
-    /// True when the async lambda body performs a real mutation (a call or assignment) that runs
-    /// <b>after</b> an <c>await</c>, evaluated at the lambda's own async level. Awaits and statements
-    /// inside nested closures (lambdas / anonymous methods / local functions) are ignored — they run
-    /// in their own async context, so they must neither trip nor suppress this lambda's diagnostic.
+    /// True when a call statement runs <b>after</b> an <c>await</c> in the lambda body, walking the
+    /// body block's top-level statements in execution order and tracking whether an <c>await</c> has
+    /// already happened (an <c>await</c> nested in control flow — <c>if</c>/loop/<c>using</c> — still
+    /// advances that state for the statements that follow it).
     /// </summary>
+    /// <remarks>
+    /// Reasoning at the top level is deliberate and keeps the rule low-false-positive:
+    /// <list type="bullet">
+    /// <item>A mutation inside a branch that is <b>mutually exclusive</b> with the await's branch
+    /// (the <c>else</c> of <c>if (c) { await X; } else { Mutate(); }</c>, a sibling <c>switch</c>
+    /// section, a <c>catch</c>) is never a top-level statement after the await, so it never trips
+    /// the rule.</item>
+    /// <item>The lost "mutation" is a state-setter <b>call</b> (the documented <c>setStage(...)</c>
+    /// shape) — an <see cref="InvocationExpressionSyntax"/> statement. A bare assignment
+    /// (<c>i += 1</c>) is not an animated mutation and is intentionally ignored.</item>
+    /// <item>A statement that itself awaits (<c>await X;</c>, <c>x = await Y;</c>,
+    /// <c>Set(await Y());</c>) is treated as the await, not as lost work (accepted conservative
+    /// false negative for an await inlined into a mutation's arguments).</item>
+    /// </list>
+    /// Awaits inside nested closures (lambdas / anonymous methods / local functions) are ignored via
+    /// <see cref="ContainsOwnLevelAwait"/> — they run in their own async context.
+    /// </remarks>
     private static bool HasPostAwaitMutation(CSharpSyntaxNode body)
     {
-        var ownLevel = body.DescendantNodes(descendIntoChildren: n => !IsClosureBoundary(n)).ToList();
+        // Only a block body can sequence a mutation after an await; an expression-bodied async
+        // lambda (`async () => await X`) has no trailing statement to lose.
+        if (body is not BlockSyntax block)
+            return false;
 
-        var awaits = ownLevel.OfType<AwaitExpressionSyntax>().ToList();
-        if (awaits.Count == 0)
-            return false; // async-with-no-await is CS1998, not this footgun — never fire.
+        var sawAwait = false;
+        foreach (var statement in block.Statements)
+        {
+            var hasAwait = ContainsOwnLevelAwait(statement);
 
-        var firstAwaitStart = awaits.Min(a => a.SpanStart);
+            if (sawAwait && !hasAwait
+                && statement is ExpressionStatementSyntax { Expression: InvocationExpressionSyntax })
+            {
+                return true;
+            }
 
-        // A "mutation" is an expression statement that calls something or assigns something and is
-        // itself not an await statement (`await X;` / `x = await Y;` are the await, not lost work).
-        return ownLevel
-            .OfType<ExpressionStatementSyntax>()
-            .Any(es =>
-                es.SpanStart > firstAwaitStart
-                && es.Expression is InvocationExpressionSyntax or AssignmentExpressionSyntax
-                && !ContainsOwnLevelAwait(es));
+            if (hasAwait)
+                sawAwait = true;
+        }
+
+        return false;
     }
 
     private static bool ContainsOwnLevelAwait(SyntaxNode node) =>

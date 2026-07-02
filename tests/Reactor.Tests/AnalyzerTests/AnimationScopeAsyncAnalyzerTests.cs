@@ -359,4 +359,80 @@ class C
 }";
         await VerifyAsync(source);
     }
+
+    [Fact]
+    public async Task Fires_For_Mutation_Between_Two_Awaits()
+    {
+        // The mutation runs after the FIRST await (scope already restored), even though a second
+        // await follows it. Confirms detection keys off "an await has happened", not the last await.
+        var source = Usings + ScopeTypes + @"
+class C
+{
+    void SetStage(string s) {}
+    Task Save() => Task.CompletedTask;
+
+    void M()
+    {
+        AnimationScope.WithAnimation(Curve.Ease(300), {|REACTOR_ANIM_003:async|} () =>
+        {
+            await Save();
+            SetStage(""mid"");
+            await Save();
+        });
+    }
+}";
+        await VerifyAsync(source);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_When_Await_And_Mutation_Are_In_Exclusive_Branches()
+    {
+        // The await and the mutation are in mutually-exclusive `if`/`else` arms, so the mutation
+        // never runs after the await on any path — must NOT fire (the key false-positive guard).
+        var source = Usings + ScopeTypes + @"
+class C
+{
+    void SetStage(string s) {}
+    Task Save() => Task.CompletedTask;
+
+    void M(bool cond)
+    {
+        AnimationScope.WithAnimation(Curve.Ease(300), async () =>
+        {
+            if (cond)
+            {
+                await Save();
+            }
+            else
+            {
+                SetStage(""x"");
+            }
+        });
+    }
+}";
+        await VerifyAsync(source);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_PostAwait_Assignment()
+    {
+        // A bare assignment (e.g. a local counter) after the await is not an animated mutation —
+        // only state-setter calls animate, so an assignment must not trip the rule.
+        var source = Usings + ScopeTypes + @"
+class C
+{
+    Task Save() => Task.CompletedTask;
+
+    void M()
+    {
+        int total = 0;
+        AnimationScope.WithAnimation(Curve.Ease(300), async () =>
+        {
+            await Save();
+            total += 1;
+        });
+    }
+}";
+        await VerifyAsync(source);
+    }
 }
