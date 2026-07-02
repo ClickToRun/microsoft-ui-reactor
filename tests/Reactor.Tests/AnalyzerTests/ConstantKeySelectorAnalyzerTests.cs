@@ -25,6 +25,7 @@ namespace Microsoft.UI.Reactor
     public abstract class Element { }
     public sealed class TemplatedListViewElement<T> : Element { }
     public sealed class TemplatedGridViewElement<T> : Element { }
+    public sealed class TemplatedTreeViewElement<T> : Element { }
     public interface IReactorKeyed { string Key { get; } }
 
     public static class Factories
@@ -46,6 +47,13 @@ namespace Microsoft.UI.Reactor
         public static TemplatedGridViewElement<T> GridView<T>(
             IReadOnlyList<T> items, Func<T, string> keySelector, Func<T, int, Element> viewBuilder)
             => new TemplatedGridViewElement<T>();
+
+        // Different shape: keySelector is still positional index 1, but there is a
+        // childrenSelector at index 2 and a single-parameter viewBuilder at index 3.
+        public static TemplatedTreeViewElement<T> TreeView<T>(
+            IReadOnlyList<T> items, Func<T, string> keySelector,
+            Func<T, IReadOnlyList<T>> childrenSelector, Func<T, Element> viewBuilder)
+            => new TemplatedTreeViewElement<T>();
 
         public static Element Text(string s) => null;
     }
@@ -120,6 +128,12 @@ namespace TestApp
     [Fact]
     public Task Fires_For_GridView_Too() =>
         Verify(@"            GridView(items, {|REACTOR_DSL_003:_ => ""g""|}, (i, idx) => Text(i.Id));");
+
+    [Fact]
+    public Task Fires_For_TreeView_With_Different_Signature() =>
+        // TreeView<T> keeps keySelector at positional index 1 despite a
+        // childrenSelector at index 2 and a single-parameter viewBuilder at index 3.
+        Verify(@"            TreeView(items, {|REACTOR_DSL_003:_ => ""root""|}, i => items, i => Text(i.Id));");
 
     [Fact]
     public Task Fires_For_Block_Body_Returning_Constant() =>
