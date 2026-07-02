@@ -25,7 +25,7 @@ class C
 }";
         var expected = AnalyzerVerifier.Diagnostic(UseThemeRefAnalyzer.DiagnosticId)
             .WithSpan(6, 23, 6, 32)
-            .WithArguments("PrimaryBackground", "#FFFFFF");
+            .WithArguments("SolidBackground", "#FFFFFF");
 
         var analyzerTest = new CSharpAnalyzerTest<UseThemeRefAnalyzer, DefaultVerifier>
         {
@@ -138,5 +138,279 @@ class C
             TestCode = test,
         };
         await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // ── REACTOR_THEME_004: inline SolidColorBrush escape hatch ──────────────
+
+    // Minimal WinUI/Theme-shaped stubs so `new SolidColorBrush(Colors.X)` and `Theme.X` compile in
+    // the analyzer/code-fix harness (which has no WindowsAppSDK reference). Mirrors the real shapes:
+    // Colors.X : Windows.UI.Color, SolidColorBrush(Color) : Brush, Theme.X : ThemeRef.
+    private const string Stubs = @"
+namespace Windows.UI
+{
+    public struct Color { }
+}
+namespace Microsoft.UI
+{
+    public static class Colors
+    {
+        public static Windows.UI.Color White => default;
+        public static Windows.UI.Color Black => default;
+        public static Windows.UI.Color Red => default;
+    }
+}
+namespace Microsoft.UI.Xaml.Media
+{
+    public class Brush { }
+    public class SolidColorBrush : Brush
+    {
+        public SolidColorBrush() { }
+        public SolidColorBrush(Windows.UI.Color color) { }
+    }
+}
+namespace Microsoft.UI.Reactor.Core
+{
+    public readonly struct ThemeRef { }
+    public static class Theme
+    {
+        public static ThemeRef SolidBackground => default;
+        public static ThemeRef PrimaryText => default;
+        public static ThemeRef Accent => default;
+        public static ThemeRef CardBackground => default;
+    }
+}
+";
+
+    [Fact]
+    public async Task Detects_Inline_SolidColorBrush_On_Background()
+    {
+        var test = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI;
+    using Microsoft.UI.Xaml.Media;
+
+    class C
+    {
+        void M(dynamic el)
+        {
+            el.Background({|REACTOR_THEME_004:new SolidColorBrush(Colors.Red)|});
+        }
+    }
+}";
+        await new CSharpAnalyzerTest<UseThemeRefAnalyzer, DefaultVerifier>
+        {
+            TestCode = test,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Detects_Inline_SolidColorBrush_Suggests_Mapped_Token()
+    {
+        var test = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI;
+    using Microsoft.UI.Xaml.Media;
+
+    class C
+    {
+        void M(dynamic el)
+        {
+            el.Foreground({|#0:new SolidColorBrush(Colors.Black)|});
+        }
+    }
+}";
+        await new CSharpAnalyzerTest<UseThemeRefAnalyzer, DefaultVerifier>
+        {
+            TestCode = test,
+            ExpectedDiagnostics =
+            {
+                AnalyzerVerifier.Diagnostic(UseThemeRefAnalyzer.BrushDiagnosticId)
+                    .WithLocation(0)
+                    .WithArguments("PrimaryText"),
+            },
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_Theme_Token_Argument()
+    {
+        // The declarative, theme-reactive form — must NOT fire.
+        var test = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+
+    class C
+    {
+        void M(dynamic el)
+        {
+            el.Background(Theme.CardBackground);
+        }
+    }
+}";
+        await new CSharpAnalyzerTest<UseThemeRefAnalyzer, DefaultVerifier>
+        {
+            TestCode = test,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_Field_Held_Brush()
+    {
+        // A brush read from a field may already hold a resolved token brush — inline-creation-only
+        // detection keeps it safe.
+        var test = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI;
+    using Microsoft.UI.Xaml.Media;
+
+    class C
+    {
+        static readonly SolidColorBrush _brush = new SolidColorBrush(Colors.Red);
+        void M(dynamic el)
+        {
+            el.Background(_brush);
+        }
+    }
+}";
+        await new CSharpAnalyzerTest<UseThemeRefAnalyzer, DefaultVerifier>
+        {
+            TestCode = test,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_Non_Target_Modifier_With_Brush()
+    {
+        // Near-miss: a brush argument to a modifier outside the {Background,Foreground,WithBorder} gate.
+        var test = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI;
+    using Microsoft.UI.Xaml.Media;
+
+    class C
+    {
+        void M(dynamic el)
+        {
+            el.Fill(new SolidColorBrush(Colors.Red));
+        }
+    }
+}";
+        await new CSharpAnalyzerTest<UseThemeRefAnalyzer, DefaultVerifier>
+        {
+            TestCode = test,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fix_Rewrites_Mapped_White_To_Theme_SolidBackground()
+    {
+        var test = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI;
+    using Microsoft.UI.Xaml.Media;
+    using Microsoft.UI.Reactor.Core;
+
+    class C
+    {
+        void M(dynamic el)
+        {
+            el.Background({|REACTOR_THEME_004:new SolidColorBrush(Colors.White)|});
+        }
+    }
+}";
+        var fixedCode = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI;
+    using Microsoft.UI.Xaml.Media;
+    using Microsoft.UI.Reactor.Core;
+
+    class C
+    {
+        void M(dynamic el)
+        {
+            el.Background(Theme.SolidBackground);
+        }
+    }
+}";
+        await new CSharpCodeFixTest<UseThemeRefAnalyzer, UseThemeRefCodeFix, DefaultVerifier>
+        {
+            TestCode = test,
+            FixedCode = fixedCode,
+            CodeActionEquivalenceKey = "REACTOR_THEME_004_SolidBackground",
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fix_Rewrites_Mapped_Black_To_Theme_PrimaryText()
+    {
+        var test = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI;
+    using Microsoft.UI.Xaml.Media;
+    using Microsoft.UI.Reactor.Core;
+
+    class C
+    {
+        void M(dynamic el)
+        {
+            el.Foreground({|REACTOR_THEME_004:new SolidColorBrush(Colors.Black)|});
+        }
+    }
+}";
+        var fixedCode = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI;
+    using Microsoft.UI.Xaml.Media;
+    using Microsoft.UI.Reactor.Core;
+
+    class C
+    {
+        void M(dynamic el)
+        {
+            el.Foreground(Theme.PrimaryText);
+        }
+    }
+}";
+        await new CSharpCodeFixTest<UseThemeRefAnalyzer, UseThemeRefCodeFix, DefaultVerifier>
+        {
+            TestCode = test,
+            FixedCode = fixedCode,
+            CodeActionEquivalenceKey = "REACTOR_THEME_004_PrimaryText",
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Fix_For_Unmapped_Inline_Brush()
+    {
+        // Red has no token mapping — the diagnostic stands, but no auto-fix is offered (the analyzer
+        // can't invent a resource key). FixedCode == TestCode asserts nothing is rewritten.
+        var code = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI;
+    using Microsoft.UI.Xaml.Media;
+
+    class C
+    {
+        void M(dynamic el)
+        {
+            el.Background({|REACTOR_THEME_004:new SolidColorBrush(Colors.Red)|});
+        }
+    }
+}";
+        await new CSharpCodeFixTest<UseThemeRefAnalyzer, UseThemeRefCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
     }
 }

@@ -34,15 +34,42 @@ public sealed class UseThemeRefAnalyzer : DiagnosticAnalyzer
         isEnabledByDefault: true,
         description: Description);
 
+    /// <summary>
+    /// REACTOR_THEME_004: the theme-token-bypassing sibling of THEME_001. THEME_001 only
+    /// inspects <em>string</em> literals, so an inline <c>new SolidColorBrush(...)</c> passed to the
+    /// same <c>.Background</c>/<c>.Foreground</c>/<c>.WithBorder</c> modifiers sails past it — the
+    /// same silent dark-mode regression, just expressed as a <c>Brush</c> object.
+    /// </summary>
+    public const string BrushDiagnosticId = "REACTOR_THEME_004";
+
+    private static readonly LocalizableString BrushTitle =
+        "Use ThemeRef instead of a hard-coded brush";
+    private static readonly LocalizableString BrushMessageFormat =
+        "Use a ThemeRef token (e.g., Theme.{0}) instead of an inline SolidColorBrush for theme-reactive styling";
+    private static readonly LocalizableString BrushDescription =
+        "An inline SolidColorBrush is a fixed color that doesn't adapt when the user switches between Light and Dark themes. Use Theme tokens for theme-reactive styling.";
+
+    private static readonly DiagnosticDescriptor BrushRule = new(
+        BrushDiagnosticId,
+        BrushTitle,
+        BrushMessageFormat,
+        "Reactor.Style",
+        DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: BrushDescription);
+
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-        ImmutableArray.Create(Rule);
+        ImmutableArray.Create(Rule, BrushRule);
+
+    /// <summary>Generic suggestion emitted when a hard-coded color has no known token mapping.</summary>
+    internal const string GenericTokenSuggestion = "Accent or another semantic token";
 
     /// <summary>Known color-to-theme-token mappings for code fix suggestions.</summary>
     internal static readonly ImmutableDictionary<string, string> ColorToThemeToken =
         ImmutableDictionary.CreateRange(StringComparer.OrdinalIgnoreCase, new[]
         {
-            new KeyValuePair<string, string>("#FFFFFF", "PrimaryBackground"),
-            new KeyValuePair<string, string>("white", "PrimaryBackground"),
+            new KeyValuePair<string, string>("#FFFFFF", "SolidBackground"),
+            new KeyValuePair<string, string>("white", "SolidBackground"),
             new KeyValuePair<string, string>("#000000", "PrimaryText"),
             new KeyValuePair<string, string>("black", "PrimaryText"),
             new KeyValuePair<string, string>("#0078D4", "Accent"),
@@ -56,6 +83,7 @@ public sealed class UseThemeRefAnalyzer : DiagnosticAnalyzer
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.EnableConcurrentExecution();
         context.RegisterSyntaxNodeAction(AnalyzeInvocation, SyntaxKind.InvocationExpression);
+        context.RegisterSyntaxNodeAction(AnalyzeBrushArgument, SyntaxKind.InvocationExpression);
     }
 
     // <snippet:theme-ref-rule>
@@ -87,7 +115,7 @@ public sealed class UseThemeRefAnalyzer : DiagnosticAnalyzer
         // Suggest a specific theme token if we have a mapping, otherwise generic
         var suggestion = ColorToThemeToken.TryGetValue(colorValue, out var token)
             ? token
-            : "Accent or another semantic token";
+            : GenericTokenSuggestion;
 
         context.ReportDiagnostic(Diagnostic.Create(
             Rule,
@@ -95,4 +123,74 @@ public sealed class UseThemeRefAnalyzer : DiagnosticAnalyzer
             suggestion,
             colorValue));
     }
+
+    // REACTOR_THEME_004 — the Brush-typed escape hatch THEME_001's string-literal gate misses.
+    private static void AnalyzeBrushArgument(SyntaxNodeAnalysisContext context)
+    {
+        var invocation = (InvocationExpressionSyntax)context.Node;
+
+        // Reuse THEME_001's target-modifier gate.
+        if (invocation.Expression is not MemberAccessExpressionSyntax memberAccess)
+            return;
+        if (!TargetMethods.Contains(memberAccess.Name.Identifier.Text))
+            return;
+
+        var args = invocation.ArgumentList.Arguments;
+        if (args.Count == 0)
+            return;
+
+        // Only the *inline* `new SolidColorBrush(...)` creation bypasses theming. A brush read from a
+        // field/local (identifier or member access) is deliberately left alone — it may legitimately
+        // hold an already-resolved token brush, and rewriting it would be unsound.
+        if (args[0].Expression is not ObjectCreationExpressionSyntax creation)
+            return;
+        if (!IsSolidColorBrushType(creation.Type))
+            return;
+
+        var colorName = TryGetColorName(creation);
+        var suggestion = colorName is not null && ColorToThemeToken.TryGetValue(colorName, out var token)
+            ? token
+            : GenericTokenSuggestion;
+
+        context.ReportDiagnostic(Diagnostic.Create(
+            BrushRule,
+            creation.GetLocation(),
+            suggestion));
+    }
+
+    private static bool IsSolidColorBrushType(TypeSyntax type) => type switch
+    {
+        IdentifierNameSyntax id => id.Identifier.Text == "SolidColorBrush",
+        QualifiedNameSyntax qualified => qualified.Right.Identifier.Text == "SolidColorBrush",
+        _ => false,
+    };
+
+    /// <summary>
+    /// Extracts the WinUI named color from an inline <c>new SolidColorBrush(Colors.X)</c> so the
+    /// diagnostic can suggest — and the code fix can resolve — the matching theme token. Returns
+    /// null for any other constructor shape (empty, a variable, or <c>Color.FromArgb(...)</c>),
+    /// which keeps the diagnostic as a nudge but withholds the auto-fix (there is no key to invent).
+    /// </summary>
+    internal static string? TryGetColorName(ObjectCreationExpressionSyntax creation)
+    {
+        var ctorArgs = creation.ArgumentList?.Arguments;
+        if (ctorArgs is not { Count: >= 1 })
+            return null;
+
+        // Restrict to `Colors.X` / `Microsoft.UI.Colors.X` so we never map an unrelated `Foo.White`.
+        if (ctorArgs.Value[0].Expression is MemberAccessExpressionSyntax colorAccess &&
+            IsColorsReceiver(colorAccess.Expression))
+        {
+            return colorAccess.Name.Identifier.Text;
+        }
+
+        return null;
+    }
+
+    private static bool IsColorsReceiver(ExpressionSyntax receiver) => receiver switch
+    {
+        IdentifierNameSyntax id => id.Identifier.Text == "Colors",
+        MemberAccessExpressionSyntax member => member.Name.Identifier.Text == "Colors",
+        _ => false,
+    };
 }
