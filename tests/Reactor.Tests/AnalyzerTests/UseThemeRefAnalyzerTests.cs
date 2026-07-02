@@ -581,4 +581,70 @@ namespace TestApp
             CodeActionEquivalenceKey = "REACTOR_THEME_004_SolidBackground",
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    [Fact]
+    public async Task Fix_Rewrites_Global_Qualified_SolidColorBrush_Type()
+    {
+        // The brush *type* itself written fully-qualified with `global::` must still be detected + fixed.
+        var test = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI;
+    using Microsoft.UI.Reactor.Core;
+
+    class C
+    {
+        void M(dynamic el)
+        {
+            el.Background({|REACTOR_THEME_004:new global::Microsoft.UI.Xaml.Media.SolidColorBrush(Colors.White)|});
+        }
+    }
+}";
+        var fixedCode = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI;
+    using Microsoft.UI.Reactor.Core;
+
+    class C
+    {
+        void M(dynamic el)
+        {
+            el.Background(Theme.SolidBackground);
+        }
+    }
+}";
+        await new CSharpCodeFixTest<UseThemeRefAnalyzer, UseThemeRefCodeFix, DefaultVerifier>
+        {
+            TestCode = test,
+            FixedCode = fixedCode,
+            CodeActionEquivalenceKey = "REACTOR_THEME_004_SolidBackground",
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Fix_For_Surface_Token_On_WithBorder()
+    {
+        // .WithBorder sets a stroke; the map only has a surface token (SolidBackground) for white, so
+        // the diagnostic fires but no auto-fix is offered (a fill token is a poor border suggestion).
+        var code = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI;
+    using Microsoft.UI.Xaml.Media;
+
+    class C
+    {
+        void M(dynamic el)
+        {
+            el.WithBorder({|REACTOR_THEME_004:new SolidColorBrush(Colors.White)|});
+        }
+    }
+}";
+        await new CSharpCodeFixTest<UseThemeRefAnalyzer, UseThemeRefCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }

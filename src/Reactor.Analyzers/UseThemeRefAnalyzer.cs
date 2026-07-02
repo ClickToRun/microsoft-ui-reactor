@@ -165,7 +165,11 @@ public sealed class UseThemeRefAnalyzer : DiagnosticAnalyzer
     private static bool IsSolidColorBrushType(TypeSyntax type) => type switch
     {
         IdentifierNameSyntax id => id.Identifier.Text == "SolidColorBrush",
+        // `Microsoft.UI.Xaml.Media.SolidColorBrush` (and its `global::`-qualified form, whose top
+        // node is still a QualifiedName with `global::…` buried in the left).
         QualifiedNameSyntax qualified => qualified.Right.Identifier.Text == "SolidColorBrush",
+        // Degenerate `global::SolidColorBrush` (alias-qualified at the top).
+        AliasQualifiedNameSyntax alias => alias.Name.Identifier.Text == "SolidColorBrush",
         _ => false,
     };
 
@@ -227,8 +231,12 @@ public sealed class UseThemeRefAnalyzer : DiagnosticAnalyzer
     /// </summary>
     internal static bool TokenFitsModifier(string token, string modifier) => token switch
     {
+        // Text token → foreground only.
         "PrimaryText" => modifier == "Foreground",
-        "SolidBackground" => modifier is "Background" or "WithBorder",
+        // Surface/fill token → background only. `.WithBorder` wants a *stroke* token (e.g.
+        // Theme.CardStroke), which this color→token map doesn't carry, so a border falls back to the
+        // generic suggestion rather than a misleading fill-as-border auto-fix.
+        "SolidBackground" => modifier == "Background",
         _ => true, // Accent / neutral tokens fit any target modifier.
     };
 }
