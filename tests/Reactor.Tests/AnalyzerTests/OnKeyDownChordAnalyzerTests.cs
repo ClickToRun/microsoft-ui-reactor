@@ -483,4 +483,28 @@ class C
             NumberOfIncrementalIterations = 1,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    [Fact]
+    public async Task CodeFix_Not_Offered_When_Scaffold_Already_Present()
+    {
+        // Idempotency: a REACTOR_INPUT_001 scaffold already in the trailing trivia means the fix is
+        // not offered again, so re-applying never stacks duplicate comments (the warning still fires).
+        var code = Stubs + @"
+class C
+{
+    static VirtualKeyModifiers Mods() => VirtualKeyModifiers.None;
+    void Save() {}
+    void M()
+    {
+        var el = new FakeElement();
+        {|REACTOR_INPUT_001:el.OnKeyDown((s, e) => { if (e.Key == VirtualKey.S && Mods().HasFlag(VirtualKeyModifiers.Control)) Save(); })|} /* REACTOR_INPUT_001: already scaffolded */;
+    }
+}";
+
+        await new CSharpCodeFixTest<OnKeyDownChordAnalyzer, OnKeyDownChordCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }

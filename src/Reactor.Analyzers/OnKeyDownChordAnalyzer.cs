@@ -44,11 +44,17 @@ public sealed class OnKeyDownChordAnalyzer : DiagnosticAnalyzer
     private const string ModifiersEnumNamespace = "Windows.System";
     private const string ReactorNamespacePrefix = "Microsoft.UI.Reactor";
 
+    /// <summary>Diagnostic.Properties key: the full VirtualKeyModifiers expression the chord tests.</summary>
+    internal const string ModifiersProperty = "modifiers";
+
+    /// <summary>Diagnostic.Properties key: the VirtualKey expression (or a placeholder) for the accelerator.</summary>
+    internal const string KeyProperty = "key";
+
     private static readonly LocalizableString Title =
         "Ctrl/Alt chord on .OnKeyDown should be a Command accelerator";
 
     private static readonly LocalizableString MessageFormat =
-        "This .OnKeyDown lambda tests a '{0}' chord, but .OnKeyDown is focus-scoped and only fires while the element is focused. Register the shortcut as a Command whose Accelerator = Accelerator(VirtualKey.<key>, {0}) so it routes app-wide through AccessKeyManager.";
+        "This .OnKeyDown lambda tests a focus-scoped Ctrl/Alt chord ({0}); .OnKeyDown only fires while the element is focused, so the shortcut never reaches AccessKeyManager. Register it as a Command whose Accelerator = Accelerator(VirtualKey.<key>, {0}) instead.";
 
     private static readonly LocalizableString Description =
         "The .OnKeyDown modifier subscribes to the element's focus-scoped KeyDown routed event, so a " +
@@ -100,10 +106,10 @@ public sealed class OnKeyDownChordAnalyzer : DiagnosticAnalyzer
         if (body is null)
             return;
 
-        // Syntactic gate 3: the lambda body references `VirtualKeyModifiers.Control` / `.Menu`.
-        // Collect matches syntactically first (cheap), then confirm the enum semantically.
-        var chord = FindChordModifier(body, context.SemanticModel, context.CancellationToken);
-        if (chord is null)
+        // Syntactic gate 3: the handler's own body tests VirtualKeyModifiers.Control / .Menu.
+        // Collect the confirmed Ctrl/Alt set (nested closures excluded, enum confirmed semantically).
+        var (hasControl, hasMenu) = FindChordModifiers(body, context.SemanticModel, context.CancellationToken);
+        if (!hasControl && !hasMenu)
             return;
 
         // Ground to Reactor's `.OnKeyDown` modifier: if the call resolves to a method that is NOT in
@@ -114,21 +120,35 @@ public sealed class OnKeyDownChordAnalyzer : DiagnosticAnalyzer
             && !IsReactorNamespace(method.ContainingNamespace?.ToDisplayString()))
             return;
 
+        // The full modifier set + the tested key travel to the code fix via Diagnostic.Properties
+        // (never the message text), so the template it scaffolds matches exactly what was detected
+        // here — same nested-closure exclusion, same combined-modifier expression.
+        var modifiers = ModifierExpression(hasControl, hasMenu);
+        var key = FindVirtualKey(body) is { } k ? $"VirtualKey.{k}" : "VirtualKey.<key>";
+
+        var properties = ImmutableDictionary<string, string?>.Empty
+            .Add(ModifiersProperty, modifiers)
+            .Add(KeyProperty, key);
+
         context.ReportDiagnostic(Diagnostic.Create(
             Rule,
             invocation.GetLocation(),
-            $"{ModifiersEnumName}.{chord}"));
+            properties,
+            modifiers));
     }
 
     /// <summary>
-    /// Scans <paramref name="body"/> for the first <c>VirtualKeyModifiers.Control</c> /
-    /// <c>VirtualKeyModifiers.Menu</c> member access that semantically binds to
-    /// <c>Windows.System.VirtualKeyModifiers</c>. Returns the member name (<c>Control</c> /
-    /// <c>Menu</c>) or <c>null</c> when none is found. A <c>Shift</c>/<c>Windows</c>/<c>None</c>
-    /// modifier is intentionally not a match — only the Ctrl/Alt app-accelerator footgun fires.
+    /// Scans <paramref name="body"/> for <c>VirtualKeyModifiers.Control</c> / <c>.Menu</c> member
+    /// accesses that semantically bind to <c>Windows.System.VirtualKeyModifiers</c>, returning which
+    /// of Control / Menu the handler's OWN body tests. Accesses inside nested closures and a
+    /// <c>Shift</c>/<c>Windows</c>/<c>None</c> modifier are intentionally ignored — only the Ctrl/Alt
+    /// app-accelerator footgun fires.
     /// </summary>
-    private static string? FindChordModifier(SyntaxNode body, SemanticModel model, System.Threading.CancellationToken ct)
+    private static (bool control, bool menu) FindChordModifiers(SyntaxNode body, SemanticModel model, System.Threading.CancellationToken ct)
     {
+        var control = false;
+        var menu = false;
+
         foreach (var access in body.DescendantNodesAndSelf().OfType<MemberAccessExpressionSyntax>())
         {
             var member = access.Name.Identifier.Text;
@@ -153,10 +173,40 @@ public sealed class OnKeyDownChordAnalyzer : DiagnosticAnalyzer
                 && enumType.Name == ModifiersEnumName
                 && enumType.ContainingNamespace?.ToDisplayString() == ModifiersEnumNamespace)
             {
-                return member;
+                if (member == "Control")
+                    control = true;
+                else
+                    menu = true;
             }
         }
 
+        return (control, menu);
+    }
+
+    /// <summary>
+    /// The <c>VirtualKeyModifiers</c> expression the accelerator should combine, reflecting whichever
+    /// of Control / Menu the handler tests. At least one is always true when this is called.
+    /// </summary>
+    private static string ModifierExpression(bool control, bool menu) => (control, menu) switch
+    {
+        (true, true) => $"{ModifiersEnumName}.Control | {ModifiersEnumName}.Menu",
+        (false, true) => $"{ModifiersEnumName}.Menu",
+        _ => $"{ModifiersEnumName}.Control",
+    };
+
+    /// <summary>
+    /// The name of the first <c>VirtualKey.&lt;X&gt;</c> the handler's own body references (nested
+    /// closures excluded), or <c>null</c> when none is present.
+    /// </summary>
+    private static string? FindVirtualKey(SyntaxNode body)
+    {
+        foreach (var access in body.DescendantNodesAndSelf().OfType<MemberAccessExpressionSyntax>())
+        {
+            if (IsInsideNestedFunction(access, body))
+                continue;
+            if (access.Expression is IdentifierNameSyntax { Identifier.Text: "VirtualKey" })
+                return access.Name.Identifier.Text;
+        }
         return null;
     }
 

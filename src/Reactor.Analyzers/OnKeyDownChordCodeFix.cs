@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.Composition;
-using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
@@ -20,14 +19,18 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// element), its <c>Execute</c> body has to be lifted out of a handler that closes over the event
 /// args, and only the author knows the command's label/scope. There is therefore no safe, fully
 /// mechanical rewrite. This fix is a <b>template/preview</b>: it appends a single-line scaffold
-/// comment to the offending call — extracting the concrete <c>VirtualKey</c> and the Ctrl/Alt
-/// modifier(s) it detected — that shows the exact <c>new Command { …, Accelerator =
-/// Accelerator(VirtualKey.S, VirtualKeyModifiers.Control) }</c> shape to write.
+/// comment to the offending call showing the exact <c>new Command { …, Accelerator =
+/// Accelerator(VirtualKey.S, VirtualKeyModifiers.Control) }</c> shape to write. The concrete
+/// <c>VirtualKey</c> and the full Ctrl/Alt modifier set come from <see cref="Diagnostic.Properties"/>
+/// (populated by the analyzer), so the scaffold matches exactly what was detected — including the
+/// analyzer's nested-closure exclusion.
 /// </para>
 /// <para>
 /// The fix is deliberately <b>additive</b>: it never edits executable code, so it can never drop a
 /// handler's other key handling, break compilation on any receiver, or change runtime behavior. The
 /// warning persists until the author migrates the shortcut and removes the <c>.OnKeyDown</c> chord.
+/// Applying it is <b>idempotent</b>: it is not offered again once a scaffold is already present, so
+/// re-invoking never stacks duplicate comments.
 /// </para>
 /// </remarks>
 [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(OnKeyDownChordCodeFix))]
@@ -51,13 +54,13 @@ public sealed class OnKeyDownChordCodeFix : CodeFixProvider
             var node = root.FindNode(diagnostic.Location.SourceSpan);
             if (node is not InvocationExpressionSyntax invocation) continue;
             if (invocation.Expression is not MemberAccessExpressionSyntax { Name.Identifier.Text: "OnKeyDown" }) continue;
-            if (invocation.ArgumentList.Arguments.Count != 1) continue;
-            if (invocation.ArgumentList.Arguments[0].Expression is not LambdaExpressionSyntax lambda) continue;
 
-            var body = lambda.Body;
-            if (body is null) continue;
+            // Idempotency: if a REACTOR_INPUT_001 scaffold is already appended to this call, don't
+            // offer the fix again — re-applying would otherwise stack duplicate comments.
+            if (invocation.GetTrailingTrivia().ToFullString().Contains(OnKeyDownChordAnalyzer.DiagnosticId))
+                continue;
 
-            var comment = BuildScaffoldComment(body);
+            var comment = BuildScaffoldComment(diagnostic);
 
             context.RegisterCodeFix(
                 CodeAction.Create(
@@ -79,63 +82,22 @@ public sealed class OnKeyDownChordCodeFix : CodeFixProvider
     }
 
     /// <summary>
-    /// Builds the single-line block-comment scaffold, filling in the concrete <c>VirtualKey</c>
-    /// (from the first <c>VirtualKey.&lt;X&gt;</c> the lambda references) and the Ctrl/Alt
-    /// modifier expression (<c>VirtualKeyModifiers.Control</c>, <c>.Menu</c>, or both).
+    /// Builds the single-line block-comment scaffold using the concrete <c>VirtualKey</c> and the
+    /// full Ctrl/Alt modifier expression the analyzer detected (handed over via
+    /// <see cref="Diagnostic.Properties"/>). Falls back to safe defaults if a property is absent.
     /// </summary>
-    private static string BuildScaffoldComment(SyntaxNode body)
+    private static string BuildScaffoldComment(Diagnostic diagnostic)
     {
-        var key = ExtractVirtualKey(body) is { } k ? $"VirtualKey.{k}" : "VirtualKey.<key>";
-        var modifiers = BuildModifierExpression(body);
+        var key = Property(diagnostic, OnKeyDownChordAnalyzer.KeyProperty, "VirtualKey.<key>");
+        var modifiers = Property(diagnostic, OnKeyDownChordAnalyzer.ModifiersProperty, "VirtualKeyModifiers.Control");
 
         return $"/* REACTOR_INPUT_001: .OnKeyDown is focus-scoped. Register this shortcut app-wide as a " +
                $"Command accelerator instead, e.g. new Command {{ Label = <name>, Execute = <handler>, " +
                $"Accelerator = Accelerator({key}, {modifiers}) }}, then remove this .OnKeyDown chord. */";
     }
 
-    /// <summary>Name of the first <c>VirtualKey.&lt;X&gt;</c> the lambda body references, or null.</summary>
-    private static string? ExtractVirtualKey(SyntaxNode body)
-    {
-        foreach (var access in body.DescendantNodesAndSelf().OfType<MemberAccessExpressionSyntax>())
-        {
-            if (access.Expression is IdentifierNameSyntax { Identifier.Text: "VirtualKey" })
-                return access.Name.Identifier.Text;
-        }
-        return null;
-    }
-
-    /// <summary>
-    /// The <c>VirtualKeyModifiers</c> expression to seed the template with, reflecting whichever of
-    /// <c>Control</c> / <c>Menu</c> the lambda tests. Defaults to <c>Control</c> if neither is found
-    /// syntactically (the analyzer only fires when at least one bound semantically).
-    /// </summary>
-    private static string BuildModifierExpression(SyntaxNode body)
-    {
-        var hasControl = false;
-        var hasMenu = false;
-
-        foreach (var access in body.DescendantNodesAndSelf().OfType<MemberAccessExpressionSyntax>())
-        {
-            var receiver = access.Expression switch
-            {
-                IdentifierNameSyntax id => id.Identifier.Text,
-                MemberAccessExpressionSyntax m => m.Name.Identifier.Text,
-                _ => null,
-            };
-            if (receiver != "VirtualKeyModifiers") continue;
-
-            switch (access.Name.Identifier.Text)
-            {
-                case "Control": hasControl = true; break;
-                case "Menu": hasMenu = true; break;
-            }
-        }
-
-        return (hasControl, hasMenu) switch
-        {
-            (true, true) => "VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu",
-            (false, true) => "VirtualKeyModifiers.Menu",
-            _ => "VirtualKeyModifiers.Control",
-        };
-    }
+    private static string Property(Diagnostic diagnostic, string name, string fallback) =>
+        diagnostic.Properties.TryGetValue(name, out var value) && !string.IsNullOrEmpty(value)
+            ? value!
+            : fallback;
 }
