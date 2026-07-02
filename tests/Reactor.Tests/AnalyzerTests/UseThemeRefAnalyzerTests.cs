@@ -94,7 +94,7 @@ class C
 }";
         var expected = AnalyzerVerifier.Diagnostic(UseThemeRefAnalyzer.DiagnosticId)
             .WithSpan(6, 23, 6, 32)
-            .WithArguments("Accent or another semantic token", "#AABBCC");
+            .WithArguments("Accent", "#AABBCC");
 
         var analyzerTest = new CSharpAnalyzerTest<UseThemeRefAnalyzer, DefaultVerifier>
         {
@@ -404,6 +404,104 @@ namespace TestApp
         void M(dynamic el)
         {
             el.Background({|REACTOR_THEME_004:new SolidColorBrush(Colors.Red)|});
+        }
+    }
+}";
+        await new CSharpCodeFixTest<UseThemeRefAnalyzer, UseThemeRefCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Fix_When_Token_Family_Mismatches_Modifier()
+    {
+        // white maps to SolidBackground (a surface token); auto-fixing that onto .Foreground would
+        // invert text/background across themes, so the diagnostic fires but no fix is offered.
+        var code = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI;
+    using Microsoft.UI.Xaml.Media;
+
+    class C
+    {
+        void M(dynamic el)
+        {
+            el.Foreground({|REACTOR_THEME_004:new SolidColorBrush(Colors.White)|});
+        }
+    }
+}";
+        await new CSharpCodeFixTest<UseThemeRefAnalyzer, UseThemeRefCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Fix_When_Theme_Token_Unresolved()
+    {
+        // The mapped token (SolidBackground) is not defined on this Theme, so the fix is withheld to
+        // avoid emitting a reference that wouldn't compile; the diagnostic still fires.
+        var stubs = @"
+namespace Windows.UI { public struct Color { } }
+namespace Microsoft.UI
+{
+    public static class Colors { public static Windows.UI.Color White => default; }
+}
+namespace Microsoft.UI.Xaml.Media
+{
+    public class Brush { }
+    public class SolidColorBrush : Brush { public SolidColorBrush(Windows.UI.Color color) { } }
+}
+namespace Microsoft.UI.Reactor.Core
+{
+    public readonly struct ThemeRef { }
+    public static class Theme { public static ThemeRef PrimaryText => default; }
+}
+";
+        var code = stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI;
+    using Microsoft.UI.Xaml.Media;
+
+    class C
+    {
+        void M(dynamic el)
+        {
+            el.Background({|REACTOR_THEME_004:new SolidColorBrush(Colors.White)|});
+        }
+    }
+}";
+        await new CSharpCodeFixTest<UseThemeRefAnalyzer, UseThemeRefCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Fix_For_Non_WinUi_SolidColorBrush()
+    {
+        // A same-named brush type from another namespace fires the syntactic diagnostic, but the fix
+        // confirms WinUI's SolidColorBrush semantically and withholds the rewrite.
+        var code = Stubs + @"
+namespace Custom
+{
+    public class SolidColorBrush { public SolidColorBrush(Windows.UI.Color c) { } }
+}
+namespace TestApp
+{
+    using Microsoft.UI;
+
+    class C
+    {
+        void M(dynamic el)
+        {
+            el.Background({|REACTOR_THEME_004:new Custom.SolidColorBrush(Colors.White)|});
         }
     }
 }";

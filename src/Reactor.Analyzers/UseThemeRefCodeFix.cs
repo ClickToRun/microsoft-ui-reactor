@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Composition;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
@@ -39,6 +40,7 @@ public sealed class UseThemeRefCodeFix : CodeFixProvider
             // Resolve which node to replace and which token to replace it with, depending on the rule.
             string? token = null;
             SyntaxNode? target = null;
+            ObjectCreationExpressionSyntax? brushCreation = null;
 
             if (node.FirstAncestorOrSelf<LiteralExpressionSyntax>() is { } literal &&
                 literal.IsKind(SyntaxKind.StringLiteralExpression))
@@ -59,14 +61,29 @@ public sealed class UseThemeRefCodeFix : CodeFixProvider
                 {
                     token = t;
                     target = creation;
+                    brushCreation = creation;
                 }
             }
 
             if (token is null || target is null)
                 continue; // Unmapped color — no key to invent, so the diagnostic stands without a fix.
 
+            // Only offer the fix when the mapped token is sensible for the target modifier: a surface
+            // token as a .Foreground (or a text token as a .Background) would flip colors the wrong
+            // way across themes, so we withhold rather than auto-apply a misleading rewrite.
+            var modifier = (target.FirstAncestorOrSelf<InvocationExpressionSyntax>()?.Expression
+                as MemberAccessExpressionSyntax)?.Name.Identifier.Text;
+            if (modifier is null || !UseThemeRefAnalyzer.TokenFitsModifier(token, modifier))
+                continue;
+
             semanticModel ??= await context.Document
                 .GetSemanticModelAsync(context.CancellationToken).ConfigureAwait(false);
+
+            // The analyzer's brush match is syntactic; before rewriting, confirm the creation is
+            // really WinUI's SolidColorBrush so we never touch an unrelated same-named type.
+            if (brushCreation is not null &&
+                !IsWinUiSolidColorBrush(semanticModel, brushCreation, context.CancellationToken))
+                continue;
 
             var themeAccess = TryBuildThemeReference(semanticModel, target.SpanStart, token, target);
             if (themeAccess is null)
@@ -83,6 +100,26 @@ public sealed class UseThemeRefCodeFix : CodeFixProvider
                     equivalenceKey: $"{diagnostic.Id}_{token}"),
                 diagnostic);
         }
+    }
+
+    /// <summary>
+    /// Confirms an inline <c>new SolidColorBrush(...)</c> resolves to WinUI's
+    /// <c>Microsoft.UI.Xaml.Media.SolidColorBrush</c> (not an unrelated same-named type), so the
+    /// syntactic REACTOR_THEME_004 match is semantically sound before we rewrite it.
+    /// </summary>
+    private static bool IsWinUiSolidColorBrush(
+        SemanticModel? semanticModel, ObjectCreationExpressionSyntax creation, CancellationToken cancellationToken)
+    {
+        if (semanticModel is null)
+            return false;
+
+        var solidColorBrush = semanticModel.Compilation
+            .GetTypeByMetadataName("Microsoft.UI.Xaml.Media.SolidColorBrush");
+        if (solidColorBrush is null)
+            return false;
+
+        var actual = semanticModel.GetTypeInfo(creation, cancellationToken).Type;
+        return SymbolEqualityComparer.Default.Equals(actual, solidColorBrush);
     }
 
     /// <summary>

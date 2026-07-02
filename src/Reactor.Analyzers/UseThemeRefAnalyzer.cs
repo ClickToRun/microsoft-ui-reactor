@@ -62,7 +62,7 @@ public sealed class UseThemeRefAnalyzer : DiagnosticAnalyzer
         ImmutableArray.Create(Rule, BrushRule);
 
     /// <summary>Generic suggestion emitted when a hard-coded color has no known token mapping.</summary>
-    internal const string GenericTokenSuggestion = "Accent or another semantic token";
+    internal const string GenericTokenSuggestion = "Accent";
 
     /// <summary>Known color-to-theme-token mappings for code fix suggestions.</summary>
     internal static readonly ImmutableDictionary<string, string> ColorToThemeToken =
@@ -112,8 +112,9 @@ public sealed class UseThemeRefAnalyzer : DiagnosticAnalyzer
         var colorValue = literal.Token.ValueText;
         // </snippet:theme-ref-rule>
 
-        // Suggest a specific theme token if we have a mapping, otherwise generic
-        var suggestion = ColorToThemeToken.TryGetValue(colorValue, out var token)
+        // Suggest a specific theme token when the mapping also fits the target modifier — a surface
+        // token is a poor foreground suggestion (and vice versa) — otherwise stay generic.
+        var suggestion = ColorToThemeToken.TryGetValue(colorValue, out var token) && TokenFitsModifier(token, methodName)
             ? token
             : GenericTokenSuggestion;
 
@@ -147,8 +148,11 @@ public sealed class UseThemeRefAnalyzer : DiagnosticAnalyzer
         if (!IsSolidColorBrushType(creation.Type))
             return;
 
+        var modifier = memberAccess.Name.Identifier.Text;
         var colorName = TryGetColorName(creation);
-        var suggestion = colorName is not null && ColorToThemeToken.TryGetValue(colorName, out var token)
+        var suggestion = colorName is not null
+            && ColorToThemeToken.TryGetValue(colorName, out var token)
+            && TokenFitsModifier(token, modifier)
             ? token
             : GenericTokenSuggestion;
 
@@ -189,8 +193,31 @@ public sealed class UseThemeRefAnalyzer : DiagnosticAnalyzer
 
     private static bool IsColorsReceiver(ExpressionSyntax receiver) => receiver switch
     {
-        IdentifierNameSyntax id => id.Identifier.Text == "Colors",
-        MemberAccessExpressionSyntax member => member.Name.Identifier.Text == "Colors",
+        // Bare `Colors` (with `using Microsoft.UI;`).
+        IdentifierNameSyntax { Identifier.Text: "Colors" } => true,
+        // A qualified `...UI.Colors` (Microsoft.UI.Colors / global::Microsoft.UI.Colors /
+        // Windows.UI.Colors). A nested `MyPalette.Colors.White` or an unrelated `Foo.White` is
+        // intentionally rejected so the code fix never maps a non-WinUI color.
+        MemberAccessExpressionSyntax
+        {
+            Name.Identifier.Text: "Colors",
+            Expression: MemberAccessExpressionSyntax { Name.Identifier.Text: "UI" }
+        } => true,
         _ => false,
+    };
+
+    /// <summary>
+    /// Whether a mapped theme <paramref name="token"/> is a sensible suggestion/auto-fix for the
+    /// target <paramref name="modifier"/>. The color→token map is keyed by color only, so a surface
+    /// token (e.g. <c>SolidBackground</c>) could otherwise be suggested for <c>.Foreground</c> —
+    /// which flips colors the wrong way across themes (white foreground text rewritten to a
+    /// background brush is invisible in Light). Keep in sync with the values in
+    /// <see cref="ColorToThemeToken"/>.
+    /// </summary>
+    internal static bool TokenFitsModifier(string token, string modifier) => token switch
+    {
+        "PrimaryText" => modifier == "Foreground",
+        "SolidBackground" => modifier is "Background" or "WithBorder",
+        _ => true, // Accent / neutral tokens fit any target modifier.
     };
 }
