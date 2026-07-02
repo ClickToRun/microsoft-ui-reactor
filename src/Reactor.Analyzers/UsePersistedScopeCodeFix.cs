@@ -97,7 +97,7 @@ public sealed class UsePersistedScopeCodeFix : CodeFixProvider
         context.RegisterCodeFix(
             CodeAction.Create(
                 title,
-                _ =>
+                ct =>
                 {
                     var argument = SyntaxFactory.Argument(
                         SyntaxFactory.ParseExpression($"{scopeTypeName}.{scopeMember}"));

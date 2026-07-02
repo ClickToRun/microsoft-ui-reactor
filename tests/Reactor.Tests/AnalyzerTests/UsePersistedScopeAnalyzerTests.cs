@@ -394,8 +394,8 @@ class MyComponent : Component
     public async Task CodeFix_Qualifies_Scope_When_Namespace_Not_Imported()
     {
         // No `using Microsoft.UI.Reactor.Core;` and a fully-qualified receiver: the fix
-        // must still emit a COMPILING PersistedScope reference. Simplifier keeps it
-        // qualified here (a bare `PersistedScope` would not resolve). The harness fails
+        // must still emit a COMPILING PersistedScope reference. ToMinimalDisplayString
+        // qualifies it here (a bare `PersistedScope` would not resolve). The harness fails
         // the test if the fixed code has any compiler error, so this proves robustness.
         const string before = @"
 using System;
