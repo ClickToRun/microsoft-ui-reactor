@@ -127,7 +127,7 @@ public sealed class HookRulesAnalyzer : DiagnosticAnalyzer
         "Reactor.Hooks",
         DiagnosticSeverity.Info,
         isEnabledByDefault: true,
-        description: "Hook slots are positional. A single-guard early return (if (…) return; with no else) that precedes a hook makes that hook run only on renders that pass the guard, shifting the slot list and corrupting state — the same corruption HOOKS_001 guards, but the hook is not lexically inside the if. This fires only on the narrow single-guard shape; throws, stacked guards, and switch-arm returns are not covered.");
+        description: "Hook slots are positional. A single-guard early return (if (…) return; with no else) that precedes a hook makes that hook run only on renders that pass the guard, shifting the slot list and corrupting state — the same corruption HOOKS_001 guards, but the hook is not lexically inside the if. It fires when a hook follows one or more such guards in the same block; throws, switch-arm returns, and guards in an enclosing block are not covered.");
 
     private static readonly DiagnosticDescriptor AsyncEffectRule = new(
         AsyncEffectId,
@@ -1006,10 +1006,10 @@ public sealed class HookRulesAnalyzer : DiagnosticAnalyzer
     // ────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// True when the statement containing this hook call is preceded, in the same block, by a
-    /// single-guard early return: an <c>if (…) return …;</c> with no <c>else</c> whose body is
-    /// only a <c>return</c>. Narrow by design (spec §4.1 coverage bound): stacked guards,
-    /// <c>throw</c>, and switch-arm returns are not covered.
+    /// True when the statement containing this hook call is preceded, in the same block, by one or
+    /// more single-guard early returns: an <c>if (…) return …;</c> with no <c>else</c> whose body is
+    /// only a <c>return</c>. Narrow by design (spec §4.1 coverage bound): <c>throw</c>, switch-arm
+    /// returns, and guards in an enclosing block are not covered.
     /// </summary>
     private static bool HasPrecedingEarlyReturnGuard(InvocationExpressionSyntax invocation)
     {

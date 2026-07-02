@@ -69,6 +69,24 @@ class C : Microsoft.UI.Reactor.Core.Component
 }");
     }
 
+    // Multiple stacked single-guard returns still shift later hooks — the hook after them fires.
+    [Fact]
+    public async Task Hook_After_Stacked_Guards_Flags()
+    {
+        await Verify(@"
+class C : Microsoft.UI.Reactor.Core.Component
+{
+    public override string Render()
+    {
+        var (a, _) = UseState(0);
+        if (a < 0) return ""neg"";
+        if (a > 10) return ""big"";
+        var (b, setB) = {|REACTOR_HOOKS_002:UseState("""")|};
+        return b;
+    }
+}");
+    }
+
     [Fact]
     public async Task No_Guard_Before_Hook_DoesNotFlag()
     {
