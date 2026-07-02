@@ -132,6 +132,27 @@ class C
 }");
 
     [Fact]
+    public Task Fires_For_Parenthesized_Lambda_Ignoring_Param() => Analyze(@"
+class C
+{
+    void Noop() { }
+    void M(string name)
+    {
+        {|REACTOR_HOOKS_011:TextBox(name, (v) => Noop())|};
+    }
+}");
+
+    [Fact]
+    public Task Fires_For_Parenthesized_Empty_Block_Lambda() => Analyze(@"
+class C
+{
+    void M(string name)
+    {
+        {|REACTOR_HOOKS_011:TextBox(name, (v) => { })|};
+    }
+}");
+
+    [Fact]
     public Task Fires_For_ComboBox_Whose_Value_Is_The_Second_Argument() => Analyze(@"
 class C
 {
@@ -191,6 +212,27 @@ class C
     void M(string name, System.Action<string> setName)
     {
         TextBox(name, v => setName(v));
+    }
+}");
+
+    [Fact]
+    public Task No_Diagnostic_For_Parenthesized_Wired_Callback() => Analyze(@"
+class C
+{
+    void M(string name, System.Action<string> setName)
+    {
+        TextBox(name, (v) => setName(v));
+    }
+}");
+
+    [Fact]
+    public Task No_Diagnostic_When_Discard_Named_Param_Is_Read() => Analyze(@"
+class C
+{
+    // A lone '_' single-parameter lambda is a usable parameter, not a discard.
+    void M(string name, System.Action<string> setName)
+    {
+        TextBox(name, _ => setName(_));
     }
 }");
 

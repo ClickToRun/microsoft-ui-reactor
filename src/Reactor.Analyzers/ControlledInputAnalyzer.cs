@@ -50,6 +50,16 @@ public sealed class ControlledInputAnalyzer : DiagnosticAnalyzer
     /// <c>Optional&lt;T&gt;</c> "value" parameter and at least one delegate
     /// change-callback parameter (verified against <c>Dsl.cs</c>).
     /// </summary>
+    /// <remarks>
+    /// The collection controls that also expose a parallel <c>int?</c>
+    /// <c>selectedIndex</c> overload (TabView, Pivot, ListView, GridView, FlipView —
+    /// <c>Dsl.cs:900-1060</c>) are intentionally omitted: a plain <c>int</c> call is
+    /// ambiguous between the <c>int?</c> and <c>Optional&lt;int&gt;</c> overloads, so
+    /// the rule's "single <c>Optional&lt;T&gt;</c> value parameter" model can't bind
+    /// reliably. The listed selection controls (ComboBox, RadioButtons, ListBox,
+    /// SelectorBar, PipsPager) expose <b>only</b> the <c>Optional&lt;int&gt;</c>
+    /// overload and bind cleanly.
+    /// </remarks>
     private static readonly ImmutableHashSet<string> ControlledInputFactories =
         ImmutableHashSet.Create(
             System.StringComparer.Ordinal,
@@ -77,9 +87,10 @@ public sealed class ControlledInputAnalyzer : DiagnosticAnalyzer
         "Controlled input has a state-derived value but an empty change callback";
 
     private static readonly LocalizableString MessageFormat =
-        "'{0}' is bound to a state-derived value but its change callback is empty; the " +
-        "control renders the value and silently drops user edits (fake 'Mode=OneWay'). " +
-        "Wire the callback to update state, or make the read-only intent explicit.";
+        "'{0}' is bound to a state-derived value but its change callback is empty or " +
+        "ignores the changed value; the control renders the value and silently drops " +
+        "user edits (fake 'Mode=OneWay'). Wire the callback to update state, or make " +
+        "the read-only intent explicit.";
 
     private static readonly LocalizableString Description =
         "A controlled input renders the value you pass and reports the user's edits " +
@@ -279,17 +290,18 @@ public sealed class ControlledInputAnalyzer : DiagnosticAnalyzer
         if (body is BlockSyntax { Statements.Count: 0 })
             return true;
 
-        // A discard ('_') or missing parameter cannot be read, so any body provably
-        // ignores the changed value.
-        var readable = parameterNames.Where(n => n.Length > 0 && n != "_").ToImmutableArray();
-        if (readable.Length == 0)
-            return true;
+        // No parameter to reference — an Action<T> callback always has one, but guard.
+        if (parameterNames.IsEmpty)
+            return false;
 
-        // Otherwise: fire only when the body never references the parameter. A nested
-        // scope re-using the same name over-matches into a false negative (safe).
+        // Fire only when the body never references the parameter by name. A lone '_'
+        // single-parameter lambda is a usable parameter (C# treats a solitary '_' as
+        // the parameter name, not a discard), so `_ => setName(_)` counts as a read.
+        // A nested scope reusing the name over-matches into a false negative (safe:
+        // never a false positive).
         foreach (var identifier in body.DescendantNodesAndSelf().OfType<IdentifierNameSyntax>())
         {
-            if (readable.Contains(identifier.Identifier.ValueText))
+            if (parameterNames.Contains(identifier.Identifier.ValueText))
                 return false;
         }
         return true;
