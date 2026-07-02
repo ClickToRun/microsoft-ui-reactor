@@ -65,7 +65,7 @@ public sealed class ContextProvideAnalyzer : DiagnosticAnalyzer
         // Confirm it is the Reactor ContextExtensions.Provide extension method.
         if (symbol.Name != "Provide") return;
         if (symbol.ContainingType?.Name != "ContextExtensions") return;
-        if (!IsReactorNamespace(symbol.ContainingNamespace?.ToDisplayString())) return;
+        if (!CommandDebounceAnalyzer.IsReactorNamespace(symbol.ContainingNamespace?.ToDisplayString())) return;
 
         // Bind the `value` argument by parameter name (reduced-extension form has parameters
         // [context, value]; the unreduced static form has [element, context, value]).
@@ -107,7 +107,4 @@ public sealed class ContextProvideAnalyzer : DiagnosticAnalyzer
         }
         return null;
     }
-
-    private static bool IsReactorNamespace(string? ns) =>
-        ns is not null && (ns == "Microsoft.UI.Reactor" || ns.StartsWith("Microsoft.UI.Reactor."));
 }

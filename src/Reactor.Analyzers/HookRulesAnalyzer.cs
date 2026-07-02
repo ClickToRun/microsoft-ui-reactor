@@ -1324,8 +1324,5 @@ public sealed class HookRulesAnalyzer : DiagnosticAnalyzer
     }
 
     private static bool IsReactorMemberSymbol(ISymbol symbol)
-    {
-        var ns = symbol.ContainingNamespace?.ToDisplayString();
-        return ns is not null && (ns == "Microsoft.UI.Reactor" || ns.StartsWith("Microsoft.UI.Reactor."));
-    }
+        => CommandDebounceAnalyzer.IsReactorNamespace(symbol.ContainingNamespace?.ToDisplayString());
 }
