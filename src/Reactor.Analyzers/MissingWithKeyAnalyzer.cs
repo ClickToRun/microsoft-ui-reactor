@@ -76,9 +76,10 @@ public sealed class MissingWithKeyAnalyzer : DiagnosticAnalyzer
         if (inv.Expression is not MemberAccessExpressionSyntax member) return;
         var methodName = member.Name.Identifier.ValueText;
 
-        // REACTOR_DSL_002 — a present-but-non-stable key. Anchored on the
-        // `.WithKey(...)` call itself (not the enclosing Select) so each key is
-        // inspected exactly once even when Selects nest.
+        // REACTOR_DSL_002 — a present-but-non-stable key. The analysis is
+        // triggered by each `.WithKey(...)` invocation (not the enclosing
+        // Select), so every key is inspected exactly once even when Selects
+        // nest; the diagnostic itself is reported on the key expression.
         if (methodName == "WithKey")
         {
             AnalyzeNonStableKey(ctx, inv);
