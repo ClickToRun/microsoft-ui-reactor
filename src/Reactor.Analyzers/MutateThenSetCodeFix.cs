@@ -82,21 +82,34 @@ public sealed class MutateThenSetCodeFix : CodeFixProvider
                         var newSetterStatement = setterStatement.ReplaceNode(setterCall, newSetterCall);
 
                         // Preserve the mutator line's comments / #directives so user content is
-                        // never silently dropped: leading trivia moves onto the setter's leading
-                        // (correct indentation), and an inline trailing comment moves onto the
-                        // setter's trailing trivia (kept inline).
-                        var hasLeading = mutatorStatement.ContainsDirectives
-                            || mutatorStatement.GetLeadingTrivia().Any(IsComment);
-                        if (hasLeading)
-                            newSetterStatement = newSetterStatement.WithLeadingTrivia(mutatorStatement.GetLeadingTrivia());
+                        // never silently dropped.
+                        if (mutatorStatement.ContainsDirectives)
+                        {
+                            // Directives (#if/#endif …) must keep their balance and stay on their own
+                            // lines — let Roslyn's directive-aware removal handle them (whitespace may
+                            // be slightly imperfect, but nothing is lost and the region stays valid).
+                            editor.ReplaceNode(setterStatement, newSetterStatement);
+                            editor.RemoveNode(mutatorStatement,
+                                SyntaxRemoveOptions.KeepLeadingTrivia
+                                | SyntaxRemoveOptions.KeepTrailingTrivia
+                                | SyntaxRemoveOptions.KeepDirectives);
+                        }
+                        else
+                        {
+                            // Comment-only: move leading trivia onto the setter's leading (correct
+                            // indentation) and an inline trailing comment onto the setter's trailing
+                            // (kept inline), then remove the mutator cleanly.
+                            if (mutatorStatement.GetLeadingTrivia().Any(IsComment))
+                                newSetterStatement = newSetterStatement.WithLeadingTrivia(mutatorStatement.GetLeadingTrivia());
 
-                        var trailingComments = mutatorStatement.GetTrailingTrivia().Where(IsComment).ToList();
-                        if (trailingComments.Count > 0)
-                            newSetterStatement = newSetterStatement.WithTrailingTrivia(
-                                MergeTrailingComment(newSetterStatement.GetTrailingTrivia(), trailingComments));
+                            var trailingComments = mutatorStatement.GetTrailingTrivia().Where(IsComment).ToList();
+                            if (trailingComments.Count > 0)
+                                newSetterStatement = newSetterStatement.WithTrailingTrivia(
+                                    MergeTrailingComment(newSetterStatement.GetTrailingTrivia(), trailingComments));
 
-                        editor.ReplaceNode(setterStatement, newSetterStatement);
-                        editor.RemoveNode(mutatorStatement, SyntaxRemoveOptions.KeepNoTrivia);
+                            editor.ReplaceNode(setterStatement, newSetterStatement);
+                            editor.RemoveNode(mutatorStatement, SyntaxRemoveOptions.KeepNoTrivia);
+                        }
 
                         return Task.FromResult(context.Document.WithSyntaxRoot(editor.GetChangedRoot()));
                     },

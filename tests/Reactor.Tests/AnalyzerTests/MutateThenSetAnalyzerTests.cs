@@ -297,4 +297,46 @@ class C : Microsoft.UI.Reactor.Core.Component
             CodeActionEquivalenceKey = HookRulesAnalyzer.MutateThenSetId,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    // A #directive around the mutated line is preserved (not dropped) — Roslyn's directive-aware
+    // removal keeps the region balanced.
+    [Fact]
+    public async Task CodeFix_Preserves_Directive_On_Mutator_Line()
+    {
+        var before = Stubs + @"
+class C : Microsoft.UI.Reactor.Core.Component
+{
+    public override string Render()
+    {
+        var (items, setItems) = UseState(Seed);
+#region seed
+        items.Add(""x"");
+#endregion
+        {|REACTOR_HOOKS_010:setItems(items)|};
+        return """";
+    }
+}";
+
+        var after = Stubs + @"
+class C : Microsoft.UI.Reactor.Core.Component
+{
+    public override string Render()
+    {
+        var (items, setItems) = UseState(Seed);
+#region seed
+        
+#endregion
+        setItems([.. items, ""x""]);
+        return """";
+    }
+}";
+
+        await new CSharpCodeFixTest<HookRulesAnalyzer, MutateThenSetCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            ReferenceAssemblies = ReferenceAssemblies.Net.Net80,
+            CodeActionEquivalenceKey = HookRulesAnalyzer.MutateThenSetId,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }
