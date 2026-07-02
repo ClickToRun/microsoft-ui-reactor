@@ -19,11 +19,14 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// <remarks>
 /// Detection is a cheap syntactic gate (name <c>UsePersisted</c>, exactly two
 /// arguments, no explicit <c>scope:</c>) followed by a single semantic check that
-/// the call really binds to <c>RenderContext.UsePersisted&lt;T&gt;(string, T)</c>.
-/// The two-argument overload with an explicit third scope argument, or any call on
-/// a same-named method that is not <c>RenderContext</c>, is left alone (spec 060
-/// §4.8). The paired <see cref="UsePersistedScopeCodeFix"/> offers
-/// <c>PersistedScope.Window</c> (recommended) or <c>PersistedScope.Application</c>.
+/// the call really binds to the default-scope <c>UsePersisted&lt;T&gt;(string, T)</c>
+/// hook — either on <c>RenderContext</c> (where it is declared) or on
+/// <c>Component</c> (whose <c>protected</c> wrapper delegates to it, so an
+/// unqualified <c>UsePersisted(...)</c> inside a component's <c>Render</c> is covered).
+/// The three-argument overload, or any call on a same-named method that is not one
+/// of those hook types, is left alone (spec 060 §4.8). The paired
+/// <see cref="UsePersistedScopeCodeFix"/> offers <c>PersistedScope.Window</c>
+/// (recommended) or <c>PersistedScope.Application</c>.
 /// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class UsePersistedScopeAnalyzer : DiagnosticAnalyzer
@@ -31,10 +34,10 @@ public sealed class UsePersistedScopeAnalyzer : DiagnosticAnalyzer
     public const string DiagnosticId = "REACTOR_PERSIST_001";
 
     private const string MethodName = "UsePersisted";
-    private const string ContainingTypeName = "RenderContext";
+    private const string RenderContextTypeName = "RenderContext";
+    private const string ComponentTypeName = "Component";
     private const string ReactorNamespacePrefix = "Microsoft.UI.Reactor";
     private const string ScopeParameterName = "scope";
-    private const string ScopeTypeName = "PersistedScope";
 
     private static readonly LocalizableString Title =
         "UsePersisted defaults to Application (process-wide) scope";
@@ -90,12 +93,12 @@ public sealed class UsePersistedScopeAnalyzer : DiagnosticAnalyzer
         if (args.Any(static a => a.NameColon?.Name.Identifier.ValueText == ScopeParameterName))
             return;
 
-        // Semantic confirmation — the call actually binds to
-        // RenderContext.UsePersisted<T>(string, T). One GetSymbolInfo, gated behind
-        // the syntactic checks above (spec 060 §3).
+        // Semantic confirmation — the call actually binds to the default-scope
+        // UsePersisted overload on RenderContext (or Component's protected wrapper).
+        // One GetSymbolInfo, gated behind the syntactic checks above (spec 060 §3).
         if (context.SemanticModel.GetSymbolInfo(invocation, context.CancellationToken).Symbol is not IMethodSymbol method)
             return;
-        if (!IsRenderContextDefaultScopeOverload(method))
+        if (!IsDefaultScopeUsePersistedOverload(method))
             return;
 
         context.ReportDiagnostic(Diagnostic.Create(
@@ -105,28 +108,40 @@ public sealed class UsePersistedScopeAnalyzer : DiagnosticAnalyzer
     }
 
     /// <summary>
-    /// True when <paramref name="method"/> is the two-argument
-    /// <c>RenderContext.UsePersisted&lt;T&gt;(string key, T initialValue)</c> overload
-    /// (the one that silently defaults to <c>PersistedScope.Application</c>).
+    /// True when <paramref name="method"/> is the two-argument default-scope
+    /// <c>UsePersisted&lt;T&gt;(string key, T initialValue)</c> hook — the overload that
+    /// silently resolves to <c>PersistedScope.Application</c>. Recognized both on
+    /// <c>RenderContext</c> (where it is declared) and on <c>Component</c> (whose
+    /// <c>protected</c> wrapper delegates to it, <c>Component.cs:260</c>), because an
+    /// unqualified <c>UsePersisted(...)</c> in a component's <c>Render</c> binds to the
+    /// Component-declared method.
     /// </summary>
-    private static bool IsRenderContextDefaultScopeOverload(IMethodSymbol method)
+    private static bool IsDefaultScopeUsePersistedOverload(IMethodSymbol method)
     {
         if (method.Name != MethodName)
             return false;
 
         var containingType = method.ContainingType;
-        if (containingType?.Name != ContainingTypeName)
+        if (containingType is null)
+            return false;
+        if (containingType.Name != RenderContextTypeName && containingType.Name != ComponentTypeName)
             return false;
 
         if (!IsReactorNamespace(containingType.ContainingNamespace?.ToDisplayString()))
             return false;
 
-        // The target overload is (string key, T initialValue): exactly two
-        // parameters and no PersistedScope among them. This distinguishes it from
-        // the three-argument overload and from any (string, PersistedScope) shape.
+        // Target overload shape: (string key, T initialValue). Inspect the ORIGINAL
+        // definition so a call that infers T = PersistedScope still matches (the
+        // second parameter is the method's own type parameter), while the
+        // three-argument overload (length 3) and any (string, PersistedScope) shape
+        // (second parameter is the enum, not a type parameter) are excluded.
         if (method.Parameters.Length != 2)
             return false;
-        if (method.Parameters.Any(static p => p.Type.Name == ScopeTypeName))
+
+        var original = method.OriginalDefinition;
+        if (original.Parameters[0].Type.SpecialType != SpecialType.System_String)
+            return false;
+        if (original.Parameters[1].Type.TypeKind != TypeKind.TypeParameter)
             return false;
 
         return true;

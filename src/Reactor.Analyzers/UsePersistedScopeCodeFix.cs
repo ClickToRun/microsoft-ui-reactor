@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Composition;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
@@ -21,15 +22,22 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// </summary>
 /// <remarks>
 /// Both actions are always safe (the three-argument overload always exists), so both
-/// are offered unconditionally and the author picks. The rewrite only inserts the
-/// argument; <c>PersistedScope</c> resolves through the same namespace that already
-/// brings <c>RenderContext</c> into scope at the call site.
+/// are offered unconditionally. Two robustness details keep the rewrite compiling:
+/// the <c>PersistedScope</c> reference is rendered with
+/// <see cref="SymbolDisplayExtensions.ToMinimalDisplayString"/> so it is qualified
+/// exactly as much as the call site needs (bare <c>PersistedScope</c> when the
+/// namespace is imported, otherwise fully qualified); and the appended argument is
+/// passed by name (<c>scope:</c>) whenever the original call already uses named
+/// arguments, so a call with reordered named arguments does not become an illegal
+/// "positional after named" argument list.
 /// </remarks>
 [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(UsePersistedScopeCodeFix))]
 [Shared]
 public sealed class UsePersistedScopeCodeFix : CodeFixProvider
 {
     private const string ScopeTypeName = "PersistedScope";
+    private const string ScopeTypeMetadataName = "Microsoft.UI.Reactor.Core.PersistedScope";
+    private const string ScopeParameterName = "scope";
     private const string RecommendedScope = "Window";
     private const string ExplicitScope = "Application";
 
@@ -43,6 +51,8 @@ public sealed class UsePersistedScopeCodeFix : CodeFixProvider
         var root = await context.Document.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
         if (root is null) return;
 
+        SemanticModel? semanticModel = null;
+
         foreach (var diagnostic in context.Diagnostics)
         {
             var node = root.FindNode(diagnostic.Location.SourceSpan, getInnermostNodeForTie: true);
@@ -51,10 +61,24 @@ public sealed class UsePersistedScopeCodeFix : CodeFixProvider
             if (invocation is null) continue;
             if (invocation.ArgumentList.Arguments.Count != 2) continue;
 
-            RegisterScopeFix(context, root, invocation, diagnostic, RecommendedScope,
-                "Scope to the host window (PersistedScope.Window, recommended)");
-            RegisterScopeFix(context, root, invocation, diagnostic, ExplicitScope,
-                "Keep process-wide scope (PersistedScope.Application, explicit)");
+            semanticModel ??= await context.Document
+                .GetSemanticModelAsync(context.CancellationToken).ConfigureAwait(false);
+
+            // Shortest name for PersistedScope that compiles at this call site — bare
+            // `PersistedScope` when the namespace is imported (the common case),
+            // otherwise a qualified name. Falls back to the simple name if the symbol
+            // can't be resolved.
+            var scopeTypeName = semanticModel?.Compilation
+                .GetTypeByMetadataName(ScopeTypeMetadataName)
+                ?.ToMinimalDisplayString(semanticModel, invocation.SpanStart)
+                ?? ScopeTypeName;
+
+            var useNamedArgument = invocation.ArgumentList.Arguments.Any(static a => a.NameColon is not null);
+
+            RegisterScopeFix(context, root, invocation, diagnostic, RecommendedScope, scopeTypeName, useNamedArgument,
+                $"Scope to the host window ({ScopeTypeName}.{RecommendedScope}, recommended)");
+            RegisterScopeFix(context, root, invocation, diagnostic, ExplicitScope, scopeTypeName, useNamedArgument,
+                $"Keep process-wide scope ({ScopeTypeName}.{ExplicitScope}, explicit)");
         }
     }
 
@@ -64,6 +88,8 @@ public sealed class UsePersistedScopeCodeFix : CodeFixProvider
         InvocationExpressionSyntax invocation,
         Diagnostic diagnostic,
         string scopeMember,
+        string scopeTypeName,
+        bool useNamedArgument,
         string title)
     {
         context.RegisterCodeFix(
@@ -71,15 +97,21 @@ public sealed class UsePersistedScopeCodeFix : CodeFixProvider
                 title,
                 _ =>
                 {
-                    var scopeArgument = SyntaxFactory.Argument(
-                        SyntaxFactory.MemberAccessExpression(
-                            SyntaxKind.SimpleMemberAccessExpression,
-                            SyntaxFactory.IdentifierName(ScopeTypeName),
-                            SyntaxFactory.IdentifierName(scopeMember)))
-                        .WithLeadingTrivia(SyntaxFactory.Space);
+                    var argument = SyntaxFactory.Argument(
+                        SyntaxFactory.ParseExpression($"{scopeTypeName}.{scopeMember}"));
+
+                    if (useNamedArgument)
+                    {
+                        var nameColon = SyntaxFactory.NameColon(SyntaxFactory.IdentifierName(ScopeParameterName))
+                            .WithColonToken(SyntaxFactory.Token(SyntaxKind.ColonToken)
+                                .WithTrailingTrivia(SyntaxFactory.Space));
+                        argument = argument.WithNameColon(nameColon);
+                    }
+
+                    argument = argument.WithLeadingTrivia(SyntaxFactory.Space);
 
                     var newArgumentList = invocation.ArgumentList.WithArguments(
-                        invocation.ArgumentList.Arguments.Add(scopeArgument));
+                        invocation.ArgumentList.Arguments.Add(argument));
                     var newInvocation = invocation.WithArgumentList(newArgumentList);
 
                     var newRoot = root.ReplaceNode(invocation, newInvocation);

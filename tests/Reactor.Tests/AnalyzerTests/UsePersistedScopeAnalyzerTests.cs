@@ -41,7 +41,16 @@ namespace Microsoft.UI.Reactor.Core
         public void UsePersisted(string key, PersistedScope scope) { }
     }
 
-    // Same method name + 2-arg shape, but NOT RenderContext — must never fire.
+    // Component re-exposes the hook as a protected wrapper (Component.cs:260) that
+    // also defaults to Application scope; an unqualified `UsePersisted(...)` inside a
+    // component's Render binds here, not to RenderContext.
+    public class Component
+    {
+        protected void UsePersisted<T>(string key, T initialValue) { }
+        protected void UsePersisted<T>(string key, T initialValue, PersistedScope scope) { }
+    }
+
+    // Same method name + 2-arg shape, but neither RenderContext nor Component — must never fire.
     public class NotRenderContext
     {
         public void UsePersisted<T>(string key, T initialValue) { }
@@ -233,6 +242,111 @@ class C
             TestCode = before,
             FixedCode = after,
             CodeActionEquivalenceKey = UsePersistedScopeAnalyzer.DiagnosticId + ":Application",
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // ── Component wrapper (the idiomatic unqualified call shape) ─────────
+
+    [Fact]
+    public async Task Fires_For_Unqualified_Component_Call()
+    {
+        // Real components call the protected Component.UsePersisted wrapper
+        // unqualified inside Render (e.g. samples/apps/regedit/App.cs).
+        var source = Stubs + @"
+class MyComponent : Component
+{
+    void Build()
+    {
+        {|REACTOR_PERSIST_001:UsePersisted(""filter"", """")|};
+    }
+}";
+
+        await new CSharpAnalyzerTest<UsePersistedScopeAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_When_Value_Type_Is_PersistedScope()
+    {
+        // T inferred as PersistedScope is still the 2-arg default-scope overload —
+        // it must fire (guards the OriginalDefinition type-parameter check).
+        var source = Stubs + @"
+class MyComponent : Component
+{
+    void Build()
+    {
+        {|REACTOR_PERSIST_001:UsePersisted(""preferred-scope"", PersistedScope.Window)|};
+    }
+}";
+
+        await new CSharpAnalyzerTest<UsePersistedScopeAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Adds_Scope_For_Unqualified_Component_Call()
+    {
+        var before = Stubs + @"
+class MyComponent : Component
+{
+    void Build()
+    {
+        {|REACTOR_PERSIST_001:UsePersisted(""filter"", """")|};
+    }
+}";
+
+        var after = Stubs + @"
+class MyComponent : Component
+{
+    void Build()
+    {
+        UsePersisted(""filter"", """", PersistedScope.Window);
+    }
+}";
+
+        await new CSharpCodeFixTest<UsePersistedScopeAnalyzer, UsePersistedScopeCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            CodeActionEquivalenceKey = UsePersistedScopeAnalyzer.DiagnosticId + ":Window",
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Passes_Scope_By_Name_When_Arguments_Are_Named()
+    {
+        // Appending a positional argument after named arguments could be illegal
+        // C# (positional-after-named), so the fix names the scope argument when the
+        // call already uses named arguments.
+        var before = Stubs + @"
+class C
+{
+    void M()
+    {
+        var ctx = new RenderContext();
+        {|REACTOR_PERSIST_001:ctx.UsePersisted(key: ""filter"", initialValue: """")|};
+    }
+}";
+
+        var after = Stubs + @"
+class C
+{
+    void M()
+    {
+        var ctx = new RenderContext();
+        ctx.UsePersisted(key: ""filter"", initialValue: """", scope: PersistedScope.Window);
+    }
+}";
+
+        await new CSharpCodeFixTest<UsePersistedScopeAnalyzer, UsePersistedScopeCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            CodeActionEquivalenceKey = UsePersistedScopeAnalyzer.DiagnosticId + ":Window",
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 }
