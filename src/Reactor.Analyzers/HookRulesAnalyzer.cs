@@ -141,7 +141,7 @@ public sealed class HookRulesAnalyzer : DiagnosticAnalyzer
     private static readonly DiagnosticDescriptor MutateThenSetRule = new(
         MutateThenSetId,
         "Mutate-then-set reference state",
-        "'{0}' is mutated in place and the same instance is passed back to '{1}'. The setter compares the new value to the stored one with EqualityComparer<T>.Default; the same instance compares equal (x.Equals(x) is true), so no re-render is scheduled. {2}",
+        "'{0}' is mutated in place and the same instance is passed back to '{1}'. The setter compares the new value to the stored one with EqualityComparer<T>.Default; the same instance compares equal (x.Equals(x) is true), so no re-render is scheduled. {2}.",
         "Reactor.Hooks",
         DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
@@ -1189,8 +1189,8 @@ public sealed class HookRulesAnalyzer : DiagnosticAnalyzer
         // The advice example is only accurate for the fixable single-arg .Add shape; other mutators
         // (Clear/Remove/indexer set) get generic guidance so the message isn't misleading.
         var advice = isSingleArgAdd
-            ? $"Pass a new value instead, e.g. {setterSymbol.Name}([.. {stateSymbol.Name}, item])."
-            : $"Pass a new value to {setterSymbol.Name} — a copy of '{stateSymbol.Name}' with the change applied — instead of mutating and re-passing the same instance.";
+            ? $"Pass a new value instead, e.g. {setterSymbol.Name}([.. {stateSymbol.Name}, item])"
+            : $"Pass a new value to {setterSymbol.Name} — a copy of '{stateSymbol.Name}' with the change applied — instead of mutating and re-passing the same instance";
         context.ReportDiagnostic(Diagnostic.Create(
             MutateThenSetRule,
             invocation.GetLocation(),

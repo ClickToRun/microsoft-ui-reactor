@@ -248,6 +248,7 @@ class C : Microsoft.UI.Reactor.Core.Component
     {
         var (items, setItems) = UseState(Seed);
         // keep me
+        
         setItems([.. items, ""x""]);
         return """";
     }
@@ -262,7 +263,7 @@ class C : Microsoft.UI.Reactor.Core.Component
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 
-    // An inline trailing comment on the mutated line is preserved (moved onto the setter line).
+    // An inline trailing comment on the mutated line is preserved (Roslyn keeps it as its own line).
     [Fact]
     public async Task CodeFix_Preserves_Trailing_Comment_On_Mutator_Line()
     {
@@ -284,7 +285,8 @@ class C : Microsoft.UI.Reactor.Core.Component
     public override string Render()
     {
         var (items, setItems) = UseState(Seed);
-        setItems([.. items, ""x""]); // keep me
+         // keep me
+        setItems([.. items, ""x""]);
         return """";
     }
 }";

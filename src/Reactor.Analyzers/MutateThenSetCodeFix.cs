@@ -80,36 +80,19 @@ public sealed class MutateThenSetCodeFix : CodeFixProvider
                             SyntaxFactory.ArgumentList(SyntaxFactory.SingletonSeparatedList(
                                 SyntaxFactory.Argument(collection))));
                         var newSetterStatement = setterStatement.ReplaceNode(setterCall, newSetterCall);
+                        editor.ReplaceNode(setterStatement, newSetterStatement);
 
-                        // Preserve the mutator line's comments / #directives so user content is
-                        // never silently dropped.
-                        if (mutatorStatement.ContainsDirectives)
-                        {
-                            // Directives (#if/#endif …) must keep their balance and stay on their own
-                            // lines — let Roslyn's directive-aware removal handle them (whitespace may
-                            // be slightly imperfect, but nothing is lost and the region stays valid).
-                            editor.ReplaceNode(setterStatement, newSetterStatement);
-                            editor.RemoveNode(mutatorStatement,
-                                SyntaxRemoveOptions.KeepLeadingTrivia
-                                | SyntaxRemoveOptions.KeepTrailingTrivia
-                                | SyntaxRemoveOptions.KeepDirectives);
-                        }
-                        else
-                        {
-                            // Comment-only: move leading trivia onto the setter's leading (correct
-                            // indentation) and an inline trailing comment onto the setter's trailing
-                            // (kept inline), then remove the mutator cleanly.
-                            if (mutatorStatement.GetLeadingTrivia().Any(IsComment))
-                                newSetterStatement = newSetterStatement.WithLeadingTrivia(mutatorStatement.GetLeadingTrivia());
-
-                            var trailingComments = mutatorStatement.GetTrailingTrivia().Where(IsComment).ToList();
-                            if (trailingComments.Count > 0)
-                                newSetterStatement = newSetterStatement.WithTrailingTrivia(
-                                    MergeTrailingComment(newSetterStatement.GetTrailingTrivia(), trailingComments));
-
-                            editor.ReplaceNode(setterStatement, newSetterStatement);
-                            editor.RemoveNode(mutatorStatement, SyntaxRemoveOptions.KeepNoTrivia);
-                        }
+                        // Remove the now-redundant `items.Add(v);`. When it carries comments or
+                        // #directives, keep them via Roslyn's trivia-aware removal so user content is
+                        // never dropped and #if/#endif regions stay balanced (this can leave a blank
+                        // line where the statement was — an acceptable cosmetic cost the author tidies
+                        // up). Otherwise remove cleanly with no leftover whitespace.
+                        var keepTrivia = mutatorStatement.ContainsDirectives
+                            || mutatorStatement.GetLeadingTrivia().Any(IsComment)
+                            || mutatorStatement.GetTrailingTrivia().Any(IsComment);
+                        editor.RemoveNode(mutatorStatement, keepTrivia
+                            ? SyntaxRemoveOptions.KeepLeadingTrivia | SyntaxRemoveOptions.KeepTrailingTrivia | SyntaxRemoveOptions.KeepDirectives
+                            : SyntaxRemoveOptions.KeepNoTrivia);
 
                         return Task.FromResult(context.Document.WithSyntaxRoot(editor.GetChangedRoot()));
                     },
@@ -120,35 +103,4 @@ public sealed class MutateThenSetCodeFix : CodeFixProvider
 
     private static bool IsComment(SyntaxTrivia t) =>
         t.IsKind(SyntaxKind.SingleLineCommentTrivia) || t.IsKind(SyntaxKind.MultiLineCommentTrivia);
-
-    /// <summary>
-    /// Inserts <paramref name="comments"/> (with a leading space) just before the setter statement's
-    /// end-of-line, keeping the transferred comment inline (e.g. <c>setItems(…); // keep</c>).
-    /// </summary>
-    private static SyntaxTriviaList MergeTrailingComment(SyntaxTriviaList setterTrailing, System.Collections.Generic.List<SyntaxTrivia> comments)
-    {
-        var rebuilt = new System.Collections.Generic.List<SyntaxTrivia>();
-        var inserted = false;
-        foreach (var t in setterTrailing)
-        {
-            if (!inserted && t.IsKind(SyntaxKind.EndOfLineTrivia))
-            {
-                rebuilt.Add(SyntaxFactory.Space);
-                rebuilt.AddRange(comments);
-                inserted = true;
-            }
-            rebuilt.Add(t);
-        }
-        if (!inserted)
-        {
-            rebuilt.Add(SyntaxFactory.Space);
-            rebuilt.AddRange(comments);
-            // No end-of-line followed the setter (e.g. a single-line block `{ …; setItems(…); }`).
-            // A // line comment would otherwise swallow the rest of the line — including the closing
-            // brace — so terminate it with a newline to keep the code compiling.
-            if (comments.Any(static c => c.IsKind(SyntaxKind.SingleLineCommentTrivia)))
-                rebuilt.Add(SyntaxFactory.CarriageReturnLineFeed);
-        }
-        return SyntaxFactory.TriviaList(rebuilt);
-    }
 }
