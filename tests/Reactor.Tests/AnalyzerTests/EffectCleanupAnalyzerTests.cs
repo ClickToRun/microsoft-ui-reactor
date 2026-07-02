@@ -878,4 +878,29 @@ namespace TestApp
         }
     }
 }");
+
+    // Stopping a timer in the body (DispatcherTimer's teardown verb) is a cleanup signal → no fire.
+    [Fact]
+    public Task NoFire_When_Timer_Stopped_In_Body()
+        => Verify(@"
+namespace TestApp
+{
+    using System;
+    using Microsoft.UI.Reactor.Core;
+    using Fakes;
+
+    public sealed class Comp : Component
+    {
+        public override string Render()
+        {
+            UseEffect(() =>
+            {
+                var t = new DispatcherTimer();
+                t.Start();
+                t.Stop();
+            }, Array.Empty<object>());
+            return """";
+        }
+    }
+}");
 }

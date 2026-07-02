@@ -34,10 +34,11 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// whose first parameter is the non-generic <see cref="!:System.Action"/> overload; the effect
 /// argument must be a lambda whose body is visible; a known-lifetime allocation must appear at the
 /// <b>top level</b> of that body (not inside a nested lambda / local function, whose lifetime is
-/// its own); and there must be <b>no</b> teardown signal anywhere in the body (<c>using</c>,
-/// <c>Dispose</c>/<c>DisposeAsync</c>, or any event <c>-=</c> — the unsubscription is not checked
-/// against the specific <c>+=</c> handler). Any of those bails the rule. The fix is a template
-/// nudge: return a cleanup <c>Action</c> (which selects the <c>Func&lt;Action&gt;</c> overload).
+/// its own); and there must be <b>no</b> teardown signal anywhere in the body (<c>using</c>, a
+/// <c>Dispose</c>/<c>DisposeAsync</c>/<c>Stop</c>/<c>Cancel</c> call, or any event <c>-=</c> — the
+/// unsubscription is not checked against the specific <c>+=</c> handler). Any of those bails the
+/// rule. The fix is a template nudge: return a cleanup <c>Action</c> (which selects the
+/// <c>Func&lt;Action&gt;</c> overload).
 /// </para>
 /// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
@@ -68,7 +69,7 @@ public sealed class EffectCleanupAnalyzer : DiagnosticAnalyzer
     private static readonly DiagnosticDescriptor Rule = new(
         DiagnosticId,
         "UseEffect allocates a long-lived resource with no cleanup",
-        "This UseEffect creates {0} but returns no cleanup; it outlives the component and its callback can still run after unmount. Return a cleanup Action (use the Func<Action> overload) that stops/disposes it.",
+        "This UseEffect creates {0} but returns no cleanup; it outlives the component and its callback can still run after unmount. Return a cleanup Action (use the Func<Action> overload) that tears it down.",
         "Reactor.Lifecycle",
         DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
@@ -79,7 +80,8 @@ public sealed class EffectCleanupAnalyzer : DiagnosticAnalyzer
             "producer keeps running and its callback can still fire against a torn-down component — " +
             "at best it leaks the captured closure tree, and if the callback touches component state " +
             "(e.g. a state setter) it runs against a dead RenderContext. Switch to the Func<Action> " +
-            "overload and return a cleanup that cancels/disposes the resource — e.g. " +
+            "overload and return a cleanup that tears the resource down (stop/dispose the timer or " +
+            "subscription, or unsubscribe the event) — e.g. " +
             "UseEffect(() => { var t = new PeriodicTimer(...); ...; return () => t.Dispose(); }, ...). " +
             "See docs/guide/effects.md \"Missing cleanup\".");
 
@@ -186,10 +188,11 @@ public sealed class EffectCleanupAnalyzer : DiagnosticAnalyzer
 
     /// <summary>
     /// Scans the whole effect body (including nested lambdas / continuations) for any teardown
-    /// signal: a <c>using</c> statement/declaration, a <c>.Dispose(</c>/<c>.DisposeAsync(</c> call
-    /// (including the conditional-access <c>timer?.Dispose()</c> form), or an event unsubscription
-    /// (<c>-=</c> whose left side binds to an event). Presence means the author is managing the
-    /// lifetime. A numeric <c>-=</c> (e.g. <c>count -= 1</c>) is not counted.
+    /// signal: a <c>using</c> statement/declaration, a teardown call
+    /// (<c>Dispose</c>/<c>DisposeAsync</c>/<c>Stop</c>/<c>Cancel</c>, including the conditional-access
+    /// <c>timer?.Stop()</c> form), or an event unsubscription (<c>-=</c> whose left side binds to an
+    /// event). Presence means the author is managing the lifetime — favor a false negative over a
+    /// false positive. A numeric <c>-=</c> (e.g. <c>count -= 1</c>) is not counted.
     /// </summary>
     private static bool HasCleanupSignal(SyntaxNode body, SemanticModel model, System.Threading.CancellationToken ct)
     {
@@ -204,7 +207,7 @@ public sealed class EffectCleanupAnalyzer : DiagnosticAnalyzer
                     when a.IsKind(SyntaxKind.SubtractAssignmentExpression) && IsEvent(a.Left, model, ct):
                     return true;
                 case InvocationExpressionSyntax inv
-                    when GetInvokedMethodName(inv) is "Dispose" or "DisposeAsync":
+                    when GetInvokedMethodName(inv) is "Dispose" or "DisposeAsync" or "Stop" or "Cancel":
                     return true;
             }
         }
