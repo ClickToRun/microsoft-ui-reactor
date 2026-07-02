@@ -69,6 +69,12 @@ public sealed class NotADispatcher
 {
     public bool TryEnqueue(Action callback) { callback(); return true; }
 }
+
+// A DispatcherQueue that is not ReactorApp.UIDispatcher.
+public static class OtherHost
+{
+    public static DispatcherQueue OtherDispatcher = new DispatcherQueue();
+}
 ";
 
     // ── Positive: fires inside each background launcher ──────────────────
@@ -725,6 +731,35 @@ class C
         var window = new FakeWindow();
         var factory = Task.Factory;
         factory.StartNew(() => {|REACTOR_THREAD_001:window.Close()|});
+    }
+}";
+
+        await new CSharpAnalyzerTest<UIThreadAffinityAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_For_Null_Fallback_On_A_Non_Reactor_Dispatcher()
+    {
+        // `d` is a DispatcherQueue but NOT ReactorApp.UIDispatcher. If it is null
+        // while the framework dispatcher is already captured, the direct call still
+        // throws — so the null-fallback suppression must not apply here.
+        var source = Stubs + @"
+class C
+{
+    void M()
+    {
+        var window = new FakeWindow();
+        Task.Run(() =>
+        {
+            var d = OtherHost.OtherDispatcher;
+            if (d is null)
+                {|REACTOR_THREAD_001:window.Close()|};
+            else
+                d.TryEnqueue(() => window.Close());
+        });
     }
 }";
 

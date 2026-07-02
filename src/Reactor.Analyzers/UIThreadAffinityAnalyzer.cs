@@ -37,15 +37,17 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
         "UI-thread-only member called on a background thread";
 
     private static readonly LocalizableString MessageFormat =
-        "'{0}' must run on the UI thread; calling it inside a background task throws at runtime. " +
-        "Marshal through ReactorApp.UIDispatcher.TryEnqueue(...).";
+        "'{0}' must run on the UI thread; calling it inside a background task throws once the UI " +
+        "dispatcher has been captured. Marshal it back with a null-safe " +
+        "ReactorApp.UIDispatcher.TryEnqueue(...).";
 
     private static readonly LocalizableString Description =
-        "Members annotated with [UIThreadOnly] call ThreadAffinity.ThrowIfNotOnUIThread and throw " +
+        "Members annotated with [UIThreadOnly] call ThreadAffinity.ThrowIfNotOnUIThread, which throws " +
         "InvalidOperationException when reached from a Task.Run / Task.Factory.StartNew / " +
-        "ThreadPool.QueueUserWorkItem lambda. Marshal the call back onto the UI thread with " +
-        "ReactorApp.UIDispatcher.TryEnqueue(...) — null-safe, because the dispatcher is null until " +
-        "the first window bootstraps.";
+        "ThreadPool.QueueUserWorkItem lambda once the UI dispatcher has been captured (the guard is a " +
+        "no-op while ReactorApp.UIDispatcher is still null, before the first window bootstraps). Marshal " +
+        "the call back onto the UI thread through ReactorApp.UIDispatcher.TryEnqueue(...), null-checked " +
+        "so it falls back to the direct call before the dispatcher exists (never a null-forgiving '!').";
 
     private static readonly DiagnosticDescriptor Rule = new(
         DiagnosticId,
@@ -218,10 +220,12 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
     /// then-branch of an <c>if (d is null)</c> / <c>if (d == null)</c> whose
     /// <c>else</c> marshals through <c>d.TryEnqueue(...)</c> — the null-dispatcher
     /// fallback idiom the code fix emits (and app authors write by hand). The
-    /// suppression is tied to the null-checked identifier: the same local must be
-    /// the <c>TryEnqueue</c> receiver, so an unrelated null check with an unrelated
-    /// <c>TryEnqueue</c> in its else does not hide a genuine off-thread call. Safe
-    /// because <c>ThrowIfNotOnUIThread</c> is a no-op while the dispatcher is null.
+    /// suppression is tied to the null-checked identifier (the same local must be
+    /// the <c>TryEnqueue</c> receiver) <b>and</b> to that local being sourced from
+    /// <see cref="Microsoft.UI.Reactor.ReactorApp.UIDispatcher"/> — the safety
+    /// argument (<c>ThrowIfNotOnUIThread</c> is a no-op while the framework
+    /// dispatcher is null) only holds for that dispatcher, so an unrelated nullable
+    /// <c>DispatcherQueue</c> named <c>d</c> does not hide a genuine off-thread call.
     /// </summary>
     private static bool IsInsideDispatcherNullFallback(SyntaxNode node, SemanticModel semanticModel, CancellationToken cancellationToken)
     {
@@ -230,9 +234,10 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
         {
             if (current is IfStatementSyntax ifStatement &&
                 ReferenceEquals(child, ifStatement.Statement) &&
-                TryGetNullCheckedIdentifier(ifStatement.Condition) is { } dispatcherName &&
+                TryGetNullCheckedIdentifier(ifStatement.Condition) is { } dispatcher &&
+                IsReactorDispatcherLocal(dispatcher, semanticModel, cancellationToken) &&
                 ifStatement.Else is { } elseClause &&
-                ElseMarshalsThrough(elseClause, dispatcherName, semanticModel, cancellationToken))
+                ElseMarshalsThrough(elseClause, dispatcher.Identifier.Text, semanticModel, cancellationToken))
             {
                 return true;
             }
@@ -246,26 +251,54 @@ public sealed class UIThreadAffinityAnalyzer : DiagnosticAnalyzer
 
     /// <summary>
     /// For <c>x is null</c> / <c>x == null</c> / <c>null == x</c> where <c>x</c> is a
-    /// simple identifier, returns that identifier's name; otherwise <see langword="null"/>.
+    /// simple identifier, returns that identifier; otherwise <see langword="null"/>.
     /// </summary>
-    private static string? TryGetNullCheckedIdentifier(ExpressionSyntax condition) => condition switch
+    private static IdentifierNameSyntax? TryGetNullCheckedIdentifier(ExpressionSyntax condition) => condition switch
     {
         IsPatternExpressionSyntax
         {
             Expression: IdentifierNameSyntax id,
             Pattern: ConstantPatternSyntax { Expression: LiteralExpressionSyntax literal },
-        } when literal.IsKind(SyntaxKind.NullLiteralExpression) => id.Identifier.Text,
+        } when literal.IsKind(SyntaxKind.NullLiteralExpression) => id,
         BinaryExpressionSyntax binary when binary.IsKind(SyntaxKind.EqualsExpression) => NullCheckedSide(binary),
         _ => null,
     };
 
-    private static string? NullCheckedSide(BinaryExpressionSyntax binary)
+    private static IdentifierNameSyntax? NullCheckedSide(BinaryExpressionSyntax binary)
     {
         if (binary.Right.IsKind(SyntaxKind.NullLiteralExpression) && binary.Left is IdentifierNameSyntax left)
-            return left.Identifier.Text;
+            return left;
         if (binary.Left.IsKind(SyntaxKind.NullLiteralExpression) && binary.Right is IdentifierNameSyntax right)
-            return right.Identifier.Text;
+            return right;
         return null;
+    }
+
+    /// <summary>
+    /// Confirms <paramref name="identifier"/> binds to a local initialized from
+    /// <see cref="Microsoft.UI.Reactor.ReactorApp.UIDispatcher"/>.
+    /// </summary>
+    private static bool IsReactorDispatcherLocal(IdentifierNameSyntax identifier, SemanticModel semanticModel, CancellationToken cancellationToken)
+    {
+        if (semanticModel.GetSymbolInfo(identifier, cancellationToken).Symbol is not ILocalSymbol local)
+            return false;
+
+        foreach (var reference in local.DeclaringSyntaxReferences)
+        {
+            if (reference.GetSyntax(cancellationToken) is VariableDeclaratorSyntax { Initializer.Value: { } initializer }
+                && IsReactorUIDispatcher(initializer, semanticModel, cancellationToken))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsReactorUIDispatcher(ExpressionSyntax expression, SemanticModel semanticModel, CancellationToken cancellationToken)
+    {
+        var symbol = semanticModel.GetSymbolInfo(expression, cancellationToken).Symbol;
+        return symbol is { Name: "UIDispatcher" }
+            && symbol.ContainingType?.ToDisplayString() == "Microsoft.UI.Reactor.ReactorApp";
     }
 
     /// <summary>
