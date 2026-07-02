@@ -41,6 +41,7 @@ public sealed class OnKeyDownChordAnalyzer : DiagnosticAnalyzer
     public const string DiagnosticId = "REACTOR_INPUT_001";
 
     private const string ModifiersEnumName = "VirtualKeyModifiers";
+    private const string KeyEnumName = "VirtualKey";
     private const string ModifiersEnumNamespace = "Windows.System";
     private const string ReactorNamespacePrefix = "Microsoft.UI.Reactor";
 
@@ -54,7 +55,7 @@ public sealed class OnKeyDownChordAnalyzer : DiagnosticAnalyzer
         "Ctrl/Alt chord on .OnKeyDown should be a Command accelerator";
 
     private static readonly LocalizableString MessageFormat =
-        "This .OnKeyDown lambda tests a focus-scoped Ctrl/Alt chord ({0}); .OnKeyDown only fires while the element is focused, so the shortcut never reaches AccessKeyManager. Register it as a Command whose Accelerator = Accelerator(VirtualKey.<key>, {0}) instead.";
+        "This .OnKeyDown lambda tests a focus-scoped Ctrl/Alt chord ({0}); .OnKeyDown only fires while the element is focused, so the shortcut never reaches AccessKeyManager. Register it as a Command whose Accelerator = Accelerator({1}, {0}) instead.";
 
     private static readonly LocalizableString Description =
         "The .OnKeyDown modifier subscribes to the element's focus-scoped KeyDown routed event, so a " +
@@ -124,7 +125,7 @@ public sealed class OnKeyDownChordAnalyzer : DiagnosticAnalyzer
         // (never the message text), so the template it scaffolds matches exactly what was detected
         // here — same nested-closure exclusion, same combined-modifier expression.
         var modifiers = ModifierExpression(hasControl, hasMenu);
-        var key = FindVirtualKey(body) is { } k ? $"VirtualKey.{k}" : "VirtualKey.<key>";
+        var key = FindVirtualKey(body) is { } k ? $"{KeyEnumName}.{k}" : $"{KeyEnumName}.<key>";
 
         var properties = ImmutableDictionary<string, string?>.Empty
             .Add(ModifiersProperty, modifiers)
@@ -134,7 +135,8 @@ public sealed class OnKeyDownChordAnalyzer : DiagnosticAnalyzer
             Rule,
             invocation.GetLocation(),
             properties,
-            modifiers));
+            modifiers,
+            key));
     }
 
     /// <summary>
@@ -196,7 +198,8 @@ public sealed class OnKeyDownChordAnalyzer : DiagnosticAnalyzer
 
     /// <summary>
     /// The name of the first <c>VirtualKey.&lt;X&gt;</c> the handler's own body references (nested
-    /// closures excluded), or <c>null</c> when none is present.
+    /// closures excluded), or <c>null</c> when none is present. Recognizes both the bare
+    /// <c>VirtualKey.S</c> and the qualified <c>Windows.System.VirtualKey.S</c> receiver forms.
     /// </summary>
     private static string? FindVirtualKey(SyntaxNode body)
     {
@@ -204,7 +207,7 @@ public sealed class OnKeyDownChordAnalyzer : DiagnosticAnalyzer
         {
             if (IsInsideNestedFunction(access, body))
                 continue;
-            if (access.Expression is IdentifierNameSyntax { Identifier.Text: "VirtualKey" })
+            if (ReceiverName(access.Expression) == KeyEnumName)
                 return access.Name.Identifier.Text;
         }
         return null;

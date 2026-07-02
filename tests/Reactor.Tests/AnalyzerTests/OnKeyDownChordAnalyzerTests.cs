@@ -485,6 +485,44 @@ class C
     }
 
     [Fact]
+    public async Task CodeFix_Extracts_Qualified_VirtualKey()
+    {
+        // The tested key uses a qualified receiver (Windows.System.VirtualKey.S); the scaffold still
+        // extracts it (normalized to VirtualKey.S).
+        var before = Stubs + @"
+class C
+{
+    static VirtualKeyModifiers Mods() => VirtualKeyModifiers.None;
+    void Save() {}
+    void M()
+    {
+        var el = new FakeElement();
+        {|REACTOR_INPUT_001:el.OnKeyDown((s, e) => { if (e.Key == Windows.System.VirtualKey.S && Mods().HasFlag(VirtualKeyModifiers.Control)) Save(); })|};
+    }
+}";
+
+        var after = Stubs + @"
+class C
+{
+    static VirtualKeyModifiers Mods() => VirtualKeyModifiers.None;
+    void Save() {}
+    void M()
+    {
+        var el = new FakeElement();
+        {|REACTOR_INPUT_001:el.OnKeyDown((s, e) => { if (e.Key == Windows.System.VirtualKey.S && Mods().HasFlag(VirtualKeyModifiers.Control)) Save(); })|} /* REACTOR_INPUT_001: .OnKeyDown is focus-scoped. Register this shortcut app-wide as a Command accelerator instead, e.g. new Command { Label = <name>, Execute = <handler>, Accelerator = Accelerator(VirtualKey.S, VirtualKeyModifiers.Control) }, then remove this .OnKeyDown chord. */;
+    }
+}";
+
+        await new CSharpCodeFixTest<OnKeyDownChordAnalyzer, OnKeyDownChordCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            FixedState = { MarkupHandling = MarkupMode.Allow },
+            NumberOfIncrementalIterations = 1,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task CodeFix_Not_Offered_When_Scaffold_Already_Present()
     {
         // Idempotency: a REACTOR_INPUT_001 scaffold already in the trailing trivia means the fix is
