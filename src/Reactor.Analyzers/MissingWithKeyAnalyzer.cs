@@ -231,10 +231,10 @@ public sealed class MissingWithKeyAnalyzer : DiagnosticAnalyzer
 
     // True when the key expression contains a per-render-random source:
     // Guid.NewGuid(), DateTime.Now/UtcNow, Environment.TickCount(64), or the
-    // Random type used to produce a value (new Random(), Random.Shared,
-    // Random.Next(), …). Matching Random only in `new Random`/`Random.<member>`
-    // position — rather than any identifier named "Random" — avoids flagging a
-    // local, parameter, or alias that merely happens to be called Random.
+    // Random type used to produce a value — matched only as `new Random(...)` or
+    // `Random.Shared` (the sole static randomness source). Requiring those exact
+    // shapes — rather than any identifier or member access named "Random" —
+    // avoids flagging a local, parameter, or an unrelated `Foo.Random.Bar`.
     static bool ContainsPerRenderValue(ExpressionSyntax arg)
     {
         foreach (var node in arg.DescendantNodesAndSelf())
