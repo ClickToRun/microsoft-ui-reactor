@@ -85,6 +85,7 @@ Additional flags:
 | `REACTOR_THEME_001` | warning | Hardcoded color on a themed surface | Use `Theme.*` tokens (e.g. `Theme.PrimaryText`, `Theme.CardBackground`). See `reactor-design`. |
 | `REACTOR_THEME_002` | info | Lightweight styling opportunity | Optional. Use `.Resources(r => r.Set("ButtonBackground", …))` for visual-state overrides. |
 | `REACTOR_THEME_003` | info | `RequestedTheme` modifier available | Use `.RequestedTheme(ElementTheme.Dark)` for subtree theme overrides. |
+| `REACTOR_OPT_001` | info | Selection sentinel `-1`/`null` assigned to an `Optional<T>` prop (`SelectedIndex`/`SelectedPageIndex`/`Date`/`Time`) in `new …{ }`/`with { }` — implicitly `Optional.Of(sentinel)`, a force-assert re-applied every render | Use `Optional<int>.Unset` to let the control own the selection, or `Optional<int>.Of(-1)` to keep the explicit force-assert. |
 | `REACTOR_A11Y_001` | warning | Icon-only button missing accessible name | Add `.AutomationName("Delete")` (or similar). |
 | `REACTOR_A11Y_002` | warning | Image missing alt text | Add `.AutomationName(...)` or `.AccessibilityHidden(true)` for decorative images. |
 | `REACTOR_A11Y_003` | warning | Form field missing label | Wrap in `FormField(input, label: "Email", required: true)`. |
