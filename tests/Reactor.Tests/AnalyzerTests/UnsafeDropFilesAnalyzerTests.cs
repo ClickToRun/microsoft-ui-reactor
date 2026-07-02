@@ -172,6 +172,31 @@ class C
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 
+    [Fact]
+    public async Task Fires_For_Conditional_Access_TryGetFiles_In_OnDrop()
+    {
+        // Null-conditional call: `d?.TryGetFiles(...)` — invocation.Expression is a
+        // MemberBindingExpressionSyntax (not MemberAccess). The rule still fires.
+        var source = Stubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        el.OnDrop(args =>
+        {
+            Microsoft.UI.Reactor.Input.DragData d = args.Data;
+            d?{|REACTOR_INPUT_002:.TryGetFiles(out _)|};
+        });
+    }
+}";
+
+        await new CSharpAnalyzerTest<UnsafeDropFilesAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
     // ── Negative ────────────────────────────────────────────────────────
 
     [Fact]
@@ -338,6 +363,45 @@ class C
         {
             OnDrop = args => args.Data.TryGetSafeLocalFiles(out var g)
         };
+    }
+}";
+
+        await new CSharpCodeFixTest<UnsafeDropFilesAnalyzer, UnsafeDropFilesCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Swaps_Conditional_Access_Call()
+    {
+        // The name identifier is swapped; the `?.` operator and args are preserved.
+        var before = Stubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        el.OnDrop(args =>
+        {
+            Microsoft.UI.Reactor.Input.DragData d = args.Data;
+            d?{|REACTOR_INPUT_002:.TryGetFiles(out _)|};
+        });
+    }
+}";
+
+        var after = Stubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        el.OnDrop(args =>
+        {
+            Microsoft.UI.Reactor.Input.DragData d = args.Data;
+            d?.TryGetSafeLocalFiles(out _);
+        });
     }
 }";
 

@@ -34,8 +34,8 @@ public sealed class UnsafeDropFilesCodeFix : CodeFixProvider
         {
             var node = root.FindNode(diagnostic.Location.SourceSpan);
             if (node is not InvocationExpressionSyntax invocation) continue;
-            if (invocation.Expression is not MemberAccessExpressionSyntax memberAccess) continue;
-            if (memberAccess.Name.Identifier.Text != UnsafeDropFilesAnalyzer.UnsafeMethodName) continue;
+            var invokedName = UnsafeDropFilesAnalyzer.GetInvokedName(invocation);
+            if (invokedName is null || invokedName.Identifier.Text != UnsafeDropFilesAnalyzer.UnsafeMethodName) continue;
 
             context.RegisterCodeFix(
                 CodeAction.Create(
@@ -44,8 +44,8 @@ public sealed class UnsafeDropFilesCodeFix : CodeFixProvider
                     {
                         var newName = SyntaxFactory
                             .IdentifierName(UnsafeDropFilesAnalyzer.SafeMethodName)
-                            .WithTriviaFrom(memberAccess.Name);
-                        var newRoot = root.ReplaceNode(memberAccess.Name, newName);
+                            .WithTriviaFrom(invokedName);
+                        var newRoot = root.ReplaceNode(invokedName, newName);
                         return Task.FromResult(context.Document.WithSyntaxRoot(newRoot));
                     },
                     equivalenceKey: UnsafeDropFilesAnalyzer.DiagnosticId),

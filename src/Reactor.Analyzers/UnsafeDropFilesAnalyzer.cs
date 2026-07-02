@@ -78,10 +78,10 @@ public sealed class UnsafeDropFilesAnalyzer : DiagnosticAnalyzer
     {
         var invocation = (InvocationExpressionSyntax)context.Node;
 
-        // Syntactic fast path: an `X.TryGetFiles(...)` call.
-        if (invocation.Expression is not MemberAccessExpressionSyntax memberAccess)
-            return;
-        if (memberAccess.Name.Identifier.Text != UnsafeMethodName)
+        // Syntactic fast path: a `TryGetFiles(...)` member call — covers both `x.TryGetFiles(...)`
+        // (member access) and `x?.TryGetFiles(...)` (conditional access / member binding).
+        var invokedName = GetInvokedName(invocation);
+        if (invokedName is null || invokedName.Identifier.Text != UnsafeMethodName)
             return;
 
         // Drop-context gate (syntactic): lexically inside a `.OnDrop(...)` handler.
@@ -100,6 +100,21 @@ public sealed class UnsafeDropFilesAnalyzer : DiagnosticAnalyzer
 
         context.ReportDiagnostic(Diagnostic.Create(Rule, invocation.GetLocation()));
     }
+
+    /// <summary>
+    /// The invoked method-name node for a member invocation, covering both
+    /// <c>x.TryGetFiles(...)</c> (<see cref="MemberAccessExpressionSyntax"/>) and
+    /// <c>x?.TryGetFiles(...)</c> (<see cref="MemberBindingExpressionSyntax"/>, conditional
+    /// access). Returns <c>null</c> for other call shapes. Shared by the analyzer and code fix so
+    /// both agree on which call sites are in scope.
+    /// </summary>
+    internal static SimpleNameSyntax? GetInvokedName(InvocationExpressionSyntax invocation) =>
+        invocation.Expression switch
+        {
+            MemberAccessExpressionSyntax memberAccess => memberAccess.Name,
+            MemberBindingExpressionSyntax memberBinding => memberBinding.Name,
+            _ => null,
+        };
 
     /// <summary>
     /// True when <paramref name="node"/> is lexically inside a drop handler — either a lambda
