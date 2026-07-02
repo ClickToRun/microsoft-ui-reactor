@@ -88,6 +88,7 @@ Additional flags:
 | `REACTOR_A11Y_001` | warning | Icon-only button missing accessible name | Add `.AutomationName("Delete")` (or similar). |
 | `REACTOR_A11Y_002` | warning | Image missing alt text | Add `.AutomationName(...)` or `.AccessibilityHidden(true)` for decorative images. |
 | `REACTOR_A11Y_003` | warning | Form field missing label | Wrap in `FormField(input, label: "Email", required: true)`. |
+| `REACTOR_MEMO_001` | info | A fluent modifier is applied to a keyed `Memo(key, factory)` wrapper, so the row opts out of the virtualized cross-recycle cache | Move the modifier(s) inside the factory: `Memo(id, () => Row(item).Padding(8))` instead of `Memo(id, () => Row(item)).Padding(8)`. Only a bare keyed-Memo wrapper is cached. |
 | `CS0103` | error | "The name 'X' does not exist in the current context" | Missing `using` — most often `Microsoft.UI.Reactor.Layout` (FlexAlign), `Microsoft.UI.Xaml.Controls` (InfoBarSeverity, Orientation), or `static Microsoft.UI.Reactor.Factories`. |
 | `CS1061` | error | "'X' does not contain a definition for 'Y'" | Modifier order — type-specific sugar (`.Bold()`, `.Foreground()` on `TextBlockElement`) must come before generic modifiers (`.Margin()`, `.Padding()`) that return base `Element`. |
 | `CS0117` | error | "'Element' does not contain a definition for X" | Same root cause as CS1061 — modifier order, OR you're calling a factory that doesn't exist. Confirm against `reactor-dsl/references/reactor.api.txt`. |
