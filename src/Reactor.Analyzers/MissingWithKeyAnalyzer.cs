@@ -208,7 +208,10 @@ public sealed class MissingWithKeyAnalyzer : DiagnosticAnalyzer
 
     // True when the key expression contains a per-render-random source:
     // Guid.NewGuid(), DateTime.Now/UtcNow, Environment.TickCount(64), or the
-    // Random type (new Random(), Random.Shared, Random.Next(), …).
+    // Random type used to produce a value (new Random(), Random.Shared,
+    // Random.Next(), …). Matching Random only in `new Random`/`Random.<member>`
+    // position — rather than any identifier named "Random" — avoids flagging a
+    // local, parameter, or alias that merely happens to be called Random.
     static bool ContainsPerRenderValue(ExpressionSyntax arg)
     {
         foreach (var node in arg.DescendantNodesAndSelf())
@@ -221,12 +224,12 @@ public sealed class MissingWithKeyAnalyzer : DiagnosticAnalyzer
                     if (receiver == "Guid" && memberName == "NewGuid") return true;
                     if (receiver == "DateTime" && memberName is "Now" or "UtcNow") return true;
                     if (receiver == "Environment" && memberName is "TickCount" or "TickCount64") return true;
+                    // Random.Shared / Random.Next(…) — the type as a static receiver.
+                    if (receiver == "Random") return true;
                     break;
 
-                // `Random` used as a type/static receiver (not as a member name
-                // like `foo.Random`). Covers new Random(), Random.Shared, etc.
-                case IdentifierNameSyntax { Identifier.ValueText: "Random" } id
-                    when !(id.Parent is MemberAccessExpressionSyntax p && p.Name == id):
+                // new Random(…) / new System.Random(…).
+                case ObjectCreationExpressionSyntax oce when SimpleName(oce.Type) == "Random":
                     return true;
             }
         }
@@ -234,13 +237,14 @@ public sealed class MissingWithKeyAnalyzer : DiagnosticAnalyzer
     }
 
     // Rightmost simple name of an expression: for `Guid` (IdentifierName) →
-    // "Guid"; for `System.Guid` or `items.Select` (MemberAccess) → the trailing
-    // name ("Guid" / "Select"). Lets both a bare and a qualified/instance form
-    // match by the same name.
+    // "Guid"; for `System.Guid` / `items.Select` (MemberAccess) or `System.Random`
+    // (QualifiedName, in type position) → the trailing name. Lets a bare and a
+    // qualified/instance form match by the same name.
     static string? SimpleName(ExpressionSyntax expr) => expr switch
     {
         IdentifierNameSyntax id => id.Identifier.ValueText,
         MemberAccessExpressionSyntax m => m.Name.Identifier.ValueText,
+        QualifiedNameSyntax q => q.Right.Identifier.ValueText,
         _ => null,
     };
 

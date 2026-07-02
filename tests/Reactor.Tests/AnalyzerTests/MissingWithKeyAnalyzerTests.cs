@@ -471,4 +471,130 @@ namespace TestApp
             TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    [Theory]
+    [InlineData("System.Guid.NewGuid().ToString()")]        // qualified Guid.NewGuid
+    [InlineData(@"$""k-{DateTime.UtcNow.Ticks}""")]          // DateTime.UtcNow
+    [InlineData("Environment.TickCount.ToString()")]          // Environment.TickCount
+    [InlineData("Environment.TickCount64.ToString()")]        // Environment.TickCount64
+    [InlineData("new Random().Next().ToString()")]            // new Random()
+    [InlineData("Random.Shared.Next().ToString()")]           // Random.Shared
+    public async Task DSL_002_Fires_On_All_PerRender_Sources(string key)
+    {
+        // Every per-render source the analyzer claims to catch, pinned.
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System;
+    using System.Linq;
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Core.Factories;
+
+    public record Row(string Id, string Text);
+
+    public static class C
+    {
+        public static Element Build(IReadOnlyList<Row> rows)
+            => FlexColumn(rows.Select(r => TextBlock(r.Text).WithKey({|REACTOR_DSL_002:" + key + @"|})).ToArray());
+    }
+}";
+
+        await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task DSL_002_Does_Not_Fire_On_Local_Named_Random()
+    {
+        // A local variable named `Random` is a value, not the Random type — the
+        // syntactic per-render check must not flag it.
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System.Linq;
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Core.Factories;
+
+    public record Row(string Id, string Text);
+
+    public static class C
+    {
+        public static Element Build(IReadOnlyList<Row> rows)
+        {
+            var Random = ""stable"";
+            return FlexColumn(rows.Select(r => TextBlock(r.Text).WithKey(Random)).ToArray());
+        }
+    }
+}";
+
+        await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task DSL_002_Fires_On_Inner_Select_Index_Key_Only()
+    {
+        // Nested Selects: the INNER positional key is flagged and attributed to
+        // the inner (cell, j) lambda; the outer row is stably keyed by row.Id and
+        // is not flagged. Exactly one diagnostic.
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System.Linq;
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Core.Factories;
+
+    public record Row(string Id, IReadOnlyList<string> Cells);
+
+    public static class C
+    {
+        public static Element Build(IReadOnlyList<Row> rows)
+            => FlexColumn(rows.Select((row, i) =>
+                   FlexRow(row.Cells.Select((cell, j) => TextBlock(cell).WithKey({|REACTOR_DSL_002:j.ToString()|})).ToArray())
+                       .WithKey(row.Id)).ToArray());
+    }
+}";
+
+        await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task DSL_002_Does_Not_Fire_On_Nested_Select_Inner_Stable_Key()
+    {
+        // Same nesting, but the inner key references the inner item (cell) — a
+        // stable key — so neither the inner nor the outer WithKey is flagged.
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System.Linq;
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Core.Factories;
+
+    public record Row(string Id, IReadOnlyList<string> Cells);
+
+    public static class C
+    {
+        public static Element Build(IReadOnlyList<Row> rows)
+            => FlexColumn(rows.Select((row, i) =>
+                   FlexRow(row.Cells.Select((cell, j) => TextBlock(cell).WithKey(cell)).ToArray())
+                       .WithKey(row.Id)).ToArray());
+    }
+}";
+
+        await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }
