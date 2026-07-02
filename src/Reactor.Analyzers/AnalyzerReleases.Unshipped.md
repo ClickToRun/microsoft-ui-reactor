@@ -20,3 +20,4 @@ REACTOR_DSL_001 | Reactor.Dsl | Warning | MissingWithKeyAnalyzer - Dynamic list 
 REACTOR_DOCK_001 | Reactor.Docking | Warning | OnLiveLayoutRoundTripAnalyzer - OnLiveLayoutChanged feeds the live layout back into state
 REACTOR_POOL_001 | Reactor.Pool | Warning | PoolResetSetAnalyzer - .Set assigns to a property reset on pool return; use the surviving Reactor modifier
 REACTOR0050 | Reactor.Descriptor | Warning | OneWayClearValueAnalyzer - Optional<T> OneWay descriptor entries should provide dp: for ClearValue fallback
+REACTOR_MEDIA_001 | Reactor.Layout | Info | UnsizedWebViewInStackAnalyzer - WebView2 is a direct child of an auto-layout stack (HStack/VStack/FlexRow/FlexColumn) without explicit .Width/.Height
