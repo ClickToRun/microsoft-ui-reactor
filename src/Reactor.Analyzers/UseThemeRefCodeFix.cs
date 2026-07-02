@@ -126,26 +126,25 @@ public sealed class UseThemeRefCodeFix : CodeFixProvider
     /// Builds a <c>Theme.&lt;token&gt;</c> expression guaranteed to compile at
     /// <paramref name="position"/>: it confirms the member exists on the real
     /// <c>Microsoft.UI.Reactor.Core.Theme</c> and renders the shortest unambiguous type name via
-    /// <see cref="SymbolDisplayExtensions.ToMinimalDisplayString"/> (falling back to a fully
-    /// <c>global::</c>-qualified name when no semantic model is available). Returns null when the
-    /// token can't be resolved, so the caller withholds the fix rather than emit broken code.
+    /// <see cref="SymbolDisplayExtensions.ToMinimalDisplayString"/>. Returns null when the token
+    /// can't be resolved — including when no semantic model is available — so the caller withholds
+    /// the fix rather than emit a reference that might not compile.
     /// </summary>
     private static ExpressionSyntax? TryBuildThemeReference(
         SemanticModel? semanticModel, int position, string token, SyntaxNode triviaSource)
     {
-        if (semanticModel is not null)
-        {
-            var themeType = semanticModel.Compilation.GetTypeByMetadataName("Microsoft.UI.Reactor.Core.Theme");
-            if (themeType is null)
-                return null;
-            if (!themeType.GetMembers(token).Any(static m => m is IPropertySymbol or IFieldSymbol))
-                return null;
+        // Without a semantic model we can't confirm Theme.<token> resolves, so withhold rather than
+        // emit an unvalidated reference (the diagnostic still stands with no auto-fix).
+        if (semanticModel is null)
+            return null;
 
-            var themeName = themeType.ToMinimalDisplayString(semanticModel, position);
-            return SyntaxFactory.ParseExpression($"{themeName}.{token}").WithTriviaFrom(triviaSource);
-        }
+        var themeType = semanticModel.Compilation.GetTypeByMetadataName("Microsoft.UI.Reactor.Core.Theme");
+        if (themeType is null)
+            return null;
+        if (!themeType.GetMembers(token).Any(static m => m is IPropertySymbol or IFieldSymbol))
+            return null;
 
-        return SyntaxFactory.ParseExpression($"global::Microsoft.UI.Reactor.Core.Theme.{token}")
-            .WithTriviaFrom(triviaSource);
+        var themeName = themeType.ToMinimalDisplayString(semanticModel, position);
+        return SyntaxFactory.ParseExpression($"{themeName}.{token}").WithTriviaFrom(triviaSource);
     }
 }
