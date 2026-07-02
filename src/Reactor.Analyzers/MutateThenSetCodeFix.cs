@@ -81,15 +81,19 @@ public sealed class MutateThenSetCodeFix : CodeFixProvider
                                 SyntaxFactory.Argument(collection))));
                         var newSetterStatement = setterStatement.ReplaceNode(setterCall, newSetterCall);
 
-                        // If the mutator line carried a comment / #directive, move its leading trivia
-                        // onto the setter so the comment survives with correct indentation (rather
-                        // than being silently dropped, or over-indenting via KeepLeadingTrivia).
-                        var hasComments = mutatorStatement.ContainsDirectives
-                            || mutatorStatement.GetLeadingTrivia().Any(static t =>
-                                t.IsKind(SyntaxKind.SingleLineCommentTrivia)
-                                || t.IsKind(SyntaxKind.MultiLineCommentTrivia));
-                        if (hasComments)
+                        // Preserve the mutator line's comments / #directives so user content is
+                        // never silently dropped: leading trivia moves onto the setter's leading
+                        // (correct indentation), and an inline trailing comment moves onto the
+                        // setter's trailing trivia (kept inline).
+                        var hasLeading = mutatorStatement.ContainsDirectives
+                            || mutatorStatement.GetLeadingTrivia().Any(IsComment);
+                        if (hasLeading)
                             newSetterStatement = newSetterStatement.WithLeadingTrivia(mutatorStatement.GetLeadingTrivia());
+
+                        var trailingComments = mutatorStatement.GetTrailingTrivia().Where(IsComment).ToList();
+                        if (trailingComments.Count > 0)
+                            newSetterStatement = newSetterStatement.WithTrailingTrivia(
+                                MergeTrailingComment(newSetterStatement.GetTrailingTrivia(), trailingComments));
 
                         editor.ReplaceNode(setterStatement, newSetterStatement);
                         editor.RemoveNode(mutatorStatement, SyntaxRemoveOptions.KeepNoTrivia);
@@ -99,5 +103,34 @@ public sealed class MutateThenSetCodeFix : CodeFixProvider
                     equivalenceKey: HookRulesAnalyzer.MutateThenSetId),
                 diagnostic);
         }
+    }
+
+    private static bool IsComment(SyntaxTrivia t) =>
+        t.IsKind(SyntaxKind.SingleLineCommentTrivia) || t.IsKind(SyntaxKind.MultiLineCommentTrivia);
+
+    /// <summary>
+    /// Inserts <paramref name="comments"/> (with a leading space) just before the setter statement's
+    /// end-of-line, keeping the transferred comment inline (e.g. <c>setItems(…); // keep</c>).
+    /// </summary>
+    private static SyntaxTriviaList MergeTrailingComment(SyntaxTriviaList setterTrailing, System.Collections.Generic.List<SyntaxTrivia> comments)
+    {
+        var rebuilt = new System.Collections.Generic.List<SyntaxTrivia>();
+        var inserted = false;
+        foreach (var t in setterTrailing)
+        {
+            if (!inserted && t.IsKind(SyntaxKind.EndOfLineTrivia))
+            {
+                rebuilt.Add(SyntaxFactory.Space);
+                rebuilt.AddRange(comments);
+                inserted = true;
+            }
+            rebuilt.Add(t);
+        }
+        if (!inserted)
+        {
+            rebuilt.Add(SyntaxFactory.Space);
+            rebuilt.AddRange(comments);
+        }
+        return SyntaxFactory.TriviaList(rebuilt);
     }
 }

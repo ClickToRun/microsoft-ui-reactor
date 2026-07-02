@@ -261,4 +261,40 @@ class C : Microsoft.UI.Reactor.Core.Component
             CodeActionEquivalenceKey = HookRulesAnalyzer.MutateThenSetId,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    // An inline trailing comment on the mutated line is preserved (moved onto the setter line).
+    [Fact]
+    public async Task CodeFix_Preserves_Trailing_Comment_On_Mutator_Line()
+    {
+        var before = Stubs + @"
+class C : Microsoft.UI.Reactor.Core.Component
+{
+    public override string Render()
+    {
+        var (items, setItems) = UseState(Seed);
+        items.Add(""x""); // keep me
+        {|REACTOR_HOOKS_010:setItems(items)|};
+        return """";
+    }
+}";
+
+        var after = Stubs + @"
+class C : Microsoft.UI.Reactor.Core.Component
+{
+    public override string Render()
+    {
+        var (items, setItems) = UseState(Seed);
+        setItems([.. items, ""x""]); // keep me
+        return """";
+    }
+}";
+
+        await new CSharpCodeFixTest<HookRulesAnalyzer, MutateThenSetCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            ReferenceAssemblies = ReferenceAssemblies.Net.Net80,
+            CodeActionEquivalenceKey = HookRulesAnalyzer.MutateThenSetId,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }
