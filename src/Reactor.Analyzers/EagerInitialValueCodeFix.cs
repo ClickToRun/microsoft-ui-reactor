@@ -48,6 +48,10 @@ public sealed class EagerInitialValueCodeFix : CodeFixProvider
             var hookCall = initExpr.FirstAncestorOrSelf<InvocationExpressionSyntax>();
             if (hookCall is null) continue;
 
+            semanticModel ??= await context.Document
+                .GetSemanticModelAsync(context.CancellationToken).ConfigureAwait(false);
+            if (semanticModel is null) continue;
+
             string receiverPrefix = "";
             if (hookCall.Expression is MemberAccessExpressionSyntax memberAccess)
             {
@@ -59,23 +63,27 @@ public sealed class EagerInitialValueCodeFix : CodeFixProvider
             {
                 // Unqualified UseState(...). Only offer the fix when an in-scope, Reactor UseMemo
                 // exists — otherwise the wrapped call would not compile.
-                semanticModel ??= await context.Document
-                    .GetSemanticModelAsync(context.CancellationToken).ConfigureAwait(false);
-                if (semanticModel is null) continue;
                 if (!semanticModel.LookupSymbols(initExpr.SpanStart, name: "UseMemo").Any(static s =>
                         s is IMethodSymbol m && CommandDebounceAnalyzer.IsReactorNamespace(m.ContainingNamespace?.ToDisplayString())))
                     continue;
             }
 
+            // Target-typed expressions (new() / [ … ]) lose their type inside the untyped lambda
+            // `() => expr`; emit an explicit UseMemo<T>. Withhold the fix if the type can't be
+            // resolved (never emit non-compiling code).
+            var typeArg = CodeFixHelpers.UseMemoTypeArgument(initExpr, semanticModel, context.CancellationToken);
+            if (typeArg is null) continue;
+
             var captured = initExpr;
             var prefix = receiverPrefix;
+            var targ = typeArg;
             context.RegisterCodeFix(
                 CodeAction.Create(
                     "Allocate once with UseMemo(() => …, [])",
                     ct =>
                     {
                         var wrapped = SyntaxFactory
-                            .ParseExpression($"{prefix}UseMemo(() => {captured.WithoutTrivia().ToFullString()}, [])")
+                            .ParseExpression($"{prefix}UseMemo{targ}(() => {captured.WithoutTrivia().ToFullString()}, [])")
                             .WithTriviaFrom(captured);
                         var newRoot = root.ReplaceNode(captured, wrapped);
                         return Task.FromResult(context.Document.WithSyntaxRoot(newRoot));

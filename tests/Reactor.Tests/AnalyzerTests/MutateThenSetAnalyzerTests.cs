@@ -29,6 +29,7 @@ namespace Microsoft.UI.Reactor.Core
         protected internal RenderContext Context { get; } = new RenderContext();
         public abstract string Render();
         protected (T Value, System.Action<T> Set) UseState<T>(T initialValue, bool threadSafe = false) => (initialValue, _ => { });
+        protected (T Value, System.Action<T> Set) UsePersisted<T>(string key, T initialValue) => (initialValue, _ => { });
 
         protected System.Collections.Generic.List<string> Seed = new System.Collections.Generic.List<string>();
         protected ValueList ValueSeed = new ValueList();
@@ -69,6 +70,23 @@ class C : Microsoft.UI.Reactor.Core.Component
     {
         var (items, setItems) = UseState(Seed);
         items.Clear();
+        {|REACTOR_HOOKS_010:setItems(items)|};
+        return """";
+    }
+}");
+    }
+
+    // UsePersisted also yields a (value, setter) pair whose setter compares by reference.
+    [Fact]
+    public async Task UsePersisted_Add_Then_Set_Same_Reference_Flags()
+    {
+        await VerifyAnalyzer(@"
+class C : Microsoft.UI.Reactor.Core.Component
+{
+    public override string Render()
+    {
+        var (items, setItems) = UsePersisted(""k"", Seed);
+        items.Add(""x"");
         {|REACTOR_HOOKS_010:setItems(items)|};
         return """";
     }
@@ -176,6 +194,31 @@ class C : Microsoft.UI.Reactor.Core.Component
             FixedCode = after,
             ReferenceAssemblies = ReferenceAssemblies.Net.Net80,
             CodeActionEquivalenceKey = HookRulesAnalyzer.MutateThenSetId,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // A non-.Add mutator (here .Clear) still fires the warning but offers no auto-fix — there is no
+    // single value to fold into a collection expression.
+    [Fact]
+    public async Task CodeFix_Not_Offered_For_NonAdd_Mutator()
+    {
+        var source = Stubs + @"
+class C : Microsoft.UI.Reactor.Core.Component
+{
+    public override string Render()
+    {
+        var (items, setItems) = UseState(Seed);
+        items.Clear();
+        {|REACTOR_HOOKS_010:setItems(items)|};
+        return """";
+    }
+}";
+
+        await new CSharpCodeFixTest<HookRulesAnalyzer, MutateThenSetCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
+            ReferenceAssemblies = ReferenceAssemblies.Net.Net80,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 }

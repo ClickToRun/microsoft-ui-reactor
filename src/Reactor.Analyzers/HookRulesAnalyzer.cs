@@ -140,7 +140,7 @@ public sealed class HookRulesAnalyzer : DiagnosticAnalyzer
     private static readonly DiagnosticDescriptor MutateThenSetRule = new(
         MutateThenSetId,
         "Mutate-then-set reference state",
-        "'{0}' is mutated in place and the same reference is passed back to its setter. The setter compares the new value to the old with EqualityComparer<T>.Default and returns early on reference equality, so no re-render is scheduled. Pass a new value instead, e.g. set{0}([.. {0}, item]).",
+        "'{0}' is mutated in place and the same reference is passed back to '{1}'. The setter compares the new value to the old with EqualityComparer<T>.Default and returns early on reference equality, so no re-render is scheduled. Pass a new value instead, e.g. {1}([.. {0}, item]).",
         "Reactor.Hooks",
         DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
@@ -1183,7 +1183,8 @@ public sealed class HookRulesAnalyzer : DiagnosticAnalyzer
             invocation.GetLocation(),
             additionalLocations: new[] { mutatorNode.GetLocation() },
             properties: properties,
-            stateSymbol.Name));
+            stateSymbol.Name,
+            setterSymbol.Name));
     }
 
     private static bool ReassignsLocal(StatementSyntax statement, ILocalSymbol local, SemanticModel model)
@@ -1251,6 +1252,18 @@ public sealed class HookRulesAnalyzer : DiagnosticAnalyzer
 
         int fixedArity = parameters.Length - 1;
         var args = invocation.ArgumentList.Arguments;
+
+        // When a single trailing arg IS the params container — an object?[]-shaped array/collection
+        // literal (`Memo(render, new object[] { a, b })` / `Memo(render, [a, b])`) — its ELEMENTS are
+        // the deps (compared element-wise by Equals at runtime, Reconciler DepsEqual), NOT one dep.
+        // Unwrap it and check each element, mirroring HOOKS_004's ReferenceArrayDepElements.
+        if (args.Count == fixedArity + 1 && args[fixedArity].NameColon is null
+            && ReferenceArrayDepElements(model, args[fixedArity].Expression) is { } containerElements)
+        {
+            foreach (var element in containerElements) CheckMemoDependency(context, element, model);
+            return;
+        }
+
         for (int i = fixedArity; i < args.Count; i++)
         {
             if (args[i].NameColon is not null) continue;
@@ -1270,9 +1283,11 @@ public sealed class HookRulesAnalyzer : DiagnosticAnalyzer
         if (!unstable) return;
 
         // Restrict to reference types without value equality: a fresh record/tuple compares equal
-        // by value and does not defeat the memo, so it must not fire.
+        // by value and does not defeat the memo, so it must not fire. Memo deps are diffed with
+        // object.Equals (Reconciler.DepsEqual), so a bare IEquatable<T> without an Equals(object)
+        // override does NOT count as value equality.
         var type = model.GetTypeInfo(expr).Type ?? model.GetTypeInfo(expr).ConvertedType;
-        if (AllocationAnalysis.HasValueEquality(type)) return;
+        if (AllocationAnalysis.HasValueEquality(type, objectEqualsSemantics: true)) return;
 
         context.ReportDiagnostic(Diagnostic.Create(MemoUnstableDepRule, expr.GetLocation(), kind));
     }

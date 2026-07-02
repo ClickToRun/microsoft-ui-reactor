@@ -40,6 +40,12 @@ namespace Microsoft.UI.Reactor.Core
         public override bool Equals(object o) => true;
         public override int GetHashCode() => 0;
     }
+    // IEquatable<T> WITHOUT an Equals(object) override — context diff uses object.Equals, which
+    // falls back to reference equality here, so this DOES fire.
+    public class ThemeEquatable : System.IEquatable<ThemeEquatable>
+    {
+        public bool Equals(ThemeEquatable other) => true;
+    }
 
     public abstract class Component
     {
@@ -125,6 +131,24 @@ namespace TestApp
 }");
     }
 
+    // Positive: a class implementing IEquatable<T> but NOT overriding Equals(object) still uses
+    // reference equality under object.Equals (the context diff), so it fires.
+    [Fact]
+    public async Task Provide_Fresh_IEquatableOnly_Value_Flags()
+    {
+        await VerifyAnalyzer(@"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+    class C : Component
+    {
+        private Context<ThemeEquatable> Ctx = new();
+        public override Element Render()
+            => new TextElement(""x"").Provide(Ctx, {|REACTOR_CTX_001:new ThemeEquatable()|});
+    }
+}");
+    }
+
     // Near-miss: an unrelated Provide(...) that is not the Reactor ContextExtensions method.
     [Fact]
     public async Task Unrelated_Provide_DoesNotFlag()
@@ -171,6 +195,69 @@ namespace TestApp
         private Context<ThemeConfig> Ctx = new();
         public override Element Render()
             => new TextElement(""x"").Provide(Ctx, UseMemo(() => new ThemeConfig(), []));
+    }
+}";
+
+        await new CSharpCodeFixTest<ContextProvideAnalyzer, ContextProvideCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            ReferenceAssemblies = ReferenceAssemblies.Net.Net80,
+            CodeActionEquivalenceKey = ContextProvideAnalyzer.Id,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // The fix is withheld when the value captures render-varying state (memoizing with `[]` would
+    // freeze it); the Info diagnostic still fires but no code action is offered.
+    [Fact]
+    public async Task CodeFix_Withheld_For_Captured_Value()
+    {
+        var source = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+    class C : Component
+    {
+        private bool _isDark;
+        private Context<ThemeConfig> Ctx = new();
+        public override Element Render()
+            => new TextElement(""x"").Provide(Ctx, {|REACTOR_CTX_001:new ThemeConfig { IsDark = _isDark }|});
+    }
+}";
+
+        await new CSharpCodeFixTest<ContextProvideAnalyzer, ContextProvideCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
+            ReferenceAssemblies = ReferenceAssemblies.Net.Net80,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // Target-typed `new()` must be expanded to an explicit UseMemo<T> so the wrapped call compiles.
+    [Fact]
+    public async Task CodeFix_TargetTyped_New_Emits_Explicit_Type_Argument()
+    {
+        var before = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+    class C : Component
+    {
+        private Context<ThemeConfig> Ctx = new();
+        public override Element Render()
+            => new TextElement(""x"").Provide(Ctx, {|REACTOR_CTX_001:new()|});
+    }
+}";
+
+        var after = Stubs + @"
+namespace TestApp
+{
+    using Microsoft.UI.Reactor.Core;
+    class C : Component
+    {
+        private Context<ThemeConfig> Ctx = new();
+        public override Element Render()
+            => new TextElement(""x"").Provide(Ctx, UseMemo<global::Microsoft.UI.Reactor.Core.ThemeConfig>(() => new(), []));
     }
 }";
 

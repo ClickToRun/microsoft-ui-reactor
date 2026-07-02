@@ -151,4 +151,46 @@ class C : Microsoft.UI.Reactor.Core.Component
             CodeActionEquivalenceKey = HookRulesAnalyzer.AsyncEffectId,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    [Fact]
+    public async Task CodeFix_Handles_Expression_Bodied_Async_Lambda()
+    {
+        var before = Stubs + @"
+class C : Microsoft.UI.Reactor.Core.Component
+{
+    public override string Render()
+    {
+        UseEffect({|REACTOR_HOOKS_003:async () => await FetchAsync()|});
+        return """";
+    }
+}";
+
+        var after = Stubs + @"
+class C : Microsoft.UI.Reactor.Core.Component
+{
+    public override string Render()
+    {
+        UseEffect(() =>
+        {
+            var cts = new global::System.Threading.CancellationTokenSource();
+            _ = RunAsync(cts.Token);
+            return () => cts.Cancel();
+
+            async global::System.Threading.Tasks.Task RunAsync(global::System.Threading.CancellationToken ct)
+            {
+                await FetchAsync();
+            }
+        });
+        return """";
+    }
+}";
+
+        await new CSharpCodeFixTest<HookRulesAnalyzer, AsyncEffectCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            ReferenceAssemblies = ReferenceAssemblies.Net.Net80,
+            CodeActionEquivalenceKey = HookRulesAnalyzer.AsyncEffectId,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }

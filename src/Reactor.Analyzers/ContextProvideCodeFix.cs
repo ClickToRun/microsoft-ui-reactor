@@ -42,23 +42,38 @@ public sealed class ContextProvideCodeFix : CodeFixProvider
             var valueExpr = node.FirstAncestorOrSelf<ExpressionSyntax>();
             if (valueExpr is null) continue;
 
-            // UseMemo is a Component/RenderContext hook; only offer the wrap when a Reactor UseMemo
-            // is actually in scope here (otherwise the emitted call would not compile).
             semanticModel ??= await context.Document
                 .GetSemanticModelAsync(context.CancellationToken).ConfigureAwait(false);
             if (semanticModel is null) continue;
+
+            // Only offer the empty-deps fix when the value is CAPTURE-FREE — it references no
+            // render-varying state (locals, parameters, non-const fields, properties, or method
+            // calls). A captured value (e.g. new ThemeConfig(isDark)) needs real deps; memoizing it
+            // with `[]` would freeze it at the first render's value and silently stop updating
+            // consumers, so we withhold the fix and let the author supply deps (the Info diagnostic
+            // still nudges). This mirrors the spec's "deps left as a TODO when not inferable".
+            if (!IsCaptureFree(valueExpr, semanticModel)) continue;
+
+            // UseMemo is a Component/RenderContext hook; only offer the wrap when a Reactor UseMemo
+            // is actually in scope here (otherwise the emitted call would not compile).
             if (!semanticModel.LookupSymbols(valueExpr.SpanStart, name: "UseMemo").Any(static s =>
                     s is IMethodSymbol m && CommandDebounceAnalyzer.IsReactorNamespace(m.ContainingNamespace?.ToDisplayString())))
                 continue;
 
+            // Target-typed expressions (new() / [ … ]) lose their type inside the untyped lambda;
+            // emit an explicit UseMemo<T>. Withhold if the type can't be resolved.
+            var typeArg = CodeFixHelpers.UseMemoTypeArgument(valueExpr, semanticModel, context.CancellationToken);
+            if (typeArg is null) continue;
+
             var captured = valueExpr;
+            var targ = typeArg;
             context.RegisterCodeFix(
                 CodeAction.Create(
                     "Memoize the context value with UseMemo(() => …, [])",
                     ct =>
                     {
                         var wrapped = SyntaxFactory
-                            .ParseExpression($"UseMemo(() => {captured.WithoutTrivia().ToFullString()}, [])")
+                            .ParseExpression($"UseMemo{targ}(() => {captured.WithoutTrivia().ToFullString()}, [])")
                             .WithTriviaFrom(captured);
                         var newRoot = root.ReplaceNode(captured, wrapped);
                         return Task.FromResult(context.Document.WithSyntaxRoot(newRoot));
@@ -66,5 +81,18 @@ public sealed class ContextProvideCodeFix : CodeFixProvider
                     equivalenceKey: ContextProvideAnalyzer.Id),
                 diagnostic);
         }
+    }
+
+    /// <summary>
+    /// True when <paramref name="expr"/> reads no render-varying state — no local, parameter,
+    /// range variable, or instance member (<c>this</c>) flows into it. Such a value never changes
+    /// between renders, so memoizing it with empty deps is safe. A value that reads render state
+    /// (e.g. <c>new ThemeConfig(isDark)</c>) needs real deps, so the fix is withheld and the author
+    /// supplies them (the Info diagnostic still nudges).
+    /// </summary>
+    private static bool IsCaptureFree(ExpressionSyntax expr, SemanticModel model)
+    {
+        var flow = model.AnalyzeDataFlow(expr);
+        return flow is { Succeeded: true } && flow.ReadInside.IsEmpty;
     }
 }

@@ -20,6 +20,12 @@ namespace Microsoft.UI.Reactor.Core
     public abstract record Element { }
     public sealed record TextElement(string Text) : Element;
     public record Data(int X);
+    // IEquatable<T> WITHOUT an Equals(object) override — memo deps use object.Equals, which falls
+    // back to reference equality here, so a fresh one DOES defeat the memo.
+    public class EquatableDep : System.IEquatable<EquatableDep>
+    {
+        public bool Equals(EquatableDep other) => true;
+    }
 }
 
 namespace Microsoft.UI.Reactor
@@ -77,6 +83,24 @@ namespace TestApp
     class C
     {
         Element M() => Memo(ctx => new TextElement(""x""), {|REACTOR_HOOKS_012:new[] { 1, 2 }|});
+    }
+}");
+    }
+
+    // Positive: IEquatable<T> without an Equals(object) override compares by reference under
+    // object.Equals (the deps diff), so a fresh instance defeats the memo and fires.
+    [Fact]
+    public async Task Memo_With_Fresh_IEquatableOnly_Dep_Flags()
+    {
+        await Verify(@"
+namespace TestApp
+{
+    using static Microsoft.UI.Reactor.Factories;
+    using Microsoft.UI.Reactor.Core;
+
+    class C
+    {
+        Element M() => Memo(ctx => new TextElement(""x""), {|REACTOR_HOOKS_012:new EquatableDep()|});
     }
 }");
     }
@@ -163,6 +187,41 @@ namespace TestApp
     class C
     {
         Element M() => Memo(ctx => new TextElement(""x""), []);
+    }
+}");
+    }
+
+    // An explicit object[] deps CONTAINER is compared element-wise: only the element lacking value
+    // equality is flagged, not the container itself.
+    [Fact]
+    public async Task Memo_With_Object_Array_Container_Flags_Only_Bad_Element()
+    {
+        await Verify(@"
+namespace TestApp
+{
+    using static Microsoft.UI.Reactor.Factories;
+    using Microsoft.UI.Reactor.Core;
+
+    class C
+    {
+        Element M() => Memo(ctx => new TextElement(""x""), new object[] { {|REACTOR_HOOKS_012:new System.Collections.Generic.List<int>()|}, 5 });
+    }
+}");
+    }
+
+    // Negative: an object[] container whose elements all have value equality does not flag.
+    [Fact]
+    public async Task Memo_With_Object_Array_Container_ValueEquality_Elements_DoesNotFlag()
+    {
+        await Verify(@"
+namespace TestApp
+{
+    using static Microsoft.UI.Reactor.Factories;
+    using Microsoft.UI.Reactor.Core;
+
+    class C
+    {
+        Element M() => Memo(ctx => new TextElement(""x""), new object[] { new Data(1), 5, ""s"" });
     }
 }");
     }

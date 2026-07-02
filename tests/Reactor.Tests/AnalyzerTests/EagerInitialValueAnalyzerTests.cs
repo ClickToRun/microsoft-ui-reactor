@@ -143,4 +143,69 @@ class C : Microsoft.UI.Reactor.Core.Component
             CodeActionEquivalenceKey = HookRulesAnalyzer.EagerInitialValueId,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
+
+    [Fact]
+    public async Task CodeFix_Wraps_UsePersisted_Initial_Value()
+    {
+        var before = Stubs + @"
+class C : Microsoft.UI.Reactor.Core.Component
+{
+    public override string Render()
+    {
+        var (items, setItems) = UsePersisted(""k"", {|REACTOR_HOOKS_013:new System.Collections.Generic.List<string>()|});
+        return """";
+    }
+}";
+
+        var after = Stubs + @"
+class C : Microsoft.UI.Reactor.Core.Component
+{
+    public override string Render()
+    {
+        var (items, setItems) = UsePersisted(""k"", UseMemo(() => new System.Collections.Generic.List<string>(), []));
+        return """";
+    }
+}";
+
+        await new CSharpCodeFixTest<HookRulesAnalyzer, EagerInitialValueCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            ReferenceAssemblies = ReferenceAssemblies.Net.Net80,
+            CodeActionEquivalenceKey = HookRulesAnalyzer.EagerInitialValueId,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // A target-typed `new()` must be expanded to an explicit UseMemo<T> so the wrapped call compiles.
+    [Fact]
+    public async Task CodeFix_TargetTyped_New_Emits_Explicit_Type_Argument()
+    {
+        var before = Stubs + @"
+class C : Microsoft.UI.Reactor.Core.Component
+{
+    public override string Render()
+    {
+        var (items, setItems) = UseState<System.Collections.Generic.List<string>>({|REACTOR_HOOKS_013:new()|});
+        return """";
+    }
+}";
+
+        var after = Stubs + @"
+class C : Microsoft.UI.Reactor.Core.Component
+{
+    public override string Render()
+    {
+        var (items, setItems) = UseState<System.Collections.Generic.List<string>>(UseMemo<global::System.Collections.Generic.List<string>>(() => new(), []));
+        return """";
+    }
+}";
+
+        await new CSharpCodeFixTest<HookRulesAnalyzer, EagerInitialValueCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            ReferenceAssemblies = ReferenceAssemblies.Net.Net80,
+            CodeActionEquivalenceKey = HookRulesAnalyzer.EagerInitialValueId,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 }

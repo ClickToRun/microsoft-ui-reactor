@@ -75,9 +75,12 @@ public sealed class ContextProvideAnalyzer : DiagnosticAnalyzer
         if (!unstable) return;
 
         // MANDATORY: only reference-equality types thrash consumers. Records / structs /
-        // IEquatable / Equals-override compare by value and must not fire.
-        var type = model.GetTypeInfo(valueExpr).Type;
-        if (type is null || AllocationAnalysis.HasValueEquality(type)) return;
+        // Equals(object)-overriders compare by value and must not fire. Context values are diffed
+        // with object.Equals (Element.ContextValuesEqual), so a bare IEquatable<T> without an
+        // Equals(object) override falls back to reference equality and DOES fire. Fall back to
+        // ConvertedType so target-typed forms (e.g. a `[]` collection expression) still resolve.
+        var type = model.GetTypeInfo(valueExpr).Type ?? model.GetTypeInfo(valueExpr).ConvertedType;
+        if (type is null || AllocationAnalysis.HasValueEquality(type, objectEqualsSemantics: true)) return;
 
         context.ReportDiagnostic(Diagnostic.Create(Rule, valueExpr.GetLocation(), kind));
     }

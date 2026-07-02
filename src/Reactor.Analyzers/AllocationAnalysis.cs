@@ -61,18 +61,28 @@ internal static class AllocationAnalysis
     }
 
     /// <summary>
-    /// True when values of <paramref name="type"/> compare by <b>value</b>: value types (structs),
-    /// records, <c>IEquatable&lt;T&gt;</c> implementers, and reference types overriding
-    /// <c>Equals(object)</c>. Reference types without any of these (a plain class, an array,
-    /// <c>List&lt;T&gt;</c>, <c>Dictionary&lt;,&gt;</c>, an interface) compare by reference and
-    /// return false.
+    /// True when values of <paramref name="type"/> compare by <b>value</b>. Two equality models:
+    /// <list type="bullet">
+    /// <item><description>Default (<paramref name="objectEqualsSemantics"/> = false) — matches
+    ///   <c>EqualityComparer&lt;T&gt;.Default</c> (the UseState/UsePersisted setter, HOOKS_010):
+    ///   value types, records, <c>IEquatable&lt;T&gt;</c> implementers, and <c>Equals(object)</c>
+    ///   overriders all count.</description></item>
+    /// <item><description><paramref name="objectEqualsSemantics"/> = true — matches
+    ///   <c>object.Equals</c> (memo-deps <c>Reconciler.DepsEqual</c> and context
+    ///   <c>Element.ContextValuesEqual</c>, used by HOOKS_012 / CTX_001): a bare
+    ///   <c>IEquatable&lt;T&gt;</c> implementer that does <b>not</b> override <c>Equals(object)</c>
+    ///   falls back to <b>reference</b> equality at runtime, so it does NOT count. Only value types,
+    ///   records, and <c>Equals(object)</c> overriders do.</description></item>
+    /// </list>
+    /// Reference types with none of these (a plain class, an array, <c>List&lt;T&gt;</c>) return false.
     /// </summary>
-    public static bool HasValueEquality(ITypeSymbol? type)
+    public static bool HasValueEquality(ITypeSymbol? type, bool objectEqualsSemantics = false)
     {
         if (type is null)
             return false;
 
-        // Structs (incl. record struct, tuples, primitives) compare by value.
+        // Structs (incl. record struct, tuples, primitives) compare by value — object.Equals on a
+        // value type uses ValueType's value-wise Equals, so both models agree.
         if (type.IsValueType)
             return true;
 
@@ -83,11 +93,26 @@ internal static class AllocationAnalysis
         if (type is not INamedTypeSymbol named)
             return false;
 
-        // `record class` synthesises a value-based Equals/== (and the EqualityContract).
+        // `record class` synthesises a value-based Equals(object)/== — value equality under both models.
         if (named.IsRecord)
             return true;
 
-        // Implements IEquatable<self> (the common opt-in for value semantics on a class).
+        // Overrides object.Equals(object) anywhere in the hierarchy (below System.Object) — value
+        // equality under both models.
+        if (OverridesObjectEquals(named))
+            return true;
+
+        // IEquatable<self> WITHOUT an Equals(object) override is value equality ONLY under
+        // EqualityComparer<T>.Default. Under object.Equals it is ignored (reference fallback), so
+        // callers using object.Equals (HOOKS_012 / CTX_001) must not treat it as value equality.
+        if (!objectEqualsSemantics && ImplementsIEquatableOfSelf(named))
+            return true;
+
+        return false;
+    }
+
+    private static bool ImplementsIEquatableOfSelf(INamedTypeSymbol named)
+    {
         foreach (var iface in named.AllInterfaces)
         {
             if (iface.Name == "IEquatable"
@@ -97,9 +122,12 @@ internal static class AllocationAnalysis
                 return true;
             }
         }
+        return false;
+    }
 
-        // Overrides object.Equals(object) anywhere in the hierarchy (below System.Object).
-        for (var current = named; current is not null && current.SpecialType != SpecialType.System_Object; current = current.BaseType)
+    private static bool OverridesObjectEquals(INamedTypeSymbol type)
+    {
+        for (var current = type; current is not null && current.SpecialType != SpecialType.System_Object; current = current.BaseType)
         {
             foreach (var member in current.GetMembers("Equals").OfType<IMethodSymbol>())
             {
@@ -111,7 +139,6 @@ internal static class AllocationAnalysis
                 }
             }
         }
-
         return false;
     }
 
