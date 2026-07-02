@@ -19,4 +19,5 @@ REACTOR_REF_001 | Reactor.Reference | Warning | ReferenceCurrentReadAnalyzer - U
 REACTOR_DSL_001 | Reactor.Dsl | Warning | MissingWithKeyAnalyzer - Dynamic list item missing .WithKey
 REACTOR_DOCK_001 | Reactor.Docking | Warning | OnLiveLayoutRoundTripAnalyzer - OnLiveLayoutChanged feeds the live layout back into state
 REACTOR_POOL_001 | Reactor.Pool | Warning | PoolResetSetAnalyzer - .Set assigns to a property reset on pool return; use the surviving Reactor modifier
+REACTOR_WIN2D_001 | Reactor.Win2D | Error | Win2DSharedDeviceAnalyzer - Win2D canvas draws UseCanvasResources output without .UseSharedDevice() (fatal cross-device draw)
 REACTOR0050 | Reactor.Descriptor | Warning | OneWayClearValueAnalyzer - Optional<T> OneWay descriptor entries should provide dp: for ClearValue fallback
