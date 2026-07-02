@@ -72,8 +72,12 @@ netstandard2.0; analyzer + code-fix co-located in the one shipped DLL (RS1038 su
 
 ### 2.4 Samples sweep (spec §7)
 Before merge, run your assembled rule against `samples/`. A rule that fires
-**nowhere** is over-fit/over-gated — widen or add a sample. PR-gate on the three
-high-coverage samples (`ReactorGallery`, `StylingGallery`, `TodoApp`); full sweep is nightly.
+**nowhere** is over-fit/over-gated — widen or add a sample. As a manual pre-PR
+check, sweep the three high-coverage samples (`ReactorGallery`, `StylingGallery`,
+`TodoApp`); the full `samples/` sweep is the fuller net. CI does **not** gate on
+these today (it only AOT-publishes the hello-world samples) — wiring a per-PR
+sample gate + a nightly full sweep is a recommended follow-up (spec §7), not
+current CI.
 
 ### 2.5 Severity (spec §8)
 Ship at the severity in your packet. The five **Info** nudge-class rules
@@ -152,7 +156,7 @@ REACTOR_STATE_001 | Reactor.State | Warning | ComponentInpcAnalyzer - INotifyPro
 REACTOR_HOOKS_011 | Reactor.Hooks | Warning | ControlledInputAnalyzer - Controlled input has a state-derived value but an empty change callback
 REACTOR_THEME_004 | Reactor.Style | Warning | UseThemeRefAnalyzer - Hard-coded Brush/Color object bypasses theme tokens
 REACTOR_OPT_001 | Reactor.Controlled | Info | OptionalSentinelAnalyzer - Selection sentinel literal force-asserts instead of Optional<T>.Unset
-REACTOR_CMD_001 | Reactor.Commanding | Info | RawCommandCallbackAnalyzer - Raw-init Command + own click callback both set (command dropped)
+REACTOR_CMD_001 | Reactor.Commanding | Info | RawCommandCallbackAnalyzer - Raw-init Command + own click callback both set (callback wins; command never runs)
 REACTOR_THREAD_002 | Reactor.Threading | Warning | BlockingTaskAnalyzer - Blocking a Task (.Result/.Wait) in Render/effect
 REACTOR_DSL_002 | Reactor.Dsl | Info | MissingWithKeyAnalyzer - Non-stable .WithKey (index / Guid.NewGuid / DateTime.Now)
 ```
@@ -253,12 +257,15 @@ round-2 note). Mechanism = a marker attribute the analyzer keys off.
    sealed, no members. AOT/trim safe (plain attribute). No `PublicAPI.txt` tracking
    exists in this repo, so no surface-tracking file to update.
 2. **Annotate** every member that calls `ThreadAffinity.ThrowIfNotOnUIThread(...)`.
-   Current call sites (grep `ThrowIfNotOnUIThread`): `ReactorWindow.cs` (~20:
+   Current call sites (grep `ThreadAffinity.ThrowIfNotOnUIThread` scoped to
+   `src/Reactor/Hosting/` — a bare `ThrowIfNotOnUIThread` also matches the VS
+   extension's unrelated `ThreadHelper.ThrowIfNotOnUIThread`): `ReactorWindow.cs` (~20:
    `Activate/Hide/Show/Close/SavePlacement/Update/SetSize/SetPosition/SetAspectRatio/
    BeginDragMove/RegisterAspectRatioOverride/SetOpacity/SetNoActivate/
    SetIgnorePointerInput/CenterOnScreen/SetThumbnailToolbar/ClearThumbnailToolbar/
    Mount…`), plus `ReactorApp.cs`, and `Hosting/Shell/{JumpList,ReactorTrayIcon,
-   TaskbarProgress,TaskbarOverlay,TaskbarItem}.cs`. Enumerate from the live grep at
+   TaskbarProgress,TaskbarOverlay,TaskbarItem}.cs`. Enumerate from the live
+   `ThreadAffinity.ThrowIfNotOnUIThread` grep (scoped to `src/Reactor/`) at
    implementation time — do not hard-code this list into the analyzer.
 3. **Analyzer** gate: invocation lexically inside a `Task.Run`/`Task.Factory.StartNew`/
    `ThreadPool.QueueUserWorkItem` lambda, not already inside `TryEnqueue`; confirm the
