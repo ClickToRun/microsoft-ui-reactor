@@ -340,9 +340,11 @@ public sealed class ClickableContainerKeyboardAnalyzer : DiagnosticAnalyzer
         foreach (var modifier in EnumerateChainModifiers(invocation))
         {
             var name = modifier.MemberAccess.Name.Identifier.Text;
-            if (name == "IsTabStop" && !IsExplicitlyFalse(modifier.Invocation))
+            if (name == "IsTabStop")
             {
-                hasFocusAffordance = true;
+                // Attached modifiers are last-wins, so a trailing .IsTabStop(false) overrides an
+                // earlier .IsTabStop(true): the chain suppresses only if the final value enables it.
+                hasFocusAffordance = !IsExplicitlyFalse(modifier.Invocation);
             }
             else if (name == "OnTapped" && !IsPureHandledSwallow(modifier.Invocation))
             {

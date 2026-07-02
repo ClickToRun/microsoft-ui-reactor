@@ -147,6 +147,17 @@ namespace App
     public Task Border_With_IsTabStop_False_Still_Fires() =>
         VerifyAsync(@"{|REACTOR_A11Y_004:Border(TextBlock(""hi""))|}.OnTapped((_, __) => Open()).IsTabStop(false)");
 
+    // Last-wins: a trailing `.IsTabStop(false)` overrides an earlier `.IsTabStop(true)`, so the
+    // element is left out of the tab order and the rule still fires.
+    [Fact]
+    public Task Border_With_IsTabStop_True_Then_False_Still_Fires() =>
+        VerifyAsync(@"{|REACTOR_A11Y_004:Border(TextBlock(""hi""))|}.OnTapped((_, __) => Open()).IsTabStop(true).IsTabStop(false)");
+
+    // Reverse order: a trailing `.IsTabStop(true)` wins, so the element is reachable — no diagnostic.
+    [Fact]
+    public Task Border_With_IsTabStop_False_Then_True_No_Diagnostic() =>
+        VerifyAsync(@"Border(TextBlock(""hi"")).OnTapped((_, __) => Open()).IsTabStop(false).IsTabStop(true)");
+
     // The idiomatic focusable-container shape in this codebase pairs the two; `.IsTabStop` suppresses.
     [Fact]
     public Task Border_With_IsTabStop_And_OnKeyDown_No_Diagnostic() =>
