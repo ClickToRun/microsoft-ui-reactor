@@ -42,6 +42,7 @@ public sealed class OnKeyDownChordAnalyzer : DiagnosticAnalyzer
 
     private const string ModifiersEnumName = "VirtualKeyModifiers";
     private const string ModifiersEnumNamespace = "Windows.System";
+    private const string ReactorNamespacePrefix = "Microsoft.UI.Reactor";
 
     private static readonly LocalizableString Title =
         "Ctrl/Alt chord on .OnKeyDown should be a Command accelerator";
@@ -105,6 +106,14 @@ public sealed class OnKeyDownChordAnalyzer : DiagnosticAnalyzer
         if (chord is null)
             return;
 
+        // Ground to Reactor's `.OnKeyDown` modifier: if the call resolves to a method that is NOT in
+        // a Reactor namespace, it is an unrelated same-named API (e.g. a third-party fluent helper) —
+        // don't warn. When the symbol can't be resolved (incomplete code mid-edit), fall back to the
+        // syntactic match and still warn, so the footgun stays visible while the author is typing.
+        if (context.SemanticModel.GetSymbolInfo(invocation, context.CancellationToken).Symbol is IMethodSymbol method
+            && !IsReactorNamespace(method.ContainingNamespace?.ToDisplayString()))
+            return;
+
         context.ReportDiagnostic(Diagnostic.Create(
             Rule,
             invocation.GetLocation(),
@@ -126,6 +135,12 @@ public sealed class OnKeyDownChordAnalyzer : DiagnosticAnalyzer
             if (member != "Control" && member != "Menu")
                 continue;
 
+            // Only the OnKeyDown handler's own logic counts. A modifier test inside a *nested*
+            // closure (a lambda/anonymous method/local function declared within this handler) belongs
+            // to some other callback, not this key handler, so skip it to avoid a false positive.
+            if (IsInsideNestedFunction(access, body))
+                continue;
+
             // Cheap syntactic pre-check: the receiver must be spelled `VirtualKeyModifiers`
             // (bare `VirtualKeyModifiers.Control` or qualified `Windows.System.VirtualKeyModifiers.Control`)
             // before we spend a semantic query.
@@ -144,6 +159,27 @@ public sealed class OnKeyDownChordAnalyzer : DiagnosticAnalyzer
 
         return null;
     }
+
+    /// <summary>
+    /// True when <paramref name="node"/> sits inside a lambda / anonymous method / local function
+    /// that is itself nested within <paramref name="body"/> (the OnKeyDown handler's body). Such a
+    /// node belongs to an inner callback, not the key handler, so it must not count as the chord.
+    /// </summary>
+    private static bool IsInsideNestedFunction(SyntaxNode node, SyntaxNode body)
+    {
+        for (var current = node.Parent; current is not null && current != body; current = current.Parent)
+        {
+            if (current is AnonymousFunctionExpressionSyntax or LocalFunctionStatementSyntax)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>True when <paramref name="ns"/> is the Reactor root namespace or a descendant.</summary>
+    private static bool IsReactorNamespace(string? ns) =>
+        ns is not null
+            && (ns == ReactorNamespacePrefix
+                || ns.StartsWith(ReactorNamespacePrefix + ".", System.StringComparison.Ordinal));
 
     /// <summary>
     /// The trailing identifier of the receiver of a member access: the identifier itself for

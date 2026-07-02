@@ -19,6 +19,7 @@ public class OnKeyDownChordAnalyzerTests
 using System;
 using Windows.System;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Reactor;
 
 namespace Windows.System
 {
@@ -33,12 +34,16 @@ namespace Microsoft.UI.Xaml.Input
 
 public class FakeElement { }
 
-public static class FakeElementExtensions
+namespace Microsoft.UI.Reactor
 {
-    // Mirrors ElementExtensions.OnKeyDown: (sender, args) shape, returns the element for chaining.
-    public static FakeElement OnKeyDown(this FakeElement el, Action<object, KeyRoutedEventArgs> handler) => el;
-    public static FakeElement OnKeyUp(this FakeElement el, Action<object, KeyRoutedEventArgs> handler) => el;
-    public static FakeElement Margin(this FakeElement el, double v) => el;
+    // Mirrors ElementExtensions (namespace Microsoft.UI.Reactor) so the analyzer's Reactor-namespace
+    // grounding recognizes .OnKeyDown as the real modifier. (sender, args) shape, returns the element.
+    public static class FakeElementExtensions
+    {
+        public static FakeElement OnKeyDown(this FakeElement el, Action<object, KeyRoutedEventArgs> handler) => el;
+        public static FakeElement OnKeyUp(this FakeElement el, Action<object, KeyRoutedEventArgs> handler) => el;
+        public static FakeElement Margin(this FakeElement el, double v) => el;
+    }
 }
 ";
 
@@ -229,17 +234,22 @@ class C
     public async Task No_Diagnostic_For_Same_Named_LookAlike_Enum()
     {
         // Semantic guard: a look-alike enum also named 'VirtualKeyModifiers' but NOT in
-        // Windows.System must not trip the rule. Stand-alone source (no Windows.System stub) so the
-        // only 'VirtualKeyModifiers' in scope is the local look-alike.
+        // Windows.System must not trip the rule. .OnKeyDown is Reactor-grounded here, so the enum
+        // guard is the *only* thing that suppresses the diagnostic (isolates that check).
         var source = @"
 using System;
+using Microsoft.UI.Reactor;
 
 public enum VirtualKeyModifiers { None, Control, Menu }
 
 public class FakeElement { }
-public static class Ext
+
+namespace Microsoft.UI.Reactor
 {
-    public static FakeElement OnKeyDown(this FakeElement el, Action<object> handler) => el;
+    public static class Ext
+    {
+        public static FakeElement OnKeyDown(this FakeElement el, Action<object> handler) => el;
+    }
 }
 
 class C
@@ -248,6 +258,71 @@ class C
     {
         var el = new FakeElement();
         el.OnKeyDown(s => { if (VirtualKeyModifiers.Control == VirtualKeyModifiers.Menu) { } });
+    }
+}";
+
+        await new CSharpAnalyzerTest<OnKeyDownChordAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_Non_Reactor_OnKeyDown()
+    {
+        // Grounding guard: a same-named `.OnKeyDown` from a non-Reactor namespace, even with a real
+        // Windows.System Ctrl chord in its lambda, is an unrelated API — must not fire.
+        var source = @"
+using System;
+using Windows.System;
+using ThirdParty;
+
+namespace Windows.System
+{
+    public enum VirtualKey { S }
+    [Flags] public enum VirtualKeyModifiers { None = 0, Control = 1 }
+}
+
+public class Widget { }
+
+namespace ThirdParty
+{
+    public static class WidgetExt
+    {
+        public static Widget OnKeyDown(this Widget w, Action<object> handler) => w;
+        public static VirtualKeyModifiers Mods() => VirtualKeyModifiers.None;
+    }
+}
+
+class C
+{
+    void M()
+    {
+        var w = new Widget();
+        w.OnKeyDown(e => { if (WidgetExt.Mods().HasFlag(VirtualKeyModifiers.Control)) {} });
+    }
+}";
+
+        await new CSharpAnalyzerTest<OnKeyDownChordAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_Chord_In_Nested_Closure()
+    {
+        // Precision: the OnKeyDown handler's own body has no chord; the VirtualKeyModifiers.Control
+        // test lives inside a nested closure (a different callback) and must not count.
+        var source = Stubs + @"
+class C
+{
+    static VirtualKeyModifiers Mods() => VirtualKeyModifiers.None;
+    Action Register = () => {};
+    void M()
+    {
+        var el = new FakeElement();
+        el.OnKeyDown((s, e) => { Register = () => { if (Mods().HasFlag(VirtualKeyModifiers.Control)) {} }; });
     }
 }";
 
@@ -322,6 +397,81 @@ class C
     {
         var el = new FakeElement();
         {|REACTOR_INPUT_001:el.OnKeyDown((s, e) => { if (e.Key == VirtualKey.F && Mods().HasFlag(VirtualKeyModifiers.Menu)) Find(); })|} /* REACTOR_INPUT_001: .OnKeyDown is focus-scoped. Register this shortcut app-wide as a Command accelerator instead, e.g. new Command { Label = <name>, Execute = <handler>, Accelerator = Accelerator(VirtualKey.F, VirtualKeyModifiers.Menu) }, then remove this .OnKeyDown chord. */;
+    }
+}";
+
+        await new CSharpCodeFixTest<OnKeyDownChordAnalyzer, OnKeyDownChordCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            FixedState = { MarkupHandling = MarkupMode.Allow },
+            NumberOfIncrementalIterations = 1,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Uses_Key_Placeholder_When_No_VirtualKey_Present()
+    {
+        // The chord fires from the modifier alone; no VirtualKey.<X> to extract, so the scaffold
+        // keeps the <key> placeholder.
+        var before = Stubs + @"
+class C
+{
+    static VirtualKeyModifiers Mods() => VirtualKeyModifiers.None;
+    void Save() {}
+    void M()
+    {
+        var el = new FakeElement();
+        {|REACTOR_INPUT_001:el.OnKeyDown((s, e) => { if (Mods().HasFlag(VirtualKeyModifiers.Control)) Save(); })|};
+    }
+}";
+
+        var after = Stubs + @"
+class C
+{
+    static VirtualKeyModifiers Mods() => VirtualKeyModifiers.None;
+    void Save() {}
+    void M()
+    {
+        var el = new FakeElement();
+        {|REACTOR_INPUT_001:el.OnKeyDown((s, e) => { if (Mods().HasFlag(VirtualKeyModifiers.Control)) Save(); })|} /* REACTOR_INPUT_001: .OnKeyDown is focus-scoped. Register this shortcut app-wide as a Command accelerator instead, e.g. new Command { Label = <name>, Execute = <handler>, Accelerator = Accelerator(VirtualKey.<key>, VirtualKeyModifiers.Control) }, then remove this .OnKeyDown chord. */;
+    }
+}";
+
+        await new CSharpCodeFixTest<OnKeyDownChordAnalyzer, OnKeyDownChordCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            FixedState = { MarkupHandling = MarkupMode.Allow },
+            NumberOfIncrementalIterations = 1,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Appends_Combined_Control_And_Menu_Template()
+    {
+        // Both modifiers tested → the scaffold seeds the combined VirtualKeyModifiers expression.
+        var before = Stubs + @"
+class C
+{
+    static VirtualKeyModifiers Mods() => VirtualKeyModifiers.None;
+    void Do() {}
+    void M()
+    {
+        var el = new FakeElement();
+        {|REACTOR_INPUT_001:el.OnKeyDown((s, e) => { if (e.Key == VirtualKey.S && Mods().HasFlag(VirtualKeyModifiers.Control) && Mods().HasFlag(VirtualKeyModifiers.Menu)) Do(); })|};
+    }
+}";
+
+        var after = Stubs + @"
+class C
+{
+    static VirtualKeyModifiers Mods() => VirtualKeyModifiers.None;
+    void Do() {}
+    void M()
+    {
+        var el = new FakeElement();
+        {|REACTOR_INPUT_001:el.OnKeyDown((s, e) => { if (e.Key == VirtualKey.S && Mods().HasFlag(VirtualKeyModifiers.Control) && Mods().HasFlag(VirtualKeyModifiers.Menu)) Do(); })|} /* REACTOR_INPUT_001: .OnKeyDown is focus-scoped. Register this shortcut app-wide as a Command accelerator instead, e.g. new Command { Label = <name>, Execute = <handler>, Accelerator = Accelerator(VirtualKey.S, VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu) }, then remove this .OnKeyDown chord. */;
     }
 }";
 
