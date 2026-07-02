@@ -38,6 +38,7 @@ public sealed class UsePersistedScopeAnalyzer : DiagnosticAnalyzer
     private const string ComponentTypeName = "Component";
     private const string ReactorNamespacePrefix = "Microsoft.UI.Reactor";
     private const string ScopeParameterName = "scope";
+    private const string KeyParameterName = "key";
 
     private static readonly LocalizableString Title =
         "UsePersisted defaults to Application (process-wide) scope";
@@ -101,10 +102,16 @@ public sealed class UsePersistedScopeAnalyzer : DiagnosticAnalyzer
         if (!IsDefaultScopeUsePersistedOverload(method))
             return;
 
+        // Report against the key argument specifically — it is the first positional
+        // argument, but a caller may reorder named arguments (e.g.
+        // `UsePersisted(initialValue: x, key: k)`), so prefer an explicit `key:` when present.
+        var keyExpression = args.FirstOrDefault(static a => a.NameColon?.Name.Identifier.ValueText == KeyParameterName)?.Expression
+            ?? args[0].Expression;
+
         context.ReportDiagnostic(Diagnostic.Create(
             Rule,
             invocation.GetLocation(),
-            args[0].Expression.ToString()));
+            keyExpression.ToString()));
     }
 
     /// <summary>

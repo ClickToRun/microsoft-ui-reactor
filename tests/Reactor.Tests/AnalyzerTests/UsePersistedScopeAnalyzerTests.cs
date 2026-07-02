@@ -118,6 +118,27 @@ class C
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 
+    [Fact]
+    public async Task Fires_When_Named_Arguments_Are_Reordered()
+    {
+        // Reordered named args are legal; the rule must still fire (and the message
+        // resolves the key: argument rather than blindly using the first argument).
+        var source = Stubs + @"
+class C
+{
+    void M()
+    {
+        var ctx = new RenderContext();
+        {|REACTOR_PERSIST_001:ctx.UsePersisted(initialValue: ""v"", key: ""filter"")|};
+    }
+}";
+
+        await new CSharpAnalyzerTest<UsePersistedScopeAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
     // ── Negative ────────────────────────────────────────────────────────
 
     [Fact]
