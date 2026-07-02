@@ -141,7 +141,9 @@ public sealed class UseThemeRefCodeFix : CodeFixProvider
         var themeType = semanticModel.Compilation.GetTypeByMetadataName("Microsoft.UI.Reactor.Core.Theme");
         if (themeType is null)
             return null;
-        if (!themeType.GetMembers(token).Any(static m => m is IPropertySymbol or IFieldSymbol))
+        // The fix emits a static `Theme.<token>` access, so require a matching *static* field/property
+        // — an instance member of the same name wouldn't compile through the type name.
+        if (!themeType.GetMembers(token).Any(static m => m.IsStatic && m is IPropertySymbol or IFieldSymbol))
             return null;
 
         var themeName = themeType.ToMinimalDisplayString(semanticModel, position);
