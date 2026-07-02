@@ -419,6 +419,30 @@ namespace App
 }");
     }
 
+    // ── Positive: named-argument UseEffect ─────────────────────────────
+
+    [Fact]
+    public async Task Fires_For_Result_In_UseEffect_With_Named_Arguments()
+    {
+        // Named-argument reordering must still be recognized as the effect lambda.
+        await VerifyAsync(@"
+namespace App
+{
+    using Microsoft.UI.Reactor.Core;
+    public sealed class C : Component
+    {
+        public override Element Render()
+        {
+            UseEffect(dependencies: System.Array.Empty<object>(), effect: () =>
+            {
+                var data = {|REACTOR_THREAD_002:Data.FetchAsync().Result|};
+            });
+            return new TextElement(""hi"");
+        }
+    }
+}");
+    }
+
     // ── Positive: ConfigureAwait(false).GetAwaiter().GetResult() ────────
 
     [Fact]

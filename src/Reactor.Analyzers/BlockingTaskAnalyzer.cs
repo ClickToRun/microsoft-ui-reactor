@@ -306,9 +306,11 @@ public sealed class BlockingTaskAnalyzer : DiagnosticAnalyzer
     }
 
     /// <summary>
-    /// True when <paramref name="lambda"/> is the effect argument (index 0) of a
-    /// <c>UseEffect</c> call bound to <c>RenderContext.UseEffect</c> or a
-    /// <c>Component</c> wrapper. Mirrors the Component-or-RenderContext anchoring the
+    /// True when <paramref name="lambda"/> is the effect argument of a <c>UseEffect</c>
+    /// call bound to <c>RenderContext.UseEffect</c> or a <c>Component</c> wrapper. The
+    /// effect is parameter 0 of every overload, but named-argument reordering
+    /// (<c>UseEffect(dependencies: d, effect: () =&gt; ...)</c>) means it is not always the
+    /// first syntactic argument. Mirrors the Component-or-RenderContext anchoring the
     /// shipped hook analyzer uses.
     /// </summary>
     private static bool IsUseEffectEffectLambda(SemanticModel model, SyntaxNode lambda)
@@ -320,10 +322,6 @@ public sealed class BlockingTaskAnalyzer : DiagnosticAnalyzer
             return false;
         }
 
-        // The effect is always the first argument of every UseEffect overload.
-        if (argumentList.Arguments.IndexOf(argument) != 0)
-            return false;
-
         // Cheap name gate before touching the semantic model.
         if (GetInvokedSimpleName(invocation) != "UseEffect")
             return false;
@@ -331,6 +329,11 @@ public sealed class BlockingTaskAnalyzer : DiagnosticAnalyzer
         if (model.GetSymbolInfo(invocation).Symbol is IMethodSymbol symbol)
         {
             if (symbol.Name != "UseEffect")
+                return false;
+
+            // Confirm the lambda binds to the effect parameter (index 0), honoring
+            // named-argument reordering.
+            if (!TargetsFirstParameter(argument, argumentList, symbol))
                 return false;
 
             if (symbol.ContainingType is INamedTypeSymbol containing &&
@@ -348,7 +351,11 @@ public sealed class BlockingTaskAnalyzer : DiagnosticAnalyzer
             return false;
         }
 
-        // Fallback for an unresolved/overload-ambiguous call: check the receiver's type.
+        // Fallback for an unresolved/overload-ambiguous call: the effect is the first
+        // positional argument, and we check the receiver's declared type.
+        if (argumentList.Arguments.IndexOf(argument) != 0)
+            return false;
+
         if (invocation.Expression is MemberAccessExpressionSyntax memberAccess &&
             model.GetTypeInfo(memberAccess.Expression).Type is INamedTypeSymbol receiverType &&
             (IsOrDerivesFrom(receiverType, RenderContextType) || IsOrDerivesFrom(receiverType, ComponentType)))
@@ -357,6 +364,23 @@ public sealed class BlockingTaskAnalyzer : DiagnosticAnalyzer
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// True when <paramref name="argument"/> binds to parameter index 0 of
+    /// <paramref name="symbol"/> — the first positional argument, or a named argument
+    /// whose name matches parameter 0. Handles named-argument reordering.
+    /// </summary>
+    private static bool TargetsFirstParameter(
+        ArgumentSyntax argument, ArgumentListSyntax argumentList, IMethodSymbol symbol)
+    {
+        if (argument.NameColon is { Name.Identifier.Text: var argName })
+        {
+            return symbol.Parameters.Length > 0
+                && string.Equals(argName, symbol.Parameters[0].Name, System.StringComparison.Ordinal);
+        }
+
+        return argumentList.Arguments.IndexOf(argument) == 0;
     }
 
     /// <summary>
