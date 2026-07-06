@@ -131,6 +131,7 @@ via `.editorconfig`.
 | `REACTOR_STATE_001` | Warning | INotifyPropertyChanged on a Component is invisible to the render loop | `ComponentInpcAnalyzer.cs` |
 | `REACTOR0050` | Warning | Optional OneWay descriptor entry has no `dp:` ClearValue fallback | `OneWayClearValueAnalyzer.cs` |
 | `REACTOR_DESC_001` | Warning | Non-static `ControlRegistry.Register*` handler-factory lambda (trim/AOT hygiene) | `StaticRegisterLambdaAnalyzer.cs` |
+| `REACTOR_OPT_001` | Info | Selection sentinel literal force-asserts instead of Optional<T>.Unset | `OptionalSentinelAnalyzer.cs` |
 
 `REACTOR_HOOKS_002` and `_003` are reserved for future control-flow /
 data-flow analyses (variable hook counts across early returns, async

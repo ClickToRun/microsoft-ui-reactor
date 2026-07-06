@@ -1,6 +1,6 @@
 ---
 name: reactor-build-and-check
-description: "Building Reactor apps and reading diagnostics — `mur check <path>` is the build (same exit code as `dotnet build`, never re-run to confirm) with one-line diagnostics, skill pointers, and `→ try:` did-you-mean suggestions to use verbatim. Covers iteration vs `--final` workflow, the common-build-errors cheat table mapping `REACTOR_HOOKS_*` / `REACTOR_DSL_*` / `REACTOR_THEME_*` / `REACTOR_A11Y_*` / `CS*` IDs to fixes, when single-file vs `.csproj` matters for analyzer coverage, build prerequisites. Use when a build fails, you see an analyzer warning, or you want a structured diagnostic stream instead of raw MSBuild output."
+description: "Building Reactor apps and reading diagnostics — `mur check <path>` is the build (same exit code as `dotnet build`, never re-run to confirm) with one-line diagnostics, skill pointers, and `→ try:` did-you-mean suggestions to use verbatim. Covers iteration vs `--final` workflow, the common-build-errors cheat table mapping `REACTOR_HOOKS_*` / `REACTOR_DSL_*` / `REACTOR_THEME_*` / `REACTOR_A11Y_*` / `REACTOR_OPT_*` / `CS*` IDs to fixes, when single-file vs `.csproj` matters for analyzer coverage, build prerequisites. Use when a build fails, you see an analyzer warning, or you want a structured diagnostic stream instead of raw MSBuild output."
 ---
 
 ## Build & verify
@@ -88,6 +88,7 @@ Additional flags:
 | `REACTOR_THEME_002` | info | Lightweight styling opportunity | Optional. Use `.Resources(r => r.Set("ButtonBackground", …))` for visual-state overrides. |
 | `REACTOR_THEME_003` | info | `RequestedTheme` modifier available | Use `.RequestedTheme(ElementTheme.Dark)` for subtree theme overrides. |
 | `REACTOR_THEME_004` | warning | Inline `new SolidColorBrush(...)` passed to `.Background`/`.Foreground`/`.WithBorder` | Use a `Theme.*` token (e.g. `Theme.SolidBackground`, `Theme.PrimaryText`) — a raw brush is a fixed color that ignores Light/Dark. |
+| `REACTOR_OPT_001` | info | XAML-habit sentinel on an `Optional<T>` selection prop in `new …{ }`/`with { }` — `SelectedIndex`/`SelectedPageIndex = -1`, or a nullable `Date = null` — implicitly becomes `Optional.Of(sentinel)`, a force-assert re-applied every render | Use `Optional<T>.Unset` to let the control own the selection, or `Optional<T>.Of(value)` to keep the explicit force-assert (e.g. `Optional<int>.Of(-1)`, `Optional<DateTimeOffset?>.Of(null)`). |
 | `REACTOR_A11Y_001` | warning | Icon-only button missing accessible name | Add `.AutomationName("Delete")` (or similar). |
 | `REACTOR_A11Y_002` | warning | Image missing alt text | Add `.AutomationName(...)` or `.AccessibilityHidden(true)` for decorative images. |
 | `REACTOR_A11Y_003` | warning | Form field missing label | Wrap in `FormField(input, label: "Email", required: true)`. |

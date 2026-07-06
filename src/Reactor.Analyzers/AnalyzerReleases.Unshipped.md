@@ -26,3 +26,4 @@ REACTOR_PERSIST_001 | Reactor.Persistence | Warning | UsePersistedScopeAnalyzer 
 REACTOR_DESC_001 | Reactor.Descriptor | Warning | StaticRegisterLambdaAnalyzer - ControlRegistry.Register* lambda should be static (trim hygiene)
 REACTOR_STATE_001 | Reactor.State | Warning | ComponentInpcAnalyzer - INotifyPropertyChanged on a Component is invisible to the render loop
 REACTOR_THREAD_002 | Reactor.Threading | Warning | BlockingTaskAnalyzer - Blocking a Task (.Result/.Wait) in Render/effect
+REACTOR_OPT_001 | Reactor.Controlled | Info | OptionalSentinelAnalyzer - Selection sentinel literal force-asserts instead of Optional<T>.Unset
