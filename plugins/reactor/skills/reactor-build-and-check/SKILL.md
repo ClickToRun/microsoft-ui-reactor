@@ -81,6 +81,7 @@ Additional flags:
 | `REACTOR_HOOKS_006` | info | `UseResource` fetcher looks non-idempotent (`Post*`/`Create*`/`Delete*`/`Save*`) | Use `UseMutation` for writes — `UseResource` re-runs on deps change, retry, focus revalidation. |
 | `REACTOR_HOOKS_007` | warning | `UseMemoCells` builder closure missing dependencies | Add the captured variable to the deps array. |
 | `REACTOR_HOOKS_009` | warning | `Command.DebounceMs` set on a command bound without `UseCommand` | Route it through `UseCommand`: `var cmd = UseCommand(new Command { …, DebounceMs = 1500 });`. The debounce window lives in the hook store, so a raw bound `Command` never debounces. |
+| `REACTOR_STATE_001` | warning | A `Component` subclass implements `INotifyPropertyChanged` (MVVM habit) | The render loop never subscribes to a component's INPC, so `PropertyChanged` is invisible and does nothing. Hold reactive state with `UseState`, or wrap an external observable source with `UseObservable`. |
 | `REACTOR_DSL_001` | warning | `Select(...)` projecting into a layout container without `.WithKey(...)` | `items.Select(i => Row(i).WithKey(i.Id)).ToArray<Element?>()`. Keys keep focus + animation state across reorders. |
 | `REACTOR_THEME_001` | warning | Hardcoded color on a themed surface | Use `Theme.*` tokens (e.g. `Theme.PrimaryText`, `Theme.CardBackground`). See `reactor-design`. |
 | `REACTOR_THEME_002` | info | Lightweight styling opportunity | Optional. Use `.Resources(r => r.Set("ButtonBackground", …))` for visual-state overrides. |
