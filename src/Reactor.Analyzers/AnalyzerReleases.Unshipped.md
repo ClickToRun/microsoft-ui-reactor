@@ -45,3 +45,4 @@ REACTOR_GRID_001 | Reactor.Layout | Warning | UnusedGridTrackAnalyzer - Declared
 REACTOR_INPUT_001 | Reactor.Input | Warning | OnKeyDownChordAnalyzer - Ctrl/Alt chord on .OnKeyDown is focus-scoped; use a Command accelerator
 REACTOR_PERF_FUNCREF | Reactor.Performance | Info | MemoizeCommandAnalyzer - Command constructed inline in the render path is re-allocated every render; wrap it in UseMemo
 REACTOR_ANIM_002 | Reactor.Animation | Info | KeyframeTriggerAnalyzer - Unstable .Keyframes trigger (DateTime.Now / Guid.NewGuid / per-render allocation) restarts the animation every render
+REACTOR_INPUT_002 | Reactor.Input | Warning | UnsafeDropFilesAnalyzer - Unsafe TryGetFiles in .OnDrop returns UNC/reparse/virtual files; use TryGetSafeLocalFiles
