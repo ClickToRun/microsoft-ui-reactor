@@ -117,6 +117,12 @@ via `.editorconfig`.
 | `REACTOR_HOOKS_008` | Info | State variable read after its setter in the same synchronous handler | `HookRulesAnalyzer.cs` |
 | `REACTOR_HOOKS_009` | Warning | Command.DebounceMs set on a command bound without UseCommand | `CommandDebounceAnalyzer.cs` |
 | `REACTOR_HOOKS_011` | Warning | Controlled input has a state-derived value but an inert change callback | `ControlledInputAnalyzer.cs` |
+| `REACTOR_HOOKS_002` | Info | Hook after an early-return guard | `HookRulesAnalyzer.cs` |
+| `REACTOR_HOOKS_003` | Warning | async-void UseEffect body | `HookRulesAnalyzer.cs` |
+| `REACTOR_HOOKS_010` | Warning | Reference state mutated in place, same ref re-passed to setter | `HookRulesAnalyzer.cs` |
+| `REACTOR_HOOKS_012` | Warning | Memo dependency lacks value equality | `HookRulesAnalyzer.cs` |
+| `REACTOR_HOOKS_013` | Warning | UseState/UsePersisted initial value allocated every render | `HookRulesAnalyzer.cs` |
+| `REACTOR_CTX_001` | Info | Context value re-allocated each render (reference-equality type) | `ContextProvideAnalyzer.cs` |
 | `REACTOR_A11Y_001` | Warning | Icon-only button needs an accessible name | `AccessibilityAnalyzers.cs` |
 | `REACTOR_A11Y_002` | Warning | Image needs alt text or AccessibilityHidden | `AccessibilityAnalyzers.cs` |
 | `REACTOR_A11Y_003` | Warning | Form field needs a label | `AccessibilityAnalyzers.cs` |
@@ -140,10 +146,10 @@ via `.editorconfig`.
 | `REACTOR_CMD_001` | Info | Raw-init Command + own click/toggle callback both set (callback wins) | `RawCommandCallbackAnalyzer.cs` |
 | `REACTOR_THREAD_001` | Warning | UI-thread-only mutator called on a background thread | `UIThreadAffinityAnalyzer.cs` |
 
-`REACTOR_HOOKS_002` and `_003` are reserved for future control-flow /
-data-flow analyses (variable hook counts across early returns, async
-boundaries inside `UseEffect`). They have descriptor slots but no
-implementation today.
+`REACTOR_HOOKS_002` and `_003` were the reserved control-flow / data-flow slots
+(variable hook counts across early returns, async boundaries inside `UseEffect`);
+they now ship — `_002` flags a hook after a single-guard early return, `_003`
+flags an `async`-void `UseEffect` body (spec 060 §4.1).
 
 ## Symbol-grounded matching — the WithKey case
 

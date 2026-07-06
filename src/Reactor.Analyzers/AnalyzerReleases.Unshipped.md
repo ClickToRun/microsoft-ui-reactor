@@ -34,3 +34,9 @@ REACTOR_THREAD_002 | Reactor.Threading | Warning | BlockingTaskAnalyzer - Blocki
 REACTOR_OPT_001 | Reactor.Controlled | Info | OptionalSentinelAnalyzer - Selection sentinel literal force-asserts instead of Optional<T>.Unset
 REACTOR_CMD_001 | Reactor.Commanding | Info | RawCommandCallbackAnalyzer - Raw-init Command + own click callback both set (callback wins; command never runs)
 REACTOR_THREAD_001 | Reactor.Threading | Warning | UIThreadAffinityAnalyzer - UI-thread-only mutator called on a background thread
+REACTOR_HOOKS_002 | Reactor.Hooks | Info | HookRulesAnalyzer - Hook after an early-return guard
+REACTOR_HOOKS_003 | Reactor.Hooks | Warning | HookRulesAnalyzer - async-void UseEffect body
+REACTOR_HOOKS_010 | Reactor.Hooks | Warning | HookRulesAnalyzer - Mutate-then-set reference state (same ref re-passed to setter)
+REACTOR_HOOKS_012 | Reactor.Hooks | Warning | HookRulesAnalyzer - Memo dependency lacks value equality
+REACTOR_HOOKS_013 | Reactor.Hooks | Warning | HookRulesAnalyzer - UseState/UsePersisted initial value allocated every render
+REACTOR_CTX_001 | Reactor.Context | Info | ContextProvideAnalyzer - Context value re-allocated each render (reference-equality type)
