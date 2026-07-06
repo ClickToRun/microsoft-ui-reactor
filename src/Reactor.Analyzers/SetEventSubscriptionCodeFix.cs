@@ -66,8 +66,12 @@ public sealed class SetEventSubscriptionCodeFix : CodeFixProvider
             var handler = assignment.Right;
 
             // Fix A — declarative modifier, when Reactor exposes one for this event. The
-            // modifier owns the subscription lifecycle, so it is safe for any handler shape.
-            if (SetEventSubscriptionAnalyzer.EventModifiers.TryGetValue(eventName, out var modifierName))
+            // native event uses a distinct delegate type while the modifier takes
+            // Action<object, TArgs>; a method group or lambda converts to both, but a
+            // delegate-typed *value* (field/local/property/parameter, or `new D(...)`) does
+            // not, so the modifier rewrite is only offered for convertible handler shapes.
+            if (SetEventSubscriptionAnalyzer.EventModifiers.TryGetValue(eventName, out var modifierName)
+                && IsModifierFixCompatible(handler, model, context.CancellationToken))
             {
                 var modifierInvocation = SyntaxFactory.InvocationExpression(
                         SyntaxFactory.MemberAccessExpression(
@@ -115,6 +119,30 @@ public sealed class SetEventSubscriptionCodeFix : CodeFixProvider
                     diagnostic);
             }
         }
+    }
+
+    /// <summary>
+    /// Whether the declarative <c>.On*</c> modifier rewrite (Fix A) is type-safe for this
+    /// handler. The modifier parameter is <c>Action&lt;object, TArgs&gt;</c>; the native event
+    /// uses a distinct delegate type. A method group and an anonymous function undergo delegate
+    /// <em>conversion</em> to the <c>Action</c>, but a delegate-typed value (field / local /
+    /// property / parameter) or an explicit <c>new SomeDelegate(...)</c> has no such conversion,
+    /// so rewriting <c>.On{Event}(value)</c> would not compile (CS1503). Offer Fix A only for
+    /// the convertible shapes.
+    /// </summary>
+    private static bool IsModifierFixCompatible(ExpressionSyntax handler, SemanticModel model, CancellationToken ct)
+    {
+        if (handler is AnonymousFunctionExpressionSyntax)
+            return true;
+        if (handler is ObjectCreationExpressionSyntax or ImplicitObjectCreationExpressionSyntax)
+            return false;
+
+        var info = model.GetSymbolInfo(handler, ct);
+        var symbol = info.Symbol ?? info.CandidateSymbols.FirstOrDefault();
+
+        // A method group resolves to the (non-constructor) method; a delegate-typed value
+        // resolves to a field/local/property/parameter (or a constructor for `new D(...)`).
+        return symbol is IMethodSymbol { MethodKind: not MethodKind.Constructor };
     }
 
     /// <summary>

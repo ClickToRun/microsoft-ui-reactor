@@ -30,12 +30,15 @@ namespace Microsoft.UI.Xaml
 
 namespace Microsoft.UI.Xaml.Controls
 {
+    public class TappedRoutedEventArgs : System.EventArgs { }
+    public delegate void TappedEventHandler(object sender, TappedRoutedEventArgs e);
+
     public class Button : Microsoft.UI.Xaml.FrameworkElement
     {
-        public event EventHandler Click;   // no declarative modifier -> OnMountAdd fix path
-        public event EventHandler Tapped;  // in EventModifiers -> declarative-modifier fix path
-        public double Opacity;             // numeric compound-assignment near-miss
-        public EventHandler Callback;      // non-event delegate FIELD near-miss
+        public event EventHandler Click;        // no declarative modifier -> OnMountAdd fix path
+        public event TappedEventHandler Tapped; // distinct native delegate + declarative modifier
+        public double Opacity;                  // numeric compound-assignment near-miss
+        public EventHandler Callback;           // non-event delegate FIELD near-miss
     }
 }
 
@@ -54,7 +57,7 @@ namespace Microsoft.UI.Reactor
         public static T OnUnmount<T>(this T el, Action<FrameworkElement> action) => el;
         public static T OnMountAdd<T>(this T el, Action<FrameworkElement> action) => el;
         public static T OnUnmountAdd<T>(this T el, Action<FrameworkElement> action) => el;
-        public static ButtonElement OnTapped(this ButtonElement el, EventHandler handler) => el;
+        public static ButtonElement OnTapped(this ButtonElement el, Action<object, TappedRoutedEventArgs> handler) => el;
     }
 }
 ";
@@ -392,6 +395,50 @@ class C
         {
             TestCode = code,
             FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Declarative_Modifier_Withheld_For_Delegate_Typed_Parameter()
+    {
+        // The native event delegate (TappedEventHandler) has no conversion to the modifier's
+        // Action<object, TArgs>, so a delegate-typed *value* handler must NOT get the .OnTapped
+        // rewrite (it would be CS1503). A parameter is also unstable, so no fix at all — nudge.
+        var code = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b, Microsoft.UI.Xaml.Controls.TappedEventHandler h)
+        => {|REACTOR_EVENT_001:b.Set(c => c.Tapped += h)|};
+}";
+        await new CSharpCodeFixTest<SetEventSubscriptionAnalyzer, SetEventSubscriptionCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Known_Event_With_Delegate_Field_Offers_Only_OnMountAdd()
+    {
+        // A delegate-typed FIELD is a value (no conversion -> .OnTapped(field) would not
+        // compile), so the declarative modifier fix is withheld, but the field is stable so the
+        // mount/unmount rewrite is offered — and it is the only (default) fix.
+        var before = Stubs + @"
+class C
+{
+    Microsoft.UI.Xaml.Controls.TappedEventHandler _h;
+    ButtonElement M(ButtonElement b) => {|REACTOR_EVENT_001:b.Set(c => c.Tapped += _h)|};
+}";
+        var after = Stubs + @"
+class C
+{
+    Microsoft.UI.Xaml.Controls.TappedEventHandler _h;
+    ButtonElement M(ButtonElement b) => b.OnMountAdd(c => ((Button)c).Tapped += _h).OnUnmountAdd(c => ((Button)c).Tapped -= _h);
+}";
+        await new CSharpCodeFixTest<SetEventSubscriptionAnalyzer, SetEventSubscriptionCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 }
