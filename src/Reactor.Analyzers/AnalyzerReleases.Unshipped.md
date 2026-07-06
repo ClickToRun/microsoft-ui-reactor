@@ -28,6 +28,7 @@ REACTOR_ITEMS_001 | Reactor.Collections | Warning | SetOwnedItemsSourceAnalyzer 
 REACTOR_CTRL_001 | Reactor.Controls | Warning | SetSelectedItemAnalyzer - .Set(SelectedItem/SelectedValue) fights controlled SelectedIndex
 REACTOR_VIS_001 | Reactor.Layout | Warning | PoolResetSetAnalyzer - Imperative .Set(Visibility=...) instead of .IsVisible(...)
 REACTOR_LIFECYCLE_001 | Reactor.Lifecycle | Warning | SetEventSubscriptionAnalyzer - Event subscription via .Set(+=) replays each render
+REACTOR_WIN2D_001 | Reactor.Win2D | Error | Win2DSharedDeviceAnalyzer - Win2D canvas draws UseCanvasResources output without .UseSharedDevice() (fatal cross-device draw)
 REACTOR0050 | Reactor.Descriptor | Warning | OneWayClearValueAnalyzer - Optional<T> OneWay descriptor entries should provide dp: for ClearValue fallback
 REACTOR_PERSIST_001 | Reactor.Persistence | Warning | UsePersistedScopeAnalyzer - 2-arg UsePersisted defaults to Application scope; specify scope
 REACTOR_DESC_001 | Reactor.Descriptor | Warning | StaticRegisterLambdaAnalyzer - ControlRegistry.Register* lambda should be static (trim hygiene)
