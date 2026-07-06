@@ -142,6 +142,7 @@ via `.editorconfig`.
 | `REACTOR_VIS_001` | Warning | Imperative `.Set(Visibility=...)` instead of `.IsVisible(...)` | `PoolResetSetAnalyzer.cs` |
 | `REACTOR_LIFECYCLE_001` | Warning | Event subscription via `.Set(+=)` replays each render | `SetEventSubscriptionAnalyzer.cs` |
 | `REACTOR_INPUT_002` | Warning | Unsafe `TryGetFiles` in `.OnDrop`; prefer `TryGetSafeLocalFiles` | `UnsafeDropFilesAnalyzer.cs` |
+| `REACTOR_DIALOG_001` | Warning | Imperative WinUI `ContentDialog.ShowAsync` escapes the render tree | `ImperativeContentDialogAnalyzer.cs` |
 | `REACTOR0050` | Warning | Optional OneWay descriptor entry has no `dp:` ClearValue fallback | `OneWayClearValueAnalyzer.cs` |
 | `REACTOR_DESC_001` | Warning | Non-static `ControlRegistry.Register*` handler-factory lambda (trim/AOT hygiene) | `StaticRegisterLambdaAnalyzer.cs` |
 | `REACTOR_OPT_001` | Info | Selection sentinel literal force-asserts instead of Optional<T>.Unset | `OptionalSentinelAnalyzer.cs` |
