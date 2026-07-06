@@ -48,3 +48,4 @@ REACTOR_ANIM_002 | Reactor.Animation | Info | KeyframeTriggerAnalyzer - Unstable
 REACTOR_INPUT_002 | Reactor.Input | Warning | UnsafeDropFilesAnalyzer - Unsafe TryGetFiles in .OnDrop returns UNC/reparse/virtual files; use TryGetSafeLocalFiles
 REACTOR_NAV_001 | Reactor.Navigation | Warning | StaticNavigationHandleAnalyzer - UseNavigation handle captured into a static field or property outlives the page and pins its dispatcher
 REACTOR_DIALOG_001 | Reactor.Lifecycle | Warning | ImperativeContentDialogAnalyzer - Imperative ContentDialog.ShowAsync escapes the render tree; use the controlled ContentDialog(...) element with IsOpen
+REACTOR_MOD_001 | Reactor.Modifier | Info | DuplicateAtomicModifierAnalyzer - Same atomic-replace placement modifier (.Grid/.Canvas/.RelativePanel/.Flex) applied twice in one chain; last-wins overwrite drops earlier args (ships a merge fix)

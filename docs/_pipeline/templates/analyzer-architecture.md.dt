@@ -153,6 +153,7 @@ via `.editorconfig`.
 | `REACTOR_PERF_FUNCREF` | Info | `new Command { … }` constructed inline in the render path without `UseMemo` (re-allocated every render) | `MemoizeCommandAnalyzer.cs` |
 | `REACTOR_ANIM_002` | Info | Unstable `.Keyframes` trigger restarts the animation every render | `KeyframeTriggerAnalyzer.cs` |
 | `REACTOR_NAV_001` | Warning | `UseNavigation` handle captured into a `static` field or property | `StaticNavigationHandleAnalyzer.cs` |
+| `REACTOR_MOD_001` | Info | Same atomic-replace placement modifier (`.Grid`/`.Canvas`/`.RelativePanel`/`.Flex`) applied twice in one chain | `DuplicateAtomicModifierAnalyzer.cs` |
 
 `REACTOR_HOOKS_002` and `_003` were the reserved control-flow / data-flow slots
 (variable hook counts across early returns, async boundaries inside `UseEffect`);
