@@ -12,26 +12,18 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace Microsoft.UI.Reactor.Analyzers;
 
 /// <summary>
-/// Code fix for REACTOR_LIFECYCLE_001: rewrites
-/// <c>x.Set(c =&gt; c.Event += h)</c> into
-/// <c>x.OnMountAdd(c =&gt; ((TControl)c).Event += h).OnUnmountAdd(c =&gt; ((TControl)c).Event -= h)</c>.
+/// Code fix for REACTOR_EVENT_001. Offers up to two render-safe rewrites of
+/// <c>x.Set(c =&gt; c.Event += h)</c>:
+/// <list type="bullet">
+/// <item>the declarative <c>.On{Event}(h)</c> modifier, when Reactor exposes one for the
+/// event (see <see cref="SetEventSubscriptionAnalyzer.EventModifiers"/>) — safe for any
+/// handler because the modifier owns the subscription lifecycle; and</item>
+/// <item><c>.OnMountAdd(c =&gt; ((TControl)c).Event += h).OnUnmountAdd(c =&gt; ((TControl)c).Event -= h)</c>,
+/// offered only when the handler <c>h</c> is a stable delegate (a <c>static</c> method group
+/// or a field) so the mount <c>+=</c> and unmount <c>-=</c> reference the same delegate.</item>
+/// </list>
+/// Only the subscribe (<c>+=</c>) shape is rewritten; <c>-=</c> is nudge-only.
 /// </summary>
-/// <remarks>
-/// <para><c>.OnMountAdd</c>/<c>.OnUnmountAdd</c> receive an <c>Action&lt;FrameworkElement&gt;</c>,
-/// so the lambda casts to the concrete control type. That type is read from the original
-/// <c>.Set</c> lambda parameter (each <c>.Set</c> overload is concrete-typed) and emitted
-/// via <c>ToMinimalDisplayString</c> so it resolves at the call site.</para>
-/// <para>The composing <c>Add</c> variants are used (not plain <c>.OnMount</c>/<c>.OnUnmount</c>,
-/// which overwrite via <c>ElementModifiers.Merge</c>) so the rewrite preserves any existing
-/// mount/unmount action and lets a fix-all over several <c>.Set</c> subscriptions on one
-/// element stack rather than clobbering each other.</para>
-/// <para>The fix is only offered when the handler <c>h</c> is a stable delegate — a
-/// <c>static</c> method group or a field — because <c>.OnMount</c> runs once at mount and
-/// <c>.OnUnmount</c> once at unmount; a per-render captured lambda/local (or a property
-/// whose getter recomputes the delegate) would make <c>-=</c> remove a different delegate
-/// and leak. Otherwise the diagnostic stands with no fix. Only the subscribe (<c>+=</c>)
-/// shape is rewritten.</para>
-/// </remarks>
 [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(SetEventSubscriptionCodeFix))]
 [Shared]
 public sealed class SetEventSubscriptionCodeFix : CodeFixProvider
@@ -61,7 +53,7 @@ public sealed class SetEventSubscriptionCodeFix : CodeFixProvider
             var lambdaExpr = invocation.ArgumentList.Arguments[0].Expression;
             var assignment = SetLambdaHelpers.TryGetLambdaAssignment(lambdaExpr);
             if (assignment is null || !assignment.IsKind(SyntaxKind.AddAssignmentExpression))
-                continue; // Only the subscribe (+=) case has a mechanical OnMount/OnUnmount rewrite.
+                continue; // Only the subscribe (+=) case has a mechanical rewrite.
 
             var lambdaParam = SetLambdaHelpers.GetSingleLambdaParameter(lambdaExpr);
             if (lambdaParam is null)
@@ -70,36 +62,58 @@ public sealed class SetEventSubscriptionCodeFix : CodeFixProvider
             if (leftAccess is null)
                 continue;
 
-            var handler = assignment.Right;
-            if (!IsStableHandler(handler, model, context.CancellationToken))
-                continue; // Unstable handler: nudge only.
-
-            var controlType = model.GetDeclaredSymbol(lambdaParam, context.CancellationToken)?.Type;
-            if (controlType is null)
-                continue;
-
-            var paramName = lambdaParam.Identifier.Text;
-            var controlName = controlType.ToMinimalDisplayString(model, invocation.SpanStart);
             var eventName = leftAccess.Name.Identifier.Text;
-            var receiverText = memberAccess.Expression.ToString();
-            var handlerText = handler.ToString();
+            var handler = assignment.Right;
 
-            var replacementText =
-                $"{receiverText}.OnMountAdd({paramName} => (({controlName}){paramName}).{eventName} += {handlerText})" +
-                $".OnUnmountAdd({paramName} => (({controlName}){paramName}).{eventName} -= {handlerText})";
+            // Fix A — declarative modifier, when Reactor exposes one for this event. The
+            // modifier owns the subscription lifecycle, so it is safe for any handler shape.
+            if (SetEventSubscriptionAnalyzer.EventModifiers.TryGetValue(eventName, out var modifierName))
+            {
+                var modifierInvocation = SyntaxFactory.InvocationExpression(
+                        SyntaxFactory.MemberAccessExpression(
+                            SyntaxKind.SimpleMemberAccessExpression,
+                            memberAccess.Expression,
+                            SyntaxFactory.IdentifierName(modifierName)),
+                        SyntaxFactory.ArgumentList(
+                            SyntaxFactory.SingletonSeparatedList(SyntaxFactory.Argument(handler))))
+                    .WithTriviaFrom(invocation);
 
-            context.RegisterCodeFix(
-                CodeAction.Create(
-                    "Move event subscription to .OnMountAdd/.OnUnmountAdd",
-                    ct =>
-                    {
-                        var replacement = SyntaxFactory.ParseExpression(replacementText)
-                            .WithTriviaFrom(invocation);
-                        var newRoot = root.ReplaceNode(invocation, replacement);
-                        return Task.FromResult(context.Document.WithSyntaxRoot(newRoot));
-                    },
-                    equivalenceKey: SetEventSubscriptionAnalyzer.DiagnosticId),
-                diagnostic);
+                context.RegisterCodeFix(
+                    CodeAction.Create(
+                        $"Use .{modifierName}(...) modifier",
+                        ct => Task.FromResult(context.Document.WithSyntaxRoot(root.ReplaceNode(invocation, modifierInvocation))),
+                        equivalenceKey: SetEventSubscriptionAnalyzer.DiagnosticId + ":modifier:" + modifierName),
+                    diagnostic);
+            }
+
+            // Fix B — .OnMountAdd/.OnUnmountAdd, when the handler is a stable delegate.
+            if (IsStableHandler(handler, model, context.CancellationToken))
+            {
+                var controlType = model.GetDeclaredSymbol(lambdaParam, context.CancellationToken)?.Type;
+                if (controlType is null)
+                    continue;
+
+                var paramName = lambdaParam.Identifier.Text;
+                var controlName = controlType.ToMinimalDisplayString(model, invocation.SpanStart);
+                var receiverText = memberAccess.Expression.ToString();
+                var handlerText = handler.ToString();
+
+                var replacementText =
+                    $"{receiverText}.OnMountAdd({paramName} => (({controlName}){paramName}).{eventName} += {handlerText})" +
+                    $".OnUnmountAdd({paramName} => (({controlName}){paramName}).{eventName} -= {handlerText})";
+
+                context.RegisterCodeFix(
+                    CodeAction.Create(
+                        "Move event subscription to .OnMountAdd/.OnUnmountAdd",
+                        ct =>
+                        {
+                            var replacement = SyntaxFactory.ParseExpression(replacementText)
+                                .WithTriviaFrom(invocation);
+                            return Task.FromResult(context.Document.WithSyntaxRoot(root.ReplaceNode(invocation, replacement)));
+                        },
+                        equivalenceKey: SetEventSubscriptionAnalyzer.DiagnosticId + ":mount"),
+                    diagnostic);
+            }
         }
     }
 

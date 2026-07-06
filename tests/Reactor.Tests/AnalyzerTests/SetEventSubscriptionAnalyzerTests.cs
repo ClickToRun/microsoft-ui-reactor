@@ -7,10 +7,12 @@ using Xunit;
 namespace Microsoft.UI.Reactor.Tests.AnalyzerTests;
 
 /// <summary>
-/// Tests for <see cref="SetEventSubscriptionAnalyzer"/> (<c>REACTOR_LIFECYCLE_001</c>) and
-/// its <see cref="SetEventSubscriptionCodeFix"/>. Stubs a FrameworkElement-derived control
-/// with real events (plus a numeric field and a non-event delegate field for the FP
-/// guards), and the <c>.OnMount</c>/<c>.OnUnmount</c> modifiers the fix targets.
+/// Tests for <see cref="SetEventSubscriptionAnalyzer"/> (<c>REACTOR_EVENT_001</c>) and its
+/// <see cref="SetEventSubscriptionCodeFix"/>. This rule reconciles the former
+/// <c>REACTOR_LIFECYCLE_001</c> (broad semantic detection + <c>.OnMountAdd</c>/<c>.OnUnmountAdd</c>
+/// fix) into the shipped <c>REACTOR_EVENT_001</c> (declarative-modifier fix): it fires on any
+/// event on a <c>FrameworkElement</c> wired through Reactor's <c>.Set</c>, and offers the
+/// declarative <c>.On*</c> modifier when one exists, falling back to the mount/unmount rewrite.
 /// </summary>
 public class SetEventSubscriptionAnalyzerTests
 {
@@ -30,9 +32,10 @@ namespace Microsoft.UI.Xaml.Controls
 {
     public class Button : Microsoft.UI.Xaml.FrameworkElement
     {
-        public event EventHandler Click;
-        public double Opacity;         // numeric compound-assignment near-miss
-        public EventHandler Callback;  // non-event delegate FIELD near-miss
+        public event EventHandler Click;   // no declarative modifier -> OnMountAdd fix path
+        public event EventHandler Tapped;  // in EventModifiers -> declarative-modifier fix path
+        public double Opacity;             // numeric compound-assignment near-miss
+        public EventHandler Callback;      // non-event delegate FIELD near-miss
     }
 }
 
@@ -51,17 +54,68 @@ namespace Microsoft.UI.Reactor
         public static T OnUnmount<T>(this T el, Action<FrameworkElement> action) => el;
         public static T OnMountAdd<T>(this T el, Action<FrameworkElement> action) => el;
         public static T OnUnmountAdd<T>(this T el, Action<FrameworkElement> action) => el;
+        public static ButtonElement OnTapped(this ButtonElement el, EventHandler handler) => el;
     }
 }
 ";
 
+    // ---- detection ----
+
     [Fact]
-    public async Task Fires_For_Loaded_Subscription()
+    public async Task Fires_For_Event_Without_Declarative_Modifier()
     {
         var source = Stubs + @"
 class C
 {
-    ButtonElement M(ButtonElement b) => {|REACTOR_LIFECYCLE_001:b.Set(c => c.Loaded += (s, e) => { })|};
+    static void OnClick(object s, EventArgs e) { }
+    ButtonElement M(ButtonElement b) => {|REACTOR_EVENT_001:b.Set(c => c.Click += OnClick)|};
+}";
+        await new CSharpAnalyzerTest<SetEventSubscriptionAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_For_Event_With_Declarative_Modifier()
+    {
+        var source = Stubs + @"
+class C
+{
+    static void OnTapped(object s, EventArgs e) { }
+    ButtonElement M(ButtonElement b) => {|REACTOR_EVENT_001:b.Set(c => c.Tapped += OnTapped)|};
+}";
+        await new CSharpAnalyzerTest<SetEventSubscriptionAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_For_Unsubscribe()
+    {
+        // '-=' via .Set is also imperative event wiring that replays each render (flagged),
+        // but only the '+=' shape has a mechanical fix.
+        var source = Stubs + @"
+class C
+{
+    static void OnClick(object s, EventArgs e) { }
+    ButtonElement M(ButtonElement b) => {|REACTOR_EVENT_001:b.Set(c => c.Click -= OnClick)|};
+}";
+        await new CSharpAnalyzerTest<SetEventSubscriptionAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_For_Block_Bodied_Subscription()
+    {
+        var source = Stubs + @"
+class C
+{
+    static void OnClick(object s, EventArgs e) { }
+    ButtonElement M(ButtonElement b) => {|REACTOR_EVENT_001:b.Set(c => { c.Click += OnClick; })|};
 }";
         await new CSharpAnalyzerTest<SetEventSubscriptionAnalyzer, DefaultVerifier>
         {
@@ -72,7 +126,6 @@ class C
     [Fact]
     public async Task No_Diagnostic_For_Numeric_Compound_Assignment()
     {
-        // Opacity += 0.1 is a numeric compound assignment, not an event subscription.
         var source = Stubs + @"
 class C
 {
@@ -88,7 +141,7 @@ class C
     public async Task No_Diagnostic_For_NonEvent_Delegate_Field()
     {
         // Callback is a delegate FIELD, not an event — the mandatory event-symbol check
-        // must keep the rule from firing (a fix would not compile).
+        // keeps the rule from firing (a fix would not compile).
         var source = Stubs + @"
 class C
 {
@@ -102,13 +155,87 @@ class C
     }
 
     [Fact]
-    public async Task CodeFix_Rewrites_To_OnMount_OnUnmount_For_Static_Handler()
+    public async Task No_Diagnostic_For_NonReactor_Set_Helper()
+    {
+        // A '.Set' that is not a Reactor DSL setter (different namespace) must not fire even
+        // though the control derives from FrameworkElement and has a real event.
+        var source = Stubs + @"
+class C
+{
+    static void OnClick(object s, EventArgs e) { }
+    RawElement M(RawElement r) => r.Set(c => c.Click += OnClick);
+}
+
+public record RawElement;
+public static class GlobalRawExt
+{
+    public static RawElement Set(this RawElement el, System.Action<Microsoft.UI.Xaml.Controls.Button> configure) => el;
+}";
+        await new CSharpAnalyzerTest<SetEventSubscriptionAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_Member_Chain_Subscription()
+    {
+        // The subscription target is not the lambda parameter, so it is not the .Set receiver.
+        var source = Stubs + @"
+class C
+{
+    static void OnClick(object s, EventArgs e) { }
+    ButtonElement M(ButtonElement b, Microsoft.UI.Xaml.Controls.Button other)
+        => b.Set(c => other.Click += OnClick);
+}";
+        await new CSharpAnalyzerTest<SetEventSubscriptionAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_Multi_Statement_Block_Lambda()
+    {
+        var source = Stubs + @"
+class C
+{
+    static void OnClick(object s, EventArgs e) { }
+    static void Log() { }
+    ButtonElement M(ButtonElement b) => b.Set(c => { Log(); c.Click += OnClick; });
+}";
+        await new CSharpAnalyzerTest<SetEventSubscriptionAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_OnMount_Subscription()
+    {
+        // Wiring through .OnMount (not .Set) is already render-safe — must not fire.
+        var source = Stubs + @"
+class C
+{
+    static void OnLoaded(object s, EventArgs e) { }
+    ButtonElement M(ButtonElement b) => b.OnMount(c => c.Loaded += OnLoaded);
+}";
+        await new CSharpAnalyzerTest<SetEventSubscriptionAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // ---- code fix ----
+
+    [Fact]
+    public async Task CodeFix_Rewrites_To_OnMountAdd_For_Static_Handler_Without_Modifier()
     {
         var before = Stubs + @"
 class C
 {
     static void OnClick(object s, EventArgs e) { }
-    ButtonElement M(ButtonElement b) => {|REACTOR_LIFECYCLE_001:b.Set(c => c.Click += OnClick)|};
+    ButtonElement M(ButtonElement b) => {|REACTOR_EVENT_001:b.Set(c => c.Click += OnClick)|};
 }";
         var after = Stubs + @"
 class C
@@ -124,13 +251,13 @@ class C
     }
 
     [Fact]
-    public async Task CodeFix_Rewrites_For_Field_Handler()
+    public async Task CodeFix_Rewrites_To_OnMountAdd_For_Field_Handler()
     {
         var before = Stubs + @"
 class C
 {
     System.EventHandler _handler;
-    ButtonElement M(ButtonElement b) => {|REACTOR_LIFECYCLE_001:b.Set(c => c.Click += _handler)|};
+    ButtonElement M(ButtonElement b) => {|REACTOR_EVENT_001:b.Set(c => c.Click += _handler)|};
 }";
         var after = Stubs + @"
 class C
@@ -146,14 +273,85 @@ class C
     }
 
     [Fact]
-    public async Task Fires_But_No_Fix_For_Lambda_Handler()
+    public async Task CodeFix_Offers_Declarative_Modifier_For_Known_Event()
     {
-        // Inline lambda handler is unstable across renders: the analyzer fires (nudge),
-        // but no OnMount/OnUnmount rewrite is offered (TestCode == FixedCode).
+        // Tapped has a declarative modifier: fix #0 rewrites to .OnTapped(...).
+        var before = Stubs + @"
+class C
+{
+    static void OnTapped(object s, EventArgs e) { }
+    ButtonElement M(ButtonElement b) => {|REACTOR_EVENT_001:b.Set(c => c.Tapped += OnTapped)|};
+}";
+        var after = Stubs + @"
+class C
+{
+    static void OnTapped(object s, EventArgs e) { }
+    ButtonElement M(ButtonElement b) => b.OnTapped(OnTapped);
+}";
+        await new CSharpCodeFixTest<SetEventSubscriptionAnalyzer, SetEventSubscriptionCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            CodeActionIndex = 0,
+            CodeActionEquivalenceKey = SetEventSubscriptionAnalyzer.DiagnosticId + ":modifier:OnTapped",
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Also_Offers_OnMountAdd_For_Known_Event_With_Stable_Handler()
+    {
+        // Tapped + static handler also offers the mount/unmount rewrite as fix #1.
+        var before = Stubs + @"
+class C
+{
+    static void OnTapped(object s, EventArgs e) { }
+    ButtonElement M(ButtonElement b) => {|REACTOR_EVENT_001:b.Set(c => c.Tapped += OnTapped)|};
+}";
+        var after = Stubs + @"
+class C
+{
+    static void OnTapped(object s, EventArgs e) { }
+    ButtonElement M(ButtonElement b) => b.OnMountAdd(c => ((Button)c).Tapped += OnTapped).OnUnmountAdd(c => ((Button)c).Tapped -= OnTapped);
+}";
+        await new CSharpCodeFixTest<SetEventSubscriptionAnalyzer, SetEventSubscriptionCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            CodeActionIndex = 1,
+            CodeActionEquivalenceKey = SetEventSubscriptionAnalyzer.DiagnosticId + ":mount",
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Declarative_Modifier_Offered_Even_For_Lambda_Handler()
+    {
+        // The declarative modifier owns the subscription lifecycle, so it is offered even for
+        // an inline lambda (the mount/unmount rewrite would be withheld as unstable).
+        var before = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => {|REACTOR_EVENT_001:b.Set(c => c.Tapped += (s, e) => { })|};
+}";
+        var after = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => b.OnTapped((s, e) => { });
+}";
+        await new CSharpCodeFixTest<SetEventSubscriptionAnalyzer, SetEventSubscriptionCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_But_No_Fix_For_Lambda_Handler_Without_Modifier()
+    {
+        // Click has no declarative modifier and the inline lambda is unstable — nudge only.
         var code = Stubs + @"
 class C
 {
-    ButtonElement M(ButtonElement b) => {|REACTOR_LIFECYCLE_001:b.Set(c => c.Click += (s, e) => { })|};
+    ButtonElement M(ButtonElement b) => {|REACTOR_EVENT_001:b.Set(c => c.Click += (s, e) => { })|};
 }";
         await new CSharpCodeFixTest<SetEventSubscriptionAnalyzer, SetEventSubscriptionCodeFix, DefaultVerifier>
         {
@@ -163,57 +361,32 @@ class C
     }
 
     [Fact]
-    public async Task Fires_But_No_Fix_For_Property_Handler()
+    public async Task Fires_But_No_Fix_For_Property_Handler_Without_Modifier()
     {
-        // A property getter can recompute the delegate on each call, so '+=' at mount and
-        // '-=' at unmount could reference different delegates — the fix is withheld.
+        // A property getter can recompute the delegate, so '+=' at mount and '-=' at unmount
+        // could reference different delegates — the mount/unmount fix is withheld.
         var code = Stubs + @"
 class C
 {
     System.EventHandler Handler => (s, e) => { };
-    ButtonElement M(ButtonElement b) => {|REACTOR_LIFECYCLE_001:b.Set(c => c.Click += Handler)|};
+    ButtonElement M(ButtonElement b) => {|REACTOR_EVENT_001:b.Set(c => c.Click += Handler)|};
 }";
         await new CSharpCodeFixTest<SetEventSubscriptionAnalyzer, SetEventSubscriptionCodeFix, DefaultVerifier>
         {
             TestCode = code,
             FixedCode = code,
-        }.RunAsync(TestContext.Current.CancellationToken);
-    }
-
-    [Fact]
-    public async Task No_Diagnostic_For_NonReactor_Set_Helper()
-    {
-        // A '.Set' that is not a Reactor DSL setter (different namespace) must not fire even
-        // though the control derives from FrameworkElement and has a real event — the
-        // OnMount/OnUnmount rewrite only exists for Reactor elements.
-        var source = Stubs + @"
-class C
-{
-    static void OnClick(object s, EventArgs e) { }
-    RawElement M(RawElement r) => r.Set(c => c.Click += OnClick);
-}
-
-public record RawElement;
-public static class GlobalRawExt
-{
-    public static RawElement Set(this RawElement el, Action<Button> configure) => el;
-}";
-        await new CSharpAnalyzerTest<SetEventSubscriptionAnalyzer, DefaultVerifier>
-        {
-            TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
     public async Task Fires_But_No_Fix_For_Unsubscribe()
     {
-        // '-=' via .Set is also imperative event wiring (flagged), but only the '+=' shape
-        // has a mechanical OnMount/OnUnmount rewrite — '-=' is nudge-only.
+        // '-=' is flagged but has no mechanical rewrite.
         var code = Stubs + @"
 class C
 {
     static void OnClick(object s, EventArgs e) { }
-    ButtonElement M(ButtonElement b) => {|REACTOR_LIFECYCLE_001:b.Set(c => c.Click -= OnClick)|};
+    ButtonElement M(ButtonElement b) => {|REACTOR_EVENT_001:b.Set(c => c.Click -= OnClick)|};
 }";
         await new CSharpCodeFixTest<SetEventSubscriptionAnalyzer, SetEventSubscriptionCodeFix, DefaultVerifier>
         {

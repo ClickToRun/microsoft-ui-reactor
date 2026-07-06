@@ -123,7 +123,7 @@ build errors — cheat table") that authors rely on to fix a `REACTOR_*` warning
 **curated, not exhaustive** (niche / library-author rules like `POOL_001` are already
 omitted). When your rule is an **app-author-facing** diagnostic (the XAML-habit
 Warning/Info rules — `HOOKS_010/011/013`, `THEME_004`, `VIS_001`, `OPT_001`,
-`CMD_001`, `ITEMS_001`, `CTRL_001`, `LIFECYCLE_001`, `THREAD_001/002`, `DSL_002`,
+`CMD_001`, `ITEMS_001`, `CTRL_001`, `EVENT_001`, `THREAD_001/002`, `DSL_002`,
 `PERSIST_001`, `CTX_001`, `STATE_001`, plus the Batch-2 author rules), add a one-row
 entry (`ID | severity | trigger | fix`) in the same PR. Skip it for
 control-author / niche rules (`DESC_001`, `WIN2D_001`) — the analyzer DLL's own
@@ -227,16 +227,23 @@ REACTOR_DSL_002 | Reactor.Dsl | Info | MissingWithKeyAnalyzer - Non-stable .With
 | `REACTOR_ITEMS_001` | Reactor.Collections | Warning | — | `SetOwnedItemsSourceAnalyzer` | §4.2 |
 | `REACTOR_CTRL_001` | Reactor.Controls | Warning | ✔ | `SetSelectedItemAnalyzer` | §4.2 |
 | `REACTOR_VIS_001` | Reactor.Layout | Warning | ✔ | POOL_001 extension | §4.4 |
-| `REACTOR_LIFECYCLE_001` | Reactor.Lifecycle | Warning | ✔ | `SetEventSubscriptionAnalyzer` | §4.6 |
+| `REACTOR_EVENT_001` (reconciled from `LIFECYCLE_001`) | Reactor.Events | Warning | ✔ | `SetEventSubscriptionAnalyzer` | §4.6 |
 
-Curated element-type tables (spec): ITEMS_001 = `{ListView,GridView,TreeView,TabView,Pivot,FlipView,SelectorBar}Element`, member `ItemsSource`, **exclude** `AutoSuggestBoxElement`. CTRL_001 = `{ComboBox,RadioButtons,ListView,GridView}Element`, WinUI member `SelectedItem`/`SelectedValue`, **and** the element also sets `SelectedIndex` (NavigationView dropped — it's `SelectedTag`). LIFECYCLE_001 = compound-assignment whose LHS is an **event** symbol (mandatory check) on a `FrameworkElement`-derived receiver; fix `.OnMount(c => ((TControl)c).E += h).OnUnmount(… -= h)` only when `h` is a stable delegate, casting via the `.Set` overload's concrete `TControl`.
+> **Integration reconciliation (2026-07-06):** `main` independently shipped PR #763 as
+> `REACTOR_EVENT_001` (`Reactor.Events`) — the same `SetEventSubscriptionAnalyzer`. Wave B's
+> `REACTOR_LIFECYCLE_001` was folded into it: the shipped `EVENT_001` id/category is retained,
+> and LIFECYCLE_001's broad semantic detection (any event on a `FrameworkElement` via Reactor
+> `.Set`, `+=`/`-=`) + its `.OnMountAdd`/`.OnUnmountAdd` fix were merged in alongside EVENT_001's
+> declarative-modifier fix (offered when the event has a declarative `.On*` modifier).
+
+Curated element-type tables (spec): ITEMS_001 = `{ListView,GridView,TreeView,TabView,Pivot,FlipView,SelectorBar}Element`, member `ItemsSource`, **exclude** `AutoSuggestBoxElement`. CTRL_001 = `{ComboBox,RadioButtons,ListView,GridView}Element`, WinUI member `SelectedItem`/`SelectedValue`, **and** the element also sets `SelectedIndex` (NavigationView dropped — it's `SelectedTag`). EVENT_001 (reconciled from LIFECYCLE_001) = compound-assignment whose LHS is an **event** symbol (mandatory check) on a `FrameworkElement`-derived receiver; fix `.OnMount(c => ((TControl)c).E += h).OnUnmount(… -= h)` only when `h` is a stable delegate, casting via the `.Set` overload's concrete `TControl`.
 
 Canonical rows (Wave B):
 ```
 REACTOR_ITEMS_001 | Reactor.Collections | Warning | SetOwnedItemsSourceAnalyzer - .Set(ItemsSource=...) on a framework-owned collection
 REACTOR_CTRL_001 | Reactor.Controls | Warning | SetSelectedItemAnalyzer - .Set(SelectedItem/SelectedValue) fights controlled SelectedIndex
 REACTOR_VIS_001 | Reactor.Layout | Warning | PoolResetSetAnalyzer - Imperative .Set(Visibility=...) instead of .IsVisible(...)
-REACTOR_LIFECYCLE_001 | Reactor.Lifecycle | Warning | SetEventSubscriptionAnalyzer - Event subscription via .Set(+=) replays each render
+REACTOR_EVENT_001 | Reactor.Events | Warning | SetEventSubscriptionAnalyzer - Event wired via .Set(+=/-=) re-subscribes every render; use a declarative On* modifier or .OnMountAdd/.OnUnmountAdd  (reconciled from LIFECYCLE_001)
 ```
 
 ### Wave C — Hooks/allocation cluster (ONE owner; extract §3.2 first)
@@ -367,7 +374,7 @@ Status: ☐ not started · ◐ in progress · ☑ merged.
 | B | REACTOR_ITEMS_001 | — | ☐ |
 | B | REACTOR_CTRL_001 | — | ☐ |
 | B | REACTOR_VIS_001 | — | ☐ |
-| B | REACTOR_LIFECYCLE_001 | — | ☐ |
+| B | REACTOR_LIFECYCLE_001 → EVENT_001 (reconciled) | — | ☑ |
 | C | REACTOR_HOOKS_002 | — | ☐ |
 | C | REACTOR_HOOKS_003 | — | ☐ |
 | C | REACTOR_HOOKS_010 | — | ☐ |

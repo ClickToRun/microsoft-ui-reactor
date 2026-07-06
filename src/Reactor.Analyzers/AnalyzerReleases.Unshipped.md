@@ -23,11 +23,11 @@ REACTOR_DSL_001 | Reactor.Dsl | Warning | MissingWithKeyAnalyzer - Dynamic list 
 REACTOR_DSL_002 | Reactor.Dsl | Info | MissingWithKeyAnalyzer - Non-stable .WithKey (index / Guid.NewGuid / DateTime.Now)
 REACTOR_DSL_003 | Reactor.Dsl | Warning | ConstantKeySelectorAnalyzer - Typed collection keySelector never keys by item (returns constant/null or ignores the item), forcing a keyed-diff bailout
 REACTOR_DOCK_001 | Reactor.Docking | Warning | OnLiveLayoutRoundTripAnalyzer - OnLiveLayoutChanged feeds the live layout back into state
+REACTOR_EVENT_001 | Reactor.Events | Warning | SetEventSubscriptionAnalyzer - Event wired via .Set(+=/-=) re-subscribes every render; use a declarative On* modifier or .OnMountAdd/.OnUnmountAdd
 REACTOR_POOL_001 | Reactor.Pool | Warning | PoolResetSetAnalyzer - .Set assigns to a property reset on pool return; use the surviving Reactor modifier
 REACTOR_ITEMS_001 | Reactor.Collections | Warning | SetOwnedItemsSourceAnalyzer - .Set(ItemsSource=...) on a Reactor-owned collection
 REACTOR_CTRL_001 | Reactor.Controls | Warning | SetSelectedItemAnalyzer - .Set(SelectedItem/SelectedValue) fights controlled SelectedIndex
 REACTOR_VIS_001 | Reactor.Layout | Warning | PoolResetSetAnalyzer - Imperative .Set(Visibility=...) instead of .IsVisible(...)
-REACTOR_LIFECYCLE_001 | Reactor.Lifecycle | Warning | SetEventSubscriptionAnalyzer - Event subscription via .Set(+=) replays each render
 REACTOR_WIN2D_001 | Reactor.Win2D | Error | Win2DSharedDeviceAnalyzer - Win2D canvas draws UseCanvasResources output without .UseSharedDevice() (fatal cross-device draw)
 REACTOR0050 | Reactor.Descriptor | Warning | OneWayClearValueAnalyzer - Optional<T> OneWay descriptor entries should provide dp: for ClearValue fallback
 REACTOR_PERSIST_001 | Reactor.Persistence | Warning | UsePersistedScopeAnalyzer - 2-arg UsePersisted defaults to Application scope; specify scope

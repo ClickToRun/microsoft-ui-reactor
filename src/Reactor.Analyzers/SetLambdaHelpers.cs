@@ -10,7 +10,7 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// <summary>
 /// Shared syntactic/semantic helpers for the <c>.Set(x =&gt; x.Member = value)</c>
 /// family of analyzers (<c>REACTOR_POOL_001</c>, <c>REACTOR_ITEMS_001</c>,
-/// <c>REACTOR_CTRL_001</c>, <c>REACTOR_VIS_001</c>, <c>REACTOR_LIFECYCLE_001</c>).
+/// <c>REACTOR_CTRL_001</c>, <c>REACTOR_VIS_001</c>, <c>REACTOR_EVENT_001</c>).
 /// </summary>
 /// <remarks>
 /// The Reactor DSL exposes a strongly-typed <c>.Set(this XElement, Action&lt;WinUIControl&gt;)</c>
