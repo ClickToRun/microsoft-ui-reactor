@@ -42,3 +42,4 @@ REACTOR_HOOKS_012 | Reactor.Hooks | Warning | HookRulesAnalyzer - Memo dependenc
 REACTOR_HOOKS_013 | Reactor.Hooks | Warning | HookRulesAnalyzer - UseState/UsePersisted initial value allocated every render
 REACTOR_CTX_001 | Reactor.Context | Info | ContextProvideAnalyzer - Context value re-allocated each render (reference-equality type)
 REACTOR_GRID_001 | Reactor.Layout | Warning | UnusedGridTrackAnalyzer - Declared Grid column/row that no child occupies (unused track)
+REACTOR_INPUT_001 | Reactor.Input | Warning | OnKeyDownChordAnalyzer - Ctrl/Alt chord on .OnKeyDown is focus-scoped; use a Command accelerator

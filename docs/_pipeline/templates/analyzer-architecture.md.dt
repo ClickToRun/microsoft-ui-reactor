@@ -147,6 +147,7 @@ via `.editorconfig`.
 | `REACTOR_CMD_001` | Info | Raw-init Command + own click/toggle callback both set (callback wins) | `RawCommandCallbackAnalyzer.cs` |
 | `REACTOR_THREAD_001` | Warning | UI-thread-only mutator called on a background thread | `UIThreadAffinityAnalyzer.cs` |
 | `REACTOR_GRID_001` | Warning | Declared Grid column/row that no child occupies | `UnusedGridTrackAnalyzer.cs` |
+| `REACTOR_INPUT_001` | Warning | Ctrl/Alt chord on `.OnKeyDown` should be a `Command` accelerator | `OnKeyDownChordAnalyzer.cs` |
 
 `REACTOR_HOOKS_002` and `_003` were the reserved control-flow / data-flow slots
 (variable hook counts across early returns, async boundaries inside `UseEffect`);
