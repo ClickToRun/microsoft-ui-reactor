@@ -21,6 +21,7 @@ REACTOR_A11Y_004 | Microsoft.UI.Reactor.Accessibility | Warning | AccessibilityA
 REACTOR_REF_001 | Reactor.Reference | Warning | ReferenceCurrentReadAnalyzer - Use descriptor.Reference/binding.Reference instead of assigning ElementRef.Current to reference properties
 REACTOR_DSL_001 | Reactor.Dsl | Warning | MissingWithKeyAnalyzer - Dynamic list item missing .WithKey
 REACTOR_DSL_002 | Reactor.Dsl | Info | MissingWithKeyAnalyzer - Non-stable .WithKey (index / Guid.NewGuid / DateTime.Now)
+REACTOR_DSL_003 | Reactor.Dsl | Warning | ConstantKeySelectorAnalyzer - Typed collection keySelector never keys by item (returns constant/null or ignores the item), forcing a keyed-diff bailout
 REACTOR_DOCK_001 | Reactor.Docking | Warning | OnLiveLayoutRoundTripAnalyzer - OnLiveLayoutChanged feeds the live layout back into state
 REACTOR_POOL_001 | Reactor.Pool | Warning | PoolResetSetAnalyzer - .Set assigns to a property reset on pool return; use the surviving Reactor modifier
 REACTOR_ITEMS_001 | Reactor.Collections | Warning | SetOwnedItemsSourceAnalyzer - .Set(ItemsSource=...) on a Reactor-owned collection
