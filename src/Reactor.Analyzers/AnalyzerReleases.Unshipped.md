@@ -51,3 +51,4 @@ REACTOR_DIALOG_001 | Reactor.Lifecycle | Warning | ImperativeContentDialogAnalyz
 REACTOR_MOD_001 | Reactor.Modifier | Info | DuplicateAtomicModifierAnalyzer - Same atomic-replace placement modifier (.Grid/.Canvas/.RelativePanel/.Flex) applied twice in one chain; last-wins overwrite drops earlier args (ships a merge fix)
 REACTOR_MEDIA_001 | Reactor.Layout | Info | UnsizedWebViewInStackAnalyzer - WebView2 is a direct child of an auto-layout stack (HStack/VStack/FlexRow/FlexColumn) without explicit .Width/.Height
 REACTOR_ANIM_003 | Reactor.Animation | Warning | AnimationScopeAsyncAnalyzer - async lambda to WithAnimation loses the ThreadStatic scope after await
+REACTOR_LIFECYCLE_002 | Reactor.Lifecycle | Warning | EffectCleanupAnalyzer - UseEffect(Action) allocates a timer/subscription/event with no returned cleanup
