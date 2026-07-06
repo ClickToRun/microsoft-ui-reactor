@@ -41,3 +41,4 @@ REACTOR_HOOKS_010 | Reactor.Hooks | Warning | HookRulesAnalyzer - Mutate-then-se
 REACTOR_HOOKS_012 | Reactor.Hooks | Warning | HookRulesAnalyzer - Memo dependency lacks value equality
 REACTOR_HOOKS_013 | Reactor.Hooks | Warning | HookRulesAnalyzer - UseState/UsePersisted initial value allocated every render
 REACTOR_CTX_001 | Reactor.Context | Info | ContextProvideAnalyzer - Context value re-allocated each render (reference-equality type)
+REACTOR_GRID_001 | Reactor.Layout | Warning | UnusedGridTrackAnalyzer - Declared Grid column/row that no child occupies (unused track)
