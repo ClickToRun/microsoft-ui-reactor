@@ -7101,6 +7101,9 @@ RegisterFormatter<T>(Func<object, string> formatter) → TypeRegistry
 Resolve(Type type) → TypeMetadata
 ResolveEditor(Type type, EditorTier tier) → Func<object, Action<object>, Element>
 
+### class UIThreadOnlyAttribute
+new()
+
 ### record ValidationAttached
 new(string FieldName, IValidator[] Validators, IAsyncValidator[] AsyncValidators)
 IAsyncValidator[] AsyncValidators { get; init; }

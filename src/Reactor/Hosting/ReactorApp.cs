@@ -443,6 +443,7 @@ public static partial class ReactorApp
     /// entry — secondary windows now have the same escape hatch as the
     /// primary.
     /// </param>
+    [UIThreadOnly]
     public static ReactorWindow OpenWindow(
         WindowSpec spec,
         Func<Component> root,
@@ -459,6 +460,7 @@ public static partial class ReactorApp
     /// <see cref="OpenWindow(WindowSpec, Func{Component}, Action{ReactorHost}?)"/>
     /// overload for <paramref name="configure"/> semantics.
     /// </summary>
+    [UIThreadOnly]
     public static ReactorWindow OpenWindow(
         WindowSpec spec,
         Func<RenderContext, Element> render,
@@ -502,6 +504,7 @@ public static partial class ReactorApp
     /// alive until <see cref="ReactorTrayIcon.Close"/> / <see cref="ReactorTrayIcon.Dispose"/>
     /// is called or the process exits. (spec 036 §11.4)
     /// </summary>
+    [UIThreadOnly]
     public static ReactorTrayIcon OpenTrayIcon(TrayIconSpec spec)
     {
         ArgumentNullException.ThrowIfNull(spec);
@@ -556,6 +559,7 @@ public static partial class ReactorApp
     /// natural managed-entry-point return, which an app under
     /// <c>Application.Start</c> does not perform).
     /// </summary>
+    [UIThreadOnly]
     public static void Exit(int exitCode = 0)
     {
         ThreadAffinity.ThrowIfNotOnUIThread(nameof(Exit));
