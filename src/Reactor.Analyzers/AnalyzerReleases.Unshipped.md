@@ -50,3 +50,4 @@ REACTOR_NAV_001 | Reactor.Navigation | Warning | StaticNavigationHandleAnalyzer 
 REACTOR_DIALOG_001 | Reactor.Lifecycle | Warning | ImperativeContentDialogAnalyzer - Imperative ContentDialog.ShowAsync escapes the render tree; use the controlled ContentDialog(...) element with IsOpen
 REACTOR_MOD_001 | Reactor.Modifier | Info | DuplicateAtomicModifierAnalyzer - Same atomic-replace placement modifier (.Grid/.Canvas/.RelativePanel/.Flex) applied twice in one chain; last-wins overwrite drops earlier args (ships a merge fix)
 REACTOR_MEDIA_001 | Reactor.Layout | Info | UnsizedWebViewInStackAnalyzer - WebView2 is a direct child of an auto-layout stack (HStack/VStack/FlexRow/FlexColumn) without explicit .Width/.Height
+REACTOR_ANIM_003 | Reactor.Animation | Warning | AnimationScopeAsyncAnalyzer - async lambda to WithAnimation loses the ThreadStatic scope after await

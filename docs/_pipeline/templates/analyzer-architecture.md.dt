@@ -155,6 +155,7 @@ via `.editorconfig`.
 | `REACTOR_NAV_001` | Warning | `UseNavigation` handle captured into a `static` field or property | `StaticNavigationHandleAnalyzer.cs` |
 | `REACTOR_MOD_001` | Info | Same atomic-replace placement modifier (`.Grid`/`.Canvas`/`.RelativePanel`/`.Flex`) applied twice in one chain | `DuplicateAtomicModifierAnalyzer.cs` |
 | `REACTOR_MEDIA_001` | Info | Unsized WebView2 in an auto-layout stack | `UnsizedWebViewInStackAnalyzer.cs` |
+| `REACTOR_ANIM_003` | Warning | async lambda to WithAnimation loses the `[ThreadStatic]` scope after await | `AnimationScopeAsyncAnalyzer.cs` |
 
 `REACTOR_HOOKS_002` and `_003` were the reserved control-flow / data-flow slots
 (variable hook counts across early returns, async boundaries inside `UseEffect`);
