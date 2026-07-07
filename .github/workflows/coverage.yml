@@ -24,9 +24,12 @@ name: Coverage
 on:
   pull_request:
     # Doc-only PRs change no measured code; skip the ~10-min instrumented run.
+    # Doc-only PRs change no measured code; skip the ~10-min instrumented run.
+    # This includes the docs/_pipeline templates + doc apps that generate the guide.
     paths-ignore:
       - '**/*.md'
       - 'docs/guide/**'
+      - 'docs/_pipeline/**'
   workflow_dispatch:
     inputs:
       pr_number:

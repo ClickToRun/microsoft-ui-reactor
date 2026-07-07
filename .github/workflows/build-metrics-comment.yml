@@ -90,6 +90,12 @@ jobs:
             exit 0
           fi
           echo "Target PR: #$pr"
+          # Validate the base SHA (40 hex chars); if the lookup returned null/empty,
+          # emit an empty value so the renderer shows "base branch" without a stray
+          # "(null)" in the header.
+          if ! printf '%s' "$basesha" | grep -Eq '^[0-9a-f]{40}$'; then
+            basesha=""
+          fi
           echo "number=$pr" >> "$GITHUB_OUTPUT"
           echo "base_sha=$basesha" >> "$GITHUB_OUTPUT"
 

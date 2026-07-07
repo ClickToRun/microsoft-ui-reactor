@@ -276,7 +276,7 @@ function Format-BuildMetricsComment {
         When set, emit a short failure notice instead of the tables (so the poster
         always has a body to write).
     .PARAMETER BaselineUnavailable
-        When set, the base (main) measurement is missing (e.g. its build failed),
+        When set, the base branch measurement is missing (e.g. its build failed),
         so render the PR's absolute sizes with no delta column meaning instead of
         mislabelling every artifact as newly "added".
     #>
@@ -291,7 +291,7 @@ function Format-BuildMetricsComment {
     )
     $marker = $script:BuildMetricsCommentMarker
     $headShort = if ($HeadSha) { $HeadSha.Substring(0, [math]::Min(7, $HeadSha.Length)) } else { 'unknown' }
-    $baseShort = if ($BaseSha) { $BaseSha.Substring(0, [math]::Min(7, $BaseSha.Length)) } else { 'main' }
+    $baseShort = if ($BaseSha) { $BaseSha.Substring(0, [math]::Min(7, $BaseSha.Length)) } else { '' }
 
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.Add($marker)
@@ -306,14 +306,15 @@ function Format-BuildMetricsComment {
         return ($lines -join "`n")
     }
 
-    $lines.Add("Artifact sizes for ``$headShort`` vs ``main`` (``$baseShort``).")
+    $baseSuffix = if ($baseShort) { " (``$baseShort``)" } else { '' }
+    $lines.Add("Artifact sizes for ``$headShort`` vs the base branch$baseSuffix.")
     $lines.Add('')
 
     if ($BaselineUnavailable) {
         $lines.Add('> [!WARNING]')
-        $lines.Add('> The baseline (`main`) build did not produce sizes, so no delta is available — showing the PR''s absolute sizes only.')
+        $lines.Add('> The base branch build did not produce sizes, so no delta is available — showing the PR''s absolute sizes only.')
         $lines.Add('')
-        # Clear the base measurements (the "main" column still renders, as n/a) so
+        # Clear the base measurements (the base column still renders, as n/a) so
         # present-head rows show "—" instead of misclassifying as newly "added".
         $BaseMeasurements = $null
     }
@@ -370,7 +371,7 @@ function Format-BuildMetricsComment {
     foreach ($group in $groupOrder) {
         $lines.Add("### $group")
         $lines.Add('')
-        $lines.Add('| Artifact | main | PR | Δ | |')
+        $lines.Add('| Artifact | base | PR | Δ | |')
         $lines.Add('|---|--:|--:|--:|:-:|')
         foreach ($row in $rowsByGroup[$group]) { $lines.Add($row) }
         $lines.Add('')

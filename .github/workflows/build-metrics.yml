@@ -23,10 +23,12 @@ name: Build metrics
 
 on:
   pull_request:
-    # docs/guide/** is generated (see release.yml); a docs-only PR ships no
-    # binaries, so skip the ~10-min double build for it.
+    # docs/guide/** is generated (see release.yml); doc-only changes (incl. the
+    # docs/_pipeline templates + doc apps that generate them) ship no binaries, so
+    # skip the ~10-min double build for them.
     paths-ignore:
       - 'docs/guide/**'
+      - 'docs/_pipeline/**'
       - '**/*.md'
   workflow_dispatch:
     inputs:

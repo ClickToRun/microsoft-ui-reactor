@@ -1,23 +1,23 @@
 # Build metrics (artifact size-diff) PR comment
 
 An automatic, self-updating PR comment that reports how much each shipped Reactor
-artifact grew or shrank versus `main`. Informational only — it never fails a PR.
+artifact grew or shrank versus the PR's base branch. Informational only — it never fails a PR.
 
 Example:
 
 > ## 📦 Build metrics
 >
-> Artifact sizes for `deadbee` vs `main` (`cafef00`).
+> Artifact sizes for `deadbee` vs the base branch (`cafef00`).
 >
 > ### Packages (compressed .nupkg)
 >
-> | Artifact | main | PR | Δ | |
+> | Artifact | base | PR | Δ | |
 > |---|--:|--:|--:|:-:|
 > | Microsoft.UI.Reactor.nupkg | 1.94 MB | 1.95 MB | +8.4 KB (+0.42%) | ⚠️ |
 >
 > ### Assemblies (uncompressed)
 >
-> | Artifact | main | PR | Δ | |
+> | Artifact | base | PR | Δ | |
 > |---|--:|--:|--:|:-:|
 > | Reactor.dll | 3.16 MB | 3.16 MB | +0 B (0.00%) | ≈ |
 

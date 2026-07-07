@@ -161,6 +161,10 @@ Assert-Match $comment 'Microsoft.UI.Reactor.nupkg'     'lists the framework pack
 Assert-Match $comment 'Brand.New.nupkg'                'head-only artifact listed (added)'
 Assert-Match $comment 'Legacy.nupkg'                   'base-only artifact listed (removed)'
 Assert-Match $comment 'workflow run'                   'footer links the run'
+# The header + column use "base" (accurate for any base branch), not "main".
+Assert-Match    $comment 'vs the base branch'          'header uses base-branch wording, not hard-coded main'
+Assert-Match    $comment 'base | PR'                   'table column header says base'
+Assert-NotMatch $comment 'main | PR'                   'table column header is not the hard-coded main'
 # The tiny asm.Reactor delta (10 bytes) must read as unchanged, not a regression.
 Assert-Match $comment "$([char]0x2248)"                'within-noise glyph present for tiny delta'
 
