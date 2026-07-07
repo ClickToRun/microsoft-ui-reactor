@@ -576,7 +576,7 @@ T.BorderBrush<T>(string color) → T
 T.BorderInlineStart<T>(Thickness thickness) → T
 T.BorderThickness<T>(Thickness thickness) → T
 T.BorderThickness<T>(double horizontal, double vertical) → T
-T.BorderThickness<T>(double left, double top, double right, double bottom) → T
+T.BorderThickness<T>(double left = 0, double top = 0, double right = 0, double bottom = 0) → T
 T.BorderThickness<T>(double thickness) → T
 T.Canvas<T>(double left = 0, double top = 0) → T
 T.Canvas<T>(double left, double top, double anchorX, double anchorY) → T
