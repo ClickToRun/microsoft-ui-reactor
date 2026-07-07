@@ -92,13 +92,7 @@ public sealed class NonInvocableMemberParensAnalyzer : DiagnosticAnalyzer
             return;
 
         var memberName = memberAccess.Name.Identifier.Text;
-        var members = receiverType.GetMembers(memberName);
-        if (members.IsEmpty)
-            return; // truly unknown member — a different (name-resolution) shape, not this one.
-        if (members.Any(m => m.Kind == SymbolKind.Method))
-            return; // a real method overload exists — the call may be legitimate.
-
-        var member = members.FirstOrDefault(m => m.Kind is SymbolKind.Property or SymbolKind.Field);
+        var member = FindInvokedNonMethodMember(receiverType, memberName);
         if (member is null)
             return;
 
@@ -108,6 +102,27 @@ public sealed class NonInvocableMemberParensAnalyzer : DiagnosticAnalyzer
             invocation.GetLocation(),
             $"{receiverType.Name}.{memberName}",
             memberKind));
+    }
+
+    // Resolve the named member the way the invocation would: walk the base-type chain so an inherited
+    // property/field (`Derived.SomeProp()` where `SomeProp` is declared on a base) is still recognized.
+    // Returns null — leaving the raw compiler error in place — if a same-named method is in scope at any
+    // level (the call may be a real overload) or if no property/field is found.
+    private static ISymbol? FindInvokedNonMethodMember(ITypeSymbol type, string name)
+    {
+        for (ITypeSymbol? current = type; current is not null; current = current.BaseType)
+        {
+            var members = current.GetMembers(name);
+            if (members.IsEmpty)
+                continue; // not declared at this level — keep looking up the hierarchy.
+            if (members.Any(m => m.Kind == SymbolKind.Method))
+                return null; // a real method overload exists — the call may be legitimate.
+
+            // A property/field here is the "invoked like a method" shape. Anything else named the same
+            // (event, nested type, …) is a different mistake, so stop rather than firing.
+            return members.FirstOrDefault(m => m.Kind is SymbolKind.Property or SymbolKind.Field);
+        }
+        return null;
     }
 
     private static ITypeSymbol? ResolveReceiverType(SemanticModel model, ExpressionSyntax receiver, CancellationToken ct)

@@ -32,6 +32,13 @@ namespace Microsoft.UI.Reactor
     {
         public int Value { get { return 0; } }   // an instance PROPERTY
     }
+
+    public class BaseWidget
+    {
+        public int Inherited { get { return 0; } }   // declared on the BASE type
+    }
+
+    public sealed class DerivedWidget : BaseWidget { }
 }
 namespace Other
 {
@@ -117,6 +124,19 @@ namespace App
 {
     using Microsoft.UI.Reactor;
     static class C { static object M() => {|REACTOR_DYM_001:GridSize.Fill()|}; }
+}";
+        await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Flags_Inherited_Property_Invoked_Like_Method()
+    {
+        // Member lookup walks the base-type chain: Inherited is declared on BaseWidget, not DerivedWidget.
+        var body = @"
+namespace App
+{
+    using Microsoft.UI.Reactor;
+    static class C { static object M(DerivedWidget w) => {|REACTOR_DYM_001:w.Inherited()|}; }
 }";
         await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
     }
