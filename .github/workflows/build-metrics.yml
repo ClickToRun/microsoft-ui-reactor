@@ -1,0 +1,193 @@
+# Automatic build-metrics (artifact size-diff) comment on every PR.
+#
+# ── What it does ──────────────────────────────────────────────────────────────
+# On every PR commit this builds + packs the shipped Reactor NuGet packages twice
+# — once at the PR head, once at the PR base (`main`) — measures each artifact's
+# size, and renders a sticky "Build metrics" comment showing the size delta.
+# Informational only: it never fails the PR.
+#
+#   Packages (compressed .nupkg)   the download size a consumer pays
+#   Assemblies (uncompressed)      the real "did our code grow" signal
+#
+# ── Why two workflows (measure here, comment in build-metrics-comment.yml) ─────
+# This job BUILDS PR-authored code (`dotnet pack` runs the PR's MSBuild), so it
+# must stay unprivileged: it runs in the `pull_request` context with a read-only
+# token and NO ability to comment. It uploads the rendered comment as an artifact;
+# the privileged `build-metrics-comment.yml` (`workflow_run`) posts it. That split
+# is the standard secure pattern for commenting on PRs — including from forks —
+# without ever handing a write token to untrusted build code. It mirrors the
+# trust boundary in perf-compare.yml, but runs automatically instead of on `/perf`.
+name: Build metrics
+
+on:
+  pull_request:
+    # docs/guide/** is generated (see release.yml); a docs-only PR ships no
+    # binaries, so skip the ~10-min double build for it.
+    paths-ignore:
+      - 'docs/guide/**'
+      - '**/*.md'
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to measure against its base branch.
+        required: true
+        type: string
+
+# One in-flight run per PR; a newer commit supersedes an older run.
+concurrency:
+  group: build-metrics-${{ github.event.pull_request.number || github.event.inputs.pr_number || github.ref }}
+  cancel-in-progress: true
+
+# Read-only: this job runs untrusted PR build code and must not hold a write
+# token. The comment is posted by the separate privileged workflow_run workflow.
+# pull-requests: read only serves the manual workflow_dispatch path (resolving a
+# PR's head/base via the API); the automatic pull_request path uses the event.
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  measure:
+    name: Measure artifact sizes
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          # PR-authored build code runs later; don't leave a git credential on disk.
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: 10.0.x
+
+      # Cheap guard: unit-test the pure renderer before spending minutes packing.
+      - name: Test BuildMetricsLib (parser + renderer)
+        shell: pwsh
+        run: ./tests/build_metrics/ci/BuildMetricsLib.Tests.ps1
+
+      # Resolve the PR's head + base SHAs. For pull_request they come straight
+      # from the event; for a manual dispatch we read them from the API (works
+      # for forks). Both commits are fetched so we can build each in a worktree.
+      - name: Resolve head + base
+        id: resolve
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_NUMBER_EVENT: ${{ github.event.pull_request.number }}
+          PR_NUMBER_INPUT: ${{ github.event.inputs.pr_number }}
+        run: |
+          if ($env:EVENT_NAME -eq 'pull_request') {
+            $pr = $env:PR_NUMBER_EVENT
+            $head = $env:PR_HEAD_SHA
+            $base = $env:PR_BASE_SHA
+          } else {
+            $pr = $env:PR_NUMBER_INPUT
+            if ($pr -notmatch '^\d+$') { throw "Invalid pr_number input '$pr' (expected a positive integer)." }
+            $json = gh api "repos/$env:GH_REPO/pulls/$pr" | ConvertFrom-Json
+            $head = $json.head.sha
+            $base = $json.base.sha
+          }
+          if ($head -notmatch '^[0-9a-f]{40}$') { throw "Could not resolve head sha (got '$head')." }
+          if ($base -notmatch '^[0-9a-f]{40}$') { throw "Could not resolve base sha (got '$base')." }
+          Write-Host "PR #$pr  head=$head  base=$base"
+
+          # Fetch both commits. The head (incl. forks) lives at refs/pull/N/head;
+          # the base is on the base branch. Anonymous fetch — no token needed.
+          git fetch --no-tags --force origin "pull/$pr/head" 2>&1 | Out-Host
+          git fetch --no-tags --force origin $base 2>&1 | Out-Host
+
+          $headTree = Join-Path $env:RUNNER_TEMP 'head-tree'
+          $baseTree = Join-Path $env:RUNNER_TEMP 'base-tree'
+          foreach ($t in @($headTree, $baseTree)) {
+            if (Test-Path $t) { git worktree remove --force $t 2>&1 | Out-Host }
+          }
+          git worktree add --force --detach $headTree $head 2>&1 | Out-Host
+          git worktree add --force --detach $baseTree $base 2>&1 | Out-Host
+
+          "pr=$pr"             | Out-File $env:GITHUB_OUTPUT -Append
+          "head_sha=$head"     | Out-File $env:GITHUB_OUTPUT -Append
+          "base_sha=$base"     | Out-File $env:GITHUB_OUTPUT -Append
+          "head_tree=$headTree" | Out-File $env:GITHUB_OUTPUT -Append
+          "base_tree=$baseTree" | Out-File $env:GITHUB_OUTPUT -Append
+
+      # Build + pack + measure each side. continue-on-error so a build failure
+      # still reaches the render step, which emits a "failed" comment body.
+      - name: Measure PR head
+        id: head
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          ./tests/build_metrics/ci/Measure-BuildMetrics.ps1 `
+            -Root "${{ steps.resolve.outputs.head_tree }}" `
+            -OutFile "${{ github.workspace }}/build-metrics-out/head.sizes.json" `
+            -PackOutput "${{ runner.temp }}/head-nupkg"
+
+      - name: Measure base (main)
+        id: base
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          ./tests/build_metrics/ci/Measure-BuildMetrics.ps1 `
+            -Root "${{ steps.resolve.outputs.base_tree }}" `
+            -OutFile "${{ github.workspace }}/build-metrics-out/base.sizes.json" `
+            -PackOutput "${{ runner.temp }}/base-nupkg"
+
+      # Render the sticky comment body. Always runs: if the head measurement
+      # produced no sizes it emits a "build failed" comment instead of tables, so
+      # the poster always has something to write.
+      - name: Render comment
+        if: always()
+        shell: pwsh
+        env:
+          HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
+          BASE_SHA: ${{ steps.resolve.outputs.base_sha }}
+          PR_NUMBER: ${{ steps.resolve.outputs.pr }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          . ./tests/build_metrics/ci/BuildMetricsLib.ps1
+          $outDir = Join-Path $env:GITHUB_WORKSPACE 'build-metrics-out'
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+          $headFile = Join-Path $outDir 'head.sizes.json'
+          $baseFile = Join-Path $outDir 'base.sizes.json'
+
+          $head = if (Test-Path $headFile) { Get-Content $headFile -Raw | ConvertFrom-Json } else { $null }
+          $base = if (Test-Path $baseFile) { Get-Content $baseFile -Raw | ConvertFrom-Json } else { $null }
+          # A head/base with no real sizes (all null) means that side's build failed.
+          $headHasSizes = $head -and (@($head | Where-Object { $null -ne $_.Bytes }).Count -gt 0)
+          $baseHasSizes = $base -and (@($base | Where-Object { $null -ne $_.Bytes }).Count -gt 0)
+
+          if ($headHasSizes -and $baseHasSizes) {
+            $body = Format-BuildMetricsComment -BaseMeasurements $base -HeadMeasurements $head `
+              -HeadSha $env:HEAD_SHA -BaseSha $env:BASE_SHA -RunUrl $env:RUN_URL
+          } elseif ($headHasSizes) {
+            # PR built, base (main) did not — show absolute PR sizes, no delta.
+            $body = Format-BuildMetricsComment -HeadMeasurements $head -BaselineUnavailable `
+              -HeadSha $env:HEAD_SHA -BaseSha $env:BASE_SHA -RunUrl $env:RUN_URL
+          } else {
+            $body = Format-BuildMetricsComment -Failed -HeadSha $env:HEAD_SHA -BaseSha $env:BASE_SHA -RunUrl $env:RUN_URL
+          }
+          Set-Content -LiteralPath (Join-Path $outDir 'comment.md') -Value $body -Encoding UTF8
+          # The poster derives the PR from the trusted workflow_run head SHA, but
+          # we drop the number in too as a diagnostic aid.
+          Set-Content -LiteralPath (Join-Path $outDir 'pr.txt') -Value $env:PR_NUMBER -Encoding UTF8
+          Write-Host "Rendered comment ($($body.Length) chars); headHasSizes=$headHasSizes"
+
+      - name: Upload comment artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: build-metrics-comment
+          path: |
+            build-metrics-out/comment.md
+            build-metrics-out/pr.txt
+            build-metrics-out/head.sizes.json
+            build-metrics-out/base.sizes.json
+          if-no-files-found: warn
+          retention-days: 14

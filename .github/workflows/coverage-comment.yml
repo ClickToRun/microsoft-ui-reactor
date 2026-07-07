@@ -1,0 +1,96 @@
+# Privileged poster for the automatic coverage comment.
+#
+# The measure workflow (coverage.yml) builds + runs untrusted PR code, so it runs
+# unprivileged and only uploads the rendered comment as an artifact. This workflow
+# runs from the DEFAULT branch with a write token, executes NO PR code, downloads
+# that artifact, and posts/updates the sticky coverage comment. Standard secure
+# `pull_request` + `workflow_run` split (see coverage.yml + build-metrics.yml).
+#
+# Security: the target PR is resolved from the TRUSTED github.event.workflow_run
+# head SHA (via the commits/{sha}/pulls API), never from the untrusted artifact.
+name: Coverage comment
+
+on:
+  workflow_run:
+    workflows: ["Coverage"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read          # download the triggering run's artifact
+  pull-requests: write   # post/update the comment
+  issues: write          # PR conversation comments use the issues API
+
+jobs:
+  comment:
+    name: Post coverage comment
+    runs-on: ubuntu-latest
+    # Blank-input dispatch runs measure a branch with no PR; they write to the
+    # job summary only, so only PR / dispatched-PR runs produce a comment here.
+    if: >-
+      github.event.workflow_run.event == 'pull_request' ||
+      github.event.workflow_run.event == 'workflow_dispatch'
+    steps:
+      - name: Download comment artifact
+        id: dl
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set +e
+          gh run download "$RUN_ID" --repo "$GH_REPO" -n coverage-comment -D artifact
+          if [ ! -f artifact/comment.md ]; then
+            echo "No coverage-comment artifact on run $RUN_ID; nothing to post."
+            echo "have_comment=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "have_comment=true" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve target PR
+        id: pr
+        if: steps.dl.outputs.have_comment == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          pr=""
+          if [ "$RUN_EVENT" = "pull_request" ]; then
+            # Open PR whose head commit is exactly this run's (trusted) head SHA.
+            pr=$(gh api "repos/$GH_REPO/commits/$HEAD_SHA/pulls" \
+                   --jq "[.[] | select(.state==\"open\") | select(.head.sha==\"$HEAD_SHA\")][0].number" 2>/dev/null || true)
+          fi
+          if { [ -z "$pr" ] || [ "$pr" = "null" ]; } && [ "$RUN_EVENT" = "workflow_dispatch" ] && [ -f artifact/pr.txt ]; then
+            # Manual dispatch is restricted to users with write access, so the
+            # artifact-provided number is trusted here. A blank pr.txt (branch
+            # run) leaves $pr empty and nothing is posted.
+            pr=$(tr -dc '0-9' < artifact/pr.txt)
+          fi
+          if [ -z "$pr" ] || [ "$pr" = "null" ]; then
+            echo "Could not resolve an open PR for head $HEAD_SHA; nothing to post."
+            echo "number=" >> "$GITHUB_OUTPUT"
+          else
+            echo "Target PR: #$pr"
+            echo "number=$pr" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post / update sticky comment
+        if: steps.dl.outputs.have_comment == 'true' && steps.pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          marker='<!-- reactor-coverage -->'
+          file=artifact/comment.md
+          existing=$(gh api "repos/$GH_REPO/issues/$PR_NUMBER/comments" --paginate \
+                       --jq "[.[] | select(.body | startswith(\"$marker\"))][0].id" || true)
+          if [ -n "$existing" ] && [ "$existing" != "null" ]; then
+            echo "Updating existing comment $existing"
+            gh api -X PATCH "repos/$GH_REPO/issues/comments/$existing" -F "body=@$file" >/dev/null
+          else
+            echo "Creating new sticky comment on #$PR_NUMBER"
+            gh api "repos/$GH_REPO/issues/$PR_NUMBER/comments" -F "body=@$file" >/dev/null
+          fi
