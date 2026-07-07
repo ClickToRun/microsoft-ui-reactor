@@ -159,7 +159,7 @@ foreach ($t in $targets) {
             '--nologo'
         ) + $t.ExtraArgs
 
-        & dotnet @packArgs 2>&1 | Tee-Object -Variable packLog | Out-Host
+        & dotnet @packArgs 2>&1 | Out-Host
         if ($LASTEXITCODE -ne 0) {
             Write-Warning "dotnet pack failed for $($t.PackageId) (exit $LASTEXITCODE) — emitting n/a."
         } else {

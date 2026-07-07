@@ -131,8 +131,9 @@ jobs:
           "head_tree=$headTree" | Out-File $env:GITHUB_OUTPUT -Append
           "base_tree=$baseTree" | Out-File $env:GITHUB_OUTPUT -Append
 
-      # Build + pack + measure each side. continue-on-error so a build failure
-      # still reaches the render step, which emits a "failed" comment body.
+      # Build + pack + measure each side. continue-on-error so a failing build
+      # doesn't abort the job — the upload + trusted poster still run, and the
+      # poster renders a "build failed" comment when no real sizes were produced.
       - name: Measure PR head
         id: head
         continue-on-error: true

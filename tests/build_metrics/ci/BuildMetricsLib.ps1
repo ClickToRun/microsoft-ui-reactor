@@ -158,7 +158,8 @@ function Get-SizeDelta {
         - added   : absent at base, present at head (new artifact).
         - removed : present at base, absent at head (dropped artifact).
         - na      : absent on both sides.
-        - unchanged: present on both, |Δ| below max(noise-byte, noise-pct) band.
+        - unchanged: present on both, |Δ| below the noise band (must clear BOTH
+                     the byte floor AND the percent floor to count as a change).
         - grew/shrank: present on both, |Δ| clears the band.
         Growth is the regression direction, so Improved is $true only for shrank.
     #>

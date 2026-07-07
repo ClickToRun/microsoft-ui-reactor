@@ -55,7 +55,7 @@ the comment body**:
 
 | Workflow | Trigger | Privilege | Job |
 |---|---|---|---|
-| `.github/workflows/build-metrics.yml` | `pull_request` (+ manual `workflow_dispatch`) | read-only | Builds + packs the PR head **and** base and measures both, then uploads **only** the machine-readable `sizes.json`. Runs untrusted PR build code. |
+| `.github/workflows/build-metrics.yml` | `pull_request` (+ manual `workflow_dispatch`) | read-only | Builds + packs the PR head **and** base and measures both, then uploads **only** the machine-readable data (`head.sizes.json` + `base.sizes.json`). Runs untrusted PR build code. |
 | `.github/workflows/build-metrics-comment.yml` | `workflow_run` | `issues: write` | Checks out **trusted** default-branch code, validates the uploaded numbers via `ConvertTo-SafeMeasurements`, **renders** the comment itself, and posts/updates it. Runs **no** PR code. Resolves the target PR from the trusted `workflow_run` head SHA, never the artifact. |
 | `.github/workflows/build-metrics-lib-tests.yml` | `pull_request` / `push` on `tests/build_metrics/ci/**` | read-only | Fast headless run of both `*.Tests.ps1` files. |
 

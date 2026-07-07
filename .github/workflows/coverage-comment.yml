@@ -7,8 +7,9 @@
 # Standard secure pull_request + workflow_run split (see coverage.yml).
 #
 # Security: the comment body is built here from a fixed template + numeric values
-# that are re-validated (digits only) before use; the target PR is resolved from
-# the TRUSTED github.event.workflow_run head SHA, never from the artifact.
+# that are re-validated (a non-negative number, optionally with a decimal part)
+# before use; the target PR is resolved from the TRUSTED
+# github.event.workflow_run head SHA, never from the artifact.
 name: Coverage comment
 
 on:
