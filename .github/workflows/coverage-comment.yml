@@ -26,11 +26,10 @@ jobs:
   comment:
     name: Post coverage comment
     runs-on: ubuntu-latest
-    # Blank-input dispatch runs measure a branch with no PR (summary only), so only
-    # PR / dispatched-PR runs produce a comment here.
-    if: >-
-      github.event.workflow_run.event == 'pull_request' ||
-      github.event.workflow_run.event == 'workflow_dispatch'
+    # Only PR-originated measure runs produce a comment. A workflow_dispatch measure
+    # run has no PR to safely resolve from its head SHA, so skip the poster entirely
+    # (the numbers still live in that run's artifact + summary).
+    if: github.event.workflow_run.event == 'pull_request'
     steps:
       - name: Download coverage data artifact
         id: dl
@@ -49,22 +48,15 @@ jobs:
           echo "have_data=true" >> "$GITHUB_OUTPUT"
 
       # Resolve the PR SOLELY from the trusted workflow_run head SHA — never from
-      # the (untrusted) artifact. A workflow_dispatch run (head = default branch)
-      # yields no PR, so the manual path is measure-only (result in the run summary).
+      # the (untrusted) artifact.
       - name: Resolve target PR
         id: pr
         if: steps.dl.outputs.have_data == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RUN_EVENT: ${{ github.event.workflow_run.event }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          if [ "$RUN_EVENT" != "pull_request" ]; then
-            echo "Non-PR run ($RUN_EVENT); nothing to post."
-            echo "number=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           pr=$(gh api "repos/$GH_REPO/commits/$HEAD_SHA/pulls" \
                  --jq "[.[] | select(.state==\"open\") | select(.head.sha==\"$HEAD_SHA\")][0].number" 2>/dev/null || true)
           if [ -z "$pr" ] || [ "$pr" = "null" ]; then

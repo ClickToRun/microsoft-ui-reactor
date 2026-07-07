@@ -15,15 +15,15 @@ name: Coverage
 # hand a write token to untrusted PR code, which is unsafe.
 #
 # Instead this workflow runs in the unprivileged `pull_request` context: a
-# read-only token, no secrets, and NO ability to comment. It renders the result
-# and uploads it as an artifact; the privileged `coverage-comment.yml`
-# (`workflow_run`) posts the sticky comment. That split runs untrusted build code
-# with zero write privilege and still comments on PRs — including from forks. It
-# mirrors build-metrics.yml and the trust boundary documented in perf-compare.yml.
+# read-only token, no secrets, and NO ability to comment. It writes the result to
+# the run summary and uploads ONLY the raw coverage numbers; the privileged
+# `coverage-comment.yml` (`workflow_run`) checks out trusted code, renders the
+# comment, and posts it. That split runs untrusted build code with zero write
+# privilege and still comments on PRs — including from forks. It mirrors
+# build-metrics.yml and the trust boundary documented in perf-compare.yml.
 
 on:
   pull_request:
-    # Doc-only PRs change no measured code; skip the ~10-min instrumented run.
     # Doc-only PRs change no measured code; skip the ~10-min instrumented run.
     # This includes the docs/_pipeline templates + doc apps that generate the guide.
     paths-ignore:

@@ -59,6 +59,12 @@ the comment body**:
 | `.github/workflows/build-metrics-comment.yml` | `workflow_run` | `issues: write` | Checks out **trusted** default-branch code, validates the uploaded numbers via `ConvertTo-SafeMeasurements`, **renders** the comment itself, and posts/updates it. Runs **no** PR code. Resolves the target PR from the trusted `workflow_run` head SHA, never the artifact. |
 | `.github/workflows/build-metrics-lib-tests.yml` | `pull_request` / `push` on `tests/build_metrics/ci/**` | read-only | Fast headless run of both `*.Tests.ps1` files. |
 
+A comment is posted **only for `pull_request` runs**. A manual `workflow_dispatch`
+run is **measure-only**: it still builds and uploads the `sizes.json` artifact, but
+the poster can't safely resolve a PR from a dispatch's head SHA (which points at
+the default branch), so it posts nothing — read the numbers from the run's
+artifact.
+
 **Why the poster renders (not the measure job):** the measure job builds
 untrusted PR code, so if it produced the final markdown a PR could make the
 privileged bot post arbitrary content. Instead it emits only numbers; the

@@ -31,10 +31,10 @@ jobs:
   comment:
     name: Post size-diff comment
     runs-on: ubuntu-latest
-    # Only PR-originated (or manually dispatched) measure runs produce a PR comment.
-    if: >-
-      github.event.workflow_run.event == 'pull_request' ||
-      github.event.workflow_run.event == 'workflow_dispatch'
+    # Only PR-originated measure runs produce a comment. A workflow_dispatch measure
+    # run has no PR to safely resolve from its head SHA, so skip the poster entirely
+    # (the numbers still live in that run's artifact).
+    if: github.event.workflow_run.event == 'pull_request'
     steps:
       # Trusted default-branch checkout — the source of the comment renderer.
       # workflow_run always runs the default-branch version of this workflow, and
@@ -63,23 +63,16 @@ jobs:
 
       # Resolve the PR SOLELY from the trusted workflow_run head SHA — never from
       # the (untrusted) artifact. commits/{sha}/pulls returns the PR's number and
-      # base sha in one trusted call. For a workflow_dispatch run (head = default
-      # branch) this yields no PR, so no comment is posted (the numbers still live
-      # in the run's artifact) — the manual path is measure-only by design.
+      # base sha in one trusted call. The job `if` already restricts this to
+      # pull_request-originated runs.
       - name: Resolve target PR
         id: pr
         if: steps.dl.outputs.have_data == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RUN_EVENT: ${{ github.event.workflow_run.event }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          if [ "$RUN_EVENT" != "pull_request" ]; then
-            echo "Non-PR run ($RUN_EVENT); nothing to post."
-            echo "number=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           pr=$(gh api "repos/$GH_REPO/commits/$HEAD_SHA/pulls" \
                  --jq "[.[] | select(.state==\"open\") | select(.head.sha==\"$HEAD_SHA\")][0].number" 2>/dev/null || true)
           basesha=$(gh api "repos/$GH_REPO/commits/$HEAD_SHA/pulls" \
