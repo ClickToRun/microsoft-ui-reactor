@@ -181,9 +181,6 @@ jobs:
           "branches-covered=$covered" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "branches-total=$total"     | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      # Render the sticky comment body + write it to the job summary and to an
-      # artifact for the poster. Always runs so a failed measurement still
-      # produces a "coverage run failed" comment. This job never comments itself.
       # SECURITY: this job runs untrusted PR code, so it must NOT render the PR
       # comment body. It writes the human-readable result to the RUN SUMMARY
       # (informational, not a privileged PR post) and uploads the raw numbers as

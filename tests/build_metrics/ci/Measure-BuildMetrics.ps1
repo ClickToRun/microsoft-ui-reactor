@@ -13,9 +13,9 @@
     BuildMetricsLib.ps1's Format-BuildMetricsComment:
       { "Key": "...", "Label": "...", "Group": "...", "Bytes": <int|null> }
 
-    A fixed -PackageVersion is used for both the base (main) and PR runs so the
-    version string embedded in the .nuspec is identical and never contributes to
-    the diff — the only size delta is real code/content change.
+    A fixed -PackageVersion is used for both sides (the PR's base branch and head)
+    so the version string embedded in the .nuspec is identical and never
+    contributes to the diff — the only size delta is real code/content change.
 
     Per-package failures are non-fatal: the package's rows are emitted with a
     null size (rendered as n/a) and the run continues, so one broken pack never

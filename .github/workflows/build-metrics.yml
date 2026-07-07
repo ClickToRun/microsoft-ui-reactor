@@ -2,7 +2,7 @@
 #
 # ── What it does ──────────────────────────────────────────────────────────────
 # On every PR commit this builds + packs the shipped Reactor NuGet packages twice
-# — once at the PR head, once at the PR base (`main`) — measures each artifact's
+# — once at the PR head, once at the PR base branch — measures each artifact's
 # size, and renders a sticky "Build metrics" comment showing the size delta.
 # Informational only: it never fails the PR.
 #
@@ -143,7 +143,7 @@ jobs:
             -OutFile "${{ github.workspace }}/build-metrics-out/head.sizes.json" `
             -PackOutput "${{ runner.temp }}/head-nupkg"
 
-      - name: Measure base (main)
+      - name: Measure base branch
         id: base
         continue-on-error: true
         shell: pwsh

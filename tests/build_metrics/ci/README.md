@@ -67,9 +67,11 @@ artifact.
 
 **Why the poster renders (not the measure job):** the measure job builds
 untrusted PR code, so if it produced the final markdown a PR could make the
-privileged bot post arbitrary content. Instead it emits only numbers; the
-trusted poster maps them through a fixed `Key → Label` spec (dropping unknown
-keys and any non-integer/negative byte value), so the comment is fully
+privileged bot post arbitrary content. Instead the artifact carries only
+per-artifact byte counts (the `sizes.json` also includes label/group strings, but
+the poster **ignores** them). The trusted poster re-maps every row through a fixed
+`Key → Label` spec — dropping unknown keys, using its own trusted labels/groups,
+and accepting only non-negative integer byte counts — so the comment is fully
 determined by trusted code plus a handful of validated integers.
 
 The sticky comment is found + updated in place via a hidden marker
