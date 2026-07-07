@@ -62,9 +62,9 @@ jobs:
           echo "have_data=true" >> "$GITHUB_OUTPUT"
 
       # Resolve the PR SOLELY from the trusted workflow_run head SHA — never from
-      # the (untrusted) artifact. commits/{sha}/pulls returns the PR's number and
-      # base sha in one trusted call. The job `if` already restricts this to
-      # pull_request-originated runs.
+      # the (untrusted) artifact. One commits/{sha}/pulls call returns the PR object,
+      # from which we read the number + base sha. The job `if` already restricts
+      # this to pull_request-originated runs.
       - name: Resolve target PR
         id: pr
         if: steps.dl.outputs.have_data == 'true'
@@ -73,11 +73,11 @@ jobs:
           GH_REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          pr=$(gh api "repos/$GH_REPO/commits/$HEAD_SHA/pulls" \
-                 --jq "[.[] | select(.state==\"open\") | select(.head.sha==\"$HEAD_SHA\")][0].number" 2>/dev/null || true)
-          basesha=$(gh api "repos/$GH_REPO/commits/$HEAD_SHA/pulls" \
-                 --jq "[.[] | select(.state==\"open\") | select(.head.sha==\"$HEAD_SHA\")][0].base.sha" 2>/dev/null || true)
-          if [ -z "$pr" ] || [ "$pr" = "null" ]; then
+          pr_json=$(gh api "repos/$GH_REPO/commits/$HEAD_SHA/pulls" \
+                 --jq "[.[] | select(.state==\"open\") | select(.head.sha==\"$HEAD_SHA\")][0]" 2>/dev/null || true)
+          pr=$(printf '%s' "$pr_json" | jq -r '.number // empty' 2>/dev/null || true)
+          basesha=$(printf '%s' "$pr_json" | jq -r '.base.sha // empty' 2>/dev/null || true)
+          if [ -z "$pr" ]; then
             echo "No open PR for head $HEAD_SHA; nothing to post."
             echo "number=" >> "$GITHUB_OUTPUT"
             exit 0
@@ -107,8 +107,16 @@ jobs:
           RUN_URL: ${{ github.event.workflow_run.html_url }}
         run: |
           . ./tests/build_metrics/ci/BuildMetricsLib.ps1
-          $headRaw = if (Test-Path artifact/head.sizes.json) { Get-Content artifact/head.sizes.json -Raw | ConvertFrom-Json } else { $null }
-          $baseRaw = if (Test-Path artifact/base.sizes.json) { Get-Content artifact/base.sizes.json -Raw | ConvertFrom-Json } else { $null }
+          # The sizes.json are untrusted artifacts; a malformed file must not crash
+          # the poster (which would drop the comment entirely) — treat a parse
+          # failure as missing data so the failed/baseline-unavailable paths render.
+          function Read-SizesJson($path) {
+            if (-not (Test-Path $path)) { return $null }
+            try { return Get-Content $path -Raw | ConvertFrom-Json }
+            catch { Write-Host "Ignoring malformed ${path}: $($_.Exception.Message)"; return $null }
+          }
+          $headRaw = Read-SizesJson 'artifact/head.sizes.json'
+          $baseRaw = Read-SizesJson 'artifact/base.sizes.json'
           $head = ConvertTo-SafeMeasurements $headRaw
           $base = ConvertTo-SafeMeasurements $baseRaw
           $headHasSizes = (@($head | Where-Object { $null -ne $_.Bytes }).Count -gt 0)

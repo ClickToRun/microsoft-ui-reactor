@@ -55,10 +55,25 @@ if (-not $PackOutput) {
             [System.Text.Encoding]::UTF8.GetBytes($Root))).Replace('-', '').Substring(0, 12)
     $PackOutput = Join-Path ([System.IO.Path]::GetTempPath()) "build-metrics-$hash"
 }
-if (Test-Path -LiteralPath $PackOutput) {
-    Remove-Item -LiteralPath $PackOutput -Recurse -Force
+
+# Safety guard: we Remove-Item -Recurse -Force this path below. -PackOutput is
+# caller-supplied, so refuse obviously-unsafe targets (a filesystem/drive root, or
+# the current/root of the source tree) before deleting anything.
+$packFull = [System.IO.Path]::GetFullPath($PackOutput)
+$pathRoot = [System.IO.Path]::GetPathRoot($packFull)
+$rootFull = [System.IO.Path]::GetFullPath($Root)
+if ($packFull -eq $pathRoot -or
+    $packFull -eq $rootFull -or
+    $packFull -eq [System.IO.Path]::GetFullPath((Get-Location).Path) -or
+    ($packFull.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar).Length -le $pathRoot.Length)) {
+    throw "Refusing to use an unsafe -PackOutput '$packFull' (it is a root or the source tree). Pass a dedicated subfolder."
 }
-New-Item -ItemType Directory -Force -Path $PackOutput | Out-Null
+
+if (Test-Path -LiteralPath $packFull) {
+    Remove-Item -LiteralPath $packFull -Recurse -Force
+}
+New-Item -ItemType Directory -Force -Path $packFull | Out-Null
+$PackOutput = $packFull
 
 # ── Tracked packages ─────────────────────────────────────────────────────────
 # Keys are stable identifiers (NOT filenames — the .nupkg carries a version), so

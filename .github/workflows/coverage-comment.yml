@@ -68,7 +68,8 @@ jobs:
             echo "number=$pr" >> "$GITHUB_OUTPUT"
           fi
 
-      # Render the comment from a FIXED template + numbers re-validated as digits.
+      # Render the comment from a FIXED template + numbers re-validated here (a
+      # non-negative number, optionally with a decimal part).
       - name: Render comment (trusted)
         id: render
         if: steps.dl.outputs.have_data == 'true' && steps.pr.outputs.number != ''
@@ -77,20 +78,27 @@ jobs:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           RUN_URL: ${{ github.event.workflow_run.html_url }}
         run: |
-          $d = Get-Content artifact/coverage.json -Raw | ConvertFrom-Json
+          # coverage.json is an untrusted artifact; a malformed file must not crash
+          # the poster (which would drop the comment). Fall back to an empty object
+          # so the CAUTION "run failed" path renders.
+          try { $d = Get-Content artifact/coverage.json -Raw | ConvertFrom-Json }
+          catch { Write-Host "Malformed coverage.json: $($_.Exception.Message)"; $d = [pscustomobject]@{} }
+          function Get-Prop($obj, $name) {
+            if ($obj.PSObject.Properties[$name]) { return $obj.$name } else { return $null }
+          }
           function SafeNum($v) {
             if ($null -eq $v) { return $null }
             $s = ([string]$v).Trim()
             if ($s -match '^\d+(\.\d+)?$') { return $s } else { return $null }
           }
-          $line = SafeNum $d.line
-          $branch = SafeNum $d.branch
-          $bc = SafeNum $d.branchesCovered
-          $bt = SafeNum $d.branchesTotal
+          $line = SafeNum (Get-Prop $d 'line')
+          $branch = SafeNum (Get-Prop $d 'branch')
+          $bc = SafeNum (Get-Prop $d 'branchesCovered')
+          $bt = SafeNum (Get-Prop $d 'branchesTotal')
           $sha = $env:HEAD_SHA
           $sha7 = if ($sha) { $sha.Substring(0, [math]::Min(7, $sha.Length)) } else { 'unknown' }
           $marker = '<!-- reactor-coverage -->'
-          $ok = ($d.outcome -eq 'success') -and ($null -ne $line) -and ($null -ne $branch)
+          $ok = ((Get-Prop $d 'outcome') -eq 'success') -and ($null -ne $line) -and ($null -ne $branch)
           if ($ok) {
             $branchCell = if ($null -ne $bc -and $null -ne $bt) { "$branch% ($bc/$bt)" } else { "$branch%" }
             $body = @(
