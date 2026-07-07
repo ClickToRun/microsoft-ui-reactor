@@ -132,11 +132,8 @@ public sealed class NonInvocableMemberParensAnalyzer : DiagnosticAnalyzer
         return model.GetTypeInfo(receiver, ct).Type; // instance member access
     }
 
+    // Delegate to the shared namespace gate so every analyzer judges "is this Reactor's API"
+    // identically — avoids drift if the definition of a Reactor namespace ever changes.
     private static bool IsReactorType(ITypeSymbol type)
-    {
-        var ns = type.ContainingNamespace?.ToDisplayString();
-        return ns is not null
-            && (ns == "Microsoft.UI.Reactor"
-                || ns.StartsWith("Microsoft.UI.Reactor.", System.StringComparison.Ordinal));
-    }
+        => CommandDebounceAnalyzer.IsReactorNamespace(type.ContainingNamespace?.ToDisplayString());
 }
