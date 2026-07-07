@@ -54,16 +54,18 @@ jobs:
         run: |
           set +e
           gh run download "$RUN_ID" --repo "$GH_REPO" -n build-metrics-data -D artifact
-          if [ ! -f artifact/head.sizes.json ] && [ ! -f artifact/pr.txt ]; then
+          if [ ! -f artifact/head.sizes.json ]; then
             echo "No build-metrics-data artifact on run $RUN_ID; nothing to post."
             echo "have_data=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "have_data=true" >> "$GITHUB_OUTPUT"
 
-      # Resolve the PR from the trusted workflow_run head SHA (fork-safe). For a
-      # manual dispatch (write-access only) fall back to the artifact's pr.txt.
-      # Also read the PR's trusted head/base SHAs for the comment header.
+      # Resolve the PR SOLELY from the trusted workflow_run head SHA — never from
+      # the (untrusted) artifact. commits/{sha}/pulls returns the PR's number and
+      # base sha in one trusted call. For a workflow_dispatch run (head = default
+      # branch) this yields no PR, so no comment is posted (the numbers still live
+      # in the run's artifact) — the manual path is measure-only by design.
       - name: Resolve target PR
         id: pr
         if: steps.dl.outputs.have_data == 'true'
@@ -73,35 +75,35 @@ jobs:
           RUN_EVENT: ${{ github.event.workflow_run.event }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          pr=""
-          if [ "$RUN_EVENT" = "pull_request" ]; then
-            pr=$(gh api "repos/$GH_REPO/commits/$HEAD_SHA/pulls" \
-                   --jq "[.[] | select(.state==\"open\") | select(.head.sha==\"$HEAD_SHA\")][0].number" 2>/dev/null || true)
+          if [ "$RUN_EVENT" != "pull_request" ]; then
+            echo "Non-PR run ($RUN_EVENT); nothing to post."
+            echo "number=" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          if { [ -z "$pr" ] || [ "$pr" = "null" ]; } && [ "$RUN_EVENT" = "workflow_dispatch" ] && [ -f artifact/pr.txt ]; then
-            pr=$(tr -dc '0-9' < artifact/pr.txt)
-          fi
+          pr=$(gh api "repos/$GH_REPO/commits/$HEAD_SHA/pulls" \
+                 --jq "[.[] | select(.state==\"open\") | select(.head.sha==\"$HEAD_SHA\")][0].number" 2>/dev/null || true)
+          basesha=$(gh api "repos/$GH_REPO/commits/$HEAD_SHA/pulls" \
+                 --jq "[.[] | select(.state==\"open\") | select(.head.sha==\"$HEAD_SHA\")][0].base.sha" 2>/dev/null || true)
           if [ -z "$pr" ] || [ "$pr" = "null" ]; then
-            echo "Could not resolve an open PR for head $HEAD_SHA; nothing to post."
+            echo "No open PR for head $HEAD_SHA; nothing to post."
             echo "number=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "Target PR: #$pr"
-          headsha=$(gh api "repos/$GH_REPO/pulls/$pr" --jq '.head.sha' 2>/dev/null || true)
-          basesha=$(gh api "repos/$GH_REPO/pulls/$pr" --jq '.base.sha' 2>/dev/null || true)
           echo "number=$pr" >> "$GITHUB_OUTPUT"
-          echo "head_sha=$headsha" >> "$GITHUB_OUTPUT"
           echo "base_sha=$basesha" >> "$GITHUB_OUTPUT"
 
       # Render the comment from TRUSTED code + validated numbers. The untrusted
       # sizes.json is passed through ConvertTo-SafeMeasurements, which keeps only
       # known keys, uses trusted labels, and accepts only non-negative integer
-      # byte counts — so nothing from the artifact can inject markdown.
+      # byte counts — so nothing from the artifact can inject markdown. The head
+      # SHA is the trusted workflow_run head (exactly what was measured); the base
+      # SHA comes from the same trusted commits/{sha}/pulls lookup.
       - name: Render comment (trusted)
         if: steps.dl.outputs.have_data == 'true' && steps.pr.outputs.number != ''
         shell: pwsh
         env:
-          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           BASE_SHA: ${{ steps.pr.outputs.base_sha }}
           RUN_URL: ${{ github.event.workflow_run.html_url }}
         run: |

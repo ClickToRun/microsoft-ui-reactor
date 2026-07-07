@@ -221,15 +221,12 @@ jobs:
               branchesTotal: BRANCHES_TOTAL || '',
               outcome: OUTCOME || '',
             }));
-            fs.writeFileSync('coverage-out/pr.txt', String(PR_NUMBER || ''));
 
       - name: Upload coverage data artifact
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-data
-          path: |
-            coverage-out/coverage.json
-            coverage-out/pr.txt
+          path: coverage-out/coverage.json
           if-no-files-found: warn
           retention-days: 14

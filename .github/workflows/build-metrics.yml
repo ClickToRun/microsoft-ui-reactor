@@ -12,11 +12,13 @@
 # ── Why two workflows (measure here, comment in build-metrics-comment.yml) ─────
 # This job BUILDS PR-authored code (`dotnet pack` runs the PR's MSBuild), so it
 # must stay unprivileged: it runs in the `pull_request` context with a read-only
-# token and NO ability to comment. It uploads the rendered comment as an artifact;
-# the privileged `build-metrics-comment.yml` (`workflow_run`) posts it. That split
-# is the standard secure pattern for commenting on PRs — including from forks —
-# without ever handing a write token to untrusted build code. It mirrors the
-# trust boundary in perf-compare.yml, but runs automatically instead of on `/perf`.
+# token and NO ability to comment. It uploads ONLY the machine-readable size data
+# (head/base sizes.json); the privileged `build-metrics-comment.yml`
+# (`workflow_run`) checks out trusted code, validates those numbers, and renders +
+# posts the comment. That split is the standard secure pattern for commenting on
+# PRs — including from forks — without ever handing a write token to untrusted
+# build code, and without letting untrusted code produce the comment markdown. It
+# mirrors the trust boundary in perf-compare.yml, but runs automatically.
 name: Build metrics
 
 on:
@@ -83,6 +85,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR_NUMBER_EVENT: ${{ github.event.pull_request.number }}
           PR_NUMBER_INPUT: ${{ github.event.inputs.pr_number }}
         run: |
@@ -90,21 +93,27 @@ jobs:
             $pr = $env:PR_NUMBER_EVENT
             $head = $env:PR_HEAD_SHA
             $base = $env:PR_BASE_SHA
+            $baseRef = $env:PR_BASE_REF
           } else {
             $pr = $env:PR_NUMBER_INPUT
             if ($pr -notmatch '^[1-9][0-9]*$') { throw "Invalid pr_number input '$pr' (expected a positive integer)." }
             $json = gh api "repos/$env:GH_REPO/pulls/$pr" | ConvertFrom-Json
             $head = $json.head.sha
             $base = $json.base.sha
+            $baseRef = $json.base.ref
           }
           if ($head -notmatch '^[0-9a-f]{40}$') { throw "Could not resolve head sha (got '$head')." }
           if ($base -notmatch '^[0-9a-f]{40}$') { throw "Could not resolve base sha (got '$base')." }
-          Write-Host "PR #$pr  head=$head  base=$base"
+          if ([string]::IsNullOrWhiteSpace($baseRef)) { throw "Could not resolve base ref." }
+          Write-Host "PR #$pr  head=$head  base=$base ($baseRef)"
 
-          # Fetch both commits. The head (incl. forks) lives at refs/pull/N/head;
-          # the base is on the base branch. Anonymous fetch — no token needed.
+          # Fetch both commits so we can build each in a worktree. The head (incl.
+          # forks) lives at refs/pull/N/head. Fetch the base by its BRANCH REF, not
+          # its raw SHA: `git fetch origin <sha>` is rejected unless the server
+          # advertises that object, whereas the branch ref is always fetchable and
+          # the base commit is an ancestor of it. Anonymous fetch — no token needed.
           git fetch --no-tags --force origin "pull/$pr/head" 2>&1 | Out-Host
-          git fetch --no-tags --force origin $base 2>&1 | Out-Host
+          git fetch --no-tags --force origin "refs/heads/${baseRef}:refs/remotes/origin/${baseRef}" 2>&1 | Out-Host
 
           $headTree = Join-Path $env:RUNNER_TEMP 'head-tree'
           $baseTree = Join-Path $env:RUNNER_TEMP 'base-tree'
@@ -146,16 +155,14 @@ jobs:
       # comment body — a PR could otherwise make the privileged poster publish
       # arbitrary markdown. It uploads ONLY the machine-readable sizes.json. The
       # privileged workflow_run poster (build-metrics-comment.yml) checks out
-      # trusted default-branch code, validates these numbers against a fixed target
-      # spec, and renders + posts the comment. pr.txt is a diagnostic hint only
-      # (the poster resolves the PR from the trusted workflow_run head SHA).
-      - name: Record PR number
+      # trusted default-branch code, resolves the PR from the trusted workflow_run
+      # head SHA (never from this artifact), validates these numbers against a fixed
+      # target spec, and renders + posts the comment. Ensure the output dir exists
+      # even if both measure steps failed before writing.
+      - name: Ensure output dir
         if: always()
         shell: pwsh
-        run: |
-          $outDir = Join-Path $env:GITHUB_WORKSPACE 'build-metrics-out'
-          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-          Set-Content -LiteralPath (Join-Path $outDir 'pr.txt') -Value "${{ steps.resolve.outputs.pr }}" -Encoding UTF8
+        run: New-Item -ItemType Directory -Force -Path (Join-Path $env:GITHUB_WORKSPACE 'build-metrics-out') | Out-Null
 
       - name: Upload size data artifact
         if: always()
@@ -165,6 +172,5 @@ jobs:
           path: |
             build-metrics-out/head.sizes.json
             build-metrics-out/base.sizes.json
-            build-metrics-out/pr.txt
           if-no-files-found: warn
           retention-days: 14
