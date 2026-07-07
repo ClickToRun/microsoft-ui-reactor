@@ -42,24 +42,34 @@ Adding a package is a one-line entry in that `$targets` array.
 
 | File | Role |
 |---|---|
-| `BuildMetricsLib.ps1` | **Pure** helpers (no filesystem side effects): byte formatting, `Get-SizeDelta`, and the sticky-comment renderer. Unit-testable headless. |
-| `BuildMetricsLib.Tests.ps1` | Dependency-free assertions for the pure lib. Exits non-zero on failure. |
+| `BuildMetricsLib.ps1` | **Pure** helpers (no filesystem side effects): byte formatting, `Get-SizeDelta`, the sticky-comment renderer, the trusted `Get-BuildMetricsTargetSpec` and `ConvertTo-SafeMeasurements` (the render-time security boundary). Unit-testable headless. |
+| `BuildMetricsLib.Tests.ps1` | Dependency-free assertions for the pure lib (incl. the sanitizer). Exits non-zero on failure. |
 | `Measure-BuildMetrics.ps1` | Orchestrator: `dotnet pack` each package in a source tree and emit a `sizes.json` of measurements. |
+| `Measure-BuildMetrics.Tests.ps1` | AST-extracted tests for the orchestrator's `Select-LatestNupkg` + `Get-NupkgAssemblyBytes` (synthesizes real `.nupkg` ZIPs; no `dotnet`). |
 
 ## Workflows
 
 Two workflows implement the standard secure `pull_request` + `workflow_run`
-split, so untrusted PR build code never holds a write token:
+split, so untrusted PR build code never holds a write token **and never renders
+the comment body**:
 
 | Workflow | Trigger | Privilege | Job |
 |---|---|---|---|
-| `.github/workflows/build-metrics.yml` | `pull_request` (+ manual `workflow_dispatch`) | read-only | Builds + packs the PR head **and** base, measures both, renders the comment, uploads it as an artifact. Runs untrusted PR build code. |
-| `.github/workflows/build-metrics-comment.yml` | `workflow_run` | `pull-requests: write` | Downloads the artifact and posts/updates the sticky comment. Runs **no** PR code. Resolves the target PR from the trusted `workflow_run` head SHA, never the artifact. |
-| `.github/workflows/build-metrics-lib-tests.yml` | `pull_request` / `push` on `tests/build_metrics/ci/**` | read-only | Fast headless run of `BuildMetricsLib.Tests.ps1`. |
+| `.github/workflows/build-metrics.yml` | `pull_request` (+ manual `workflow_dispatch`) | read-only | Builds + packs the PR head **and** base and measures both, then uploads **only** the machine-readable `sizes.json`. Runs untrusted PR build code. |
+| `.github/workflows/build-metrics-comment.yml` | `workflow_run` | `issues: write` | Checks out **trusted** default-branch code, validates the uploaded numbers via `ConvertTo-SafeMeasurements`, **renders** the comment itself, and posts/updates it. Runs **no** PR code. Resolves the target PR from the trusted `workflow_run` head SHA, never the artifact. |
+| `.github/workflows/build-metrics-lib-tests.yml` | `pull_request` / `push` on `tests/build_metrics/ci/**` | read-only | Fast headless run of both `*.Tests.ps1` files. |
+
+**Why the poster renders (not the measure job):** the measure job builds
+untrusted PR code, so if it produced the final markdown a PR could make the
+privileged bot post arbitrary content. Instead it emits only numbers; the
+trusted poster maps them through a fixed `Key → Label` spec (dropping unknown
+keys and any non-integer/negative byte value), so the comment is fully
+determined by trusted code plus a handful of validated integers.
 
 The sticky comment is found + updated in place via a hidden marker
-(`<!-- reactor-build-metrics -->`), the same convention as
-`tests/stress_perf/ci/PerfLib.ps1`.
+(`<!-- reactor-build-metrics -->`) — the same *mechanism* as
+`tests/stress_perf/ci/PerfLib.ps1`, which uses its own distinct marker
+(`<!-- reactor-perf-compare -->`).
 
 ## Local runbook
 

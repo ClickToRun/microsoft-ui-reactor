@@ -39,6 +39,14 @@ $ErrorActionPreference = 'Stop'
 
 $Root = (Resolve-Path -LiteralPath $Root).Path
 
+# Ensure the -OutFile parent exists before we Set-Content into it at the end — the
+# caller often points it at a not-yet-created folder (e.g. the workflow's
+# build-metrics-out/), and Set-Content does not create intermediate directories.
+$outParent = Split-Path -Parent $OutFile
+if ($outParent -and -not (Test-Path -LiteralPath $outParent)) {
+    New-Item -ItemType Directory -Force -Path $outParent | Out-Null
+}
+
 if (-not $PackOutput) {
     # Derive a stable, tree-specific temp folder so a base + head run in the same
     # job never share (or clobber) each other's pack output.
@@ -84,6 +92,24 @@ $targets = @(
 
 $packageGroup  = 'Packages (compressed .nupkg)'
 $assemblyGroup = 'Assemblies (uncompressed)'
+
+function Select-LatestNupkg {
+    <#
+    .SYNOPSIS
+        Newest non-symbols .nupkg for exactly $PackageId in $PackOutput, or $null.
+    .DESCRIPTION
+        Matches `<PackageId>.<version>.nupkg` where the version segment starts with
+        a digit, so `Microsoft.UI.Reactor` never picks up its own siblings
+        `Microsoft.UI.Reactor.Advanced` / `.Devtools` that share the same dir. The
+        `.symbols.nupkg` sidecar is excluded; ties broken by newest write time.
+    #>
+    param([string]$PackOutput, [string]$PackageId)
+    $pattern = '^' + [regex]::Escape($PackageId) + '\.\d[^\\/]*\.nupkg$'
+    Get-ChildItem -LiteralPath $PackOutput -Filter '*.nupkg' -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match $pattern -and $_.Name -notlike '*.symbols.nupkg' } |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+}
 
 function Get-NupkgAssemblyBytes {
     <#
@@ -137,17 +163,13 @@ foreach ($t in $targets) {
         if ($LASTEXITCODE -ne 0) {
             Write-Warning "dotnet pack failed for $($t.PackageId) (exit $LASTEXITCODE) — emitting n/a."
         } else {
-            # `<id>.<version>.nupkg`, excluding the `.symbols.nupkg` sidecar.
-            $nupkg = Get-ChildItem -LiteralPath $PackOutput -Filter "$($t.PackageId).*.nupkg" -File |
-                Where-Object { $_.Name -notlike '*.symbols.nupkg' } |
-                Sort-Object LastWriteTime -Descending |
-                Select-Object -First 1
+            $nupkg = Select-LatestNupkg -PackOutput $PackOutput -PackageId $t.PackageId
             if ($nupkg) {
                 $nupkgBytes = $nupkg.Length
                 $asmBytes = Get-NupkgAssemblyBytes -NupkgPath $nupkg.FullName -AssemblyFile $t.AssemblyFile
                 Write-Host "    $($nupkg.Name): nupkg=$nupkgBytes B, $($t.AssemblyFile)=$asmBytes B"
             } else {
-                Write-Warning "No .nupkg matching '$($t.PackageId).*.nupkg' in $PackOutput."
+                Write-Warning "No .nupkg matching '$($t.PackageId).<version>.nupkg' in $PackOutput."
             }
         }
     }

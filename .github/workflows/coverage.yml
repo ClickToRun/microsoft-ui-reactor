@@ -181,7 +181,13 @@ jobs:
       # Render the sticky comment body + write it to the job summary and to an
       # artifact for the poster. Always runs so a failed measurement still
       # produces a "coverage run failed" comment. This job never comments itself.
-      - name: Render results
+      # SECURITY: this job runs untrusted PR code, so it must NOT render the PR
+      # comment body. It writes the human-readable result to the RUN SUMMARY
+      # (informational, not a privileged PR post) and uploads the raw numbers as
+      # coverage.json. The privileged workflow_run poster (coverage-comment.yml)
+      # checks out trusted code, validates the numbers, and renders + posts the
+      # sticky comment. Always runs so a failed run still yields a data file.
+      - name: Emit coverage data
         if: always()
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
@@ -196,48 +202,34 @@ jobs:
           script: |
             const fs = require('fs');
             const { LINE, BRANCH, BRANCHES_COVERED, BRANCHES_TOTAL, SHA, OUTCOME, PR_NUMBER } = process.env;
-            const marker = '<!-- reactor-coverage -->';
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const shaLabel = SHA ? SHA.slice(0, 7) : 'unknown';
-            let body;
-            if (OUTCOME === 'success') {
-              body = [
-                marker,
-                `## 🧪 Merged coverage`,
-                ``,
-                `Coverage for \`${shaLabel}\` (unit + selftest).`,
-                ``,
-                `| Metric | Coverage |`,
-                `|---|---|`,
-                `| Line   | ${LINE}% |`,
-                `| Branch | ${BRANCH}% (${BRANCHES_COVERED}/${BRANCHES_TOTAL}) |`,
-                ``,
-                `<sub>Cobertura reports attached to the <a href="${runUrl}">workflow run</a> as artifacts.</sub>`,
-              ].join('\n');
-            } else {
-              body = [
-                marker,
-                `## 🧪 Merged coverage`,
-                ``,
-                `> [!CAUTION]`,
-                `> Coverage run failed for \`${shaLabel}\` — see the [workflow run](${runUrl}) for details.`,
-              ].join('\n');
-            }
-            // Always surface the result in the run summary — this is the only
-            // output for a branch run (blank-input dispatch, no PR to comment on).
-            await core.summary.addRaw(body).write();
-            // Hand the body + PR number to the poster via an artifact.
+            // Run-summary body — the only output for a branch run (blank-input
+            // dispatch, no PR). Not a PR comment, so rendering it here is fine.
+            const summary = OUTCOME === 'success'
+              ? [`## 🧪 Merged coverage`, ``, `Coverage for \`${shaLabel}\` (unit + selftest).`, ``,
+                 `| Metric | Coverage |`, `|---|---|`, `| Line   | ${LINE}% |`,
+                 `| Branch | ${BRANCH}% (${BRANCHES_COVERED}/${BRANCHES_TOTAL}) |`].join('\n')
+              : `## 🧪 Merged coverage\n\nCoverage run failed for \`${shaLabel}\` — see the [workflow run](${runUrl}).`;
+            await core.summary.addRaw(summary).write();
+            // Machine-readable data for the trusted poster to render + post.
             fs.mkdirSync('coverage-out', { recursive: true });
-            fs.writeFileSync('coverage-out/comment.md', body);
+            fs.writeFileSync('coverage-out/coverage.json', JSON.stringify({
+              line: LINE || '',
+              branch: BRANCH || '',
+              branchesCovered: BRANCHES_COVERED || '',
+              branchesTotal: BRANCHES_TOTAL || '',
+              outcome: OUTCOME || '',
+            }));
             fs.writeFileSync('coverage-out/pr.txt', String(PR_NUMBER || ''));
 
-      - name: Upload comment artifact
+      - name: Upload coverage data artifact
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: coverage-comment
+          name: coverage-data
           path: |
-            coverage-out/comment.md
+            coverage-out/coverage.json
             coverage-out/pr.txt
           if-no-files-found: warn
           retention-days: 14

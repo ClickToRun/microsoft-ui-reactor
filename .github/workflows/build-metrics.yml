@@ -63,10 +63,13 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # Cheap guard: unit-test the pure renderer before spending minutes packing.
-      - name: Test BuildMetricsLib (parser + renderer)
+      # Cheap guard: unit-test the pure renderer + orchestrator helpers before
+      # spending minutes packing.
+      - name: Test build-metrics scripts
         shell: pwsh
-        run: ./tests/build_metrics/ci/BuildMetricsLib.Tests.ps1
+        run: |
+          ./tests/build_metrics/ci/BuildMetricsLib.Tests.ps1
+          ./tests/build_metrics/ci/Measure-BuildMetrics.Tests.ps1
 
       # Resolve the PR's head + base SHAs. For pull_request they come straight
       # from the event; for a manual dispatch we read them from the API (works
@@ -139,55 +142,29 @@ jobs:
             -OutFile "${{ github.workspace }}/build-metrics-out/base.sizes.json" `
             -PackOutput "${{ runner.temp }}/base-nupkg"
 
-      # Render the sticky comment body. Always runs: if the head measurement
-      # produced no sizes it emits a "build failed" comment instead of tables, so
-      # the poster always has something to write.
-      - name: Render comment
+      # SECURITY: this job builds untrusted PR code, so it must NOT render the
+      # comment body — a PR could otherwise make the privileged poster publish
+      # arbitrary markdown. It uploads ONLY the machine-readable sizes.json. The
+      # privileged workflow_run poster (build-metrics-comment.yml) checks out
+      # trusted default-branch code, validates these numbers against a fixed target
+      # spec, and renders + posts the comment. pr.txt is a diagnostic hint only
+      # (the poster resolves the PR from the trusted workflow_run head SHA).
+      - name: Record PR number
         if: always()
         shell: pwsh
-        env:
-          HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
-          BASE_SHA: ${{ steps.resolve.outputs.base_sha }}
-          PR_NUMBER: ${{ steps.resolve.outputs.pr }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          . ./tests/build_metrics/ci/BuildMetricsLib.ps1
           $outDir = Join-Path $env:GITHUB_WORKSPACE 'build-metrics-out'
           New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-          $headFile = Join-Path $outDir 'head.sizes.json'
-          $baseFile = Join-Path $outDir 'base.sizes.json'
+          Set-Content -LiteralPath (Join-Path $outDir 'pr.txt') -Value "${{ steps.resolve.outputs.pr }}" -Encoding UTF8
 
-          $head = if (Test-Path $headFile) { Get-Content $headFile -Raw | ConvertFrom-Json } else { $null }
-          $base = if (Test-Path $baseFile) { Get-Content $baseFile -Raw | ConvertFrom-Json } else { $null }
-          # A head/base with no real sizes (all null) means that side's build failed.
-          $headHasSizes = $head -and (@($head | Where-Object { $null -ne $_.Bytes }).Count -gt 0)
-          $baseHasSizes = $base -and (@($base | Where-Object { $null -ne $_.Bytes }).Count -gt 0)
-
-          if ($headHasSizes -and $baseHasSizes) {
-            $body = Format-BuildMetricsComment -BaseMeasurements $base -HeadMeasurements $head `
-              -HeadSha $env:HEAD_SHA -BaseSha $env:BASE_SHA -RunUrl $env:RUN_URL
-          } elseif ($headHasSizes) {
-            # PR built, base (main) did not — show absolute PR sizes, no delta.
-            $body = Format-BuildMetricsComment -HeadMeasurements $head -BaselineUnavailable `
-              -HeadSha $env:HEAD_SHA -BaseSha $env:BASE_SHA -RunUrl $env:RUN_URL
-          } else {
-            $body = Format-BuildMetricsComment -Failed -HeadSha $env:HEAD_SHA -BaseSha $env:BASE_SHA -RunUrl $env:RUN_URL
-          }
-          Set-Content -LiteralPath (Join-Path $outDir 'comment.md') -Value $body -Encoding UTF8
-          # The poster derives the PR from the trusted workflow_run head SHA, but
-          # we drop the number in too as a diagnostic aid.
-          Set-Content -LiteralPath (Join-Path $outDir 'pr.txt') -Value $env:PR_NUMBER -Encoding UTF8
-          Write-Host "Rendered comment ($($body.Length) chars); headHasSizes=$headHasSizes"
-
-      - name: Upload comment artifact
+      - name: Upload size data artifact
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: build-metrics-comment
+          name: build-metrics-data
           path: |
-            build-metrics-out/comment.md
-            build-metrics-out/pr.txt
             build-metrics-out/head.sizes.json
             build-metrics-out/base.sizes.json
+            build-metrics-out/pr.txt
           if-no-files-found: warn
           retention-days: 14

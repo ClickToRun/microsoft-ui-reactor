@@ -41,6 +41,73 @@ $script:BuildMetricsCommentMarker = '<!-- reactor-build-metrics -->'
 $script:BuildMetricsNoiseFloorBytes = 64
 $script:BuildMetricsNoiseFloorPct   = 0.05
 
+# ── Trusted artifact spec ────────────────────────────────────────────────────
+# The canonical Key → { Label, Group } map. This is the SINGLE SOURCE OF TRUTH for
+# what the comment can display. The measure job runs untrusted PR code, so the
+# privileged poster must NOT trust label/group strings that come back in the
+# uploaded sizes.json — it re-maps every row through this trusted spec via
+# ConvertTo-SafeMeasurements and takes only the (validated numeric) byte counts.
+# Keys here must match those emitted by Measure-BuildMetrics.ps1.
+$script:BuildMetricsTargetSpec = @(
+    [pscustomobject]@{ Key = 'nupkg.Reactor';  Label = 'Microsoft.UI.Reactor.nupkg';          Group = 'Packages (compressed .nupkg)' }
+    [pscustomobject]@{ Key = 'asm.Reactor';    Label = 'Reactor.dll';                          Group = 'Assemblies (uncompressed)' }
+    [pscustomobject]@{ Key = 'nupkg.Advanced'; Label = 'Microsoft.UI.Reactor.Advanced.nupkg';  Group = 'Packages (compressed .nupkg)' }
+    [pscustomobject]@{ Key = 'asm.Advanced';   Label = 'Reactor.Advanced.dll';                 Group = 'Assemblies (uncompressed)' }
+    [pscustomobject]@{ Key = 'nupkg.Devtools'; Label = 'Microsoft.UI.Reactor.Devtools.nupkg';  Group = 'Packages (compressed .nupkg)' }
+    [pscustomobject]@{ Key = 'asm.Devtools';   Label = 'Microsoft.UI.Reactor.Devtools.dll';    Group = 'Assemblies (uncompressed)' }
+)
+
+function Get-BuildMetricsTargetSpec {
+    <#
+    .SYNOPSIS
+        The trusted, ordered Key → { Label, Group } spec for the tracked artifacts.
+    #>
+    return $script:BuildMetricsTargetSpec
+}
+
+function ConvertTo-SafeMeasurements {
+    <#
+    .SYNOPSIS
+        Project raw (untrusted) measurement objects — e.g. parsed from a sizes.json
+        an unprivileged PR job produced — onto the trusted target spec.
+
+    .DESCRIPTION
+        Security boundary for the privileged poster: never render label/group text
+        that came from the artifact. For each entry in the trusted spec this looks
+        up the raw row by Key, accepts its Bytes ONLY if it is a non-negative
+        integer, and emits a measurement carrying the TRUSTED Label/Group. Unknown
+        keys in the raw input are dropped; a missing/garbage/negative Bytes becomes
+        $null (rendered as n/a). The output is therefore fully determined by trusted
+        code plus a handful of validated integers.
+    #>
+    param([AllowNull()]$RawMeasurements)
+
+    $rawByKey = @{}
+    if ($null -ne $RawMeasurements) {
+        foreach ($m in @($RawMeasurements)) {
+            if ($null -eq $m) { continue }
+            if (-not $m.PSObject.Properties['Key']) { continue }
+            $rawByKey[[string]$m.Key] = $m
+        }
+    }
+
+    $out = [System.Collections.Generic.List[object]]::new()
+    foreach ($t in $script:BuildMetricsTargetSpec) {
+        $bytes = $null
+        if ($rawByKey.ContainsKey($t.Key)) {
+            $raw = $rawByKey[$t.Key]
+            if ($raw.PSObject.Properties['Bytes'] -and $null -ne $raw.Bytes) {
+                $parsed = [long]0
+                if ([long]::TryParse([string]$raw.Bytes, [ref]$parsed) -and $parsed -ge 0) {
+                    $bytes = $parsed
+                }
+            }
+        }
+        $out.Add([pscustomobject]@{ Key = $t.Key; Label = $t.Label; Group = $t.Group; Bytes = $bytes })
+    }
+    return $out
+}
+
 function Format-ByteSize {
     <#
     .SYNOPSIS

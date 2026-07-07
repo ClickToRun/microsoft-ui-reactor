@@ -185,6 +185,52 @@ Assert-Match    $baseGoneComment 'Microsoft.UI.Reactor.nupkg' 'baseline-unavaila
 Assert-NotMatch $baseGoneComment '<sub>new</sub>'            'baseline-unavailable does not mislabel rows as new'
 Assert-NotMatch $baseGoneComment 'No size change beyond'      'baseline-unavailable suppresses the no-change note'
 
+# ── Get-BuildMetricsTargetSpec / ConvertTo-SafeMeasurements (security boundary) ─
+$spec = Get-BuildMetricsTargetSpec
+Assert-Equal 6 $spec.Count 'target spec has all six tracked artifacts'
+Assert-Equal 'Microsoft.UI.Reactor.nupkg' ($spec | Where-Object { $_.Key -eq 'nupkg.Reactor' }).Label 'spec maps the framework nupkg label'
+
+# Well-formed raw input: trusted labels applied, numeric bytes preserved, order = spec.
+$raw = @(
+    [pscustomobject]@{ Key = 'asm.Reactor';   Label = 'IGNORED';  Group = 'IGNORED'; Bytes = 3384320 }
+    [pscustomobject]@{ Key = 'nupkg.Reactor'; Label = 'IGNORED';  Group = 'IGNORED'; Bytes = 2034863 }
+)
+$safe = ConvertTo-SafeMeasurements -RawMeasurements $raw
+Assert-Equal 6 $safe.Count 'safe measurements always cover the full spec'
+Assert-Equal 'nupkg.Reactor' $safe[0].Key 'safe output is in spec order (nupkg.Reactor first)'
+Assert-Equal 'Microsoft.UI.Reactor.nupkg' $safe[0].Label 'safe output uses the TRUSTED label, not the artifact label'
+Assert-Equal 2034863 $safe[0].Bytes 'valid integer bytes preserved'
+Assert-Equal 3384320 ($safe | Where-Object { $_.Key -eq 'asm.Reactor' }).Bytes 'valid bytes preserved regardless of raw order'
+
+# Security: a malicious Label/Group in the artifact must never reach the output.
+$evil = @([pscustomobject]@{ Key = 'nupkg.Reactor'; Label = '<img src=x onerror=alert(1)>'; Group = '[!WARNING] pwned'; Bytes = 100 })
+$safeEvil = ConvertTo-SafeMeasurements -RawMeasurements $evil
+Assert-Equal 'Microsoft.UI.Reactor.nupkg' $safeEvil[0].Label 'injected label is dropped for the trusted label'
+Assert-NotMatch (($safeEvil | ForEach-Object { $_.Label + '|' + $_.Group }) -join ' ') 'onerror' 'no injected markup survives sanitization'
+
+# Unknown keys are dropped; non-integer / negative / decimal bytes become null.
+$junk = @(
+    [pscustomobject]@{ Key = 'nupkg.Evil';    Label = 'x'; Group = 'y'; Bytes = 5 }   # unknown key -> dropped
+    [pscustomobject]@{ Key = 'asm.Reactor';   Label = 'x'; Group = 'y'; Bytes = 'not-a-number' }
+    [pscustomobject]@{ Key = 'nupkg.Advanced';Label = 'x'; Group = 'y'; Bytes = -50 }
+    [pscustomobject]@{ Key = 'asm.Advanced';  Label = 'x'; Group = 'y'; Bytes = '1e9' }
+)
+$safeJunk = ConvertTo-SafeMeasurements -RawMeasurements $junk
+Assert-True ((@($safeJunk | Where-Object { $_.Key -eq 'nupkg.Evil' })).Count -eq 0) 'unknown key dropped'
+Assert-Null ($safeJunk | Where-Object { $_.Key -eq 'asm.Reactor' }).Bytes   'non-numeric bytes -> null'
+Assert-Null ($safeJunk | Where-Object { $_.Key -eq 'nupkg.Advanced' }).Bytes 'negative bytes -> null'
+Assert-Null ($safeJunk | Where-Object { $_.Key -eq 'asm.Advanced' }).Bytes   'scientific-notation bytes -> null'
+
+# Null input -> full spec with all-null bytes (renders as a "failed" set).
+$safeNull = ConvertTo-SafeMeasurements -RawMeasurements $null
+Assert-Equal 6 $safeNull.Count 'null raw -> full spec'
+Assert-Equal 0 (@($safeNull | Where-Object { $null -ne $_.Bytes }).Count) 'null raw -> all bytes null'
+
+# End-to-end: a sanitized set renders a normal comment with trusted labels only.
+$safeComment = Format-BuildMetricsComment -BaseMeasurements $safeNull -HeadMeasurements $safe -HeadSha 'abc1234' -BaseSha 'def5678'
+Assert-Match    $safeComment 'Microsoft.UI.Reactor.nupkg' 'sanitized render shows trusted labels'
+Assert-NotMatch $safeComment 'IGNORED'                    'sanitized render drops artifact-supplied labels'
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 Write-Host ''
 Write-Host "BuildMetricsLib tests: $script:Pass passed, $script:Fail failed."

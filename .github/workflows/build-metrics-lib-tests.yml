@@ -32,7 +32,11 @@ jobs:
           persist-credentials: false
 
       # pwsh (PowerShell 7) is preinstalled on the GitHub-hosted Ubuntu runner.
-      # BuildMetricsLib.Tests.ps1 exits non-zero on any failed assertion.
+      # Each test script exits non-zero on any failed assertion.
       - name: Run BuildMetricsLib unit tests
         shell: pwsh
         run: ./tests/build_metrics/ci/BuildMetricsLib.Tests.ps1
+
+      - name: Run Measure-BuildMetrics unit tests
+        shell: pwsh
+        run: ./tests/build_metrics/ci/Measure-BuildMetrics.Tests.ps1
