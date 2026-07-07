@@ -576,7 +576,7 @@ T.BorderBrush<T>(string color) → T
 T.BorderInlineStart<T>(Thickness thickness) → T
 T.BorderThickness<T>(Thickness thickness) → T
 T.BorderThickness<T>(double horizontal, double vertical) → T
-T.BorderThickness<T>(double left, double top, double right, double bottom) → T
+T.BorderThickness<T>(double left = 0, double top = 0, double right = 0, double bottom = 0) → T
 T.BorderThickness<T>(double thickness) → T
 T.Canvas<T>(double left = 0, double top = 0) → T
 T.Canvas<T>(double left, double top, double anchorX, double anchorY) → T
@@ -7113,6 +7113,9 @@ RegisterCellRenderer<T>(Func<object, Element> renderer) → TypeRegistry
 RegisterFormatter<T>(Func<object, string> formatter) → TypeRegistry
 Resolve(Type type) → TypeMetadata
 ResolveEditor(Type type, EditorTier tier) → Func<object, Action<object>, Element>
+
+### class UIThreadOnlyAttribute
+new()
 
 ### record ValidationAttached
 new(string FieldName, IValidator[] Validators, IAsyncValidator[] AsyncValidators)

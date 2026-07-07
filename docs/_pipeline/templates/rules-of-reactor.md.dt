@@ -45,7 +45,7 @@ The five core rules:
 | Lists need keys | *(convention)* | [Collections](collections.md) |
 | Theme tokens not literals | `REACTOR_THEME_001` | [Theming Tokens](theming-tokens.md) |
 | Lightweight styling | `REACTOR_THEME_002` | [Styling](styling.md) |
-| Accessible names | `REACTOR_A11Y_001..003` | [Accessibility](accessibility.md) |
+| Accessible names | `REACTOR_A11Y_001..004` | [Accessibility](accessibility.md) |
 
 Each rule below covers one row in the index with the before / after
 shape and the analyzer's catch.
@@ -215,7 +215,7 @@ Full coverage on [Theming Tokens](theming-tokens.md).
 | `RequestedTheme` is a render input, not a setter | `REACTOR_THEME_003` | [Styling](styling.md) |
 | XML docs on public APIs | `REACTOR_DOC_001` | (framework code) |
 | `<see cref="..."/>` resolves | `CS1574` | (framework code) |
-| Accessible name on interactive elements | `REACTOR_A11Y_001..003` | [Accessibility](accessibility.md) |
+| Accessible name on interactive elements | `REACTOR_A11Y_001..004` | [Accessibility](accessibility.md) |
 
 ## Tips
 
@@ -241,4 +241,4 @@ list sizes and devastating at scale).
 - **[Reconciliation](reconciliation.md)** — Why keys matter at the
   reconciler level.
 - **[Theming Tokens](theming-tokens.md)** — Token catalog for rule 5.
-- **[Accessibility](accessibility.md)** — The A11Y_001..003 rules.
+- **[Accessibility](accessibility.md)** — The A11Y_001..004 rules.
