@@ -20,7 +20,7 @@ on:
 permissions:
   contents: read
   actions: read          # download the triggering run's artifact
-  pull-requests: read    # resolve the PR from the trusted head SHA
+  pull-requests: write   # resolve the PR + post/update the comment
   issues: write          # PR conversation comments use the issues API
 
 jobs:
