@@ -135,8 +135,10 @@ jobs:
           file=out/comment.md
           # --paginate emits per-page results, so select matching ids across ALL
           # pages and take the first — never assign a multi-line value to $existing.
+          # Restrict to OUR bot's own comments so a PR author can't plant a
+          # marker-prefixed comment and have us PATCH (hijack) it.
           existing=$(gh api "repos/$GH_REPO/issues/$PR_NUMBER/comments" --paginate \
-                       --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -n1 || true)
+                       --jq ".[] | select(.user.login == \"github-actions[bot]\") | select(.body | startswith(\"$marker\")) | .id" | head -n1 || true)
           if [ -n "$existing" ]; then
             echo "Updating existing comment $existing"
             gh api -X PATCH "repos/$GH_REPO/issues/comments/$existing" -F "body=@$file" >/dev/null

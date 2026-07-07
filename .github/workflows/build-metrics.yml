@@ -92,7 +92,7 @@ jobs:
             $base = $env:PR_BASE_SHA
           } else {
             $pr = $env:PR_NUMBER_INPUT
-            if ($pr -notmatch '^\d+$') { throw "Invalid pr_number input '$pr' (expected a positive integer)." }
+            if ($pr -notmatch '^[1-9][0-9]*$') { throw "Invalid pr_number input '$pr' (expected a positive integer)." }
             $json = gh api "repos/$env:GH_REPO/pulls/$pr" | ConvertFrom-Json
             $head = $json.head.sha
             $base = $json.base.sha

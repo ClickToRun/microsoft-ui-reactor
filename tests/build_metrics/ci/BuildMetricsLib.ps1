@@ -313,7 +313,8 @@ function Format-BuildMetricsComment {
         $lines.Add('> [!WARNING]')
         $lines.Add('> The baseline (`main`) build did not produce sizes, so no delta is available — showing the PR''s absolute sizes only.')
         $lines.Add('')
-        # Drop the base column so present-head rows read as "—" rather than "added".
+        # Clear the base measurements (the "main" column still renders, as n/a) so
+        # present-head rows show "—" instead of misclassifying as newly "added".
         $BaseMeasurements = $null
     }
 
