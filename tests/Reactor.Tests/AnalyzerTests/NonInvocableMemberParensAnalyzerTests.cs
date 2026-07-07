@@ -23,8 +23,14 @@ namespace Microsoft.UI.Reactor
     public readonly struct GridSize
     {
         public static GridSize Auto { get { return default; } }
+        public static readonly GridSize Fill;   // a static FIELD (invoked -> 'field' wording)
         public static GridSize Star(double weight = 1) { return default; }
         public static GridSize Px(double pixels) { return default; }
+    }
+
+    public sealed class Dimension
+    {
+        public int Value { get { return 0; } }   // an instance PROPERTY
     }
 }
 namespace Other
@@ -85,6 +91,45 @@ namespace App
 {
     using Other;
     static class C { static object M() => Widget.Thing(); }
+}";
+        await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Flags_Instance_Property_Invoked_Like_Method()
+    {
+        // Exercises the instance-receiver branch (GetTypeInfo) rather than static type access.
+        var body = @"
+namespace App
+{
+    using Microsoft.UI.Reactor;
+    static class C { static object M(Dimension d) => {|REACTOR_DYM_001:d.Value()|}; }
+}";
+        await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Flags_Field_Invoked_Like_Method()
+    {
+        // The member-kind branch reports the field wording (vs property) for a field.
+        var body = @"
+namespace App
+{
+    using Microsoft.UI.Reactor;
+    static class C { static object M() => {|REACTOR_DYM_001:GridSize.Fill()|}; }
+}";
+        await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Does_Not_Flag_Generic_Name_Invocation()
+    {
+        // GridSize.Auto<int>() can't be repaired by dropping parentheses, so the analyzer stays out.
+        var body = @"
+namespace App
+{
+    using Microsoft.UI.Reactor;
+    static class C { static object M() => GridSize.Auto<int>(); }
 }";
         await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
     }
