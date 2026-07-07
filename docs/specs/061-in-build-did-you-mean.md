@@ -11,9 +11,9 @@ name-resolution phases are design-only. This spec is the design of record for br
 > real eval corpus, ran empirical Roslyn spikes, and put the question to a panel of models
 > (GPT‑5.5, Gemini 3.1 Pro, GPT‑5.3‑Codex) twice — once as a design review of the original
 > output-driven proposal, once as an A/B/C judgment on the evidence. All three independently
-> recommended the analyzer path (Option A) at high confidence. The full trail lives in the
-> session artifacts (`decision-memo.md`, `coverage-matrix.md`, `spike-findings.md`,
-> `review-synthesis.md`).
+> recommended the analyzer path (Option A) at high confidence. The full investigation — a decision
+> memo, coverage matrix, spike findings, and cross-model review synthesis — was captured as
+> design-session working notes and is not checked into the repository.
 
 ---
 
@@ -81,7 +81,7 @@ From the 2026-05-11 525-run corpus, the did-you-mean mistakes rank:
 An empirical Roslyn spike confirmed every high-frequency case is cleanly analyzer-detectable —
 including the #1 (CS1955): the invocation's symbol degrades in the error state, but the **receiver
 type still resolves**, so the member kind is re-derived from `type.GetMembers(name)`
-(property/field vs. method). None of the 52 existing Reactor analyzers cover the did-you-mean
+(property/field vs. method). None of the existing Reactor analyzers cover the did-you-mean
 direction, so this is additive, not duplicative.
 
 ## §4 Design
