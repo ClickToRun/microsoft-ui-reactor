@@ -122,14 +122,15 @@ namespace App
     }
 
     [Fact]
-    public async Task Does_Not_Flag_Generic_Name_Invocation()
+    public async Task Flags_Generic_Name_Invocation()
     {
-        // GridSize.Auto<int>() can't be repaired by dropping parentheses, so the analyzer stays out.
+        // Type arguments on a property (GridSize.Auto<int>()) are still just a property invoked
+        // like a method; the diagnostic fires and the fix drops the type args too (see CodeFix test).
         var body = @"
 namespace App
 {
     using Microsoft.UI.Reactor;
-    static class C { static object M() => GridSize.Auto<int>(); }
+    static class C { static object M() => {|REACTOR_DYM_001:GridSize.Auto<int>()|}; }
 }";
         await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
     }
@@ -142,6 +143,33 @@ namespace App
 {
     using Microsoft.UI.Reactor;
     static class C { static object M() => {|REACTOR_DYM_001:GridSize.Auto()|}; }
+}";
+        var after = Stubs + @"
+namespace App
+{
+    using Microsoft.UI.Reactor;
+    static class C { static object M() => GridSize.Auto; }
+}";
+        var test = new CSharpCodeFixTest<NonInvocableMemberParensAnalyzer, NonInvocableMemberParensCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+            CompilerDiagnostics = CompilerDiagnostics.None,
+        };
+        test.DisabledDiagnostics.Add("CS1591");
+        await test.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Removes_Parentheses_And_Type_Arguments()
+    {
+        // Reviewer scenario: GridSize.Auto<int>() must become GridSize.Auto (not GridSize.Auto<int>),
+        // since a property/field can't carry type arguments.
+        var before = Stubs + @"
+namespace App
+{
+    using Microsoft.UI.Reactor;
+    static class C { static object M() => {|REACTOR_DYM_001:GridSize.Auto<int>()|}; }
 }";
         var after = Stubs + @"
 namespace App

@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeFixes;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace Microsoft.UI.Reactor.Analyzers;
@@ -34,6 +35,12 @@ public sealed class NonInvocableMemberParensCodeFix : CodeFixProvider
             var invocation = node.FirstAncestorOrSelf<InvocationExpressionSyntax>();
             if (invocation?.Expression is not MemberAccessExpressionSyntax memberAccess)
                 continue;
+
+            // If the member name carries explicit type arguments (`GridSize.Auto<int>()`), strip them
+            // too: a property/field can't be generic, so keeping them would leave `GridSize.Auto<int>`,
+            // which still doesn't compile. Normalize the generic name down to a plain identifier first.
+            if (memberAccess.Name is GenericNameSyntax generic)
+                memberAccess = memberAccess.WithName(SyntaxFactory.IdentifierName(generic.Identifier));
 
             // `GridSize.Auto()` → `GridSize.Auto`, preserving the invocation's outer trivia.
             var replacement = memberAccess.WithTriviaFrom(invocation);

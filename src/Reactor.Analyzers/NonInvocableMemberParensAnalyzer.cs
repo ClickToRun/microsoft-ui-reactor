@@ -73,12 +73,6 @@ public sealed class NonInvocableMemberParensAnalyzer : DiagnosticAnalyzer
         if (invocation.Expression is not MemberAccessExpressionSyntax memberAccess)
             return;
 
-        // A generic member name (`GridSize.Auto<int>()`) can't be repaired by only dropping the
-        // parentheses — `GridSize.Auto<int>` is still not a valid property/field reference — so leave
-        // that shape to the raw compiler error rather than offering a fix that doesn't compile.
-        if (memberAccess.Name is GenericNameSyntax)
-            return;
-
         var model = context.SemanticModel;
 
         // Precise CS1955 alignment: only when the invocation itself did not bind. A property whose
