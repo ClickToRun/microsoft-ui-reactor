@@ -1,31 +1,45 @@
 name: Coverage
 
-# Automatic merged unit + selftest coverage on every PR, posted as a sticky,
-# self-updating comment. Runs the merged coverage recipe from TESTING.md and
-# reports line + branch rates. Also runnable manually:
-#   - workflow_dispatch with a PR number  -> measures that PR (works for forks);
-#   - workflow_dispatch with the number blank -> measures the selected branch and
-#     writes the result to the run's job summary (no PR to comment on).
+# Automatic merged unit + selftest coverage. On every PR this measures ONLY the PR
+# head (one instrumented pass) and posts a sticky comment comparing it against a
+# cached `main` baseline. The baseline itself is (re)measured on push to `main` and
+# stored as a downloadable artifact, so PRs never pay to re-measure main. Also
+# runnable manually via workflow_dispatch (a PR number, or blank to measure the
+# selected branch — on the default branch that refreshes the main baseline).
 #
 # ── Security: why pull_request + workflow_run (not issue_comment) ──────────────
-# Coverage BUILDS + INSTRUMENTS + RUNS the PR's code (build scripts and tests
-# execute here). The old design triggered on `issue_comment` — which runs in the
-# base repo with a full write token — so it had to be gated to maintainers via
-# author_association. Running it automatically on every PR under that model would
-# hand a write token to untrusted PR code, which is unsafe.
+# Coverage BUILDS + INSTRUMENTS + RUNS code (build scripts and tests execute here).
+# Running that automatically on every PR with a write token would hand the token to
+# untrusted PR code, which is unsafe. Instead this workflow runs in the unprivileged
+# `pull_request` context (read-only token, no secrets, NO ability to comment) and
+# uploads ONLY the raw coverage numbers; the privileged `coverage-comment.yml`
+# (`workflow_run`) re-validates those numbers, fetches the cached main baseline,
+# renders the comparison, and posts it. That split runs untrusted build code with
+# zero write privilege and still comments on PRs — including from forks. It mirrors
+# the trust boundary documented in perf-compare.yml / build-metrics.yml.
 #
-# Instead this workflow runs in the unprivileged `pull_request` context: a
-# read-only token, no secrets, and NO ability to comment. It writes the result to
-# the run summary and uploads ONLY the raw coverage numbers; the privileged
-# `coverage-comment.yml` (`workflow_run`) checks out trusted code, renders the
-# comment, and posts it. That split runs untrusted build code with zero write
-# privilege and still comments on PRs — including from forks. It mirrors
-# build-metrics.yml and the trust boundary documented in perf-compare.yml.
+# ── Baseline model ────────────────────────────────────────────────────────────
+# A push to `main` measures main and uploads a `coverage-baseline` artifact (numbers
+# only). A PR run measures the head and uploads `coverage-data`. The poster reads the
+# head from the triggering run and the base from the newest successful push-to-main
+# `coverage-baseline` artifact, then renders `base | PR | Δ`. Trade-off vs
+# re-measuring the PR's exact base on every run: ~half the CI cost, against a small
+# staleness window (the baseline is "main as of its last coverage run"). Until the
+# first post-merge push publishes one, PRs render "baseline unavailable". See
+# tests/coverage/ci/README.md.
 
 on:
   pull_request:
-    # Doc-only PRs change no measured code; skip the ~10-min instrumented run.
-    # This includes the docs/_pipeline templates + doc apps that generate the guide.
+    # Doc-only PRs change no measured code; skip the instrumented run. This includes
+    # the docs/_pipeline templates + doc apps that generate the guide.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/guide/**'
+      - 'docs/_pipeline/**'
+  push:
+    # Publish/refresh the `main` baseline when code that could move coverage lands.
+    # Doc-only pushes don't change coverage, so the previous baseline stays valid.
+    branches: [main]
     paths-ignore:
       - '**/*.md'
       - 'docs/guide/**'
@@ -33,14 +47,14 @@ on:
   workflow_dispatch:
     inputs:
       pr_number:
-        description: PR to measure. Leave blank to measure the selected branch instead.
+        description: PR to measure. Leave blank to measure the selected branch (on the default branch this refreshes the main baseline).
         required: false
         type: string
 
-# Read-only: this job runs untrusted PR code and must not hold a write token.
-# The comment is posted by the separate privileged workflow_run workflow.
-# pull-requests: read only serves the manual workflow_dispatch path (resolving a
-# PR's head sha via the API); the automatic pull_request path uses the event.
+# Read-only: this job runs untrusted PR code and must not hold a write token. The
+# comment is posted by the separate privileged workflow_run workflow. pull-requests:
+# read only serves the manual workflow_dispatch path (resolving a PR's head via the
+# API); the automatic pull_request path uses the event.
 permissions:
   contents: read
   pull-requests: read
@@ -48,32 +62,43 @@ permissions:
 jobs:
   coverage:
     name: Merged coverage
-    # One in-flight run per target — a PR number, or the branch ref for a
+    # One in-flight run per target — a PR number, or the branch ref for a push /
     # blank-input dispatch. A newer trigger supersedes an older one.
     concurrency:
       group: coverage-${{ github.event.pull_request.number || github.event.inputs.pr_number || github.ref }}
       cancel-in-progress: true
     runs-on: windows-latest
+    # One instrumented merged-coverage pass (head on PRs; main on push).
+    timeout-minutes: 40
     steps:
       - name: Resolve coverage target
         id: pr
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          EVENT_NAME: ${{ github.event_name }}
           DISPATCH_PR: ${{ github.event.inputs.pr_number }}
         with:
           script: |
-            // Resolve what to measure:
-            //   - pull_request             -> the PR that triggered the run
-            //   - workflow_dispatch + PR#  -> that PR (works for forks)
-            //   - workflow_dispatch, blank -> the dispatched branch (no PR)
+            // Resolve the single commit to measure + whether this run publishes the
+            // `main` baseline artifact:
+            //   - pull_request             -> the PR head (coverage-data)
+            //   - push (default branch)    -> the pushed commit (coverage-baseline)
+            //   - workflow_dispatch + PR#  -> that PR's head (coverage-data; forks too)
+            //   - workflow_dispatch, blank -> the dispatched commit; on the default
+            //                                 branch this refreshes the baseline.
+            let ref = '';
+            let headSha = '';
             let prNumber = '';
+            let isBaseline = false;
+            const defaultBranch = (context.payload.repository && context.payload.repository.default_branch) || 'main';
             if (context.eventName === 'pull_request') {
               const pr = context.payload.pull_request;
               prNumber = String(pr.number);
-              core.setOutput('sha', pr.head.sha);
-              // Build the PR head commit; refs/pull/N/head resolves for forks too.
-              core.setOutput('ref', `refs/pull/${pr.number}/head`);
+              headSha = pr.head.sha;
+              ref = `refs/pull/${pr.number}/head`;
+            } else if (context.eventName === 'push') {
+              headSha = context.sha;
+              ref = context.sha;
+              isBaseline = true; // the push trigger is filtered to the default branch
             } else {
               const raw = process.env.DISPATCH_PR || '';
               if (raw !== '') {
@@ -86,16 +111,24 @@ jobs:
                   repo: context.repo.repo,
                   pull_number: Number(prNumber),
                 });
-                core.setOutput('sha', pr.data.head.sha);
-                core.setOutput('ref', `refs/pull/${prNumber}/head`);
+                headSha = pr.data.head.sha;
+                ref = `refs/pull/${raw}/head`;
               } else {
-                // No PR: measure the commit the workflow was dispatched on.
-                core.setOutput('sha', context.sha);
-                core.setOutput('ref', context.sha);
+                headSha = context.sha;
+                ref = context.sha;
+                isBaseline = (context.ref === `refs/heads/${defaultBranch}`);
               }
             }
+            core.setOutput('ref', ref);
+            core.setOutput('head_sha', headSha);
             core.setOutput('number', prNumber);
+            core.setOutput('is_baseline', isBaseline ? 'true' : 'false');
 
+      # Unprivileged checkout of the single commit to measure. On a pull_request this
+      # is the PR head — untrusted PR code — but the job is read-only (no write token,
+      # no secrets), so running the PR's own build/measure scripts here is acceptable;
+      # the trusted poster (coverage-comment.yml) renders + posts. persist-credentials:
+      # false so the PR build code that runs later gets no usable git credential.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ steps.pr.outputs.ref }}
@@ -109,124 +142,125 @@ jobs:
       - name: Install dotnet-coverage
         run: dotnet tool install -g dotnet-coverage
 
-      - name: Build for instrumentation
+      # Cheap guard: run the pure parser + delta-math tests before the ~10-min
+      # instrumented measure. Also runs standalone in coverage-lib-tests.yml on PRs.
+      - name: Test coverage scripts
         shell: pwsh
         run: |
-          dotnet build tests/Reactor.Tests           -c Debug -p:Platform=x64 -p:Optimize=false -p:DebugType=portable
-          dotnet build src/Reactor                   -c Debug -p:Optimize=false -p:DebugType=portable --no-incremental
-          dotnet build tests/Reactor.AppTests.Host   -c Debug -p:Platform=x64 -p:Optimize=false -p:DebugType=portable --no-incremental
+          ./tests/coverage/ci/CoverageLib.Tests.ps1
+          ./tests/coverage/ci/Measure-Coverage.Tests.ps1
 
-      - name: Collect unit coverage
+      # Measure the checked-out commit. continue-on-error so a failing build doesn't
+      # abort the job — the upload + trusted poster still run; the final step surfaces
+      # the failure as a red check and the poster renders a CAUTION comment.
+      - name: Measure coverage
+        id: measure
+        continue-on-error: true
         shell: pwsh
         run: |
-          dotnet-coverage collect -s coverage.settings.xml `
-            --output unit.cobertura.xml --output-format cobertura `
-            -- dotnet test tests/Reactor.Tests --no-build -p:Platform=x64
+          ./tests/coverage/ci/Measure-Coverage.ps1 `
+            -Root . `
+            -OutFile "$env:GITHUB_WORKSPACE/coverage-out/coverage.json" `
+            -WorkDir "$env:GITHUB_WORKSPACE/coverage-out/reports"
 
-      - name: Instrument Reactor.dll
+      - name: Ensure coverage data
+        id: ensure
+        if: always()
         shell: pwsh
+        env:
+          MEASURE_OUTCOME: ${{ steps.measure.outcome }}
         run: |
-          $dll = Get-ChildItem -Path "tests/Reactor.AppTests.Host/bin" -Recurse -Filter "Reactor.dll" |
-                   Where-Object { $_.FullName -notmatch 'ref[\\/]' } |
-                   Select-Object -First 1
-          if (-not $dll) { throw "Reactor.dll not found under tests/Reactor.AppTests.Host/bin" }
-          Write-Host "Instrumenting: $($dll.FullName)"
-          dotnet-coverage instrument `
-            $dll.FullName `
-            -s coverage.settings.xml
+          . ./tests/coverage/ci/CoverageLib.ps1
+          $out = Join-Path $env:GITHUB_WORKSPACE 'coverage-out'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $file = Join-Path $out 'coverage.json'
+          $failedJson = '{ "line": null, "branch": null, "branchesCovered": null, "branchesTotal": null, "outcome": "failed" }'
+          # Trust the numbers ONLY when the measure step SUCCEEDED *and* actually
+          # produced a valid coverage.json. This job runs untrusted PR test code with
+          # write access to the workspace, so a PR could pre-plant a fake file; and a
+          # green-but-empty measure (a script/path regression that exits 0 without
+          # writing real numbers) must not silently post a blank comment. In either
+          # case overwrite with a failed placeholder — the poster then renders CAUTION
+          # and the run goes red via the data_ok gate below.
+          $ok = $false
+          if ($env:MEASURE_OUTCOME -eq 'success') {
+            $raw = $null
+            if (Test-Path $file) { try { $raw = Get-Content $file -Raw | ConvertFrom-Json } catch { $raw = $null } }
+            if (Test-CoverageMetricsPresent (ConvertTo-SafeCoverageMetrics $raw)) { $ok = $true }
+          }
+          if (-not $ok) {
+            Set-Content -LiteralPath $file -Value $failedJson -Encoding UTF8
+            Write-Warning "No valid coverage numbers (measure outcome=$($env:MEASURE_OUTCOME)); the comment will render CAUTION and the check will be red."
+          }
+          "data_ok=$(if ($ok) { 'true' } else { 'false' })" | Out-File $env:GITHUB_OUTPUT -Append
 
-      - name: Collect selftest coverage
+      # Run-summary body — informational, not a PR post. This job doesn't hold the
+      # baseline (the poster fetches it), so the summary shows the measured commit's
+      # absolute coverage; the base | PR | Δ comparison is in the PR comment.
+      - name: Write run summary
+        if: always()
         shell: pwsh
+        env:
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
-          dotnet-coverage collect -s coverage.settings.xml `
-            --output selftest.cobertura.xml --output-format cobertura `
-            -- dotnet run --project tests/Reactor.AppTests.Host --no-build -p:Platform=x64 -- --self-test
+          . ./tests/coverage/ci/CoverageLib.ps1
+          function Read-Json($p) {
+            if (-not (Test-Path $p)) { return $null }
+            try { return Get-Content $p -Raw | ConvertFrom-Json } catch { return $null }
+          }
+          $file = Join-Path $env:GITHUB_WORKSPACE 'coverage-out/coverage.json'
+          $head = ConvertTo-SafeCoverageMetrics (Read-Json $file)
+          $body = Format-CoverageCommentFromMetrics -HeadMetrics $head -HasBase $false -HeadSha $env:HEAD_SHA
+          # Drop the leading sticky marker line (an HTML comment for the PR-comment
+          # lookup, not the run summary).
+          $summary = ($body -split "`n" | Select-Object -Skip 1) -join "`n"
+          $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding UTF8
 
-      - name: Merge cobertura reports
-        shell: pwsh
-        run: |
-          dotnet-coverage merge unit.cobertura.xml selftest.cobertura.xml `
-            --output merged.cobertura.xml --output-format cobertura
-
-      - name: Upload coverage artifacts
+      - name: Upload coverage reports
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: coverage-${{ steps.pr.outputs.sha }}
-          path: |
-            unit.cobertura.xml
-            selftest.cobertura.xml
-            merged.cobertura.xml
-
-      - name: Read coverage rates
-        id: rates
-        shell: pwsh
-        run: |
-          # dotnet-coverage's cobertura output captures per-line branch data in
-          # `condition-coverage="P% (covered/total)"` attributes but does not
-          # aggregate them: the root and class `branch-rate` attributes are
-          # hardcoded to 1. Sum the per-line numerators/denominators ourselves.
-          [xml]$x = Get-Content merged.cobertura.xml
-          $line = [math]::Round([double]$x.coverage.'line-rate' * 100, 2)
-          $covered = 0
-          $total   = 0
-          foreach ($l in $x.SelectNodes('//line[@condition-coverage]')) {
-            if ($l.'condition-coverage' -match '\((\d+)/(\d+)\)') {
-              $covered += [int]$Matches[1]
-              $total   += [int]$Matches[2]
-            }
-          }
-          $branch = if ($total -gt 0) { [math]::Round(100.0 * $covered / $total, 2) } else { 0 }
-          "line=$line"     | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "branch=$branch" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "branches-covered=$covered" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "branches-total=$total"     | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          name: coverage-reports-${{ steps.pr.outputs.head_sha }}
+          path: coverage-out/reports/**
+          if-no-files-found: warn
+          retention-days: 14
 
       # SECURITY: this job runs untrusted PR code, so it must NOT render the PR
-      # comment body. It writes the human-readable result to the RUN SUMMARY
-      # (informational, not a privileged PR post) and uploads the raw numbers as
-      # coverage.json. The privileged workflow_run poster (coverage-comment.yml)
-      # checks out trusted code, validates the numbers, and renders + posts the
-      # sticky comment. Always runs so a failed run still yields a data file.
-      - name: Emit coverage data
-        if: always()
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        env:
-          LINE: ${{ steps.rates.outputs.line }}
-          BRANCH: ${{ steps.rates.outputs.branch }}
-          BRANCHES_COVERED: ${{ steps.rates.outputs.branches-covered }}
-          BRANCHES_TOTAL: ${{ steps.rates.outputs.branches-total }}
-          SHA: ${{ steps.pr.outputs.sha }}
-          OUTCOME: ${{ job.status }}
-          PR_NUMBER: ${{ steps.pr.outputs.number }}
-        with:
-          script: |
-            const fs = require('fs');
-            const { LINE, BRANCH, BRANCHES_COVERED, BRANCHES_TOTAL, SHA, OUTCOME, PR_NUMBER } = process.env;
-            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const shaLabel = SHA ? SHA.slice(0, 7) : 'unknown';
-            // Run-summary body — the only output for a branch run (blank-input
-            // dispatch, no PR). Not a PR comment, so rendering it here is fine.
-            const summary = OUTCOME === 'success'
-              ? [`## 🧪 Merged coverage`, ``, `Coverage for \`${shaLabel}\` (unit + selftest).`, ``,
-                 `| Metric | Coverage |`, `|---|---|`, `| Line   | ${LINE}% |`,
-                 `| Branch | ${BRANCH}% (${BRANCHES_COVERED}/${BRANCHES_TOTAL}) |`].join('\n')
-              : `## 🧪 Merged coverage\n\nCoverage run failed for \`${shaLabel}\` — see the [workflow run](${runUrl}).`;
-            await core.summary.addRaw(summary).write();
-            // Machine-readable data for the trusted poster to render + post.
-            fs.mkdirSync('coverage-out', { recursive: true });
-            fs.writeFileSync('coverage-out/coverage.json', JSON.stringify({
-              line: LINE || '',
-              branch: BRANCH || '',
-              branchesCovered: BRANCHES_COVERED || '',
-              branchesTotal: BRANCHES_TOTAL || '',
-              outcome: OUTCOME || '',
-            }));
-
-      - name: Upload coverage data artifact
-        if: always()
+      # comment body. It uploads ONLY the machine-readable numbers. The privileged
+      # workflow_run poster (coverage-comment.yml) validates the numbers, fetches the
+      # cached main baseline, and renders + posts the sticky comparison comment.
+      #
+      # PR runs upload `coverage-data` (read by the poster for THIS run). Push-to-main
+      # runs upload `coverage-baseline` (the cached baseline future PRs compare
+      # against) with a longer retention so it survives between main pushes.
+      - name: Upload coverage data (PR)
+        if: ${{ always() && steps.pr.outputs.is_baseline != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-data
           path: coverage-out/coverage.json
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Upload coverage baseline (main)
+        if: ${{ steps.pr.outputs.is_baseline == 'true' && steps.ensure.outputs.data_ok == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-baseline
+          path: coverage-out/coverage.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      # Surface a red check when coverage produced no valid numbers — a build/measure
+      # failure OR a green-but-empty measure (data_ok is false in both). The comment
+      # is still posted (CAUTION) for PRs; a bad main baseline is visible too.
+      - name: Reflect coverage status
+        if: always()
+        shell: pwsh
+        env:
+          DATA_OK: ${{ steps.ensure.outputs.data_ok }}
+        run: |
+          if ($env:DATA_OK -ne 'true') {
+            throw 'Coverage produced no valid numbers (build/measure failed or emitted nothing) — see the coverage comment and the coverage-reports artifact.'
+          }
+          Write-Host 'Coverage measurement completed successfully.'
