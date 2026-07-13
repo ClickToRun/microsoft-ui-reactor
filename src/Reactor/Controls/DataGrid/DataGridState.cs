@@ -107,6 +107,16 @@ public class DataGridState<T>
     /// <summary>Whether the entire row is in edit mode (vs single cell).</summary>
     public bool IsRowEditing => _isRowEditing;
 
+    /// <summary>
+    /// One-shot guard, set synchronously when Tab is pressed while a cell is being edited. An
+    /// editing-Tab moves real focus out of the single-tab-stop grid, which fires the grid's LostFocus
+    /// handler — but the editing-Tab flow (HandleKeyDown) itself commits the current cell and reopens
+    /// the editor on the next cell. Without this guard the LostFocus safety-net would commit a second
+    /// time and tear down that just-reopened editor. Consumed (cleared) synchronously by the next
+    /// LostFocus event handler, before it schedules its deferred commit check.
+    /// </summary>
+    internal bool SuppressNextLostFocusCommit { get; set; }
+
     /// <summary>Gets the pending row-edit value for a specific column, or null if not in row edit.</summary>
     public object? GetRowEditValue(string columnName)
         => _rowEditValues?.TryGetValue(columnName, out var v) == true ? v : null;
