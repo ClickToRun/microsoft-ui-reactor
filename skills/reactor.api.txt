@@ -898,6 +898,7 @@ RenderContext.UseEffect<T1>(Action effect, T1 d1) → void
 RenderContext.UseEffect<T1>(Func<Action> effectWithCleanup, T1 d1) → void
 RenderContext.UseElementFocus(FocusState state = FocusState.Programmatic) → ValueTuple<ElementRef, Action>
 RenderContext.UseElementRef<T>() → ElementRef<T>
+RenderContext.UseExternalStore<TSnapshot>(Func<Action, Action> subscribe, Func<TSnapshot> getSnapshot, IEqualityComparer<TSnapshot> comparer = null) → TSnapshot
 RenderContext.UseFilePickerAsync(FilePickerOptions options) → Task<StorageFile>
 RenderContext.UseFocus() → FocusManager
 RenderContext.UseFocusTrap(bool isActive) → FocusTrapHandle
@@ -5761,6 +5762,7 @@ UseEffect<T1, T2>(Action effect, T1 d1, T2 d2) → void
 UseEffect<T1, T2>(Func<Action> effectWithCleanup, T1 d1, T2 d2) → void
 UseEffect<T1>(Action effect, T1 d1) → void
 UseEffect<T1>(Func<Action> effectWithCleanup, T1 d1) → void
+UseExternalStore<TSnapshot>(Func<Action, Action> subscribe, Func<TSnapshot> getSnapshot, IEqualityComparer<TSnapshot> comparer = null) → TSnapshot
 UseFilePickerAsync(FilePickerOptions options) → Task<StorageFile>
 UseFolderPickerAsync(FolderPickerOptions options) → Task<StorageFolder>
 UseHighContrast() → bool
