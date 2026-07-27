@@ -32,7 +32,7 @@
           "CommitHash": "0000000000000000000000000000000000000000"
         }
       },
-      "Path": "src/Reactor/Charting/D3/Array/",
+      "Path": "src/Reactor.Advanced/Charting/D3/Array/",
       "DevelopmentDependency": false
     },
     {
@@ -43,7 +43,7 @@
           "CommitHash": "0000000000000000000000000000000000000000"
         }
       },
-      "Path": "src/Reactor/Charting/D3/Chord/",
+      "Path": "src/Reactor.Advanced/Charting/D3/Chord/",
       "DevelopmentDependency": false
     },
     {
@@ -54,7 +54,7 @@
           "CommitHash": "0000000000000000000000000000000000000000"
         }
       },
-      "Path": "src/Reactor/Charting/D3/Color/",
+      "Path": "src/Reactor.Advanced/Charting/D3/Color/",
       "DevelopmentDependency": false
     },
     {
@@ -65,7 +65,7 @@
           "CommitHash": "0000000000000000000000000000000000000000"
         }
       },
-      "Path": "src/Reactor/Charting/D3/Contour/",
+      "Path": "src/Reactor.Advanced/Charting/D3/Contour/",
       "DevelopmentDependency": false
     },
     {
@@ -76,7 +76,7 @@
           "CommitHash": "0000000000000000000000000000000000000000"
         }
       },
-      "Path": "src/Reactor/Charting/D3/Ease/",
+      "Path": "src/Reactor.Advanced/Charting/D3/Ease/",
       "DevelopmentDependency": false
     },
     {
@@ -87,7 +87,7 @@
           "CommitHash": "0000000000000000000000000000000000000000"
         }
       },
-      "Path": "src/Reactor/Charting/D3/Layout/",
+      "Path": "src/Reactor.Advanced/Charting/D3/Layout/",
       "DevelopmentDependency": false
     },
     {
@@ -98,7 +98,7 @@
           "CommitHash": "0000000000000000000000000000000000000000"
         }
       },
-      "Path": "src/Reactor/Charting/D3/Format/",
+      "Path": "src/Reactor.Advanced/Charting/D3/Format/",
       "DevelopmentDependency": false
     },
     {
@@ -109,7 +109,7 @@
           "CommitHash": "0000000000000000000000000000000000000000"
         }
       },
-      "Path": "src/Reactor/Charting/D3/Layout/",
+      "Path": "src/Reactor.Advanced/Charting/D3/Layout/",
       "DevelopmentDependency": false
     },
     {
@@ -120,7 +120,7 @@
           "CommitHash": "0000000000000000000000000000000000000000"
         }
       },
-      "Path": "src/Reactor/Charting/D3/Interpolate/",
+      "Path": "src/Reactor.Advanced/Charting/D3/Interpolate/",
       "DevelopmentDependency": false
     },
     {
@@ -131,7 +131,7 @@
           "CommitHash": "0000000000000000000000000000000000000000"
         }
       },
-      "Path": "src/Reactor/Charting/D3/Path/",
+      "Path": "src/Reactor.Advanced/Charting/D3/Path/",
       "DevelopmentDependency": false
     },
     {
@@ -142,7 +142,7 @@
           "CommitHash": "0000000000000000000000000000000000000000"
         }
       },
-      "Path": "src/Reactor/Charting/D3/Polygon/",
+      "Path": "src/Reactor.Advanced/Charting/D3/Polygon/",
       "DevelopmentDependency": false
     },
     {
@@ -153,7 +153,7 @@
           "CommitHash": "0000000000000000000000000000000000000000"
         }
       },
-      "Path": "src/Reactor/Charting/D3/Random/",
+      "Path": "src/Reactor.Advanced/Charting/D3/Random/",
       "DevelopmentDependency": false
     },
     {
@@ -164,7 +164,7 @@
           "CommitHash": "0000000000000000000000000000000000000000"
         }
       },
-      "Path": "src/Reactor/Charting/D3/Layout/",
+      "Path": "src/Reactor.Advanced/Charting/D3/Layout/",
       "DevelopmentDependency": false
     },
     {
@@ -175,7 +175,7 @@
           "CommitHash": "0000000000000000000000000000000000000000"
         }
       },
-      "Path": "src/Reactor/Charting/D3/Scale/",
+      "Path": "src/Reactor.Advanced/Charting/D3/Scale/",
       "DevelopmentDependency": false
     },
     {
@@ -186,7 +186,7 @@
           "CommitHash": "0000000000000000000000000000000000000000"
         }
       },
-      "Path": "src/Reactor/Charting/D3/Shape/",
+      "Path": "src/Reactor.Advanced/Charting/D3/Shape/",
       "DevelopmentDependency": false
     },
     {
@@ -197,7 +197,7 @@
           "CommitHash": "0000000000000000000000000000000000000000"
         }
       },
-      "Path": "src/Reactor/Charting/D3/Voronoi/",
+      "Path": "src/Reactor.Advanced/Charting/D3/Voronoi/",
       "DevelopmentDependency": false
     }
   ]

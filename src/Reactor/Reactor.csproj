@@ -61,6 +61,16 @@
     <InternalsVisibleTo Include="Reactor.Tests" />
     <InternalsVisibleTo Include="Reactor.AppTests.Host" />
     <InternalsVisibleTo Include="Reactor.Fuzz" />
+    <!-- Spec 062 §7 Track B (B1a): the charting subsystem moved from this
+         assembly into Reactor.Advanced. Charting reaches the REST of core only
+         through the small, named set of #627 decoupling seams
+         (Hosting.IChartingHostBridge, ReactorHost.RegisterChartingBridge,
+         Hosting.ChartingActivation.RequestActivation, Core.IScanExtension,
+         Core.IScanContext, AccessibilityScanner.RegisterScanExtension) — the
+         diagnostic records it exchanges (A11yDiagnostic/A11yContext) are public.
+         This IVT publishes exactly those seams to the relocated code; the
+         direction stays one-way (Advanced → core). -->
+    <InternalsVisibleTo Include="Reactor.Advanced" />
     <!-- Issue #433: the md4c HTML renderer (MarkdownHtml) was moved out of this
          assembly into the test-support library tests/Reactor.Markdown.TestRenderer.
          It still needs the parser internals (Md4cParser, Md4cEntity). -->

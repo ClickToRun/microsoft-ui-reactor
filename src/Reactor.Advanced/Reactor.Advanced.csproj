@@ -6,6 +6,12 @@
     <AssemblyName>Reactor.Advanced</AssemblyName>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- Spec 062 §7 Track B (B1a): charting moved here from core. Its
+         ChartAutomationPeer marshals List&lt;AutomationPeer&gt; across the WinRT
+         ABI, so the CsWinRT source generator requires unsafe blocks to emit
+         AOT/trim-safe marshalling (CsWinRT1030). Core's Reactor.csproj already
+         sets this; mirror it here so the NativeAOT publish stays clean. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
@@ -21,7 +27,7 @@
     <Version Condition="'$(Version)' == ''">0.0.0-local</Version>
     <Authors>Microsoft</Authors>
     <Company>Microsoft</Company>
-    <Description>Advanced Reactor components — first inhabitant: Win2D canvas.</Description>
+    <Description>Advanced Reactor components for WinUI 3 — the Win2D canvas and the D3 charting subsystem (Microsoft.UI.Reactor.Charting).</Description>
     <PackageTags>WinUI;WinUI3;Windows App SDK;WinAppSDK;XAML;Windows;desktop;UI;declarative;Reactor;Win2D;canvas;graphics;charts</PackageTags>
     <Copyright>© Microsoft Corporation. All rights reserved.</Copyright>
     <PackageIcon>Icon.png</PackageIcon>
@@ -39,6 +45,19 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Graphics.Win2D" />
+  </ItemGroup>
+
+  <!-- Spec 062 §7 Track B (B1a): the charting subsystem now lives in this
+       assembly. Its test-only internal seams (e.g. the ChartElement<T> /
+       ChartComponent AttachChartData drivers gated as "InternalsVisibleTo
+       Reactor.Tests", D3 parser probes) were visible to these test hosts when
+       charting shipped in core; republish exactly that access here so the
+       existing charting unit tests, selftest fixtures, and fuzz harness keep
+       compiling unchanged. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Reactor.Tests" />
+    <InternalsVisibleTo Include="Reactor.AppTests.Host" />
+    <InternalsVisibleTo Include="Reactor.Fuzz" />
   </ItemGroup>
 
   <ItemGroup>
