@@ -89,7 +89,7 @@ public sealed partial class ElementFactory<T> : IElementFactory
     // capacity itself stays bounded.
     private const int MaxPooledShapes = 8;
     private int _maxRealized;
-    private readonly HashSet<global::System.Type> _shapeScratch = new();
+    private readonly Dictionary<(global::System.Type, global::System.Type?), int> _shapeCounts = new();
 
     // Last Element bound to a given realized control. On reuse from the
     // recycle pool, this is the oldElement passed to Reconciler.Reconcile so
@@ -364,7 +364,7 @@ public sealed partial class ElementFactory<T> : IElementFactory
             // tracking untouched (the control still faithfully hosts `oldElement`) and ask the
             // framework to recycle + re-realize the row, where GetElement's return channel CAN
             // install a different control type.
-            if (child is not Border && !_reconciler.CanUpdate(oldElement, newElement))
+            if (!_reconciler.CanUpdate(oldElement, newElement) && !CanSafelyAdopt(child, oldElement, newElement))
             {
                 ScheduleReRealize(key);
                 continue;
@@ -653,12 +653,7 @@ public sealed partial class ElementFactory<T> : IElementFactory
 
                 var usable = pass == 0
                     ? _reconciler.CanUpdate(candidateElement, element)
-                    : entry.Control is Border
-                        && candidateElement is ComponentElement oldComp
-                        && element is ComponentElement newComp
-                        && oldComp.ComponentType == newComp.ComponentType
-                        && oldComp.Modifiers is null && newComp.Modifiers is null
-                        && oldComp.Extensions is null && newComp.Extensions is null;
+                    : CanSafelyAdopt(entry.Control, candidateElement, element);
                 if (!usable) continue;
 
                 _recyclePool.RemoveAt(i);
@@ -681,19 +676,77 @@ public sealed partial class ElementFactory<T> : IElementFactory
     // bounds on top of the live rows.
     private static void ParkOrphan(UIElement control) => control.Visibility = Visibility.Collapsed;
 
-    // Collapse a container on its way into the pool, returning the Visibility
-    // value source to restore on reuse. Returns null when the container must
-    // NOT be parked: its Visibility is bound, and ReadLocalValue hands back a
-    // BindingExpression that no public API can re-install. Silently destroying
-    // an author's binding is worse than the (exotic) ghost row, so leave it be.
-    private static object? TryParkForPool(UIElement control)
+    // The ONLY shape TryAdoptRealizedReplacement can rescue without losing
+    // state. Adoption transplants the fresh component subtree plus its
+    // _componentNodes entry onto the still-parented wrapper, and nothing else —
+    // but ApplyModifiers installs the wrapper's runtime bookkeeping (the
+    // ElementRef cell, the OnMount/OnUpdate/OnUnmount registrations) keyed on
+    // the REPLACEMENT Border. So an adopted wrapper that carries modifiers ends
+    // up with its Ref pointing at the discarded replacement and its OnUnmount
+    // registered against it. Value-equal modifiers are NOT sufficient: equality
+    // makes the two records interchangeable, not the two controls.
+    //
+    // Callers that fail this gate must fall back to something that produces a
+    // genuinely fresh container — the framework's realize channel
+    // (ScheduleReRealize) or a plain mount — never a silent adopt.
+    private static bool CanSafelyAdopt(UIElement control, Element oldElement, Element newElement)
+        => control is Border
+            && oldElement is ComponentElement oldComp
+            && newElement is ComponentElement newComp
+            && oldComp.ComponentType == newComp.ComponentType
+            && oldComp.Modifiers is null && newComp.Modifiers is null
+            && oldComp.Extensions is null && newComp.Extensions is null;
+
+    // Retire a container for good: it will never be handed back to the
+    // repeater, but the repeater keeps it parented regardless, so everything
+    // Reactor attached to it has to come off explicitly.
+    //
+    // Order matters. Unmount first, while the tree is still intact, so
+    // component effect cleanups run. Then detach Reactor state across the whole
+    // subtree — UnmountChild tears down components but leaves ReactorState's
+    // Element pointer and the ModifierEventHandlerState trampolines in place,
+    // and a permanently-parented control can still raise size/property events
+    // afterwards; DetachReactorState is exactly the "leaves Reactor's ownership
+    // but stays alive" primitive for that. Only then collapse it, so the
+    // collapse itself can't re-enter a live handler.
+    private void RetireContainer(UIElement control)
     {
-        var local = control.ReadLocalValue(UIElement.VisibilityProperty);
-        if (local is not Visibility && !ReferenceEquals(local, DependencyProperty.UnsetValue))
-            return null;
+        _reconciler.UnmountChild(control);
+        DetachReactorStateRecursive(control);
+        DetachFromParent(control);
+        ParkOrphan(control);
+        _lastElementByControl.Remove(control);
+    }
+
+    private static void DetachReactorStateRecursive(DependencyObject node)
+    {
+        if (node is FrameworkElement fe)
+            Reconciler.DetachReactorState(fe);
+
+        var count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(node);
+        for (var i = 0; i < count; i++)
+            DetachReactorStateRecursive(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(node, i));
+    }
+
+    // Collapse a container on its way into the pool, handing back the
+    // Visibility value source to restore on reuse. Returns false when the
+    // container cannot be parked reversibly: its Visibility is bound, and
+    // ReadLocalValue yields a BindingExpression that no public API can
+    // reinstall. Such a container must be retired rather than pooled — pooling
+    // it un-collapsed would leave a visible, no-longer-arranged repeater child
+    // painting at its last bounds, which is the ghost row this whole change
+    // exists to prevent.
+    private static bool TryParkForPool(UIElement control, out object? restore)
+    {
+        restore = control.ReadLocalValue(UIElement.VisibilityProperty);
+        if (restore is not Visibility && !ReferenceEquals(restore, DependencyProperty.UnsetValue))
+        {
+            restore = null;
+            return false;
+        }
 
         ParkOrphan(control);
-        return local;
+        return true;
     }
 
     // Undo TryParkForPool. Clearing (rather than writing Visible) when there was
@@ -705,7 +758,6 @@ public sealed partial class ElementFactory<T> : IElementFactory
             control.ClearValue(UIElement.VisibilityProperty);
         else if (parked is Visibility v)
             control.Visibility = v;
-        // else: never parked (bound Visibility) — nothing to undo.
     }
 
     // Detach a UIElement from whatever container it's parented to.
@@ -756,55 +808,95 @@ public sealed partial class ElementFactory<T> : IElementFactory
         // still-Visible one paints at its last arranged bounds — a ghost row over
         // the live list whenever the pool isn't drained in the same pass
         // (issue #919). This mirrors WinUI's own RecyclePool.
-        var restore = TryParkForPool(args.Element);
+        if (!TryParkForPool(args.Element, out var restore))
+        {
+            // Cannot be parked reversibly (bound Visibility). Retire it rather
+            // than pool a still-visible ghost or clobber the binding.
+            RetireContainer(args.Element);
+            return;
+        }
+
         _recyclePool.Add(new PoolEntry(args.Element, restore));
 
         TrimPool();
     }
 
-    // Evict oldest-first once the pool exceeds the capacity its realized window
-    // and shape mix justify. An evicted container is unmounted (so its
-    // components' effect cleanups actually run — the pool deliberately keeps
-    // recycled containers mounted, and eviction is the point where that lease
-    // ends), then parked collapsed and untracked. It stays parented, because
-    // nothing can un-parent an ItemsRepeater child, but it is inert.
+    // Evict once the pool exceeds the capacity its realized window and shape mix
+    // justify. Eviction retires the container, which is where the lease taken
+    // out by RecycleElement (keep it mounted so the next realize can diff it in
+    // place) ends.
     //
-    // Without this, a keyed list — where every row root carries a per-item key,
+    // Without a cap, a keyed list — where every row root carries a per-item key,
     // so CanUpdate rejects every cross-item reuse — would retain one container
     // and one tracking entry per item scrolled past, and the reuse scan would
-    // grow with it.
+    // grow with it. Without the per-shape terms, a list that cycles its rows
+    // through three or more shapes would evict the shape that is about to come
+    // back, re-mint it, and grow the repeater's permanently-parented children
+    // without bound.
     private void TrimPool()
     {
-        // Cheap path first: the shape scan below only matters once the pool has
-        // outgrown the two-window base, which for a single- or dual-shape list
-        // never happens.
+        // Cheap path first: the shape census below only matters once the pool
+        // has outgrown the two-window base, which a single- or dual-shape list
+        // never does.
         var capacity = global::System.Math.Max(32, _maxRealized * 2);
         if (_recyclePool.Count <= capacity) return;
 
-        capacity = global::System.Math.Max(capacity, _maxRealized * DistinctPooledShapeCount());
+        CensusShapes();
+        var shapes = global::System.Math.Min(MaxPooledShapes, _shapeCounts.Count);
+        capacity = global::System.Math.Max(capacity, _maxRealized * shapes);
         if (_recyclePool.Count <= capacity) return;
 
         var excess = _recyclePool.Count - capacity;
         for (var i = 0; i < excess; i++)
-        {
-            var evicted = _recyclePool[i].Control;
-            _reconciler.UnmountChild(evicted);
-            DetachFromParent(evicted);
-            ParkOrphan(evicted);
-            _lastElementByControl.Remove(evicted);
-        }
-        _recyclePool.RemoveRange(0, excess);
+            EvictOldestOfLargestShape();
     }
 
-    private int DistinctPooledShapeCount()
+    // Reuse compatibility — not the native control type — is what makes two
+    // pooled containers interchangeable. Three modifier-free Component<A/B/C>
+    // roots all mount as Border, so keying the census on Control.GetType()
+    // would see one shape where there are really three and under-size the pool.
+    private (global::System.Type Element, global::System.Type? Component) ShapeKeyOf(UIElement control)
+        => _lastElementByControl.TryGetValue(control, out var element)
+            ? (element.GetType(), (element as ComponentElement)?.ComponentType)
+            : (control.GetType(), null);
+
+    private void CensusShapes()
     {
-        _shapeScratch.Clear();
+        _shapeCounts.Clear();
         for (var i = 0; i < _recyclePool.Count; i++)
         {
-            _shapeScratch.Add(_recyclePool[i].Control.GetType());
-            if (_shapeScratch.Count >= MaxPooledShapes) break;
+            var key = ShapeKeyOf(_recyclePool[i].Control);
+            _shapeCounts[key] = _shapeCounts.TryGetValue(key, out var count) ? count + 1 : 1;
         }
-        return _shapeScratch.Count;
+    }
+
+    // Apply eviction pressure where the surplus actually is. Plain oldest-first
+    // lets a churning majority shape evict every last entry of a minority shape
+    // that is still being cycled back to.
+    private void EvictOldestOfLargestShape()
+    {
+        (global::System.Type, global::System.Type?) worst = default;
+        var max = -1;
+        foreach (var kv in _shapeCounts)
+        {
+            if (kv.Value <= max) continue;
+            max = kv.Value;
+            worst = kv.Key;
+        }
+
+        for (var i = 0; i < _recyclePool.Count; i++)
+        {
+            if (!ShapeKeyOf(_recyclePool[i].Control).Equals(worst)) continue;
+            RetireContainer(_recyclePool[i].Control);
+            _recyclePool.RemoveAt(i);
+            _shapeCounts[worst] = max - 1;
+            return;
+        }
+
+        // The census disagreed with the pool (it shouldn't). Fall back to plain
+        // oldest-first so trimming always makes progress.
+        RetireContainer(_recyclePool[0].Control);
+        _recyclePool.RemoveAt(0);
     }
 
 }

@@ -263,6 +263,8 @@ internal static class SelfTestFixtureRegistry
         // sync, and ItemsRepeater unmount cleanup.
         "EFR_Factory_ReplacementOnRootTypeChange_DropsOldControlTracking",
         "EFR_Factory_MultiShapeCycle_KeepsContainerSetBounded",
+        "EFR_Factory_ComponentShapeCycle_KeepsContainerSetBounded",
+        "EFR_Factory_BoundVisibilityRow_IsRetiredNotPooled",
         "EFR_Factory_PoolEviction_UnmountsEvictedRows",
         "EFR_Factory_PoolParking_PreservesVisibilityValueSource",
         "EFR_Factory_RefreshRealizedItems_SyncsLastElementByControl",
@@ -270,6 +272,7 @@ internal static class SelfTestFixtureRegistry
         "EFR_Factory_KeyChangeRecycle_ResetsRowComponentState",
         "EFR_Factory_SameItemReuse_PreservesRowComponentState",
         "EFR_Factory_RefreshKeyChange_RemountsRealizedRow",
+        "EFR_Factory_RefreshKeyChange_ModifiedRootKeepsRefLive",
         // Spec 042 Phase 3 — Animate(...) ambient end-to-end.
         "AAF_ListView_InsertUnderAnimate_TagsRowWithKind",
         "AAF_ListView_InsertWithoutAnimate_RowNotTagged",
@@ -1787,6 +1790,8 @@ internal static class SelfTestFixtureRegistry
         "EFR_Factory_BookkeepingBoundedAcrossCycles" => new ElementFactoryRecyclingFixtures.Factory_BookkeepingBoundedAcrossCycles(harness),
         "EFR_Factory_ReplacementOnRootTypeChange_DropsOldControlTracking" => new ElementFactoryRecyclingFixtures.Factory_ReplacementOnRootTypeChange_DropsOldControlTracking(harness),
         "EFR_Factory_MultiShapeCycle_KeepsContainerSetBounded" => new ElementFactoryRecyclingFixtures.Factory_MultiShapeCycle_KeepsContainerSetBounded(harness),
+        "EFR_Factory_ComponentShapeCycle_KeepsContainerSetBounded" => new ElementFactoryRecyclingFixtures.Factory_ComponentShapeCycle_KeepsContainerSetBounded(harness),
+        "EFR_Factory_BoundVisibilityRow_IsRetiredNotPooled" => new ElementFactoryRecyclingFixtures.Factory_BoundVisibilityRow_IsRetiredNotPooled(harness),
         "EFR_Factory_PoolEviction_UnmountsEvictedRows" => new ElementFactoryRecyclingFixtures.Factory_PoolEviction_UnmountsEvictedRows(harness),
         "EFR_Factory_PoolParking_PreservesVisibilityValueSource" => new ElementFactoryRecyclingFixtures.Factory_PoolParking_PreservesVisibilityValueSource(harness),
         "EFR_Factory_RefreshRealizedItems_SyncsLastElementByControl" => new ElementFactoryRecyclingFixtures.Factory_RefreshRealizedItems_SyncsLastElementByControl(harness),
@@ -1794,6 +1799,7 @@ internal static class SelfTestFixtureRegistry
         "EFR_Factory_KeyChangeRecycle_ResetsRowComponentState" => new ElementFactoryRecyclingFixtures.Factory_KeyChangeRecycle_ResetsRowComponentState(harness),
         "EFR_Factory_SameItemReuse_PreservesRowComponentState" => new ElementFactoryRecyclingFixtures.Factory_SameItemReuse_PreservesRowComponentState(harness),
         "EFR_Factory_RefreshKeyChange_RemountsRealizedRow" => new ElementFactoryRecyclingFixtures.Factory_RefreshKeyChange_RemountsRealizedRow(harness),
+        "EFR_Factory_RefreshKeyChange_ModifiedRootKeepsRefLive" => new ElementFactoryRecyclingFixtures.Factory_RefreshKeyChange_ModifiedRootKeepsRefLive(harness),
         // Spec 042 Phase 3 — Animate(...) ambient end-to-end.
         "AAF_ListView_InsertUnderAnimate_TagsRowWithKind" => new AnimateAmbientFixtures.ListView_InsertUnderAnimate_TagsRowWithKind(harness),
         "AAF_ListView_InsertWithoutAnimate_RowNotTagged" => new AnimateAmbientFixtures.ListView_InsertWithoutAnimate_RowNotTagged(harness),
