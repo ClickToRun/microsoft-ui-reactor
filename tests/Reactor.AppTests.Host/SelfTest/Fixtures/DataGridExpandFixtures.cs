@@ -219,7 +219,19 @@ internal static class DataGridExpandFixtures
             H.Check($"RootFlip_RealizedControlSwapped (type={realized?.GetType().Name ?? "null"})",
                 realized is Microsoft.UI.Reactor.Layout.FlexPanel);
 
-            H.Check("RootFlip_NoStaleGridContent", H.FindTextContaining("grid-0") is null);
+            // Every realized container must have been re-realized — not just row 0. (Recycled
+            // containers can linger in the repeater's pool with stale text, so this asserts on the
+            // repeater's live realization map rather than on the raw visual tree.)
+            var realizedCount = 0;
+            var flexCount = 0;
+            for (var i = 0; i < 8; i++)
+            {
+                if (repeater.TryGetElement(i) is not { } el) continue;
+                realizedCount++;
+                if (el is Microsoft.UI.Reactor.Layout.FlexPanel) flexCount++;
+            }
+            H.Check($"RootFlip_AllRealizedRowsSwapped (flex={flexCount}/{realizedCount})",
+                realizedCount > 0 && flexCount == realizedCount);
 
             // Flip back — the reverse transition must work too.
             setFlipped?.Invoke(false);
@@ -228,8 +240,9 @@ internal static class DataGridExpandFixtures
             await Harness.Render(400);
 
             var backContent = await Harness.WaitFor(
-                () => H.FindTextContaining("grid-0") is not null, maxPasses: 25, perPassMs: 50);
-            H.Check("RootFlip_FlipsBack", backContent);
+                () => repeater.TryGetElement(0) is Grid, maxPasses: 25, perPassMs: 50);
+            H.Check($"RootFlip_FlipsBack (type={repeater.TryGetElement(0)?.GetType().Name ?? "null"})",
+                backContent);
         }
     }
 }
