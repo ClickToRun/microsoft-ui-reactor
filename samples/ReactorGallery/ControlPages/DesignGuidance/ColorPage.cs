@@ -193,7 +193,7 @@ class ColorPage : Component
                 VStack(8,
                     Border(HStack(8,
                         TextBlock("\uE946")
-                            .Set(t => t.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe MDL2 Assets"))
+                            .FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets")
                             .Margin(4, 4, 0, 4)
                             .Foreground(Theme.SystemAttention),
                         TextBlock("Informational message").Foreground(Theme.PrimaryText)
@@ -203,7 +203,7 @@ class ColorPage : Component
                         .CornerRadius(6),
                     Border(HStack(8,
                         TextBlock("\uE930")
-                            .Set(t => t.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe MDL2 Assets"))
+                            .FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets")
                             .Margin(4, 4, 0, 4)
                             .Foreground(Theme.SystemSuccess),
                         TextBlock("Operation completed successfully").Foreground(Theme.PrimaryText)
@@ -213,7 +213,7 @@ class ColorPage : Component
                         .CornerRadius(6),
                     Border(HStack(8,
                         TextBlock("\uE7BA")
-                            .Set(t => t.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe MDL2 Assets"))
+                            .FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets")
                             .Margin(4, 4, 0, 4)
                             .Foreground(Theme.SystemCaution),
                         TextBlock("Proceed with caution").Foreground(Theme.PrimaryText)
@@ -223,7 +223,7 @@ class ColorPage : Component
                         .CornerRadius(6),
                     Border(HStack(8,
                         TextBlock("\uEA39")
-                            .Set(t => t.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe MDL2 Assets"))
+                            .FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets")
                             .Margin(4, 4, 0, 4)
                             .Foreground(Theme.SystemCritical),
                         TextBlock("A critical error has occurred").Foreground(Theme.PrimaryText)
@@ -268,7 +268,7 @@ Border(HStack(icon, message))
                 TextBlock(description)
                     .Foreground(Theme.SecondaryText)
                     .FontSize(13)
-                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                    .TextWrapping(TextWrapping.Wrap)
                     .Margin(0, 0, 0, 8),
                 VStack(2, entries.Select(BrushRow).ToArray())
             ),
@@ -298,7 +298,7 @@ Border(HStack(icon, message))
             TextBlock(entry.ResourceKey)
                 .FontSize(11)
                 .Foreground(Theme.TertiaryText)
-                .Set(tb => tb.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code, Consolas, monospace"))
+                .FontFamily("Cascadia Code, Consolas, monospace")
                 .VAlign(VerticalAlignment.Center)
                 .Margin(0, 0, 12, 0)
                 .Grid(column: 2),
@@ -306,7 +306,7 @@ Border(HStack(icon, message))
             TextBlock(entry.Recommendation)
                 .FontSize(12)
                 .Foreground(Theme.SecondaryText)
-                .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                .TextWrapping(TextWrapping.Wrap)
                 .VAlign(VerticalAlignment.Center)
                 .Grid(column: 3)
         ).Margin(0, 3, 0, 3);

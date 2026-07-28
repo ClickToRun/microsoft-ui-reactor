@@ -31,7 +31,7 @@ public static class ModalOverlay
             buttons.Select(b =>
                 b.IsPrimary
                     ? Button(b.Label, b.OnClick).MinWidth(96)
-                        .Set(btn => btn.Style = Microsoft.UI.Xaml.Application.Current.Resources["AccentButtonStyle"] as Microsoft.UI.Xaml.Style)
+                        .ApplyStyle("AccentButtonStyle")
                     : Button(b.Label, b.OnClick).MinWidth(96)
             ).Cast<Element>().ToArray()
         ).HAlign(HorizontalAlignment.Right);

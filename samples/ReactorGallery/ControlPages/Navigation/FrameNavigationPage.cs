@@ -82,7 +82,7 @@ class FrameNavigationPage : Component
                                         TextBlock(e.At.ToString("HH:mm:ss.fff"))
                                             .FontSize(12)
                                             .Foreground(Theme.TertiaryText)
-                                            .Set(tb => tb.FontFamily = new FontFamily("Cascadia Code, Consolas, monospace")),
+                                            .FontFamily("Cascadia Code, Consolas, monospace"),
                                         TextBlock(e.Kind)
                                             .FontSize(12)
                                             .SemiBold()

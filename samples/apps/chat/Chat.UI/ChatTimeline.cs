@@ -33,13 +33,10 @@ public class ChatTimeline : Component<ChatTimelineProps>
                 VStack(0,
                     header,
                     TextBlock(code)
-                        .Set(t =>
-                        {
-                            t.FontFamily = new FontFamily("Cascadia Code, Cascadia Mono, Consolas");
-                            t.FontSize = 13;
-                            t.TextWrapping = TextWrapping.Wrap;
-                            t.IsTextSelectionEnabled = true;
-                        })
+                        .FontFamily("Cascadia Code, Cascadia Mono, Consolas")
+                        .FontSize(13)
+                        .TextWrapping(TextWrapping.Wrap)
+                        .IsTextSelectionEnabled()
                         .Foreground(Theme.PrimaryText)
                         .Padding(12, 8, 12, 12)
                 )
@@ -194,7 +191,8 @@ public class ChatTimeline : Component<ChatTimelineProps>
         var loadMoreButton = Props.HasMoreHistory
             ? Button("Load earlier messages", () => Props.OnLoadMoreHistory?.Invoke())
                 .HAlign(HorizontalAlignment.Center)
-                .Set(b => { b.Padding = new Thickness(16, 8, 16, 8); b.CornerRadius = new CornerRadius(4); })
+                .Padding(16, 8, 16, 8)
+                .CornerRadius(4)
                 .Resources(r => r
                     .Set("ButtonBackground", Ref("SubtleFillColorTransparentBrush"))
                     .Set("ButtonBackgroundPointerOver", Ref("SubtleFillColorSecondaryBrush"))
@@ -211,7 +209,9 @@ public class ChatTimeline : Component<ChatTimelineProps>
             // User messages — muted background, full width, collapsible-style
             ChatTimelineItemKind.User => Border(
                 TextBlock(entry.Text)
-                    .Set(t => { t.TextWrapping = TextWrapping.Wrap; t.IsTextSelectionEnabled = true; t.FontSize = 14; })
+                    .TextWrapping(TextWrapping.Wrap)
+                    .IsTextSelectionEnabled()
+                    .FontSize(14)
                     .Padding(12, 8, 12, 8)
             ).Background(Ref("SubtleFillColorSecondaryBrush"))
              .CornerRadius(8).Margin(24, 8, 24, 4),
@@ -237,20 +237,25 @@ public class ChatTimeline : Component<ChatTimelineProps>
                         ChatToolCallStatus.Success => SecondaryText,
                         ChatToolCallStatus.Error => Ref("SystemFillColorCriticalBrush"),
                         _ => TertiaryText
-                    }).VAlign(VerticalAlignment.Center).Set(t => t.FontSize = 12),
+                    }).VAlign(VerticalAlignment.Center).FontSize(12),
                     Caption(entry.ToolName ?? "tool").Foreground(SecondaryText)
-                        .Set(t => { t.FontFamily = new FontFamily("Cascadia Code, Consolas"); t.FontSize = 12; })
+                        .FontFamily("Cascadia Code, Consolas")
+                        .FontSize(12)
                         .VAlign(VerticalAlignment.Center),
                     When(entry.Text is { Length: > 0 } && entry.Text != entry.ToolName,
                         () => Caption(FormatToolLabel(entry)).Foreground(TertiaryText)
-                            .Set(t => { t.TextTrimming = TextTrimming.CharacterEllipsis; t.MaxLines = 1; t.IsTextSelectionEnabled = true; t.FontSize = 12; })
+                            .TextTrimming(TextTrimming.CharacterEllipsis)
+                            .MaxLines(1)
+                            .IsTextSelectionEnabled()
+                            .FontSize(12)
                             .VAlign(VerticalAlignment.Center).Flex(grow: 1))
                 ) with { ColumnGap = 6 })),
 
             // Reasoning
             ChatTimelineItemKind.Reasoning => TimelineInset(
                 Caption("thinking…").Foreground(TertiaryText)
-                    .Set(t => { t.FontStyle = global::Windows.UI.Text.FontStyle.Italic; t.FontSize = 12; })),
+                    .FontStyle(global::Windows.UI.Text.FontStyle.Italic)
+                    .FontSize(12)),
 
             // Filtered status
             ChatTimelineItemKind.Status when entry.Text.Contains("Restored") || entry.Text.Contains("Connecting to") || entry.Text.Contains("Connected") || entry.Text.Contains("Resuming") => Empty(),
@@ -258,12 +263,13 @@ public class ChatTimeline : Component<ChatTimelineProps>
             ChatTimelineItemKind.Status when entry.Tone == ChatTone.Error =>
                 TimelineInset(
                     Caption(entry.Text).Foreground(Ref("SystemFillColorCriticalBrush"))
-                        .Set(t => { t.TextWrapping = TextWrapping.Wrap; t.FontSize = 12; }),
+                        .TextWrapping(TextWrapping.Wrap)
+                        .FontSize(12),
                     top: 4,
                     bottom: 4),
 
             ChatTimelineItemKind.Status => TimelineInset(
-                Caption(entry.Text).Foreground(TertiaryText).Set(t => t.FontSize = 12)),
+                Caption(entry.Text).Foreground(TertiaryText).FontSize(12)),
 
              _ => Empty()
         };

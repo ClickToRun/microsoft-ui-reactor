@@ -454,10 +454,10 @@ TextBlock("Title").FontSize(28).FontWeight(new FontWeight(700))
 **Rules:**
 - Use `SemiBold` (600), never `Bold` (700) for emphasis — except `Heading()` which intentionally uses 700 for page titles.
 - Minimum font size: 12px. Anything smaller makes complex scripts unreadable.
-- Use `{ThemeResource SymbolThemeFontFamily}` for icon fonts via `.Set()`:
+- Use `SymbolThemeFontFamily` for icon fonts, applied with the `.FontFamily(...)` modifier (not `.Set`, which re-runs every update and is never unwound):
   ```csharp
-  TextBlock("\uE710").Set(tb =>
-      tb.FontFamily = (FontFamily)Application.Current.Resources["SymbolThemeFontFamily"])
+  TextBlock("\uE710")
+      .FontFamily((FontFamily)Application.Current.Resources["SymbolThemeFontFamily"])
   ```
 - When icons and text are paired, **top-align both** in wrapping scenarios to prevent visual drift at larger text scales.
 - **TextWrapping:** `NoWrap` is the default — use `TextWrapping.Wrap` or `TextWrapping.WrapWholeWords` when text should flow to multiple lines. Choose `WrapWholeWords` for body text to avoid mid-word breaks.

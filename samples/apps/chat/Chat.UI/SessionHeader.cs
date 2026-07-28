@@ -47,13 +47,13 @@ public class SessionHeader : Component<SessionHeaderProps>
 
         var intentEl = tl.CurrentIntent is { } intent
             ? Caption($"⚡ {intent}").Foreground(AccentText)
-                .Set(t => { t.TextTrimming = TextTrimming.CharacterEllipsis; t.MaxLines = 1; })
+                .TextTrimming(TextTrimming.CharacterEllipsis).MaxLines(1)
             : Empty();
 
         return VStack(4,
             FlexRow(
                 TextBlock(ss.DisplayTitle).SemiBold().FontSize(16).Flex(grow: 1)
-                    .Set(t => { t.TextTrimming = TextTrimming.CharacterEllipsis; t.MaxLines = 1; }),
+                    .TextTrimming(TextTrimming.CharacterEllipsis).MaxLines(1),
                 entryCountBadge
             ) with { ColumnGap = 8 },
             breadcrumb,

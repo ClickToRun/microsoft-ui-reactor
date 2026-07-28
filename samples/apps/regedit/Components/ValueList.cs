@@ -19,7 +19,7 @@ internal sealed record ValueListProps(
 
 internal sealed class ValueList : Component<ValueListProps>
 {
-    // Segoe MDL2 Assets glyph codes
+    // Segoe Fluent Icons glyph codes (also present in the Segoe MDL2 Assets fallback)
     private const string StringIcon = "\uE8A5";   // document icon for string values
     private const string BinaryIcon = "\uE9F5";   // memory/chip icon for binary values
 
@@ -58,11 +58,8 @@ internal sealed class ValueList : Component<ValueListProps>
     private Element RenderValueRow(RegistryValueEntry value, int index)
     {
         var icon = TextBlock(GetValueIcon(value.Kind))
-            .Set(tb =>
-            {
-                tb.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe MDL2 Assets");
-                tb.FontSize = 14;
-            });
+            .FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets")
+            .FontSize(14);
 
         var row = Grid(
             [GridSize.Star(2), GridSize.Star(), GridSize.Star(3)],

@@ -40,7 +40,7 @@ internal static class ErrorFallback
         var details = new TextBlock
         {
             Text = ex.ToString(),
-            FontFamily = new FontFamily(MonoFontStack),
+            FontFamily = WinRTCache.GetFontFamily(MonoFontStack),
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
             IsTextSelectionEnabled = true,
@@ -79,6 +79,6 @@ internal static class ErrorFallback
             {
                 TextWrapping = TextWrapping.Wrap,
                 IsTextSelectionEnabled = true,
-                FontFamily = new FontFamily(MonoFontStack),
+                FontFamily = WinRTCache.GetFontFamily(MonoFontStack),
             });
 }

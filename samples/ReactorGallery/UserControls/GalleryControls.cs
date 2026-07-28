@@ -216,7 +216,7 @@ public static class GalleryControls
                 .Foreground(Theme.SecondaryText)
                 .HAlign(HorizontalAlignment.Left)
                 .Margin(0, 0, 0, 12)
-                .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                .TextWrapping(TextWrapping.Wrap)
                 .MaxWidth(800)
         ).Margin(0, 0, 0, 8);
 

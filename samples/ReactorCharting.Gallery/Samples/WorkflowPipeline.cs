@@ -31,7 +31,7 @@ public sealed class WorkflowPipelineSample : GallerySample
 
         Element StageCard(stage) =>
             Border(VStack(2,
-                TextBlock(stage.Icon).Set(tb => tb.FontFamily = mdl2),
+                TextBlock(stage.Icon).FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
                 TextBlock(stage.Name).SemiBold(),
                 Progress(stage.Progress),
                 TextBlock(stage.Status),
@@ -97,7 +97,7 @@ public sealed class WorkflowPipelineSample : GallerySample
         return (Border(
             VStack(2,
                 (TextBlock(s.Icon) with { FontSize = 18 })
-                    .FontFamily("Segoe MDL2 Assets")
+                    .FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets")
                     .Foreground(color).HAlign(HorizontalAlignment.Center),
                 (TextBlock(s.Name) with { FontSize = 11 })
                     .SemiBold().HAlign(HorizontalAlignment.Center),

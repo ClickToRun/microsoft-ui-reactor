@@ -97,7 +97,7 @@ public class Sidebar : Component<SidebarProps>
             (FlexRow(
                 Caption(Props.ConnectionStatus ?? "Connecting…").Foreground(TertiaryText).Flex(grow: 1),
                 Caption("\uE713").Foreground(TertiaryText)
-                    .Set(t => t.FontFamily = new FontFamily("Segoe MDL2 Assets"))
+                    .FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets")
             ) with { ColumnGap = 8 }).Padding(0, 8, 0, 0).Grid(row: 5, column: 0)
         )
     ).Padding(20, 16, 20, 12).Background(LayerFill);

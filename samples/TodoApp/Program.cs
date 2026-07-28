@@ -207,7 +207,7 @@ class TodoApp : Component
                 .ToolTip("Delete")
                 .FontSize(14)
                 .Size(36, 32)
-                .Set(b => b.FontFamily = (Microsoft.UI.Xaml.Media.FontFamily)
+                .FontFamily((Microsoft.UI.Xaml.Media.FontFamily)
                     Application.Current.Resources["SymbolThemeFontFamily"])
                 .Resources(r => r
                     .Set("ButtonBackground", Theme.Ref("SubtleFillColorTransparentBrush"))
@@ -229,7 +229,7 @@ class TodoApp : Component
             TextBlock("")
                 .FontSize(32)
                 .Foreground(TertiaryText)
-                .Set(tb => tb.FontFamily = (Microsoft.UI.Xaml.Media.FontFamily)
+                .FontFamily((Microsoft.UI.Xaml.Media.FontFamily)
                     Application.Current.Resources["SymbolThemeFontFamily"]),
             TextBlock(filter switch
             {

@@ -36,7 +36,7 @@ public partial record IconElement
             case FontIconData fi when icon is WinUI.FontIcon fontIcon:
                 fontIcon.Glyph = fi.Glyph;
                 if (fi.FontFamily is not null)
-                    fontIcon.FontFamily = new FontFamily(fi.FontFamily);
+                    fontIcon.FontFamily = WinRTCache.GetFontFamily(fi.FontFamily);
                 if (fi.FontSize is not null) fontIcon.FontSize = fi.FontSize.Value;
                 return true;
             case BitmapIconData bi when icon is WinUI.BitmapIcon bitmapIcon:

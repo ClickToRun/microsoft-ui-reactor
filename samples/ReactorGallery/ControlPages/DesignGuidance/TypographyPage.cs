@@ -56,7 +56,7 @@ class TypographyPage : Component
                 TextBlock("WinUI defines a set of TextBlock styles that map to Segoe UI Variable at specific sizes and weights. Use these styles rather than setting font size and weight manually to stay consistent with the system type ramp.")
                     .Foreground(Theme.SecondaryText)
                     .FontSize(13)
-                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                    .TextWrapping(TextWrapping.Wrap)
                     .Margin(0, 0, 0, 8),
 
                 VStack(0, TypeRamp.Select(TypeRampRow).ToArray())
@@ -82,7 +82,7 @@ class TypographyPage : Component
                     TextBlock(entry.StyleName)
                         .FontSize(11)
                         .Foreground(Theme.TertiaryText)
-                        .Set(tb => tb.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code, Consolas, monospace")),
+                        .FontFamily("Cascadia Code, Consolas, monospace"),
                     TextBlock($"{entry.Size}px · {entry.Weight} · {entry.VariableFont}")
                         .FontSize(11)
                         .Foreground(Theme.SecondaryText)
@@ -92,7 +92,7 @@ class TypographyPage : Component
                 TextBlock(entry.Recommendation)
                     .FontSize(12)
                     .Foreground(Theme.SecondaryText)
-                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                    .TextWrapping(TextWrapping.Wrap)
                     .VAlign(VerticalAlignment.Center)
                     .Grid(column: 2)
             ).Margin(0, 8, 0, 8)
@@ -112,7 +112,7 @@ class TypographyPage : Component
                 TextBlock("Reactor provides shorthand helpers that map to common type ramp levels without requiring ApplyStyle. These set font size and weight directly.")
                     .Foreground(Theme.SecondaryText)
                     .FontSize(13)
-                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                    .TextWrapping(TextWrapping.Wrap)
                     .Margin(0, 0, 0, 4),
 
                 VStack(8,
@@ -177,7 +177,7 @@ TextBlock(""Bold"").Bold()");
                 TextBlock("Use .ApplyStyle() with any WinUI TextBlock style key to apply the full type ramp settings (size, weight, line height, and optical sizing) in one call.")
                     .Foreground(Theme.SecondaryText)
                     .FontSize(13)
-                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                    .TextWrapping(TextWrapping.Wrap)
                     .Margin(0, 0, 0, 4),
 
                 VStack(8,
@@ -202,14 +202,14 @@ TextBlock(""Caption"").ApplyStyle(""CaptionTextBlockStyle"")");
                 TextBlock("Control how text behaves when it exceeds the available width. Wrapping moves overflow to the next line; trimming truncates with an ellipsis.")
                     .Foreground(Theme.SecondaryText)
                     .FontSize(13)
-                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                    .TextWrapping(TextWrapping.Wrap)
                     .Margin(0, 0, 0, 4),
 
                 TextBlock("Wrapping").SemiBold().Foreground(Theme.PrimaryText),
                 Border(
                     TextBlock("This is a long paragraph of text that wraps to the next line when it exceeds the available width of its container, creating a natural reading flow.")
                         .Foreground(Theme.PrimaryText)
-                        .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                        .TextWrapping(TextWrapping.Wrap)
                 )
                 .Background(Theme.SubtleFill)
                 .WithBorder(Theme.DividerStroke)
@@ -252,7 +252,7 @@ TextBlock(""Caption"").ApplyStyle(""CaptionTextBlockStyle"")");
             ),
             @"// Wrapping
 TextBlock(""Long text..."")
-    .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+    .TextWrapping(TextWrapping.Wrap)
 
 // Trimming with ellipsis
 TextBlock(""Long text..."")
@@ -277,7 +277,7 @@ TextBlock(""Long text..."")
                 TextBlock("Combine type ramp levels with text color tokens to build clear visual hierarchy. Use primary text for main content, secondary for supporting info, and accent for interactive or highlighted text.")
                     .Foreground(Theme.SecondaryText)
                     .FontSize(13)
-                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                    .TextWrapping(TextWrapping.Wrap)
                     .Margin(0, 0, 0, 4),
 
                 // Practical hierarchy example
@@ -289,7 +289,7 @@ TextBlock(""Long text..."")
                             TextBlock("New update available").SemiBold().Foreground(Theme.PrimaryText),
                             TextBlock("Version 2.5 includes performance improvements and bug fixes.")
                                 .FontSize(13).Foreground(Theme.SecondaryText)
-                                .Set(tb => tb.TextWrapping = TextWrapping.Wrap),
+                                .TextWrapping(TextWrapping.Wrap),
                             TextBlock("Install now").FontSize(13).Foreground(Theme.AccentText)
                         ),
                         Border(VStack()).Height(1).Background(Theme.DividerStroke).HAlign(HorizontalAlignment.Stretch),
@@ -297,7 +297,7 @@ TextBlock(""Long text..."")
                             TextBlock("Scheduled maintenance").SemiBold().Foreground(Theme.PrimaryText),
                             TextBlock("The system will be briefly unavailable on Sunday at 2:00 AM.")
                                 .FontSize(13).Foreground(Theme.SecondaryText)
-                                .Set(tb => tb.TextWrapping = TextWrapping.Wrap),
+                                .TextWrapping(TextWrapping.Wrap),
                             TextBlock("3 hours ago").FontSize(12).Foreground(Theme.TertiaryText)
                         )
                     ).Margin(16)

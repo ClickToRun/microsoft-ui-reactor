@@ -35,7 +35,7 @@ class CardPage : Component
                             TextBlock(MailGlyph)
                                 .FontSize(20)
                                 .Foreground(Theme.AccentText)
-                                .Set(tb => tb.FontFamily = new FontFamily("Segoe Fluent Icons"))
+                                .FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets")
                                 .HAlign(HorizontalAlignment.Center)
                                 .VAlign(VerticalAlignment.Center)
                         )

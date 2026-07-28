@@ -235,7 +235,7 @@ class AppShell : Component
             ).Padding(8)
         ).Width(320)
          .WithBorder(DividerStroke, 1)
-         .Set(b => b.BorderThickness = new Thickness(1, 0, 0, 0));
+         .BorderThickness(1, 0, 0, 0);
     }
 
     static string RouteDescription(AppRoute route) => route switch

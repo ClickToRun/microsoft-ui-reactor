@@ -36,11 +36,11 @@ Slider(stepValue, 0, 100, v => setStepValue(v)).StepFrequency(10).Header(""Step 
 
             SampleCard("Vertical Slider",
                 Slider(verticalValue, 0, 100, v => setVerticalValue(v))
-                    .Set(s => s.Orientation = Orientation.Vertical)
+                    .Orientation(Orientation.Vertical)
                     .Height(200),
                 sourceCode: @"
 Slider(verticalValue, 0, 100, v => setVerticalValue(v))
-    .Set(s => s.Orientation = Orientation.Vertical)
+    .Orientation(Orientation.Vertical)
     .Height(200)
 ")
         ).Margin(36, 24, 36, 36));

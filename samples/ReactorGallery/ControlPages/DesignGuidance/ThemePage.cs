@@ -44,13 +44,12 @@ class ThemePage : Component
                                 onContent: "Dark", offContent: "Light", header: "Theme"),
                             preview
                         ).Padding(16)
-                    ).Set(b => b.RequestedTheme = isDark ? ElementTheme.Dark : ElementTheme.Light)
+                    ).RequestedTheme(isDark ? ElementTheme.Dark : ElementTheme.Light)
                      .Background(Theme.SolidBackground)
                      .CornerRadius(8),
                     @"var (isDark, setIsDark) = UseState(false);
 Border(content)
-    .Set(b => b.RequestedTheme = isDark
-        ? ElementTheme.Dark : ElementTheme.Light)
+    .RequestedTheme(isDark ? ElementTheme.Dark : ElementTheme.Light)
     .Background(Theme.SolidBackground)"),
 
                 SampleCard("Theme Tokens Reference",

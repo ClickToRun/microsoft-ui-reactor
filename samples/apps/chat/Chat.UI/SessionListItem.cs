@@ -40,7 +40,7 @@ public class SessionListItem : Component<SessionListItemProps>
                     FlexRow(
                         StatusIndicator.VAlign(VerticalAlignment.Center),
                         TextBlock(S.DisplayTitle).SemiBold()
-                            .Set(t => { t.TextTrimming = TextTrimming.CharacterEllipsis; t.MaxLines = 1; })
+                            .TextTrimming(TextTrimming.CharacterEllipsis).MaxLines(1)
                             .Flex(grow: 1)
                     ) with { ColumnGap = 8 },
                     (FlexRow(

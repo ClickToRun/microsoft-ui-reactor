@@ -30,12 +30,9 @@ internal sealed class EditBinaryDialog : Component<EditBinaryDialogProps>
                 VStack(4,
                     TextBlock(Strings.ValueData),
                     TextBox(Props.ValueData, Props.OnValueDataChanged)
-                        .Set(tb =>
-                        {
-                            tb.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas");
-                            tb.AcceptsReturn = true;
-                            tb.TextWrapping = TextWrapping.Wrap;
-                        })
+                        .FontFamily("Consolas")
+                        .AcceptsReturn()
+                        .TextWrapping(TextWrapping.Wrap)
                         .Height(200)
                 )
             ).Width(500),

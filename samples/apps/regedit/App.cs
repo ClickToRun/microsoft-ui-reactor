@@ -613,7 +613,7 @@ class RegeditApp : Component
                     .VAlign(VerticalAlignment.Center)
                     .SemiBold(),
                 AutoSuggestBox(addressBarText, setAddressBarText, text => AddressBarSubmit(text))
-                    .Set(asb => { asb.PlaceholderText = "HKEY_LOCAL_MACHINE\\SOFTWARE"; })
+                    .PlaceholderText("HKEY_LOCAL_MACHINE\\SOFTWARE")
                     .HAlign(HorizontalAlignment.Stretch)
             ).Margin(4, 2, 4, 2)
         );

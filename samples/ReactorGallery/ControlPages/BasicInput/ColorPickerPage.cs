@@ -21,7 +21,7 @@ class ColorPickerPage: Component
                     ColorPicker(color, c => setColor(c)),
                     Border(VStack())
                         .Width(64).Height(32)
-                        .Set(b => b.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(color))
+                        .Background(new Microsoft.UI.Xaml.Media.SolidColorBrush(color))
                         .CornerRadius(ThemeResource.CornerRadius("ControlCornerRadius").TopLeft)),
                 sourceCode: @"
 ColorPicker(color, c => setColor(c))

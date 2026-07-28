@@ -133,7 +133,7 @@ class GalleryShell : Component
                 ),
                 RightHeader =
                     Button(isDark ? "\uE706" : "\uE708", () => setIsDark(!isDark))
-                        .Set(b => b.FontFamily = new FontFamily("Segoe MDL2 Assets"))
+                        .FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets")
                         .Width(40).Height(36)
                         .ToolTip(isDark ? "Switch to Light" : "Switch to Dark")
                         .AutomationName(isDark ? "Switch to Light theme" : "Switch to Dark theme"),

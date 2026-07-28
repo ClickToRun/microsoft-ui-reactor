@@ -8,6 +8,16 @@ namespace Microsoft.UI.Reactor.Core.V1Protocol;
 // Shared V1 projection helpers for Reactor icon descriptors and symbol strings.
 internal static class IconResolver
 {
+    /// <summary>
+    /// Icon font stack used when the <c>SymbolThemeFontFamily</c> theme resource cannot be
+    /// resolved (no <c>Application.Current</c>, or a host that did not merge
+    /// <c>XamlControlsResources</c>). "Segoe Fluent Icons" ships with Windows 11; the
+    /// "Segoe MDL2 Assets" tail keeps glyphs rendering on Windows 10, which WinUI 3 still
+    /// supports. Always resolve it through <c>WinRTCache.GetFontFamily</c> — a raw
+    /// <c>new FontFamily(...)</c> crosses the managed→WinRT boundary on every call.
+    /// </summary>
+    internal const string SymbolFontFallback = "Segoe Fluent Icons, Segoe MDL2 Assets";
+
     /// <summary>Descriptor-accessible bridge to <see cref="ResolveIcon"/>
     /// for icon-bearing descriptor controls. Static so it can be invoked from a
     /// descriptor lambda without a Reconciler instance.</summary>
@@ -46,7 +56,7 @@ internal static class IconResolver
         {
             Glyph = iconSymbol,
             FontFamily = Microsoft.UI.Xaml.Application.Current?.Resources["SymbolThemeFontFamily"] as Microsoft.UI.Xaml.Media.FontFamily
-                         ?? new Microsoft.UI.Xaml.Media.FontFamily("Segoe Fluent Icons"),
+                         ?? WinRTCache.GetFontFamily(SymbolFontFallback),
         };
     }
 
@@ -62,7 +72,7 @@ internal static class IconResolver
         {
             Glyph = iconSymbol,
             FontFamily = Microsoft.UI.Xaml.Application.Current?.Resources["SymbolThemeFontFamily"] as Microsoft.UI.Xaml.Media.FontFamily
-                         ?? new Microsoft.UI.Xaml.Media.FontFamily("Segoe Fluent Icons"),
+                         ?? WinRTCache.GetFontFamily(SymbolFontFallback),
         };
     }
 

@@ -113,12 +113,14 @@ public class InputBar : Component<InputBarProps>
                 ? Border(
                     HStack(8,
                         TextBlock($"⚠ {perm.ToolName}: {perm.Detail}")
-                            .Set(t => { t.TextWrapping = TextWrapping.Wrap; t.TextTrimming = TextTrimming.CharacterEllipsis; })
+                            .TextWrapping(TextWrapping.Wrap)
+                            .TextTrimming(TextTrimming.CharacterEllipsis)
                             .HAlign(HorizontalAlignment.Stretch),
                         Button("Allow", () => Props.OnPermissionResponse(perm.RequestId, true))
-                            .Background(Accent).Set(b => { b.CornerRadius = new CornerRadius(4); b.Padding = new Thickness(12, 4, 12, 4); b.MinWidth = 0; b.MinHeight = 0; }),
+                            .Background(Accent)
+                            .CornerRadius(4).Padding(12, 4, 12, 4).MinWidth(0).MinHeight(0),
                         Button("Deny", () => Props.OnPermissionResponse(perm.RequestId, false))
-                            .Set(b => { b.CornerRadius = new CornerRadius(4); b.Padding = new Thickness(12, 4, 12, 4); b.MinWidth = 0; b.MinHeight = 0; })
+                            .CornerRadius(4).Padding(12, 4, 12, 4).MinWidth(0).MinHeight(0)
                     ).Padding(12, 8, 12, 8)
                   ).Background(SubtleFill).CornerRadius(8).WithBorder(DividerStroke, 1).Margin(12, 4, 12, 4)
                 : Empty()),

@@ -27,7 +27,7 @@ namespace Microsoft.UI.Reactor;
 ///       .Bold()
 ///       .Margin(16)
 ///       .HAlign(HorizontalAlignment.Center)
-///       .Set(tb => tb.TextWrapping = TextWrapping.Wrap)  // still TextBlockElement!
+///       .Set(tb => tb.IsTextScaleFactorEnabled = false)  // still TextBlockElement!
 ///
 /// The Set() extension gives strongly-typed native property access:
 ///   Button("Click", onClick)

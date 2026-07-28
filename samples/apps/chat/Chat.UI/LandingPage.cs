@@ -46,10 +46,10 @@ public class LandingPage : Component<LandingPageProps>
             return (Element)Button(
                 VStack(2,
                     TextBlock(s.DisplayTitle).SemiBold()
-                        .Set(t => { t.TextTrimming = TextTrimming.CharacterEllipsis; t.MaxLines = 1; }),
+                        .TextTrimming(TextTrimming.CharacterEllipsis).MaxLines(1),
                     Caption($"{timeStr} · {wsStr}")
                         .Foreground(TertiaryText)
-                        .Set(t => { t.TextTrimming = TextTrimming.CharacterEllipsis; t.MaxLines = 1; })
+                        .TextTrimming(TextTrimming.CharacterEllipsis).MaxLines(1)
                 ),
                 () => Props.OnSelectSession(sid)
             ).Set(b =>

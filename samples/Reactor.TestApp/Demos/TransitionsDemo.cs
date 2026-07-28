@@ -71,7 +71,7 @@ class TransitionsDemo : Component
                     .VAlign(VerticalAlignment.Center)
             )
                 .Size(200, 80).Background("#E8834A").CornerRadius(8).Padding(16)
-                .Set(b => b.Scale = new global::System.Numerics.Vector3((float)scale, (float)scale, 1))
+                .Scale(new global::System.Numerics.Vector3((float)scale, (float)scale, 1))
                 .ScaleTransition(),
 
             // Section 3: Implicit translation transition
@@ -89,7 +89,7 @@ class TransitionsDemo : Component
                     .VAlign(VerticalAlignment.Center)
             )
                 .Size(200, 80).Background("#50C878").CornerRadius(8).Padding(16)
-                .Set(b => b.Translation = new global::System.Numerics.Vector3((float)xOffset, 0, 0))
+                .Translation((float)xOffset, 0, 0)
                 .TranslationTransition(),
 
             // Section 4: Implicit background transition
@@ -103,7 +103,7 @@ class TransitionsDemo : Component
                     .VAlign(VerticalAlignment.Center)
             )
                 .Width(200).CornerRadius(8)
-                .Set(g => g.Background = new SolidColorBrush(ColorFromHex(currentBg)))
+                .Background(new SolidColorBrush(ColorFromHex(currentBg)))
                 .BackgroundTransition(TimeSpan.FromMilliseconds(500)),
 
             // Section 5: Theme transitions (ChildrenTransitions)
