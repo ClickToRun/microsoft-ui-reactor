@@ -58,7 +58,32 @@ Conventions for contributors:
   implied 48, and an explicit `WindowSpec.TitleBarHeight` wins over the element's
   declaration.
 
+- **`NavigationView` declarative surface completed (issue #915).** The element
+  now covers the control without escape hatches: `IsBackButtonVisible`,
+  `IsPaneToggleButtonVisible`, `IsPaneVisible`, `AlwaysShowHeader`,
+  `IsTitleBarAutoPaddingEnabled`, `SelectionFollowsFocus`, `OverflowLabelMode`,
+  `ShoulderNavigationEnabled` and `CompactPaneLength`; the `PaneHeader` and
+  `ContentOverlay` slots; a `FooterMenuItems` list reconciled like `MenuItems`;
+  and the `OnSettingsSelected`, `OnItemInvoked`, `OnDisplayModeChanged`,
+  `OnItemExpanding` and `OnItemCollapsed` callbacks with matching
+  `.SettingsSelected()` / `.ItemInvoked()` / `.DisplayModeChanged()` /
+  `.ItemExpanding()` / `.ItemCollapsed()` fluents. A new
+  `NavigationViewElement.SettingsTag` sentinel lets `SelectedTag` select the
+  built-in settings item, and `.WithNavigation()` now routes it.
+
 ### Changed
+
+- **`WithNavigation` gained an optional `settingsRoute` argument (binary-breaking,
+  issue #915).** Call sites can now pass a fourth argument —
+  `.WithNavigation(nav, routeToTag, tagToRoute, settingsRoute)` — to route the
+  built-in settings item; passing nothing keeps the previous behaviour.
+  Source-compatible: existing three-argument call sites compile unchanged. But
+  optional arguments are baked in at the call site, so binaries compiled against
+  `v0.1.0-preview.9`–`.12` still resolve the previous three-argument form and
+  would need a recompile rather than a drop-in DLL swap. No back-compat overload
+  was added: the project is pre-1.0 and explicitly reserves the right to change
+  the public surface between releases, and a permanent duplicate overload is a
+  worse public shape than one optional argument.
 
 ### Deprecated
 
@@ -78,6 +103,12 @@ Conventions for contributors:
   `ExtendsContentIntoTitleBar = false` whenever the spec left it unset, silently
   undoing the inference behind a still-mounted title-bar control; an unset spec
   value now preserves it.
+
+- **`NavigationView` no longer needs `.Set()` for its chrome (issue #915).**
+  `IsBackButtonVisible` and `IsPaneToggleButtonVisible` had no declarative
+  mapping, so hiding the back button or the hamburger — the usual setup when a
+  `TitleBar` already owns that chrome — forced an imperative
+  `.Set(nv => ...)` escape hatch that the reconciler could not diff.
 
 ### Security
 
