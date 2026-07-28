@@ -37,8 +37,8 @@ internal sealed partial class ResizeGripControl : Grid
 /// have become a core→Advanced cycle once the grip moved out. The mount/update
 /// delegates capture no per-host state (they use only their arguments), so the
 /// logic wraps cleanly as a stateless handler registered lazily and GLOBALLY via
-/// <c>Reg&lt;ResizeGripElement, ResizeGripControl, ResizeGripHandler&gt;.Done</c>
-/// at the <see cref="DataGridComponent{T}"/> emit site. Global registration is
+/// <see cref="ResizeGripRegistration"/> at the <see cref="DataGridComponent{T}"/>
+/// emit site. Global registration is
 /// process-wide and synchronous on the touch, so the grip is registered before it
 /// mounts in that same render — no timing risk and no consumer registration call.
 /// </summary>
@@ -86,5 +86,28 @@ internal sealed class ResizeGripHandler : IElementHandler<ResizeGripElement, Res
         }
 
         Reconciler.SetElementTag(panel, newEl);
+    }
+}
+
+/// <summary>
+/// Spec 062 §7 — lazy, once-per-process registration of the resize grip through the
+/// PUBLIC <see cref="ControlRegistry"/> seam (the same entry point third-party control
+/// libraries use), rather than core's internal <c>Reg&lt;&gt;</c> shorthand. The explicit
+/// static constructor suppresses <c>beforefieldinit</c> so the CLR runs <see cref="Init"/>
+/// precisely on the first read of <see cref="Done"/>, preserving the "first factory touch
+/// registers" guarantee. ControlRegistry.Register is first-wins (TryAdd), so repeat
+/// activation is a no-op.
+/// </summary>
+internal static class ResizeGripRegistration
+{
+    static ResizeGripRegistration() { }
+
+    internal static readonly bool Done = Init();
+
+    private static bool Init()
+    {
+        ControlRegistry.Register<ResizeGripElement, ResizeGripControl>(
+            static () => new ResizeGripHandler());
+        return true;
     }
 }

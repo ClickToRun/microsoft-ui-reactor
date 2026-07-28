@@ -248,12 +248,11 @@ internal static class DockSideStripRenderer
         // Loaded handler attached via Setters. This is the same pattern
         // upstream WinUI.Dock's SidePopup uses — its `Show()` method runs
         // after the popup has been attached to its container.
-        return Popup(box) with
+        return (Popup(box) with
         {
             IsOpen = false,
             IsLightDismissEnabled = false,
-            Setters = new Action<Microsoft.UI.Xaml.Controls.Primitives.Popup>[]
-            {
+        }).Set(
                 static p =>
                 {
                     if (p.IsLoaded) { p.IsOpen = true; return; }
@@ -264,8 +263,6 @@ internal static class DockSideStripRenderer
                         p.IsOpen = true;
                     };
                     p.Loaded += handler;
-                }
-            },
-        };
+                });
     }
 }

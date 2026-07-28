@@ -367,16 +367,15 @@ public class DataGridComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMe
         // declared outside the el.Editable branch (Editable can toggle between renders, which
         // would otherwise change the hook call sequence and throw HookOrderException).
         var lostFocusWired = UseRef(false);
-        var lostFocusSetters = UseRef<Action<global::Microsoft.UI.Xaml.Controls.Grid>[]?>(null);
+        var lostFocusSetter = UseRef<Action<global::Microsoft.UI.Xaml.Controls.Grid>?>(null);
         if (el.Editable)
         {
-            // Cache the LostFocus setter array (and its closure) in a ref so the spread + lambda
-            // aren't re-allocated every render. The handler wires g.LostFocus exactly once (guarded
+            // Cache the LostFocus setter (and its closure) in a ref so the lambda isn't
+            // re-allocated every render. The handler wires g.LostFocus exactly once (guarded
             // by lostFocusWired) and reads live state through the captured refs, so a once-built
-            // setter is equivalent to rebuilding it each render. gridEl is freshly constructed
-            // above with no setters, so assigning Setters here matches the old spread.
-            lostFocusSetters.Current ??= new Action<global::Microsoft.UI.Xaml.Controls.Grid>[]
-            {
+            // setter is equivalent to rebuilding it each render. The cached setter is applied
+            // below through the public `.Set()` modifier.
+            lostFocusSetter.Current ??=
                 g =>
                 {
                     if (lostFocusWired.Current) return;
@@ -433,9 +432,8 @@ public class DataGridComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMe
                             }
                         });
                     };
-                }
-            };
-            gridEl = gridEl with { Setters = lostFocusSetters.Current };
+                };
+            gridEl = gridEl.Set(lostFocusSetter.Current!);
         }
 
         Element grid = gridEl;
@@ -932,13 +930,14 @@ public class DataGridComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMe
                 {
                     // Spec 062 §7 Track B (B3) — lazy GLOBAL registration of the
                     // resize-grip handler at its single emit site. Replaces core's
-                    // former eager per-host ResizeGripRegistration (which would have
-                    // become a core→Advanced reference once the grip moved out).
-                    // Reg<>.Done runs the handler's registration cctor once per
-                    // process, synchronously, before the element mounts this same
-                    // render — no timing risk, no consumer call — and keeps the grip
-                    // trimmable when the data grid is unreachable.
-                    _ = Reg<ResizeGripElement, ResizeGripControl, ResizeGripHandler>.Done;
+                    // former eager per-host registration (which would have become a
+                    // core→Advanced reference once the grip moved out). Registration
+                    // goes through the PUBLIC ControlRegistry seam (the same entry
+                    // point a third-party control library uses); reading Done runs it
+                    // once per process, synchronously, before the element mounts this
+                    // same render — no timing risk, no consumer call — and keeps the
+                    // grip trimmable when the data grid is unreachable.
+                    _ = ResizeGripRegistration.Done;
                     var grip = new ResizeGripElement()
                         .Width(6)
                         .HAlign(HorizontalAlignment.Right)
