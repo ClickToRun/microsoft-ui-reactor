@@ -1,6 +1,7 @@
 using Microsoft.UI.Reactor.Core.Internal;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Microsoft.UI.Reactor.Core;
 
@@ -50,7 +51,15 @@ public sealed partial class ElementFactory<T> : IElementFactory
     // container must come back out via GetElement to keep the working set
     // bounded; allocating fresh on every realize creates one orphan in
     // Children per call.
-    private readonly Stack<UIElement> _recyclePool = new();
+    //
+    // Used as a stack (push/pop at the end) but stored as a List so GetElement
+    // can SCAN it for a container whose last Element is diff-compatible with
+    // the row being realized. Blindly popping the newest entry orphans it
+    // whenever the root element type flipped (issue #919): Reconcile mints a
+    // different control, and the popped one can never be un-parented from the
+    // repeater. The pool stays small — bounded by the realized window times the
+    // number of distinct root shapes in flight — so the scan is a few compares.
+    private readonly List<UIElement> _recyclePool = new();
 
     // Last Element bound to a given realized control. On reuse from the
     // recycle pool, this is the oldElement passed to Reconciler.Reconcile so
@@ -360,8 +369,11 @@ public sealed partial class ElementFactory<T> : IElementFactory
                     // already unmounted inside Reconcile, so drop every tracking entry that
                     // points at it, tear the orphaned replacement down (otherwise its component
                     // effect cleanups leak — it is mounted but unreachable), and route the row
-                    // back through the framework's realize channel. (Issue #919)
+                    // back through the framework's realize channel. `child` cannot be
+                    // un-parented from the repeater, so park it collapsed rather than leaving
+                    // an unmounted ghost painted over the row. (Issue #919)
                     DetachFromParent(child);
+                    ParkOrphan(child);
                     _keyByControl.Remove(child);
                     _lastElementByControl.Remove(child);
                     _mountedElements.Remove(key);
@@ -492,37 +504,43 @@ public sealed partial class ElementFactory<T> : IElementFactory
         var element = BuildOrCache(key, item, index, keyed);
 
         UIElement? control;
-        if (_recyclePool.Count > 0)
+        if (TryTakeCompatibleFromPool(element, out var reused, out var oldElement))
         {
             // Reuse a previously-recycled container. The framework still has
             // it parented to the ItemsRepeater, so the ViewManager.cpp:866
             // Append-skip kicks in and the visual tree stays stable.
-            var reused = _recyclePool.Pop();
-            if (_lastElementByControl.TryGetValue(reused, out var oldElement))
+            //
+            // Undo the parking collapse from RecycleElement BEFORE reconciling,
+            // so an element that genuinely asks to be collapsed still wins.
+            RestoreFromPool(reused);
+            var replacement = _reconciler.Reconcile(oldElement, element, reused, _requestRerender);
+            if (replacement is not null && !ReferenceEquals(replacement, reused))
             {
-                var replacement = _reconciler.Reconcile(oldElement, element, reused, _requestRerender);
-                if (replacement is not null && !ReferenceEquals(replacement, reused))
+                // Pass-2 reuse: the row's key changed, so Reconcile unmounted the old
+                // component (effect cleanups ran) and built a fresh wrapper. Move that
+                // subtree back into the container we already have — returning the
+                // replacement instead would strand `reused`, which cannot be un-parented
+                // from an ItemsRepeater (see DetachFromParent). (Issues #326, #919.)
+                if (_reconciler.TryAdoptRealizedReplacement(reused, replacement))
                 {
-                    // Heterogeneous-row case: Reconcile decided the root
-                    // element type changed and built a fresh control.
-                    // `reused` is now unmounted but still parented to the
-                    // ItemsRepeater — detach so it doesn't sit there as
-                    // an orphan (the original leak shape we're fixing).
-                    // (PR #324 review)
-                    DetachFromParent(reused);
-                    _lastElementByControl.Remove(reused);
-                    control = replacement;
+                    control = reused;
                 }
                 else
                 {
-                    control = reused;
+                    // Nothing can install `replacement` into `reused`. Park `reused`
+                    // collapsed and forget it rather than leaving a live ghost row
+                    // painted over the list. Do NOT return it to the pool: it was
+                    // unmounted inside Reconcile, so its tracked Element no longer
+                    // describes it.
+                    DetachFromParent(reused);
+                    ParkOrphan(reused);
+                    _lastElementByControl.Remove(reused);
+                    control = replacement;
                 }
             }
             else
             {
-                // Defensive: pool entry without a tracked oldElement should
-                // not happen — fall back to re-mounting on top of it.
-                control = _reconciler.Mount(element, _requestRerender);
+                control = reused;
             }
         }
         else
@@ -552,10 +570,80 @@ public sealed partial class ElementFactory<T> : IElementFactory
     }
     // </snippet:factory-shape>
 
-    // Detach a UIElement from whatever container it's parented to. ItemsRepeater
-    // is a Panel subclass so the standard Children.Remove path applies; we also
-    // handle Border/ScrollViewer/ContentControl so this is safe to call on
-    // arbitrary recycled subtrees.
+    // Pick a recycled container that can actually be reused for `element`,
+    // newest-first (the most recently recycled container is the most likely to
+    // be cache-warm and shape-identical). Two passes, in priority order:
+    //
+    //   1. CanUpdate → a pure in-place diff, the cheapest possible reuse.
+    //   2. A component-wrapper Border paired with a ComponentElement → CanUpdate
+    //      is false (the row's key changed), so Reconcile unmounts the old
+    //      component — running its effect cleanups — and mints a fresh wrapper,
+    //      which TryAdoptRealizedReplacement then moves back into this still-
+    //      parented Border. Same container, fresh per-item state. (Issue #326.)
+    //
+    // Issue #919: anything else must STAY in the pool. Handing it to Reconcile
+    // would mint a different control, and the rejected one can never be removed
+    // from an ItemsRepeater (see DetachFromParent) — so every root-type flip
+    // used to strand one live, visible, arranged container per realized row,
+    // unbounded, painting stale rows over the list. Leaving it pooled instead
+    // bounds the working set at one realized window per root shape, which is
+    // what WinUI's own RecyclePool does for multiple data templates.
+    private bool TryTakeCompatibleFromPool(
+        Element element,
+        [NotNullWhen(true)] out UIElement? reused,
+        [NotNullWhen(true)] out Element? oldElement)
+    {
+        for (var pass = 0; pass < 2; pass++)
+        {
+            for (var i = _recyclePool.Count - 1; i >= 0; i--)
+            {
+                var candidate = _recyclePool[i];
+                if (!_lastElementByControl.TryGetValue(candidate, out var candidateElement))
+                {
+                    // Untracked pool entry (its tracking was dropped elsewhere) can
+                    // never be reconciled — evict it so the scan stays short. It
+                    // stays parented but collapsed, which is the best available
+                    // outcome for a repeater child.
+                    _recyclePool.RemoveAt(i);
+                    ParkOrphan(candidate);
+                    continue;
+                }
+
+                var usable = pass == 0
+                    ? _reconciler.CanUpdate(candidateElement, element)
+                    : candidate is Border && element is ComponentElement;
+                if (!usable) continue;
+
+                _recyclePool.RemoveAt(i);
+                reused = candidate;
+                oldElement = candidateElement;
+                return true;
+            }
+        }
+
+        reused = null;
+        oldElement = null;
+        return false;
+    }
+
+    // Park a container we can neither reuse nor un-parent. Collapsing is what
+    // keeps it from rendering: an ItemsRepeater child it no longer owns is never
+    // re-arranged, so it would otherwise keep painting at its last arranged
+    // bounds on top of the live rows.
+    private static void ParkOrphan(UIElement control) => control.Visibility = Visibility.Collapsed;
+
+    private static void RestoreFromPool(UIElement control) => control.Visibility = Visibility.Visible;
+
+    // Detach a UIElement from whatever container it's parented to.
+    //
+    // NOTE: this canNOT detach a container realized directly by an ItemsRepeater.
+    // Despite deriving from Panel in the C++ implementation, ItemsRepeater does
+    // not project IPanel — `repeater is Panel` and even an ABI `.As<Panel>()`
+    // both fail — so there is no Children collection to remove from and no public
+    // API that un-parents a realized child. Callers must pair this with
+    // ParkOrphan (collapse in place) for the repeater case. It is still the right
+    // call for nested Panel/Border/ContentControl subtrees, so it's safe to call
+    // on arbitrary recycled content.
     private static void DetachFromParent(UIElement control)
     {
         if (control is not FrameworkElement fe) return;
@@ -588,7 +676,14 @@ public sealed partial class ElementFactory<T> : IElementFactory
         // keeps the element parented either way (see ViewManager.cpp), so
         // tearing down Reactor state here would just be discarded work.
         // The _lastElementByControl entry stays valid for the next realize.
-        _recyclePool.Push(args.Element);
+        //
+        // Collapse while parked. The repeater stops arranging a recycled child
+        // but keeps it parented, so a still-Visible one paints at its last
+        // arranged bounds — a ghost row over the live list whenever the pool
+        // isn't drained in the same pass (issue #919). GetElement restores
+        // visibility on reuse. This mirrors WinUI's own RecyclePool.
+        ParkOrphan(args.Element);
+        _recyclePool.Add(args.Element);
     }
 
 }

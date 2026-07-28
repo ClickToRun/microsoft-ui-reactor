@@ -6,6 +6,7 @@ using Microsoft.UI.Reactor.Controls;
 using Microsoft.UI.Reactor.AppTests.Host.SelfTest;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using static Microsoft.UI.Reactor.Factories;
 
 namespace Microsoft.UI.Reactor.AppTests.Host.SelfTest.Fixtures;
@@ -219,9 +220,10 @@ internal static class DataGridExpandFixtures
             H.Check($"RootFlip_RealizedControlSwapped (type={realized?.GetType().Name ?? "null"})",
                 realized is Microsoft.UI.Reactor.Layout.FlexPanel);
 
-            // Every realized container must have been re-realized — not just row 0. (Recycled
-            // containers can linger in the repeater's pool with stale text, so this asserts on the
-            // repeater's live realization map rather than on the raw visual tree.)
+            // Every realized container must have been re-realized — not just row 0. Recycled
+            // containers stay parented to the repeater (it exposes no way to remove a child),
+            // so this asserts on the repeater's live realization map rather than the raw
+            // visual tree, which also holds the parked/collapsed pool.
             var realizedCount = 0;
             var flexCount = 0;
             for (var i = 0; i < 8; i++)
@@ -243,6 +245,37 @@ internal static class DataGridExpandFixtures
                 () => repeater.TryGetElement(0) is Grid, maxPasses: 25, perPassMs: 50);
             H.Check($"RootFlip_FlipsBack (type={repeater.TryGetElement(0)?.GetType().Name ?? "null"})",
                 backContent);
+
+            // Issue #919 leak guard. A root-type flip makes the recycled container
+            // incompatible with the row being realized. If GetElement pops it anyway,
+            // Reconcile mints a *different* control and the popped one is stranded —
+            // it can never be un-parented from an ItemsRepeater — so the repeater's
+            // visual children grew by one realized window on every single flip, and
+            // every stranded container stayed Visible and arranged (a ghost row).
+            // Compatibility-aware pool reuse must keep this bounded no matter how many
+            // times the user toggles.
+            var afterFirstFlips = VisualTreeHelper.GetChildrenCount(repeater);
+            for (var i = 0; i < 6; i++)
+            {
+                setFlipped?.Invoke(i % 2 == 0);
+                await Harness.Render(300);
+                forceRender?.Invoke();
+                await Harness.Render(300);
+            }
+
+            var afterManyFlips = VisualTreeHelper.GetChildrenCount(repeater);
+            H.Check($"RootFlip_ChildrenBounded (before={afterFirstFlips} after={afterManyFlips})",
+                afterManyFlips <= afterFirstFlips);
+
+            // Nothing stranded may still paint over the live rows.
+            var ghosts = 0;
+            for (var i = 0; i < afterManyFlips; i++)
+            {
+                if (VisualTreeHelper.GetChild(repeater, i) is not FrameworkElement fe) continue;
+                if (fe.Visibility != Visibility.Visible) continue;
+                if (repeater.GetElementIndex(fe) < 0) ghosts++;
+            }
+            H.Check($"RootFlip_NoVisibleGhosts (ghosts={ghosts}/{afterManyFlips})", ghosts == 0);
         }
     }
 }

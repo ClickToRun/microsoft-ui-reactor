@@ -176,11 +176,18 @@ internal static class ElementFactoryRecyclingFixtures
     }
 
     // ────────────────────────────────────────────────────────────────────
-    //  PR #324 review fix #1 — heterogeneous-row replacement.
-    //  When the row's root element type changes between cycles, Reconcile
-    //  returns a fresh control. The old reused control must be untracked
-    //  from _lastElementByControl (and detached from any parent, but the
-    //  standalone factory has no parent so we only assert tracking).
+    //  Heterogeneous-row realization.
+    //
+    //  PR #324 review fix #1 originally popped the pooled container blindly:
+    //  Reconcile then minted a fresh control for the new root type and the
+    //  popped one was untracked and left behind. Issue #919 showed that is a
+    //  leak, not a fix — a container realized by an ItemsRepeater can never be
+    //  un-parented from managed code, so a repeatedly-flipping list stranded a
+    //  full realized window of live, visible containers on every flip.
+    //
+    //  The container that cannot serve this row must therefore STAY POOLED and
+    //  STAY TRACKED, so the next realize of a matching root type reuses that
+    //  exact instance instead of allocating another one.
     // ────────────────────────────────────────────────────────────────────
 
     internal class Factory_ReplacementOnRootTypeChange_DropsOldControlTracking(Harness h) : SelfTestFixtureBase(h)
@@ -210,10 +217,9 @@ internal static class ElementFactoryRecyclingFixtures
 
             int beforeLastEl = factory.DebugLastElementByControlCount;
 
-            // Realize index 1 → TextBlock root. Reconcile returns a fresh
-            // control because the root type changed; old reused FlexRow
-            // becomes orphaned in any real parent (no parent here in the
-            // standalone test, but tracking-removal should still happen).
+            // Realize index 1 → TextBlock root. The pooled FlexRow cannot be
+            // diffed into a TextBlock, so the factory must leave it in the pool
+            // and mount a fresh control for this row.
             var txtCtl = ifactory.GetElement(MakeGetArgs(1));
 
             H.Check("EFR_Heterogeneous_ReturnsReplacementNotReused",
@@ -221,14 +227,24 @@ internal static class ElementFactoryRecyclingFixtures
             H.Check("EFR_Heterogeneous_ReturnedControlIsTextBlock",
                 txtCtl is TextBlock);
 
-            // The factory must have dropped its _lastElementByControl entry
-            // for the orphaned old FlexRow. Otherwise the bookkeeping leaks
-            // one entry per heterogeneous-cycle pair.
+            // The rejected FlexRow must KEEP its _lastElementByControl entry —
+            // that entry is what lets the next matching realize find and reuse
+            // it. Dropping it (the pre-#919 behaviour) stranded the control:
+            // untracked, un-detachable, and re-allocated on every flip.
             int afterLastEl = factory.DebugLastElementByControlCount;
-            // beforeLastEl had 1 (the FlexRow). afterLastEl should be 1 (the new TextBlock).
-            // The FlexRow's entry was dropped, TextBlock's entry was added → net 0 delta.
-            H.Check($"EFR_Heterogeneous_LastElementByControlSwapped_before={beforeLastEl}_after={afterLastEl}",
-                afterLastEl == beforeLastEl);
+            H.Check($"EFR_Heterogeneous_RejectedControlStaysTracked_before={beforeLastEl}_after={afterLastEl}",
+                afterLastEl == beforeLastEl + 1
+                    && factory.DebugTryGetLastElementByControl(rowCtl, out _));
+
+            // …and the proof that retention is what bounds the working set:
+            // recycle the TextBlock, realize an even index again, and the very
+            // same FlexRow instance must come back instead of a third control.
+            ifactory.RecycleElement(MakeRecycleArgs(txtCtl));
+            var rowCtl2 = ifactory.GetElement(MakeGetArgs(0));
+            H.Check("EFR_Heterogeneous_PooledRootReusedOnFlipBack",
+                ReferenceEquals(rowCtl2, rowCtl));
+            H.Check($"EFR_Heterogeneous_BookkeepingBounded_count={factory.DebugLastElementByControlCount}",
+                factory.DebugLastElementByControlCount == 2);
 
             return Task.CompletedTask;
         }
