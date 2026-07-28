@@ -227,6 +227,73 @@ visual clickable or `.IsDragRegion(true)` to force it draggable, and set
 }).AutoRefreshDragRegions();
 ```
 
+### Tall title bar
+
+A title bar that hosts navigation chrome — a back button, a pane toggle — uses the
+tall (48 DIP) caption. `.Tall()` declares it:
+
+```csharp
+TitleBar("My app")
+    .WithNavigation(nav)
+    .PaneToggleButtonVisible(true)
+    .Tall();                                  // or .HeightOption(WindowTitleBarHeight.Tall)
+```
+
+This sets **both** halves, which is the part that is easy to get wrong by hand: the
+system caption (`AppWindow.TitleBar.PreferredHeightOption`) *and* the WinUI title-bar
+control's own height. The control does not derive its height from the caption, so
+raising only the caption leaves a 48 DIP caption over a 32 DIP title bar. An explicit
+`.Height(...)` on the element still wins over the implied 48.
+
+The same knob exists on the spec, for windows that need it without a `TitleBar(...)`
+element (it requires content extension either way, and wins over the element's
+declaration when both are set):
+
+```csharp
+new WindowSpec
+{
+    Title = "My app",
+    ExtendsContentIntoTitleBar = true,
+    TitleBarHeight = WindowTitleBarHeight.Tall,
+};
+```
+
+| API | Values |
+| --- | --- |
+| `WindowTitleBarHeight` | `Standard`, `Tall`, `Collapsed` |
+
+Reactor applies the height after it flips the window into content-extended mode, so
+there is no ordering hazard. Setting `AppWindow.TitleBar.PreferredHeightOption`
+yourself is still supported, but it throws `ERROR_INVALID_STATE` on a window that is
+not content-extended — which is what makes the imperative path fragile from an
+effect body.
+
+#### Migrating from the imperative workaround
+
+Earlier code — including the Windows App SDK `reactor-navview` template — re-posted
+the assignment onto the dispatcher queue:
+
+```csharp
+// Don't do this any more.
+var window = UseWindow();
+UseEffect(() =>
+{
+    if (window is not { } win) return;
+    win.NativeWindow?.DispatcherQueue.TryEnqueue(() =>
+        win.AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall);
+});
+```
+
+Delete the whole effect and declare `.Tall()` instead.
+
+The dispatcher hop was based on a misdiagnosis (issue #917). `TitleBar(...)`'s
+`ExtendsContentIntoTitleBar` inference never clobbered `PreferredHeightOption` —
+measured on a live window, a direct write from an effect body produces geometry
+identical to the hopped write. What the original report actually hit was the caption
+moving while the WinUI title-bar control stayed at 32 DIP, which reads back as `Tall`
+but looks like nothing happened. Delaying the write never fixed that; pairing the two
+heights does, and that is what `.Tall()` applies.
+
 Caveats:
 
 - Setting `ExtendsContentIntoTitleBar = false` while still rendering a `TitleBar(...)`
@@ -244,6 +311,9 @@ Caveats:
 - `WindowCornerStyle` is a Windows 11 DWM preference; Windows 10 ignores it.
 - `BackdropKind.Transparent` falls back to no backdrop when the referenced Windows
   App SDK does not expose a transparent backdrop type.
+- `TitleBarHeight` / `.Tall()` require a content-extended window. On a window that
+  never extends, Reactor warns and skips the write rather than throwing — and
+  re-applies the declared height automatically if the window later extends.
 
 ## Taskbar integration
 
