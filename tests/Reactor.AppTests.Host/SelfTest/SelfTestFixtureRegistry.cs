@@ -262,6 +262,9 @@ internal static class SelfTestFixtureRegistry
         // PR #324 review fixes — heterogeneous rows, RefreshRealizedItems
         // sync, and ItemsRepeater unmount cleanup.
         "EFR_Factory_ReplacementOnRootTypeChange_DropsOldControlTracking",
+        "EFR_Factory_MultiShapeCycle_KeepsContainerSetBounded",
+        "EFR_Factory_PoolEviction_UnmountsEvictedRows",
+        "EFR_Factory_PoolParking_PreservesVisibilityValueSource",
         "EFR_Factory_RefreshRealizedItems_SyncsLastElementByControl",
         "EFR_LazyStack_Unmount_CleansUpAllRecycledRowComponents",
         "EFR_Factory_KeyChangeRecycle_ResetsRowComponentState",
@@ -1783,6 +1786,9 @@ internal static class SelfTestFixtureRegistry
         "EFR_Factory_RecycledControlIsReusedOnNextRealize" => new ElementFactoryRecyclingFixtures.Factory_RecycledControlIsReusedOnNextRealize(harness),
         "EFR_Factory_BookkeepingBoundedAcrossCycles" => new ElementFactoryRecyclingFixtures.Factory_BookkeepingBoundedAcrossCycles(harness),
         "EFR_Factory_ReplacementOnRootTypeChange_DropsOldControlTracking" => new ElementFactoryRecyclingFixtures.Factory_ReplacementOnRootTypeChange_DropsOldControlTracking(harness),
+        "EFR_Factory_MultiShapeCycle_KeepsContainerSetBounded" => new ElementFactoryRecyclingFixtures.Factory_MultiShapeCycle_KeepsContainerSetBounded(harness),
+        "EFR_Factory_PoolEviction_UnmountsEvictedRows" => new ElementFactoryRecyclingFixtures.Factory_PoolEviction_UnmountsEvictedRows(harness),
+        "EFR_Factory_PoolParking_PreservesVisibilityValueSource" => new ElementFactoryRecyclingFixtures.Factory_PoolParking_PreservesVisibilityValueSource(harness),
         "EFR_Factory_RefreshRealizedItems_SyncsLastElementByControl" => new ElementFactoryRecyclingFixtures.Factory_RefreshRealizedItems_SyncsLastElementByControl(harness),
         "EFR_LazyStack_Unmount_CleansUpAllRecycledRowComponents" => new ElementFactoryRecyclingFixtures.LazyStack_Unmount_CleansUpAllRecycledRowComponents(harness),
         "EFR_Factory_KeyChangeRecycle_ResetsRowComponentState" => new ElementFactoryRecyclingFixtures.Factory_KeyChangeRecycle_ResetsRowComponentState(harness),

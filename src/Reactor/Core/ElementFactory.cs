@@ -57,25 +57,39 @@ public sealed partial class ElementFactory<T> : IElementFactory
     // the row being realized. Blindly popping the newest entry orphans it
     // whenever the root element type flipped (issue #919): Reconcile mints a
     // different control, and the popped one can never be un-parented from the
-    // repeater. Bounded by <see cref="PoolCapacity"/>, so the scan is short.
+    // repeater. Bounded by <see cref="TrimPool"/>, so the scan is short.
     private readonly List<PoolEntry> _recyclePool = new();
 
-    // A parked container plus the Visibility it had before RecycleElement
-    // collapsed it, so reuse restores exactly what the author asked for.
-    private readonly record struct PoolEntry(UIElement Control, Visibility Visibility);
+    // A parked container plus the value its Visibility DP carried before
+    // RecycleElement collapsed it. We store the *value source* — whatever
+    // ReadLocalValue returned — rather than the evaluated enum. A row whose
+    // Visibility comes from a Style (or is simply at its default) has NO local
+    // value, and writing the evaluated enum back on reuse would pin a local
+    // value that permanently outranks the style. UnsetValue therefore means
+    // "restore by clearing"; a boxed Visibility means "restore by writing";
+    // anything else is a BindingExpression, which cannot be re-established from
+    // here, so such a container is never parked in the first place.
+    private readonly record struct PoolEntry(UIElement Control, object? ParkedVisibility);
 
     // Retaining a container that cannot serve the current row is what bounds the
     // working set across a root-type flip (issue #919) — but it only ever pays
     // off for a row shape that comes BACK, and for a keyed list it never does:
     // ApplyItemIdentityKey stamps a per-item key on the row root, CanUpdate
     // rejects unequal keys, so scrolling forward through N distinct items would
-    // retain N containers and make the scan quadratic. Cap the pool at twice the
-    // largest realized window seen so far (the flip case needs exactly one
-    // window; the second window is the incoming shape) with a small floor, and
-    // evict oldest-first beyond that — an evicted container is parked collapsed
-    // and untracked, which is the pre-#919 outcome and no worse.
+    // retain N containers and make the scan quadratic. Cap the pool at one
+    // realized window per distinct root shape currently pooled (with a floor of
+    // two windows, and never fewer than 32 entries) and evict oldest-first
+    // beyond that — an evicted container is unmounted, parked collapsed and
+    // untracked, which is the pre-#919 outcome and no worse.
+    //
+    // The per-shape term matters: a list that cycles its rows through three or
+    // more root types needs every shape's window retained, or the shape evicted
+    // this pass is re-minted next pass and the repeater's children grow without
+    // bound (nothing can un-parent them). The shape count is clamped so the
+    // capacity itself stays bounded.
+    private const int MaxPooledShapes = 8;
     private int _maxRealized;
-    private int PoolCapacity => global::System.Math.Max(32, _maxRealized * 2);
+    private readonly HashSet<global::System.Type> _shapeScratch = new();
 
     // Last Element bound to a given realized control. On reuse from the
     // recycle pool, this is the oldElement passed to Reconciler.Reconcile so
@@ -527,11 +541,11 @@ public sealed partial class ElementFactory<T> : IElementFactory
             // Append-skip kicks in and the visual tree stays stable.
             //
             // Undo the parking collapse from RecycleElement BEFORE reconciling.
-            // Restore the exact pre-park value rather than forcing Visible: an
-            // in-place diff whose Visibility modifier is unchanged writes
-            // nothing, so forcing Visible would silently un-collapse a row the
-            // author asked to hide.
-            reused.Visibility = parkedVisibility;
+            // Restore the exact pre-park value source rather than forcing
+            // Visible: an in-place diff whose Visibility modifier is unchanged
+            // writes nothing, so forcing Visible would silently un-collapse a
+            // row the author asked to hide.
+            RestoreParkedVisibility(reused, parkedVisibility);
             var replacement = _reconciler.Reconcile(oldElement, element, reused, _requestRerender);
             if (replacement is not null && !ReferenceEquals(replacement, reused))
             {
@@ -600,9 +614,13 @@ public sealed partial class ElementFactory<T> : IElementFactory
     //      its effect cleanups — and mints a fresh wrapper, which
     //      TryAdoptRealizedReplacement then moves back into this still-parented
     //      Border. Same container, fresh per-item state. (Issue #326.)
-    //      Adoption transplants only the component subtree, so the wrapper's own
-    //      modifiers/extensions must already match or they would survive from the
-    //      previous row.
+    //      Adoption transplants only the component subtree — not the wrapper's
+    //      own runtime bookkeeping (ElementRef cells, OnMount/OnUpdate/OnUnmount
+    //      registrations, which ApplyModifiers installs keyed on the REPLACEMENT
+    //      Border) — so this pass is restricted to wrappers that carry no
+    //      modifiers and no extensions at all. Equal-by-value modifiers are not
+    //      enough: an equal non-null Ref would end up pointing at the discarded
+    //      replacement, and an equal OnUnmount would be registered against it.
     //
     // Issue #919: anything else must STAY in the pool. Handing it to Reconcile
     // would mint a different control, and the rejected one can never be removed
@@ -615,7 +633,7 @@ public sealed partial class ElementFactory<T> : IElementFactory
         Element element,
         [NotNullWhen(true)] out UIElement? reused,
         [NotNullWhen(true)] out Element? oldElement,
-        out Visibility parkedVisibility)
+        out object? parkedVisibility)
     {
         for (var pass = 0; pass < 2; pass++)
         {
@@ -639,21 +657,21 @@ public sealed partial class ElementFactory<T> : IElementFactory
                         && candidateElement is ComponentElement oldComp
                         && element is ComponentElement newComp
                         && oldComp.ComponentType == newComp.ComponentType
-                        && Equals(oldComp.Modifiers, newComp.Modifiers)
-                        && Equals(oldComp.Extensions, newComp.Extensions);
+                        && oldComp.Modifiers is null && newComp.Modifiers is null
+                        && oldComp.Extensions is null && newComp.Extensions is null;
                 if (!usable) continue;
 
                 _recyclePool.RemoveAt(i);
                 reused = entry.Control;
                 oldElement = candidateElement;
-                parkedVisibility = entry.Visibility;
+                parkedVisibility = entry.ParkedVisibility;
                 return true;
             }
         }
 
         reused = null;
         oldElement = null;
-        parkedVisibility = Visibility.Visible;
+        parkedVisibility = null;
         return false;
     }
 
@@ -662,6 +680,33 @@ public sealed partial class ElementFactory<T> : IElementFactory
     // re-arranged, so it would otherwise keep painting at its last arranged
     // bounds on top of the live rows.
     private static void ParkOrphan(UIElement control) => control.Visibility = Visibility.Collapsed;
+
+    // Collapse a container on its way into the pool, returning the Visibility
+    // value source to restore on reuse. Returns null when the container must
+    // NOT be parked: its Visibility is bound, and ReadLocalValue hands back a
+    // BindingExpression that no public API can re-install. Silently destroying
+    // an author's binding is worse than the (exotic) ghost row, so leave it be.
+    private static object? TryParkForPool(UIElement control)
+    {
+        var local = control.ReadLocalValue(UIElement.VisibilityProperty);
+        if (local is not Visibility && !ReferenceEquals(local, DependencyProperty.UnsetValue))
+            return null;
+
+        ParkOrphan(control);
+        return local;
+    }
+
+    // Undo TryParkForPool. Clearing (rather than writing Visible) when there was
+    // no local value is what keeps a Style- or default-provided Visibility from
+    // being permanently overridden by a local value we invented.
+    private static void RestoreParkedVisibility(UIElement control, object? parked)
+    {
+        if (ReferenceEquals(parked, DependencyProperty.UnsetValue))
+            control.ClearValue(UIElement.VisibilityProperty);
+        else if (parked is Visibility v)
+            control.Visibility = v;
+        // else: never parked (bound Visibility) — nothing to undo.
+    }
 
     // Detach a UIElement from whatever container it's parented to.
     //
@@ -711,34 +756,55 @@ public sealed partial class ElementFactory<T> : IElementFactory
         // still-Visible one paints at its last arranged bounds — a ghost row over
         // the live list whenever the pool isn't drained in the same pass
         // (issue #919). This mirrors WinUI's own RecyclePool.
-        var restore = args.Element is FrameworkElement fe ? fe.Visibility : Visibility.Visible;
-        ParkOrphan(args.Element);
+        var restore = TryParkForPool(args.Element);
         _recyclePool.Add(new PoolEntry(args.Element, restore));
 
         TrimPool();
     }
 
     // Evict oldest-first once the pool exceeds the capacity its realized window
-    // justifies. An evicted container is parked collapsed and untracked: it is
-    // still parented (nothing can un-parent an ItemsRepeater child) but inert.
+    // and shape mix justify. An evicted container is unmounted (so its
+    // components' effect cleanups actually run — the pool deliberately keeps
+    // recycled containers mounted, and eviction is the point where that lease
+    // ends), then parked collapsed and untracked. It stays parented, because
+    // nothing can un-parent an ItemsRepeater child, but it is inert.
+    //
     // Without this, a keyed list — where every row root carries a per-item key,
     // so CanUpdate rejects every cross-item reuse — would retain one container
     // and one tracking entry per item scrolled past, and the reuse scan would
     // grow with it.
     private void TrimPool()
     {
-        var capacity = PoolCapacity;
+        // Cheap path first: the shape scan below only matters once the pool has
+        // outgrown the two-window base, which for a single- or dual-shape list
+        // never happens.
+        var capacity = global::System.Math.Max(32, _maxRealized * 2);
+        if (_recyclePool.Count <= capacity) return;
+
+        capacity = global::System.Math.Max(capacity, _maxRealized * DistinctPooledShapeCount());
         if (_recyclePool.Count <= capacity) return;
 
         var excess = _recyclePool.Count - capacity;
         for (var i = 0; i < excess; i++)
         {
             var evicted = _recyclePool[i].Control;
+            _reconciler.UnmountChild(evicted);
             DetachFromParent(evicted);
             ParkOrphan(evicted);
             _lastElementByControl.Remove(evicted);
         }
         _recyclePool.RemoveRange(0, excess);
+    }
+
+    private int DistinctPooledShapeCount()
+    {
+        _shapeScratch.Clear();
+        for (var i = 0; i < _recyclePool.Count; i++)
+        {
+            _shapeScratch.Add(_recyclePool[i].Control.GetType());
+            if (_shapeScratch.Count >= MaxPooledShapes) break;
+        }
+        return _shapeScratch.Count;
     }
 
 }

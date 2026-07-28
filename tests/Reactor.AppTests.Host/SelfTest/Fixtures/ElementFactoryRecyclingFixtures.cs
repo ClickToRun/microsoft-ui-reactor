@@ -277,6 +277,181 @@ internal static class ElementFactoryRecyclingFixtures
     }
 
     // ────────────────────────────────────────────────────────────────────
+    //  Issue #919 — the pool cap must not defeat the bounded-children
+    //  guarantee for a list that cycles its rows through THREE or more root
+    //  shapes. A flat two-window cap fills up with the first two shapes and
+    //  then evicts the oldest shape on every recycle, so the shape that comes
+    //  back next pass is re-minted — and a re-minted container is one more
+    //  permanently-parented ItemsRepeater child.
+    // ────────────────────────────────────────────────────────────────────
+
+    internal class Factory_MultiShapeCycle_KeepsContainerSetBounded(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            const int rows = 20;
+            const int cycles = 6;
+
+            // Value-type T deliberately: ElementFactory skips _viewBuilderCache
+            // for value types, so flipping `shape` actually rebuilds the row.
+            var items = Enumerable.Range(0, rows).ToArray();
+            var shape = 0;
+            var factory = new ElementFactory<int>(
+                items,
+                (i, _) => shape switch
+                {
+                    0 => TextBlock($"r{i}"),
+                    1 => VStack(TextBlock($"r{i}")),
+                    _ => FlexColumn(TextBlock($"r{i}")),
+                },
+                new Reconciler(),
+                requestRerender: static () => { },
+                pool: null);
+            var ifactory = (IElementFactory)factory;
+
+            var distinct = new HashSet<UIElement>();
+            var live = new UIElement[rows];
+            for (var c = 0; c < cycles; c++)
+            {
+                shape = c % 3;
+                if (c > 0)
+                    for (var i = 0; i < rows; i++) ifactory.RecycleElement(MakeRecycleArgs(live[i]));
+
+                for (var i = 0; i < rows; i++)
+                {
+                    live[i] = ifactory.GetElement(MakeRowGetArgs(i, $"k{i}"));
+                    distinct.Add(live[i]);
+                }
+            }
+
+            // Three shapes × one realized window each. Anything above that means
+            // a shape was evicted before it came back around and had to be
+            // re-minted, which on a real ItemsRepeater is a permanent orphan.
+            H.Check($"EFR_MultiShape_ContainersBounded_distinct={distinct.Count}",
+                distinct.Count <= rows * 3);
+
+            // …and the retention is real reuse, not luck: the last cycle must
+            // hand back containers seen in the matching earlier cycle.
+            H.Check($"EFR_MultiShape_PoolStillBounded_pool={factory.DebugRecyclePoolCount}",
+                factory.DebugRecyclePoolCount <= rows * 3);
+
+            return Task.CompletedTask;
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #919 — a container evicted by the pool cap must be UNMOUNTED.
+    //  Recycling deliberately leaves a container mounted so the next realize
+    //  can diff it in place; eviction is where that lease ends. Skipping the
+    //  unmount leaves every evicted row's components in the reconciler's node
+    //  table with their effects, subscriptions and captured state alive — the
+    //  pool counts stay flat while real Reactor state grows per visited item.
+    // ────────────────────────────────────────────────────────────────────
+
+    internal class Factory_PoolEviction_UnmountsEvictedRows(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            s_rowCtorCount = 0;
+            s_rowEffectMountCount = 0;
+            s_rowEffectCleanupCount = 0;
+
+            const int visited = 200;
+            var items = Enumerable.Range(0, visited).ToArray();
+            // A StackPanel root (not a component-wrapper Border) so the pool's
+            // component-adoption pass can't serve these, and a distinct key per
+            // row so CanUpdate can't either. Every realize therefore mints a
+            // fresh container and the pool has to evict — which is the path
+            // under test. The nested Component is what carries the effect whose
+            // cleanup proves the eviction unmounted the subtree.
+            var factory = new ElementFactory<int>(
+                items,
+                (_, _) => VStack(Component<IdentityRowComponent>()),
+                new Reconciler(),
+                requestRerender: static () => { },
+                pool: null);
+            var ifactory = (IElementFactory)factory;
+
+            UIElement? previous = null;
+            for (var i = 0; i < visited; i++)
+            {
+                if (previous is not null) ifactory.RecycleElement(MakeRecycleArgs(previous));
+                previous = ifactory.GetElement(MakeRowGetArgs(i, $"k{i}"));
+            }
+
+            H.Check($"EFR_Eviction_AllRowsMounted_mount={s_rowEffectMountCount}",
+                s_rowEffectMountCount == visited);
+            // Everything recycled beyond the pool capacity gets evicted, and
+            // each eviction must run one cleanup. Without the unmount this
+            // reads 0.
+            H.Check($"EFR_Eviction_EvictedRowsCleanedUp_cleanup={s_rowEffectCleanupCount}",
+                s_rowEffectCleanupCount >= 100);
+            H.Check($"EFR_Eviction_PoolStillBounded_pool={factory.DebugRecyclePoolCount}",
+                factory.DebugRecyclePoolCount <= 32);
+
+            return Task.CompletedTask;
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #919 — parking must not vandalise the Visibility DP.
+    //  RecycleElement collapses a container so it can't paint as a ghost, and
+    //  reuse has to undo exactly that. Two ways to get it wrong: force Visible
+    //  on reuse (un-hides a row the author hid), or write back the *evaluated*
+    //  enum (pins a local value on a row that had none, permanently outranking
+    //  a Style- or default-provided Visibility).
+    // ────────────────────────────────────────────────────────────────────
+
+    internal class Factory_PoolParking_PreservesVisibilityValueSource(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            var items = Enumerable.Range(0, 2).ToArray();
+
+            // Row A: no Visibility modifier at all → no local value.
+            var plain = new ElementFactory<int>(
+                items,
+                (i, _) => TextBlock($"r{i}"),
+                new Reconciler(),
+                requestRerender: static () => { },
+                pool: null);
+            var iplain = (IElementFactory)plain;
+
+            var a0 = iplain.GetElement(MakeGetArgs(0));
+            H.Check("EFR_Park_FreshRowHasNoLocalVisibility",
+                ReferenceEquals(a0.ReadLocalValue(UIElement.VisibilityProperty), DependencyProperty.UnsetValue));
+
+            iplain.RecycleElement(MakeRecycleArgs(a0));
+            var a1 = iplain.GetElement(MakeGetArgs(0));
+            H.Check("EFR_Park_ReusedRowIsSameControl", ReferenceEquals(a1, a0));
+            H.Check("EFR_Park_ReusedRowIsVisible", a1.Visibility == Visibility.Visible);
+            // The real assertion: the container came back with its Visibility
+            // value source untouched, not with an invented local value.
+            H.Check("EFR_Park_ReusedRowHasNoLocalVisibility",
+                ReferenceEquals(a1.ReadLocalValue(UIElement.VisibilityProperty), DependencyProperty.UnsetValue));
+
+            // Row B: author explicitly hid it → local Collapsed must survive the
+            // park/unpark round-trip.
+            var hidden = new ElementFactory<int>(
+                items,
+                (i, _) => TextBlock($"r{i}").Visible(false),
+                new Reconciler(),
+                requestRerender: static () => { },
+                pool: null);
+            var ihidden = (IElementFactory)hidden;
+
+            var b0 = ihidden.GetElement(MakeGetArgs(0));
+            H.Check("EFR_Park_HiddenRowStartsCollapsed", b0.Visibility == Visibility.Collapsed);
+            ihidden.RecycleElement(MakeRecycleArgs(b0));
+            var b1 = ihidden.GetElement(MakeGetArgs(0));
+            H.Check("EFR_Park_HiddenRowIsSameControl", ReferenceEquals(b1, b0));
+            H.Check("EFR_Park_HiddenRowStaysCollapsed", b1.Visibility == Visibility.Collapsed);
+
+            return Task.CompletedTask;
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
     //  PR #324 review fix #2 — RefreshRealizedItems must keep
     //  _lastElementByControl in sync with _mountedElements.
     //  If a row content changes via re-render (RefreshRealizedItems path)
@@ -479,7 +654,18 @@ internal static class ElementFactoryRecyclingFixtures
             // Recycle it so the container is pool-available, then realize a
             // DIFFERENT logical item ("b") that reuses the pooled container.
             ifactory.RecycleElement(MakeRecycleArgs(ctlA));
-            ifactory.GetElement(MakeRowGetArgs(1, "b"));
+            var ctlB = ifactory.GetElement(MakeRowGetArgs(1, "b"));
+
+            // The pooled container itself must come back. CanUpdate is false
+            // here (the key changed), so this can only happen through the
+            // component-wrapper pass of TryTakeCompatibleFromPool, which gates
+            // on ComponentType + Equals(Modifiers) + Equals(Extensions). If
+            // that pass ever goes dead — e.g. ElementModifiers stops being a
+            // value-equal record — the pool would miss and a fresh Border would
+            // be minted here. The effect/ctor counts below would still read 2/2
+            // in that case, so they cannot detect it; this identity check can.
+            H.Check("EFR326_KeyChange_PooledContainerReused",
+                ReferenceEquals(ctlB, ctlA));
 
             // Key "a" → "b" differs → CanUpdate false → the old Component is
             // unmounted (cleanup runs) and a fresh one is mounted (new hook
