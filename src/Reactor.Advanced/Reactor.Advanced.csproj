@@ -27,8 +27,8 @@
     <Version Condition="'$(Version)' == ''">0.0.0-local</Version>
     <Authors>Microsoft</Authors>
     <Company>Microsoft</Company>
-    <Description>Advanced Reactor components for WinUI 3 — the Win2D canvas and the D3 charting subsystem (Microsoft.UI.Reactor.Charting).</Description>
-    <PackageTags>WinUI;WinUI3;Windows App SDK;WinAppSDK;XAML;Windows;desktop;UI;declarative;Reactor;Win2D;canvas;graphics;charts</PackageTags>
+    <Description>Advanced Reactor components for WinUI 3 — the Win2D canvas, the D3 charting subsystem (Microsoft.UI.Reactor.Charting), and the docking / dock-layout subsystem (Microsoft.UI.Reactor.Docking).</Description>
+    <PackageTags>WinUI;WinUI3;Windows App SDK;WinAppSDK;XAML;Windows;desktop;UI;declarative;Reactor;Win2D;canvas;graphics;charts;docking;dock-layout</PackageTags>
     <Copyright>© Microsoft Corporation. All rights reserved.</Copyright>
     <PackageIcon>Icon.png</PackageIcon>
     <PackageReadmeFile>README.md</PackageReadmeFile>
@@ -47,17 +47,20 @@
     <PackageReference Include="Microsoft.Graphics.Win2D" />
   </ItemGroup>
 
-  <!-- Spec 062 §7 Track B (B1a): the charting subsystem now lives in this
-       assembly. Its test-only internal seams (e.g. the ChartElement<T> /
-       ChartComponent AttachChartData drivers gated as "InternalsVisibleTo
-       Reactor.Tests", D3 parser probes) were visible to these test hosts when
-       charting shipped in core; republish exactly that access here so the
-       existing charting unit tests, selftest fixtures, and fuzz harness keep
-       compiling unchanged. -->
+  <!-- Spec 062 §7 Track B (B1): the charting and docking subsystems now live in
+       this assembly. Their test-only internal seams (charting's ChartElement<T> /
+       ChartComponent AttachChartData drivers + D3 parser probes; docking's
+       DockHostModel / DockLayoutMutator / native-control test hooks) were visible
+       to these test hosts when both shipped in core; republish exactly that access
+       here so the existing unit tests, selftest fixtures, and fuzz harness keep
+       compiling unchanged. Microsoft.UI.Reactor.Devtools reaches docking's internal
+       DockHostModelBridge for its docking.* MCP tools (it had core's IVT before the
+       move) — mirror that here. -->
   <ItemGroup>
     <InternalsVisibleTo Include="Reactor.Tests" />
     <InternalsVisibleTo Include="Reactor.AppTests.Host" />
     <InternalsVisibleTo Include="Reactor.Fuzz" />
+    <InternalsVisibleTo Include="Microsoft.UI.Reactor.Devtools" />
   </ItemGroup>
 
   <ItemGroup>

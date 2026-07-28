@@ -296,26 +296,6 @@ DatePickerElement.MonthFormat(string format) → DatePickerElement
 DatePickerElement.Orientation(Orientation orientation) → DatePickerElement
 DatePickerElement.Set(Action<DatePicker> configure) → DatePickerElement
 DatePickerElement.YearFormat(string format) → DatePickerElement
-DockManager.ActiveContentChanged(Action<DockActiveContentChangedEventArgs> handler) → DockManager
-DockManager.ContentDocked(Action<DockContentDockedEventArgs> handler) → DockManager
-DockManager.ContentDocking(Action<DockContentDockingEventArgs> handler) → DockManager
-DockManager.ContentFloated(Action<DockContentFloatedEventArgs> handler) → DockManager
-DockManager.ContentFloating(Action<DockContentFloatingEventArgs> handler) → DockManager
-DockManager.DocumentClosed(Action<DockDocumentClosedEventArgs> handler) → DockManager
-DockManager.DocumentClosing(Action<DockDocumentClosingEventArgs> handler) → DockManager
-DockManager.DropTargetConfirmed(Action<DockTarget> handler) → DockManager
-DockManager.DropTargetHovered(Action<DockTarget?> handler) → DockManager
-DockManager.DropTargetsDismissed(Action handler) → DockManager
-DockManager.FloatingWindowClosed(Action<DockFloatingWindowClosedEventArgs> handler) → DockManager
-DockManager.FloatingWindowCreated(Action<DockFloatingWindowCreatedEventArgs> handler) → DockManager
-DockManager.LayoutChanged(Action<DockLayoutChangedEventArgs> handler) → DockManager
-DockManager.LayoutChanging(Action<DockLayoutChangingEventArgs> handler) → DockManager
-DockManager.LiveLayoutChanged(Action<DockNode> handler) → DockManager
-DockManager.SplitterDragCompleted(Action handler) → DockManager
-DockManager.ToolWindowClosed(Action<DockToolWindowClosedEventArgs> handler) → DockManager
-DockManager.ToolWindowClosing(Action<DockToolWindowClosingEventArgs> handler) → DockManager
-DockManager.ToolWindowHidden(Action<DockToolWindowHiddenEventArgs> handler) → DockManager
-DockManager.ToolWindowHiding(Action<DockToolWindowHidingEventArgs> handler) → DockManager
 DropDownButtonElement.AccentButton() → DropDownButtonElement
 DropDownButtonElement.Set(Action<DropDownButton> configure) → DropDownButtonElement
 DropDownButtonElement.SubtleButton() → DropDownButtonElement
@@ -864,7 +844,6 @@ ReactorBinding<TElement>.ReferenceList<TTarget>(Func<TElement, IReadOnlyList<Ele
 # Call from Render() / function-component body. Same order every render —
 # never inside if/for. Use the result conditionally, not the call.
 
-RenderContext.UseActivePaneKey() → object
 RenderContext.UseAnnounce() → AnnounceHandle
 RenderContext.UseBreakpoint(Window window, double minWidth) → bool
 RenderContext.UseBreakpoint(double minWidth) → bool
@@ -883,10 +862,6 @@ RenderContext.UseDataSource<T>(IDataSource<T> source, DataRequest request, Infin
 RenderContext.UseDataSource<T>(IDataSource<T> source, DataRequest request, QueryCache cache, InfiniteResourceOptions options = null, IHookDispatcher dispatcher = null) → InfiniteResource<T>
 RenderContext.UseDevtools() → bool
 RenderContext.UseDisplays() → IReadOnlyList<DisplayInfo>
-RenderContext.UseDockHost() → DockHostModel
-RenderContext.UseDockLayout() → DockLayoutSnapshot
-RenderContext.UseDockPanePersisted<T>(string key, T initialValue) → ValueTuple<T, Action<T>>
-RenderContext.UseDockState() → DockPaneState
 RenderContext.UseDpi() → UInt32
 RenderContext.UseEffect(Action effect, object[] dependencies) → void
 RenderContext.UseEffect(Func<Action> effectWithCleanup, object[] dependencies) → void
@@ -909,7 +884,6 @@ RenderContext.UseInfiniteResource<TItem, TCursor>(Func<TCursor, CancellationToke
 RenderContext.UseInfiniteResource<TItem, TCursor>(Func<TCursor, CancellationToken, Task<Page<TItem, TCursor>>> fetchPage, object[] deps, InfiniteResourceOptions options = null, IHookDispatcher dispatcher = null, Func<int, TCursor> cursorFromPageIndex = null) → InfiniteResource<TItem>
 RenderContext.UseIntl() → IntlAccessor
 RenderContext.UseIsActive() → bool
-RenderContext.UseIsActivePane() → bool
 RenderContext.UseIsCovered() → bool
 RenderContext.UseIsDarkTheme() → bool
 RenderContext.UseMemo<T, T1, T2, T3>(Func<T> factory, T1 d1, T2 d2, T3 d3) → T
@@ -928,7 +902,6 @@ RenderContext.UseObservable<T>(T source) → T
 RenderContext.UseObservableProperty<T, TProp>(T source, Func<T, TProp> selector, string propertyName) → TProp
 RenderContext.UseObservableTree<T>(T source) → T
 RenderContext.UseOpenWindow(WindowKey key, WindowSpec spec, Func<Component> factory) → ReactorWindow
-RenderContext.UsePane() → DockPaneInfo
 RenderContext.UsePersisted<T>(string key, T initialValue) → ValueTuple<T, Action<T>>
 RenderContext.UsePersisted<T>(string key, T initialValue, PersistedScope scope) → ValueTuple<T, Action<T>>
 RenderContext.UseReducedMotion() → bool
@@ -1015,15 +988,6 @@ DataSourceCapabilities { None, ServerSort, ServerFilter, ServerSearch, ServerCou
 FilterOperator { Equals, NotEquals, Contains, StartsWith, EndsWith, GreaterThan, GreaterThanOrEqual, LessThan, LessThanOrEqual, Between, In, IsNull, IsNotNull }
 PinPosition { None, Left, Right }
 SortDirection { Ascending, Descending }
-DockOperationKind { Mount, DragStart, DragHover, DragConfirm, DragCancel, DragTearOut, SplitterResize, SplitterTrace, LayoutChange, Note }
-DockFloatingCloseReason { ContentClosed, MigratedToHost, MigratedToFloat }
-DockGroupRole { General, DocumentArea, ToolWindowStrip }
-DockPaneState { Docked, Floating, AutoHidden, AutoHiddenExpanded, Hidden }
-DockSide { Left, Top, Right, Bottom }
-DockSides { None, Left, Top, Right, Bottom, All }
-DockTarget { Center, SplitLeft, SplitTop, SplitRight, SplitBottom, DockLeft, DockTop, DockRight, DockBottom }
-TabChrome { Win11, Flat, TitleBar }
-TabPosition { Top, Bottom }
 DevtoolsSubverb { Run, List, Screenshot, Tree, App }
 McpTransport { Http, Stdio }
 DragOperations { None, Copy, Move, Link, All }
@@ -2071,395 +2035,6 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
-### class DockActiveContentChangedEventArgs
-new()
-DockableContent ActiveContent { get; init; }
-DockableContent PreviousContent { get; init; }
-
-### class DockCancelEventArgs
-bool Cancel { get; set; }
-
-### class DockContentDockedEventArgs
-DockTarget Target { get; init; }
-DockableContent Content { get; init; }
-
-### class DockContentDockingEventArgs
-DockTarget Target { get; init; }
-DockableContent Content { get; init; }
-
-### class DockContentFloatedEventArgs
-DockableContent Content { get; init; }
-
-### class DockContentFloatingEventArgs
-DockableContent Content { get; init; }
-
-### struct DockDisplay
-new(double X, double Y, double Width, double Height)
-double Bottom { get; }
-double Height { get; init; }
-double Right { get; }
-double Width { get; init; }
-double X { get; init; }
-double Y { get; init; }
-Deconstruct(ref double X, ref double Y, ref double Width, ref double Height) → void
-Equals(DockDisplay other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### class DockDocumentClosedEventArgs
-DockableContent Document { get; init; }
-
-### class DockDocumentClosingEventArgs
-DockableContent Document { get; init; }
-
-### struct DockFloatingBounds
-new(double X, double Y, double Width, double Height)
-double Height { get; init; }
-double Width { get; init; }
-double X { get; init; }
-double Y { get; init; }
-Deconstruct(ref double X, ref double Y, ref double Width, ref double Height) → void
-Equals(DockFloatingBounds other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### class DockFloatingWindowClosedEventArgs
-DockFloatingCloseReason Reason { get; init; }
-DockableContent Content { get; init; }
-
-### class DockFloatingWindowCreatedEventArgs
-new()
-DockableContent DraggedSource { get; init; }
-
-### class DockHostModel
-new()
-DockNode Root { get; }
-DockableContent ActiveContent { get; }
-IDockLayoutStrategy LayoutStrategy { get; }
-IReadOnlyList<FloatingDockWindow> Floating { get; }
-IReadOnlyList<ToolWindow> BottomSide { get; }
-IReadOnlyList<ToolWindow> LeftSide { get; }
-IReadOnlyList<ToolWindow> RightSide { get; }
-IReadOnlyList<ToolWindow> TopSide { get; }
-Activate(DockableContent content) → void
-AllContent() → IEnumerable<DockableContent>
-Close(DockableContent content) → void
-Descendants() → IEnumerable<DockableContent>
-Dock(DockableContent content, DockTabGroup targetGroup, DockTarget target = DockTarget.Center) → void
-Dock(DockableContent content, DockTarget target) → void
-Float(DockableContent content) → void
-Hide(ToolWindow toolWindow) → void
-PinToSide(ToolWindow toolWindow, DockSide side) → void
-Show(DockableContent content) → void
-
-### class DockHostRecord
-DockManager Manager { get; }
-string Id { get; init; }
-
-### class DockLayoutChangedEventArgs
-new()
-
-### class DockLayoutChangingEventArgs
-new()
-
-### class DockLayoutLoadResult
-new()
-DockNode Root { get; init; }
-IReadOnlyList<FloatingDockWindow> Floating { get; init; }
-IReadOnlyList<ToolWindow> BottomSide { get; init; }
-IReadOnlyList<ToolWindow> LeftSide { get; init; }
-IReadOnlyList<ToolWindow> RightSide { get; init; }
-IReadOnlyList<ToolWindow> TopSide { get; init; }
-bool IsFallback { get; init; }
-bool Success { get; init; }
-int Schema { get; init; }
-string ActiveKey { get; init; }
-string FailureReason { get; init; }
-Fallback(string reason) → DockLayoutLoadResult
-
-### class DockLayoutMigrationRegistry
-new()
-new(bool includeBuiltins)
-Add(IDockLayoutMigration migration) → DockLayoutMigrationRegistry
-DetectSchema(JsonNode root) → int
-TryUpgrade(JsonNode root, int fromVersion, int toVersion, ref JsonNode migrated, ref string failureReason) → bool
-
-### record DockLayoutSnapshot
-new(DockNode Root, IReadOnlyList<ToolWindow> LeftSide, IReadOnlyList<ToolWindow> TopSide, IReadOnlyList<ToolWindow> RightSide, IReadOnlyList<ToolWindow> BottomSide, IReadOnlyList<FloatingDockWindow> Floating, DockableContent ActiveContent)
-DockNode Root { get; init; }
-DockableContent ActiveContent { get; init; }
-IReadOnlyList<FloatingDockWindow> Floating { get; init; }
-IReadOnlyList<ToolWindow> BottomSide { get; init; }
-IReadOnlyList<ToolWindow> LeftSide { get; init; }
-IReadOnlyList<ToolWindow> RightSide { get; init; }
-IReadOnlyList<ToolWindow> TopSide { get; init; }
-Deconstruct(ref DockNode Root, ref IReadOnlyList<ToolWindow> LeftSide, ref IReadOnlyList<ToolWindow> TopSide, ref IReadOnlyList<ToolWindow> RightSide, ref IReadOnlyList<ToolWindow> BottomSide, ref IReadOnlyList<FloatingDockWindow> Floating, ref DockableContent ActiveContent) → void
-Equals(DockLayoutSnapshot other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockManager
-new()
-Action OnDropTargetsDismissed { get; init; }
-Action OnSplitterDragCompleted { get; init; }
-Action<DockActiveContentChangedEventArgs> OnActiveContentChanged { get; init; }
-Action<DockContentDockedEventArgs> OnContentDocked { get; init; }
-Action<DockContentDockingEventArgs> OnContentDocking { get; init; }
-Action<DockContentFloatedEventArgs> OnContentFloated { get; init; }
-Action<DockContentFloatingEventArgs> OnContentFloating { get; init; }
-Action<DockDocumentClosedEventArgs> OnDocumentClosed { get; init; }
-Action<DockDocumentClosingEventArgs> OnDocumentClosing { get; init; }
-Action<DockFloatingWindowClosedEventArgs> OnFloatingWindowClosed { get; init; }
-Action<DockFloatingWindowCreatedEventArgs> OnFloatingWindowCreated { get; init; }
-Action<DockLayoutChangedEventArgs> OnLayoutChanged { get; init; }
-Action<DockLayoutChangingEventArgs> OnLayoutChanging { get; init; }
-Action<DockNode> OnLiveLayoutChanged { get; init; }
-Action<DockTarget> OnDropTargetConfirmed { get; init; }
-Action<DockTarget?> OnDropTargetHovered { get; init; }
-Action<DockToolWindowClosedEventArgs> OnToolWindowClosed { get; init; }
-Action<DockToolWindowClosingEventArgs> OnToolWindowClosing { get; init; }
-Action<DockToolWindowHiddenEventArgs> OnToolWindowHidden { get; init; }
-Action<DockToolWindowHidingEventArgs> OnToolWindowHiding { get; init; }
-Dictionary<string, double[]> SplitRatios { get; init; }
-DockNode Layout { get; init; }
-DockOperationLog OperationLog { get; init; }
-DockableContent ActiveDocument { get; init; }
-IDockAdapter Adapter { get; init; }
-IDockLayoutStrategy LayoutStrategy { get; init; }
-IReadOnlyList<DockableContent> BottomSide { get; init; }
-IReadOnlyList<DockableContent> LeftSide { get; init; }
-IReadOnlyList<DockableContent> RightSide { get; init; }
-IReadOnlyList<DockableContent> TopSide { get; init; }
-bool ShowDropTargets { get; init; }
-int LayoutSchemaVersion { get; init; }
-string PersistenceId { get; init; }
-Equals(DockManager other) → bool
-Equals(Element other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockNode
-Equals(DockNode other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockOperation
-new()
-DateTime TimestampUtc { get; init; }
-DockNode Layout { get; init; }
-DockOperationKind Kind { get; init; }
-DockTarget? Target { get; init; }
-IReadOnlyDictionary<string, double[]> Ratios { get; init; }
-string Description { get; init; }
-string LayoutJson { get; init; }
-string PaneKey { get; init; }
-Equals(DockOperation other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### class DockOperationLog
-new()
-DockOperation Current { get; }
-IReadOnlyList<DockOperation> Operations { get; }
-bool EmitToDebug { get; set; }
-int Count { get; }
-int Cursor { get; }
-Append(DockOperation op) → void
-Record(DockOperationKind kind, string description, DockNode layout = null, IDictionary<string, double[]> ratios = null, string paneKey = null, DockTarget? target = null) → DockOperation
-Reset() → void
-Rewind() → DockOperation
-SeekTo(int index) → DockOperation
-StepForward() → DockOperation
-TruncateAfterCursor() → void
-
-### struct DockPaneInfo
-new(object Key, string Title, DockableContent Content)
-DockableContent Content { get; init; }
-object Key { get; init; }
-string Title { get; init; }
-Deconstruct(ref object Key, ref string Title, ref DockableContent Content) → void
-Equals(DockPaneInfo other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockRoutingFallback
-new(string Description)
-string Description { get; init; }
-Deconstruct(ref string Description) → void
-Equals(DockRoutingFallback other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockSnapshot
-new()
-DockSnapshotNode Root { get; init; }
-IReadOnlyList<DockSnapshotPane> BottomSide { get; init; }
-IReadOnlyList<DockSnapshotPane> LeftSide { get; init; }
-IReadOnlyList<DockSnapshotPane> RightSide { get; init; }
-IReadOnlyList<DockSnapshotPane> TopSide { get; init; }
-string ActiveKey { get; init; }
-string HostId { get; init; }
-Equals(DockSnapshot other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockSnapshotLeaf
-new(DockSnapshotPane Pane)
-DockSnapshotPane Pane { get; init; }
-string Kind { get; }
-Deconstruct(ref DockSnapshotPane Pane) → void
-Equals(DockSnapshotLeaf other) → bool
-Equals(DockSnapshotNode other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockSnapshotNode
-string Kind { get; }
-Equals(DockSnapshotNode other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockSnapshotPane
-new(string Key, string Title, string Role, bool CanClose, bool CanFloat, bool CanMove)
-bool CanClose { get; init; }
-bool CanFloat { get; init; }
-bool CanMove { get; init; }
-string Key { get; init; }
-string Role { get; init; }
-string Title { get; init; }
-Deconstruct(ref string Key, ref string Title, ref string Role, ref bool CanClose, ref bool CanFloat, ref bool CanMove) → void
-Equals(DockSnapshotPane other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockSnapshotSplit
-new(string Orientation, IReadOnlyList<DockSnapshotNode> Children)
-IReadOnlyList<DockSnapshotNode> Children { get; init; }
-string Kind { get; }
-string Orientation { get; init; }
-Deconstruct(ref string Orientation, ref IReadOnlyList<DockSnapshotNode> Children) → void
-Equals(DockSnapshotNode other) → bool
-Equals(DockSnapshotSplit other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockSnapshotTabGroup
-new(int SelectedIndex, IReadOnlyList<DockSnapshotPane> Documents)
-IReadOnlyList<DockSnapshotPane> Documents { get; init; }
-int SelectedIndex { get; init; }
-string Kind { get; }
-Deconstruct(ref int SelectedIndex, ref IReadOnlyList<DockSnapshotPane> Documents) → void
-Equals(DockSnapshotNode other) → bool
-Equals(DockSnapshotTabGroup other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockSplit
-new(Orientation Orientation, IReadOnlyList<DockNode> Children, double? Width = null, double? Height = null, double? MinWidth = null, double? MinHeight = null, double? MaxWidth = null, double? MaxHeight = null)
-IReadOnlyList<DockNode> Children { get; init; }
-Orientation Orientation { get; init; }
-double? Height { get; init; }
-double? MaxHeight { get; init; }
-double? MaxWidth { get; init; }
-double? MinHeight { get; init; }
-double? MinWidth { get; init; }
-double? Width { get; init; }
-Deconstruct(ref Orientation Orientation, ref IReadOnlyList<DockNode> Children, ref double? Width, ref double? Height, ref double? MinWidth, ref double? MinHeight, ref double? MaxWidth, ref double? MaxHeight) → void
-Equals(DockNode other) → bool
-Equals(DockSplit other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockTabGroup
-new(IReadOnlyList<DockableContent> Documents, TabPosition TabPosition = TabPosition.Top, bool CompactTabs = false, bool ShowWhenEmpty = false, int SelectedIndex = -1, double? Width = null, double? Height = null, TabChrome TabChrome = TabChrome.Win11, DockGroupRole Role = DockGroupRole.General)
-DockGroupRole Role { get; init; }
-IReadOnlyList<DockableContent> Documents { get; init; }
-TabChrome TabChrome { get; init; }
-TabPosition TabPosition { get; init; }
-bool CompactTabs { get; init; }
-bool ShowWhenEmpty { get; init; }
-double? Height { get; init; }
-double? Width { get; init; }
-int SelectedIndex { get; init; }
-Deconstruct(ref IReadOnlyList<DockableContent> Documents, ref TabPosition TabPosition, ref bool CompactTabs, ref bool ShowWhenEmpty, ref int SelectedIndex, ref double? Width, ref double? Height, ref TabChrome TabChrome, ref DockGroupRole Role) → void
-Equals(DockNode other) → bool
-Equals(DockTabGroup other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockTabGroupContext
-new(DockableContent DraggedSource)
-DockableContent DraggedSource { get; init; }
-Deconstruct(ref DockableContent DraggedSource) → void
-Equals(DockTabGroupContext other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### class DockToolWindowClosedEventArgs
-DockableContent ToolWindow { get; init; }
-
-### class DockToolWindowClosingEventArgs
-DockableContent ToolWindow { get; init; }
-
-### class DockToolWindowHiddenEventArgs
-DockableContent ToolWindow { get; init; }
-
-### class DockToolWindowHidingEventArgs
-DockableContent ToolWindow { get; init; }
-
-### record DockableContent
-new(string Title, Element Content = null, object Key = null, bool CanClose = false, bool CanPin = false, double? Width = null, double? Height = null, string PersistenceState = null)
-Element Content { get; init; }
-bool CanClose { get; init; }
-bool CanFloat { get; init; }
-bool CanMove { get; init; }
-bool CanPin { get; init; }
-double? Height { get; init; }
-double? Width { get; init; }
-object Key { get; init; }
-string PersistenceState { get; init; }
-string Title { get; init; }
-Equals(DockNode other) → bool
-Equals(DockableContent other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record Document
-new()
-bool CanDockAsToolWindow { get; init; }
-Equals(DockableContent other) → bool
-Equals(Document other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record Document<TState>
-new()
-TState State { get; init; }
-Equals(Document other) → bool
-Equals(Document<TState> other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
 ### record DragAttached
 new(bool IsEnabled)
 bool IsEnabled { get; init; }
@@ -3001,18 +2576,6 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
-### record FloatingDockWindow
-IReadOnlyList<DockableContent> Contents { get; init; }
-double Height { get; init; }
-double Width { get; init; }
-double X { get; init; }
-double Y { get; init; }
-object Id { get; init; }
-Equals(FloatingDockWindow other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
 ### record FlyoutElement
 new(Element Target, Element FlyoutContent)
 Action OnClosed { get; init; }
@@ -3263,22 +2826,6 @@ GetRowKey(T item) → RowKey
 Mount(MountContext ctx, TElement element) → UIElement
 Unmount(UnmountContext ctx, TElement element, UIElement control) → V1UnmountDisposition
 Update(UpdateContext ctx, TElement oldEl, TElement newEl, UIElement control) → UIElement
-
-### interface IDockAdapter
-GetFloatingWindowTitleBar(DockableContent draggedSource) → Element
-OnContentCreated(DockableContent content) → Element
-OnGroupCreated(DockTabGroupContext group) → void
-
-### interface IDockLayoutMigration
-int FromVersion { get; }
-int ToVersion { get; }
-Migrate(JsonNode root) → JsonNode
-
-### interface IDockLayoutStrategy
-AfterInsertDocument(DockHostModel model, Document document) → void
-AfterInsertToolWindow(DockHostModel model, ToolWindow toolWindow) → void
-BeforeInsertDocument(DockHostModel model, Document document) → bool
-BeforeInsertToolWindow(DockHostModel model, ToolWindow toolWindow) → bool
 
 ### interface IElementHandler<TElement, TControl>
 ChildrenStrategy<TElement, TControl> Children { get; }
@@ -6216,18 +5763,6 @@ string OnContent { get; init; }
 Deconstruct(ref Optional<bool> IsOn, ref Action<bool> OnIsOnChanged, ref string OnContent, ref string OffContent) → void
 Equals(Element other) → bool
 Equals(ToggleSwitchElement other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record ToolWindow
-new()
-DockSides AllowedSides { get; init; }
-bool CanAutoHide { get; init; }
-bool CanDockAsDocument { get; init; }
-bool CanHide { get; init; }
-Equals(DockableContent other) → bool
-Equals(ToolWindow other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string

@@ -49,6 +49,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Reactor\Reactor.csproj" />
+    <!-- Spec 062 §7 Track B (B1): docking moved core → Reactor.Advanced. The
+         docking.* MCP tools (DevtoolsDockingTools) resolve docking types incl.
+         the internal DockHostModelBridge from Advanced. -->
+    <ProjectReference Include="..\Reactor.Advanced\Reactor.Advanced.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -61,13 +61,16 @@
     <InternalsVisibleTo Include="Reactor.Tests" />
     <InternalsVisibleTo Include="Reactor.AppTests.Host" />
     <InternalsVisibleTo Include="Reactor.Fuzz" />
-    <!-- Spec 062 §7 Track B (B1a): the charting subsystem moved from this
-         assembly into Reactor.Advanced. Charting reaches the REST of core only
-         through the small, named set of #627 decoupling seams
-         (Hosting.IChartingHostBridge, ReactorHost.RegisterChartingBridge,
-         Hosting.ChartingActivation.RequestActivation, Core.IScanExtension,
-         Core.IScanContext, AccessibilityScanner.RegisterScanExtension) — the
-         diagnostic records it exchanges (A11yDiagnostic/A11yContext) are public.
+    <!-- Spec 062 §7 Track B (B1): the charting and docking subsystems moved
+         from this assembly into Reactor.Advanced. Both reach the REST of core
+         only through small, cleanly expressible seams:
+           • charting — the #627 decoupling seams Hosting.IChartingHostBridge,
+             ReactorHost.RegisterChartingBridge, ChartingActivation.RequestActivation,
+             Core.IScanExtension, Core.IScanContext, AccessibilityScanner.RegisterScanExtension
+             (the A11yDiagnostic/A11yContext records it exchanges are public);
+           • docking — the #627 Element.OwnPropsEqualOverride equality seam plus
+             otherwise-public core surface (reconciler.RegisterType/Reconcile,
+             the ReactorEventSource.Docking* ETW methods).
          This IVT publishes exactly those seams to the relocated code; the
          direction stays one-way (Advanced → core). -->
     <InternalsVisibleTo Include="Reactor.Advanced" />
@@ -86,9 +89,9 @@
     <InternalsVisibleTo Include="PerfBench.RowMemo" />
     <!-- Spec 045 §2.19: the Phase-1 WinUI.Dock XAML wrapper
          (src/Reactor.Docking.Xaml/) and its vendored WinUI.Dock
-         dependency were removed at the §2.29 review gate. The docking
-         subsystem now lives entirely in this assembly under
-         src/Reactor/Docking/. -->
+         dependency were removed at the §2.29 review gate. Spec 062 §7
+         Track B (B1) then relocated the docking subsystem out of this
+         assembly into Reactor.Advanced (src/Reactor.Advanced/Docking/). -->
   </ItemGroup>
 
   <ItemGroup>
