@@ -15,7 +15,12 @@ description: >
 # Reactor Charts
 
 The chart surface lives in `Reactor.D3.Charts` (full guide:
-`docs/guide/charting.md`). This skill is the AI-agent quick reference —
+`docs/guide/charting.md`), shipped in the optional
+`Microsoft.UI.Reactor.Advanced` package (spec 062 §7) — consumers add a
+`<PackageReference Include="Microsoft.UI.Reactor.Advanced" />` plus
+`using static Microsoft.UI.Reactor.Charting.Charts;` (and
+`using static Microsoft.UI.Reactor.Advanced.Factories;` for the shared DSL).
+This skill is the AI-agent quick reference —
 chart-choice rules, the new `*View` extension points, and the a11y/accuracy
 rails you should keep on by default.
 
