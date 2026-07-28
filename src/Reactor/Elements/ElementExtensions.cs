@@ -1587,6 +1587,21 @@ public static partial class ElementExtensions
     public static SplitViewElement LightDismissOverlayMode(this SplitViewElement el, LightDismissOverlayMode mode) =>
         el with { LightDismissOverlayMode = mode };
 
+    /// <summary>
+    /// Controlled pane state: sets <c>IsPaneOpen</c> and wires the matching change
+    /// handler in one call. The handler is required because the control closes its own
+    /// pane (a light dismiss tap in <c>Overlay</c>/<c>CompactOverlay</c> mode) — driving
+    /// <c>IsPaneOpen</c> from state without feeding those changes back leaves the
+    /// state stale, so the next toggle writes a value the control already holds and
+    /// appears to do nothing (issue #916). Use the <c>IsPaneOpen</c> initializer
+    /// directly only for a pane whose state the app never changes.
+    /// </summary>
+    public static SplitViewElement IsPaneOpen(
+        this SplitViewElement el,
+        bool isPaneOpen,
+        Action<bool> onPaneOpenChanged) =>
+        el with { IsPaneOpen = isPaneOpen, OnPaneOpenChanged = onPaneOpenChanged };
+
     // ── ListView / GridView (spec §8 — incremental loading + container style) ──
 
     /// <summary>Style applied to each generated <c>ListViewItem</c> container.</summary>
@@ -1706,6 +1721,21 @@ public static partial class ElementExtensions
     /// <summary>Sets the width of the pane when expanded.</summary>
     public static NavigationViewElement OpenPaneLength(this NavigationViewElement el, double length) =>
         el with { OpenPaneLength = length };
+
+    /// <summary>
+    /// Controlled pane state: sets <c>IsPaneOpen</c> and wires the matching change
+    /// handler in one call. The handler is required because the control opens and
+    /// closes its own pane (light dismiss, adaptive display-mode changes on resize) —
+    /// driving <c>IsPaneOpen</c> from state without feeding those changes back leaves
+    /// the state stale, so the next toggle writes a value the control already holds
+    /// and appears to do nothing (issue #916). Use the <c>IsPaneOpen</c> initializer
+    /// directly only for a pane whose state the app never changes.
+    /// </summary>
+    public static NavigationViewElement IsPaneOpen(
+        this NavigationViewElement el,
+        bool isPaneOpen,
+        Action<bool> onPaneOpenChanged) =>
+        el with { IsPaneOpen = isPaneOpen, OnPaneOpenChanged = onPaneOpenChanged };
 
     /// <summary>Sets the window width below which the pane collapses to compact mode.</summary>
     public static NavigationViewElement CompactModeThresholdWidth(this NavigationViewElement el, double width) =>
@@ -1882,6 +1912,19 @@ public static partial class ElementExtensions
     /// <summary>Sets the element rendered at the trailing edge of the tab strip.</summary>
     public static TabViewElement TabStripFooter(this TabViewElement el, Element footer) =>
         el with { TabStripFooter = footer };
+
+    /// <summary>
+    /// Makes the tab content area fill the space the parent gives the TabView, instead of
+    /// collapsing to the content's own height (issue #914).
+    /// </summary>
+    /// <remarks>
+    /// WinUI's default TabView style sets <c>VerticalAlignment="Top"</c> on the control, so
+    /// by default the tab body is sized to its content and a tab child with its own
+    /// background paints only a band. An explicit <c>.VAlign(…)</c> on the TabView element
+    /// always wins over this opt-in. See <see cref="TabViewElement.FillContentArea"/>.
+    /// </remarks>
+    public static TabViewElement FillContentArea(this TabViewElement el, bool fill = true) =>
+        el with { FillContentArea = fill };
 
     /// <inheritdoc cref="IsAddTabButtonVisible"/>
     [Obsolete("Use IsAddTabButtonVisible() — aligns with WinUI naming (see #268).")]

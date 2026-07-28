@@ -379,10 +379,12 @@ NavigationViewElement.AutoSuggestBox(AutoSuggestBoxElement box) → NavigationVi
 NavigationViewElement.BackRequested(Action handler) → NavigationViewElement
 NavigationViewElement.CompactModeThresholdWidth(double width) → NavigationViewElement
 NavigationViewElement.ExpandedModeThresholdWidth(double width) → NavigationViewElement
+NavigationViewElement.IsPaneOpen(bool isPaneOpen, Action<bool> onPaneOpenChanged) → NavigationViewElement
 NavigationViewElement.OpenPaneLength(double length) → NavigationViewElement
 NavigationViewElement.PaneCustomContent(Element content) → NavigationViewElement
 NavigationViewElement.PaneDisplayMode(NavigationViewPaneDisplayMode mode) → NavigationViewElement
 NavigationViewElement.PaneFooter(Element footer) → NavigationViewElement
+NavigationViewElement.PaneOpenChanged(Action<bool> handler) → NavigationViewElement
 NavigationViewElement.PaneTitle(string title) → NavigationViewElement
 NavigationViewElement.SelectedTagChanged(Action<string> handler) → NavigationViewElement
 NavigationViewElement.Set(Action<NavigationView> configure) → NavigationViewElement
@@ -522,6 +524,7 @@ SplitButtonElement.AccentButton() → SplitButtonElement
 SplitButtonElement.Click(Action handler) → SplitButtonElement
 SplitButtonElement.Set(Action<SplitButton> configure) → SplitButtonElement
 SplitButtonElement.SubtleButton() → SplitButtonElement
+SplitViewElement.IsPaneOpen(bool isPaneOpen, Action<bool> onPaneOpenChanged) → SplitViewElement
 SplitViewElement.LightDismissOverlayMode(LightDismissOverlayMode mode) → SplitViewElement
 SplitViewElement.PaneBackground(Brush brush) → SplitViewElement
 SplitViewElement.PaneBackground(ThemeRef theme) → SplitViewElement
@@ -715,6 +718,7 @@ TabViewElement.AllowDropTabs(bool allow = true) → TabViewElement
 TabViewElement.CanDragTabs(bool canDrag = true) → TabViewElement
 TabViewElement.CanReorderTabs(bool canReorder = true) → TabViewElement
 TabViewElement.CloseButtonOverlayMode(TabViewCloseButtonOverlayMode mode) → TabViewElement
+TabViewElement.FillContentArea(bool fill = true) → TabViewElement
 TabViewElement.IsAddTabButtonVisible(bool visible = true) → TabViewElement
 TabViewElement.SelectedIndexChanged(Action<int> handler) → TabViewElement
 TabViewElement.Set(Action<TabView> configure) → TabViewElement
@@ -3659,6 +3663,7 @@ ToString() → string
 ### record NavigationViewElement
 new(NavigationViewItemData[] MenuItems, Element Content = null)
 Action OnBackRequested { get; init; }
+Action<bool> OnPaneOpenChanged { get; init; }
 Action<string> OnSelectedTagChanged { get; init; }
 AutoSuggestBoxElement AutoSuggestBox { get; init; }
 Element Content { get; init; }
@@ -4214,17 +4219,17 @@ ReferenceList<TTarget>(Func<TElement, IReadOnlyList<ElementRef<TTarget>>> get, A
 WriteSuppressed(Action mutate) → void
 
 ### record ReactorDevtoolsBootRequest
-new(DevtoolsCliOptions Options, string Title, double Width, double Height, bool FullScreen, Type HostRoot, Func<Component> HostRootFactory, Func<RenderContext, Element> RootRenderFunc, Action<ReactorHost> Configure)
+new(DevtoolsCliOptions Options, string Title, double? Width, double? Height, bool FullScreen, Type HostRoot, Func<Component> HostRootFactory, Func<RenderContext, Element> RootRenderFunc, Action<ReactorHost> Configure)
 Action<ReactorHost> Configure { get; init; }
 DevtoolsCliOptions Options { get; init; }
 Func<Component> HostRootFactory { get; init; }
 Func<RenderContext, Element> RootRenderFunc { get; init; }
 Type HostRoot { get; init; }
 bool FullScreen { get; init; }
-double Height { get; init; }
-double Width { get; init; }
+double? Height { get; init; }
+double? Width { get; init; }
 string Title { get; init; }
-Deconstruct(ref DevtoolsCliOptions Options, ref string Title, ref double Width, ref double Height, ref bool FullScreen, ref Type HostRoot, ref Func<Component> HostRootFactory, ref Func<RenderContext, Element> RootRenderFunc, ref Action<ReactorHost> Configure) → void
+Deconstruct(ref DevtoolsCliOptions Options, ref string Title, ref double? Width, ref double? Height, ref bool FullScreen, ref Type HostRoot, ref Func<Component> HostRootFactory, ref Func<RenderContext, Element> RootRenderFunc, ref Action<ReactorHost> Configure) → void
 Equals(ReactorDevtoolsBootRequest other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
@@ -5117,6 +5122,7 @@ TabViewWidthMode TabWidthMode { get; init; }
 bool AllowDropTabs { get; init; }
 bool CanDragTabs { get; init; }
 bool CanReorderTabs { get; init; }
+bool FillContentArea { get; init; }
 bool IsAddTabButtonVisible { get; init; }
 Deconstruct(ref TabViewItemData[] Tabs) → void
 Equals(Element other) → bool
@@ -5852,14 +5858,14 @@ bool PersistPlacement { get; init; }
 bool ShowInSwitcher { get; init; }
 bool ShowInTaskbar { get; init; }
 bool? ExtendsContentIntoTitleBar { get; init; }
-double Height { get; init; }
 double Opacity { get; init; }
-double Width { get; init; }
 double? AspectRatio { get; init; }
+double? Height { get; init; }
 double? MaxHeight { get; init; }
 double? MaxWidth { get; init; }
 double? MinHeight { get; init; }
 double? MinWidth { get; init; }
+double? Width { get; init; }
 string PersistenceId { get; init; }
 string Title { get; init; }
 Equals(WindowSpec other) → bool

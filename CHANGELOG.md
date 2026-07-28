@@ -28,6 +28,25 @@ Conventions for contributors:
 
 ### Added
 
+- **`TabView.FillContentArea` — opt-in full-height tab body (issue #914).**
+  WinUI's `DefaultTabViewStyle` sets `VerticalAlignment="Top"` on the `TabView`
+  control itself, so the `*` content row in its template never receives leftover
+  space and tab content collapses to its natural height instead of filling the
+  tab body. Reactor keeps the WinUI default; set
+  `TabView([...]) with { FillContentArea = true }` or call `.FillContentArea()`
+  to stretch the control so its content area fills the available space. An
+  explicit `.VAlign(...)` on the `TabView` element still wins. Apps working
+  around this with `UseWindowSize()` + `.MinHeight(...)` (including the Windows
+  App SDK `reactor-tabview` template) can drop that workaround.
+
+- **`NavigationView` pane-open change notification (issue #916).**
+  `NavigationViewElement.OnPaneOpenChanged` plus the `.PaneOpenChanged(handler)`
+  and paired `.IsPaneOpen(value, handler)` fluents report every `IsPaneOpen`
+  change on the realized control, so pane state can be driven from component
+  state. `SplitViewElement` gains the matching `.IsPaneOpen(value, handler)`
+  overload. `ControlDescriptor.Immediate` now accepts a `null` `loadedHook` for
+  DP observations that have no template part to walk.
+
 ### Changed
 
 ### Deprecated
@@ -35,6 +54,13 @@ Conventions for contributors:
 ### Removed
 
 ### Fixed
+
+- **`NavigationView` pane state no longer desyncs when the control moves its own
+  pane (issue #916).** `IsPaneOpen` could be written but had no change
+  notification, so a light dismiss or an adaptive display-mode change on resize
+  left the app's state stale — the next toggle wrote a value the control already
+  held and the pane appeared to need two clicks. Wire `.IsPaneOpen(value,
+  handler)` (or `.PaneOpenChanged(handler)`) to keep the two in sync.
 
 ### Security
 

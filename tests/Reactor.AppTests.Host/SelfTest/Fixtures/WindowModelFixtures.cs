@@ -712,4 +712,83 @@ internal static class WindowModelFixtures
             }
         }
     }
+
+    /// <summary>
+    /// Spec 036 §4.1 — <see cref="WindowSpec.Width"/> / <see cref="WindowSpec.Height"/>
+    /// default to null, meaning "let the OS size the window". The oracle is a bare
+    /// WinUI <c>Window</c> that nobody resizes: a null-size Reactor window must land
+    /// on exactly that extent, while an explicitly sized spec must not. The
+    /// half-specified case proves the per-axis fallback (requested width, OS height).
+    /// </summary>
+    internal class WindowDefaultSizeDefersToOs(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            EnsureUIDispatcher();
+
+            // OS baseline — a plain WinUI window Reactor never touches. It is
+            // activated and allowed to settle first so it goes through the same
+            // show path as the Reactor windows below (which activate by default
+            // via WindowSpec.ActivateOnOpen); reading AppWindow.Size on a window
+            // that was never shown could return a pre-show placeholder extent.
+            var baseline = new Window();
+            baseline.Activate();
+            await Harness.Render(50);
+            var osSize = baseline.AppWindow.Size;
+
+            // Guards the oracle itself: if the baseline reported 0x0, every
+            // comparison below would be comparing garbage.
+            H.Check("WindowSize_OsBaseline_IsRealExtent", osSize.Width > 0 && osSize.Height > 0);
+
+            ReactorWindow? unsized = null, sized = null, widthOnly = null;
+            try
+            {
+                unsized = await OpenAndSettle(
+                    new WindowSpec { Title = "OS Default Size" },
+                    () => new StubComponent());
+                sized = await OpenAndSettle(
+                    new WindowSpec { Title = "Explicit Size", Width = 420, Height = 260 },
+                    () => new StubComponent());
+                widthOnly = await OpenAndSettle(
+                    new WindowSpec { Title = "Width Only", Width = 420 },
+                    () => new StubComponent());
+                await Harness.Render();
+
+                var unsizedSize = unsized.AppWindow.Size;
+                var sizedSize = sized.AppWindow.Size;
+                var widthOnlySize = widthOnly.AppWindow.Size;
+
+                H.Check("WindowSize_NullSpec_MatchesOsDefault",
+                    unsizedSize.Width == osSize.Width && unsizedSize.Height == osSize.Height);
+
+                // Differential isolation: if the resize path were skipped for
+                // *every* spec, this check fails.
+                H.Check("WindowSize_ExplicitSpec_OverridesOsDefault",
+                    sizedSize.Width != osSize.Width || sizedSize.Height != osSize.Height);
+
+                H.Check("WindowSize_WidthOnly_AppliesWidth",
+                    widthOnlySize.Width == sizedSize.Width);
+                H.Check("WindowSize_WidthOnly_KeepsOsHeight",
+                    widthOnlySize.Height == osSize.Height);
+            }
+            finally
+            {
+                if (unsized is not null) await CloseAndSettle(unsized);
+                if (sized is not null) await CloseAndSettle(sized);
+                if (widthOnly is not null) await CloseAndSettle(widthOnly);
+                try
+                {
+                    baseline.Close();
+                }
+                catch (COMException ex)
+                {
+                    // Teardown-only. Swallowed so a failed close on the throwaway
+                    // oracle window can't mask the real fixture result, but logged
+                    // so it is not silent.
+                    global::System.Diagnostics.Debug.WriteLine(
+                        $"[selftest] WindowDefaultSizeDefersToOs baseline close failed: {ex}");
+                }
+            }
+        }
+    }
 }

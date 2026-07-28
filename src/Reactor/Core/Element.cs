@@ -902,6 +902,7 @@ public abstract record Element
             (TabViewElement ta, TabViewElement tb) =>
                 ta.SelectedIndex == tb.SelectedIndex
                 && ta.IsAddTabButtonVisible == tb.IsAddTabButtonVisible
+                && ta.FillContentArea == tb.FillContentArea
                 && SettersEqual(ta.Setters, tb.Setters),
 
             (TreeViewElement ta, TreeViewElement tb) =>
@@ -4574,7 +4575,9 @@ public record NavigationHostElement(
 // auto-map. The 5 NamedSlots (Header/AutoSuggestBox/PaneFooter/PaneCustomContent/Content), the
 // MenuItems+SelectedTag menu reconciler (.Imperative), the 3 NaN-sentinel pane widths, and the
 // SelectionChanged/BackRequested events are bespoke — in Element.NavigationView.cs. BackRequested
-// is Excluded (auto-surfaces). Replaces NavigationViewDescriptor.
+// is Excluded (auto-surfaces). Issue #916 — an IsPaneOpen DP observation
+// (OnPaneOpenChanged) is bespoke too, so IsPaneOpen can be used as controlled state.
+// Replaces NavigationViewDescriptor.
 [global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.NavigationView), Exclude = new[] { "BackRequested" })]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("MenuItems")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("SelectedTag")]
@@ -4594,6 +4597,14 @@ public partial record NavigationViewElement(
     public string? SelectedTag { get; init; }
     public Action<string?>? OnSelectedTagChanged { get; init; }
     public bool IsPaneOpen { get; init; } = true;
+    /// <summary>
+    /// Fires whenever the realized control's <c>IsPaneOpen</c> changes — including changes the
+    /// app never requested (light dismiss, adaptive display-mode changes on resize) and the
+    /// echo of a programmatic <see cref="IsPaneOpen"/> write. Feed the value back into the
+    /// state that drives <see cref="IsPaneOpen"/> to keep controlled pane state in sync
+    /// (issue #916). Same shape as <c>SplitViewElement.OnPaneOpenChanged</c>.
+    /// </summary>
+    public Action<bool>? OnPaneOpenChanged { get; init; }
     public NavigationViewPaneDisplayMode PaneDisplayMode { get; init; } = NavigationViewPaneDisplayMode.Auto;
     public bool IsBackEnabled { get; init; }
     public Action? OnBackRequested { get; init; }
@@ -4613,7 +4624,8 @@ public partial record NavigationViewElement(
     /// <summary>Window width at which the pane auto-expands. <c>NaN</c> uses the WinUI default (1008).</summary>
     public double ExpandedModeThresholdWidth { get; init; } = double.NaN;
     internal Action<WinUI.NavigationView>[] Setters { get; init; } = [];
-    internal override bool HasCallbacks => OnSelectedTagChanged is not null || OnBackRequested is not null;
+    internal override bool HasCallbacks =>
+        OnSelectedTagChanged is not null || OnBackRequested is not null || OnPaneOpenChanged is not null;
 }
 
 // Spec 058 §15 (P5.23) — Title/Subtitle/IsBackButtonVisible/IsBackButtonEnabled/
@@ -4765,6 +4777,22 @@ public partial record TabViewElement(
     public Element? TabStripHeader { get; init; }
     /// <summary>Element rendered at the trailing edge of the tab strip.</summary>
     public Element? TabStripFooter { get; init; }
+    /// <summary>
+    /// Opt in to having the tab content area fill the space the TabView is given
+    /// by its parent (issue #914).
+    /// </summary>
+    /// <remarks>
+    /// WinUI's <c>DefaultTabViewStyle</c> ships
+    /// <c>&lt;Setter Property="VerticalAlignment" Value="Top" /&gt;</c>, so a TabView is
+    /// arranged at its <em>desired</em> height and the <c>*</c> content row in its template
+    /// never receives any leftover space — tab content is sized to content and the rest of
+    /// the tab body stays unpainted. Setting this to <c>true</c> writes
+    /// <see cref="Microsoft.UI.Xaml.VerticalAlignment.Stretch"/> on the control, which is
+    /// what the XAML TabView templates do by hand. An explicit <c>.VAlign(…)</c> on this
+    /// element always wins over the opt-in.
+    /// <para>Defaults to <c>false</c> so the WinUI style default is preserved.</para>
+    /// </remarks>
+    public bool FillContentArea { get; init; }
     /// <summary>
     /// Fires when the user starts dragging a tab. <c>tabIndex</c> is the index
     /// of the dragged tab in <see cref="Tabs"/>. Used by spec 045 §2.4 docking

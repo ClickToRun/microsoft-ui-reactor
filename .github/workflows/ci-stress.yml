@@ -81,7 +81,7 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.plan.outputs.shard-list) }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -134,7 +134,7 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.plan.outputs.shard-list) }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -187,7 +187,7 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.plan.outputs.shard-list) }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -240,7 +240,7 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.plan.outputs.shard-list) }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -317,7 +317,7 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.plan.outputs.shard-list) }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -327,7 +327,7 @@ jobs:
       # winapp ui drives the cross-process UIA automation. The action adds winapp to PATH,
       # which WinAppUi.ResolveWinAppExe() picks up via its PATH fallback (mirrors ci.yml).
       - name: Setup winapp CLI
-        uses: microsoft/setup-WinAppCli@cc8ea9a08b3ee3db43d5aa6bddda4a0e87d800f7 # v0.1
+        uses: microsoft/setup-WinAppCli@b93bbddc1f7abc061ca0d3a8119e3a0c7dd71495 # v0.2
 
       # Build the E2E test project once (Debug/x64 — the path TestSession.FindHostExe expects).
       # The ProjectReference pulls in Reactor.AppTests.Host, so the Host is built too.
@@ -384,7 +384,7 @@ jobs:
       # Only used so the aggregate report labels the run's retry mode correctly.
       REACTOR_E2E_RETRIES: ${{ inputs.e2e_retries }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Download all shard results
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
