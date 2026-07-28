@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.UI.Reactor.Core;
+using Microsoft.UI.Reactor.Core.V1Protocol;
 using Microsoft.UI.Reactor.Data;
 using Microsoft.UI.Reactor.Hooks;
 using Microsoft.UI.Reactor.Layout;
@@ -53,7 +54,7 @@ public class DataGridComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMe
         // affecting CellRenderers). Auto-columns are cached by UseMemo.
         var columns = el.Columns is not null
             ? el.Columns
-            : UseMemo(() => Factories.AutoColumns<T>(registry, el.ColumnOverrides));
+            : UseMemo(() => Advanced.Factories.AutoColumns<T>(registry, el.ColumnOverrides));
 
         // Create the headless state machine once and hold it in a ref.
         var stateRef = UseRef<DataGridState<T>>(null!);
@@ -928,6 +929,15 @@ public class DataGridComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMe
 
                 if (el.AllowColumnResize)
                 {
+                    // Spec 062 §7 Track B (B3) — lazy GLOBAL registration of the
+                    // resize-grip handler at its single emit site. Replaces core's
+                    // former eager per-host ResizeGripRegistration (which would have
+                    // become a core→Advanced reference once the grip moved out).
+                    // Reg<>.Done runs the handler's registration cctor once per
+                    // process, synchronously, before the element mounts this same
+                    // render — no timing risk, no consumer call — and keeps the grip
+                    // trimmable when the data grid is unreachable.
+                    _ = Reg<ResizeGripElement, ResizeGripControl, ResizeGripHandler>.Done;
                     var grip = new ResizeGripElement()
                         .Width(6)
                         .HAlign(HorizontalAlignment.Right)

@@ -1,0 +1,90 @@
+using Microsoft.UI.Reactor.Core;
+using Microsoft.UI.Reactor.Core.V1Protocol;
+using Microsoft.UI.Input;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+
+namespace Microsoft.UI.Reactor.Controls;
+
+/// <summary>
+/// A Reactor element that renders as a panel with a west-east resize cursor.
+/// Used as the drag handle for column resizing in the DataGrid header.
+/// Background is set once at mount time for hit-testing and is NOT updated
+/// by the reconciler — this lets event handlers change the background
+/// (hover/drag feedback) without being overwritten on re-render.
+/// </summary>
+internal record ResizeGripElement(Element? Child = null) : Element;
+
+/// <summary>
+/// Grid subclass that exposes ProtectedCursor (which is protected on UIElement).
+/// WinUI's Border is sealed so we can't subclass it. Grid supports Background
+/// natively and is not sealed, making it ideal for cursor customization.
+/// </summary>
+internal sealed partial class ResizeGripControl : Grid
+{
+    public ResizeGripControl()
+    {
+        ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.SizeWestEast);
+    }
+}
+
+/// <summary>
+/// V1 element handler that mounts and updates <see cref="ResizeGripElement"/>.
+/// Spec 062 §7 Track B (B3): when the data grid moved into Reactor.Advanced this
+/// replaced the former per-host <c>ResizeGripRegistration</c> that core's
+/// <c>ReactorHost</c>/<c>ReactorHostControl</c> eagerly called via
+/// <c>reconciler.RegisterType</c> — an eager core→data-grid reference that would
+/// have become a core→Advanced cycle once the grip moved out. The mount/update
+/// delegates capture no per-host state (they use only their arguments), so the
+/// logic wraps cleanly as a stateless handler registered lazily and GLOBALLY via
+/// <c>Reg&lt;ResizeGripElement, ResizeGripControl, ResizeGripHandler&gt;.Done</c>
+/// at the <see cref="DataGridComponent{T}"/> emit site. Global registration is
+/// process-wide and synchronous on the touch, so the grip is registered before it
+/// mounts in that same render — no timing risk and no consumer registration call.
+/// </summary>
+internal sealed class ResizeGripHandler : IElementHandler<ResizeGripElement, ResizeGripControl>
+{
+    public ResizeGripControl Mount(MountContext ctx, ResizeGripElement el)
+    {
+        var panel = new ResizeGripControl();
+        // Transparent background enables hit-testing. Set once at mount;
+        // event handlers (hover/drag) mutate it directly without reconciler interference.
+        panel.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+            Microsoft.UI.Colors.Transparent);
+        if (el.Child is not null)
+        {
+            var child = ctx.MountChild(el.Child);
+            if (child is not null) panel.Children.Add(child);
+        }
+        Reconciler.SetElementTag(panel, el);
+        return panel;
+    }
+
+    public void Update(UpdateContext ctx, ResizeGripElement oldEl, ResizeGripElement newEl, ResizeGripControl panel)
+    {
+        // Deliberately do NOT touch panel.Background here — it is managed
+        // by pointer event handlers (hover/drag) attached via OnMount.
+        // Re-setting it would overwrite the hover/drag visual state.
+
+        if (newEl.Child is not null && oldEl.Child is not null)
+        {
+            if (panel.Children.Count > 0 && panel.Children[0] is UIElement existingChild)
+            {
+                var replacement = ctx.Reconciler.UpdateChild(oldEl.Child, newEl.Child, existingChild, ctx.RequestRerender);
+                if (replacement is not null)
+                    panel.Children[0] = replacement;
+            }
+        }
+        else if (newEl.Child is not null && oldEl.Child is null)
+        {
+            var child = ctx.MountChild(newEl.Child);
+            if (child is not null) panel.Children.Add(child);
+        }
+        else if (newEl.Child is null && oldEl.Child is not null)
+        {
+            panel.Children.Clear();
+        }
+
+        Reconciler.SetElementTag(panel, newEl);
+    }
+}

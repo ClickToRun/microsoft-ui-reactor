@@ -3,7 +3,13 @@ using System.Reflection;
 using Microsoft.UI.Reactor.Controls;
 using Microsoft.UI.Reactor.Data;
 
-namespace Microsoft.UI.Reactor;
+// Spec 062 §7 Track B (B3): relocated from the core Factories partial into
+// Advanced's Factories mirror when the data grid moved to Reactor.Advanced. A
+// partial class can't span assemblies, so the DataGrid DSL entry points live in
+// Microsoft.UI.Reactor.Advanced.Factories — a data-grid app adds
+// `using static Microsoft.UI.Reactor.Advanced.Factories;`. The element/column
+// records keep their Microsoft.UI.Reactor.Controls namespace.
+namespace Microsoft.UI.Reactor.Advanced;
 
 public static partial class Factories
 {

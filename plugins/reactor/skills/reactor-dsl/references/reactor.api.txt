@@ -19,7 +19,6 @@ AppBarButton(Command command) → AppBarButtonData
 AppBarButton(string label, Action onClick = null, string icon = null) → AppBarButtonData
 AppBarSeparator() → AppBarSeparatorData
 AppBarToggleButton(string label, bool isChecked = false, Action<bool> onIsCheckedChanged = null, string icon = null) → AppBarToggleButtonData
-AutoColumns<T>(TypeRegistry registry = null, Func<FieldDescriptor, FieldDescriptor> overrides = null) → IReadOnlyList<FieldDescriptor>
 AutoSuggestBox(Optional<string> text = null, Action<string> onTextChanged = null, Action<string> onQuerySubmitted = null) → AutoSuggestBoxElement
 BitmapIcon(Uri source, bool showAsMonochrome = true) → BitmapIconData
 Body(string content) → TextBlockElement
@@ -38,7 +37,6 @@ Caption(string content) → TextBlockElement
 Card(Element child) → BorderElement
 CheckBox(Optional<bool?> isChecked = null, Action<bool> onIsCheckedChanged = null, string label = null) → CheckBoxElement
 ColorPicker(Optional<Color> color = null, Action<Color> onColorChanged = null) → ColorPickerElement
-Column<T>(string name, Func<T, object> accessor, bool editable = false, string displayName = null, string format = null, double? width = null, PinPosition pin = PinPosition.None) → ColumnBuilder<T>
 ComboBox(Element[] itemElements, Optional<int> selectedIndex, Action<int> onSelectedIndexChanged) → ComboBoxElement
 ComboBox(string[] items, Optional<int> selectedIndex = null, Action<int> onSelectedIndexChanged = null) → ComboBoxElement
 CommandBar(AppBarItemBase[] primaryCommands = null, AppBarItemBase[] secondaryCommands = null) → CommandBarElement
@@ -48,8 +46,6 @@ Component<T, TProps>(TProps props) → ComponentElement<TProps>
 Component<T>() → ComponentElement
 ContentDialog(string title, Element content, string primaryButtonText = "OK") → ContentDialogElement
 ContentFlyout(Element content, FlyoutPlacementMode placement = FlyoutPlacementMode.Auto) → ContentFlyoutElement
-DataGrid<T>(IDataSource<T> source, IReadOnlyList<FieldDescriptor> columns, TypeRegistry registry = null, SelectionMode selectionMode = SelectionMode.None, Action<IReadOnlySet<RowKey>> onSelectionChanged = null, Func<RowKey, T, Task> onRowChanged = null, double? rowHeight = 40, bool editable = false, EditMode editMode = EditMode.Cell, Func<CellContext<T>, Element> cellTemplate = null, Func<RowContext<T>, Element> rowTemplate = null, Func<HeaderContext, Element> headerTemplate = null, Element loadingTemplate = null, Element emptyTemplate = null, bool showSearch = false, Func<T, RowKey, Element> rowDetailTemplate = null, Func<FieldDescriptor, double, Element> placeholderCellTemplate = null) → ComponentElement<DataGridElement<T>>
-DataGrid<T>(IDataSource<T> source, TypeRegistry registry, Func<FieldDescriptor, FieldDescriptor> columnOverrides = null, SelectionMode selectionMode = SelectionMode.None, Action<IReadOnlySet<RowKey>> onSelectionChanged = null, Func<RowKey, T, Task> onRowChanged = null, double? rowHeight = 40, bool editable = false, EditMode editMode = EditMode.Cell, Element loadingTemplate = null, Element emptyTemplate = null) → ComponentElement<DataGridElement<T>>
 DatePicker(Optional<DateTimeOffset> date = null, Action<DateTimeOffset> onDateChanged = null) → DatePickerElement
 DevtoolsMenu(Func<IEnumerable<MenuFlyoutItemBase>> items = null, string glyph = "⚡", string toolTip = "Devtools", string automationId = null) → Element
 DropDownButton(string label, Element flyout = null) → DropDownButtonElement
@@ -287,7 +283,6 @@ ContentDialogElement.IsPrimaryButtonEnabled(bool enabled = true) → ContentDial
 ContentDialogElement.IsSecondaryButtonEnabled(bool enabled = true) → ContentDialogElement
 ContentDialogElement.Opened(Action handler) → ContentDialogElement
 ContentDialogElement.Set(Action<ContentDialog> configure) → ContentDialogElement
-DataGridElement<T>.SelectionChanged<T>(Action<IReadOnlySet<RowKey>> handler) → DataGridElement<T>
 DatePickerElement.DateChanged(Action<DateTimeOffset> handler) → DatePickerElement
 DatePickerElement.DayFormat(string format) → DatePickerElement
 DatePickerElement.MonthFormat(string format) → DatePickerElement
@@ -966,10 +961,8 @@ Theme.TertiaryText                     → TextFillColorTertiaryBrush
 AnimateProperty { Opacity, Offset, Scale, Rotation, CenterPoint, All }
 Edge { Left, Top, Right, Bottom }
 AspectRatioBasis { Window, Client }
-EditMode { Cell, Row }
 EditorTier { Standard, Compact, Full }
 SearchState { Idle, Loading, Results, Empty, Error }
-SelectionMode { None, Single, Multiple }
 Severity { Info, Warning, Error }
 ShowWhen { Always, WhenTouched, WhenDirty, AfterFirstSubmit, Never }
 VisualizerStyle { Inline, Summary, InfoBar, Custom }
@@ -1469,20 +1462,6 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
-### record CellContext<T>
-new(T Row, RowKey Key, FieldDescriptor Column, object Value, bool IsEditing, Action<object> SetValue)
-Action<object> SetValue { get; init; }
-FieldDescriptor Column { get; init; }
-RowKey Key { get; init; }
-T Row { get; init; }
-bool IsEditing { get; init; }
-object Value { get; init; }
-Deconstruct(ref T Row, ref RowKey Key, ref FieldDescriptor Column, ref object Value, ref bool IsEditing, ref Action<object> SetValue) → void
-Equals(CellContext<T> other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
 ### record CheckBoxElement
 new(Optional<bool?> IsChecked = null, Action<bool> OnIsCheckedChanged = null, string Label = null)
 Action<bool> OnIsCheckedChanged { get; init; }
@@ -1527,16 +1506,6 @@ Equals(Element other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
-
-### class ColumnBuilder<T>
-Build() → FieldDescriptor
-CellRenderer(Func<object, Element> renderer) → ColumnBuilder<T>
-NotFilterable() → ColumnBuilder<T>
-NotSortable() → ColumnBuilder<T>
-Validate(IValidator[] validators) → ColumnBuilder<T>
-ValidateAsync(IAsyncValidator[] validators) → ColumnBuilder<T>
-Width(double? width = null, double? min = null, double? max = null, double? flex = null) → ColumnBuilder<T>
-WithEditor(Func<object, Action<object>, Element> editor) → ColumnBuilder<T>
 
 ### class ColumnPinAttribute
 new(PinPosition position)
@@ -1756,136 +1725,6 @@ GetHashCode() → int
 Linear(int durationMs) → Curve
 Spring(float dampingRatio = 0.8, float period = 0.05) → Curve
 ToString() → string
-
-### class DataGridComponent<T>
-new()
-Render() → Element
-
-### record DataGridElement<T>
-Action<IReadOnlySet<RowKey>> OnSelectionChanged { get; init; }
-EditMode EditMode { get; init; }
-Element EmptyTemplate { get; init; }
-Element LoadingTemplate { get; init; }
-Func<CellContext<T>, Element> CellTemplate { get; init; }
-Func<FieldDescriptor, FieldDescriptor> ColumnOverrides { get; init; }
-Func<FieldDescriptor, double, Element> PlaceholderCellTemplate { get; init; }
-Func<HeaderContext, Element> HeaderTemplate { get; init; }
-Func<RowContext<T>, Element> RowTemplate { get; init; }
-Func<RowKey, T, Task> OnRowChanged { get; init; }
-Func<T, RowKey, Element> RowDetailTemplate { get; init; }
-IDataSource<T> Source { get; init; }
-IReadOnlyList<FieldDescriptor> Columns { get; init; }
-SelectionMode SelectionMode { get; init; }
-TypeRegistry Registry { get; init; }
-bool AllowColumnReorder { get; init; }
-bool AllowColumnResize { get; init; }
-bool Editable { get; init; }
-bool ShowHeaders { get; init; }
-bool ShowSearch { get; init; }
-double EstimatedRowHeight { get; init; }
-double? RowHeight { get; init; }
-Equals(DataGridElement<T> other) → bool
-Equals(Element other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### class DataGridState<T>
-new(IDataSource<T> source, IReadOnlyList<FieldDescriptor> columns, SelectionMode selectionMode, int blockSize = 0)
-Action<RowKey, T, T> CommitDispatcher { get; set; }
-DataPageCache<T> PageCache { get; }
-IReadOnlyList<FieldDescriptor> AllColumns { get; }
-IReadOnlyList<FieldDescriptor> Columns { get; }
-IReadOnlyList<FilterDescriptor> Filters { get; }
-IReadOnlyList<SortDescriptor> Sorts { get; }
-IReadOnlyList<T> LoadedItems { get; }
-IReadOnlySet<RowKey> ExpandedRows { get; }
-IReadOnlySet<RowKey> SelectedKeys { get; }
-IReadOnlySet<string> HiddenColumns { get; }
-InfiniteResource<T> HookResource { get; }
-RowKey? AnchorKey { get; }
-RowKey? EditingRowKey { get; }
-RowKey? FocusedKey { get; }
-SelectionMode SelectionMode { get; }
-ValidationContext EditValidation { get; }
-bool HasPendingCommits { get; }
-bool HasValidationErrors { get; }
-bool IsEditing { get; }
-bool IsLoading { get; }
-bool IsRowEditing { get; }
-int EditingVersion { get; }
-int FocusedColIndex { get; }
-int FocusedRowIndex { get; }
-int ItemCount { get; }
-int MaxClientFallbackPageSize { get; set; }
-int SelectionVersion { get; }
-int? TotalCount { get; }
-object EditingValue { get; }
-string EditingColumnName { get; }
-string SearchQuery { get; }
-string[] RowKeyCache { get; }
-BeginAsyncCommit(RowKey key, T originalItem) → void
-BeginEdit() → bool
-BeginEdit(int rowIndex, int colIndex) → bool
-BeginRowEdit(int rowIndex) → bool
-CancelEdit() → void
-CancelRowEdit() → void
-ClearAllFilters() → void
-ClearFilter(string field) → void
-ClearSelection() → void
-CollapseAllRows() → void
-CollapseRow(RowKey key) → void
-CommitAndMoveNext() → ValueTuple<RowKey, T>?
-CommitEdit() → ValueTuple<RowKey, T>?
-CommitRowEdit() → ValueTuple<RowKey, T>?
-CompleteAsyncCommit(RowKey key) → void
-DismissCommitError(RowKey key) → void
-EnsureRangeLoaded(int firstRow, int lastRow) → void
-ExpandRow(RowKey key) → void
-FailAsyncCommit(RowKey key, string errorMessage) → void
-FocusEnd() → void
-FocusHome() → void
-FocusNextCell() → bool
-FocusPrevCell() → bool
-GetAllValidationMessages() → IReadOnlyList<ValidationMessage>
-GetColumnWidth(string columnName) → double
-GetCommitError(RowKey key) → string
-GetFilter(string field) → FilterDescriptor
-GetItemAt(int index) → T
-GetPinnedColumnGroups() → ValueTuple<IReadOnlyList<FieldDescriptor>, IReadOnlyList<FieldDescriptor>, IReadOnlyList<FieldDescriptor>>
-GetRowEditValue(string columnName) → object
-GetRowIndex(RowKey key) → int
-GetRowKeyAt(int index) → string
-GetSortDirection(string field) → SortDirection?
-GetValidationMessages(string fieldName) → IReadOnlyList<ValidationMessage>
-HandleRowClick(RowKey key, bool ctrlKey = false, bool shiftKey = false, IReadOnlyList<RowKey> visibleOrder = null) → void
-HideColumn(string columnName) → void
-IsColumnInRowEdit(RowKey rowKey, string columnName) → bool
-IsColumnVisible(string columnName) → bool
-IsCommitting(RowKey key) → bool
-IsExpanded(RowKey key) → bool
-IsItemLoaded(int index) → bool
-IsSelected(RowKey key) → bool
-LoadDataAsync(CancellationToken cancellationToken = null) → Task
-MoveFocus(int rowDelta, int colDelta) → void
-PinColumn(string columnName, PinPosition position) → void
-ReorderColumn(int fromIndex, int toIndex) → void
-ResizeColumn(string columnName, double newWidth) → void
-SelectAll(IReadOnlyList<RowKey> allKeys) → void
-SelectRange(RowKey from, RowKey to, IReadOnlyList<RowKey> visibleOrder) → void
-SetFilter(FilterDescriptor filter) → void
-SetFocus(int rowIndex, int colIndex) → void
-SetHookResource(InfiniteResource<T> resource) → void
-SetSearchQuery(string query) → void
-SetSelectionMode(SelectionMode mode) → void
-ShowColumn(string columnName) → void
-ToggleColumnVisibility(string columnName) → void
-ToggleRowExpansion(RowKey key) → void
-ToggleSort(string field, bool additive = false) → void
-UpdateEditingValue(object value) → void
-UpdateRowEditValue(string columnName, object value) → void
-ValidateFieldAsync(string fieldName, object value, CancellationToken cancellationToken = null) → Task
-event Action StateChanged
 
 ### record DataPage<T>
 new(IReadOnlyList<T> Items, string ContinuationToken = null, int? TotalCount = null)
@@ -2775,18 +2614,6 @@ Element[] Children { get; init; }
 Deconstruct(ref Element[] Children) → void
 Equals(Element other) → bool
 Equals(GroupElement other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record HeaderContext
-new(FieldDescriptor Column, SortDirection? CurrentSort, Action ToggleSort, Action<double> Resize)
-Action ToggleSort { get; init; }
-Action<double> Resize { get; init; }
-FieldDescriptor Column { get; init; }
-SortDirection? CurrentSort { get; init; }
-Deconstruct(ref FieldDescriptor Column, ref SortDirection? CurrentSort, ref Action ToggleSort, ref Action<double> Resize) → void
-Equals(HeaderContext other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
@@ -4899,20 +4726,6 @@ GetString(string name) → string
 GetWildcard() → string
 Query<T>(string name, T defaultValue = null) → T
 QueryString(string name) → string
-
-### record RowContext<T>
-new(T Row, RowKey Key, int RowIndex, bool IsSelected, bool IsEditing, IReadOnlyList<Element> Cells)
-IReadOnlyList<Element> Cells { get; init; }
-RowKey Key { get; init; }
-T Row { get; init; }
-bool IsEditing { get; init; }
-bool IsSelected { get; init; }
-int RowIndex { get; init; }
-Deconstruct(ref T Row, ref RowKey Key, ref int RowIndex, ref bool IsSelected, ref bool IsEditing, ref IReadOnlyList<Element> Cells) → void
-Equals(RowContext<T> other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
 
 ### struct RowKey
 new(string Value)

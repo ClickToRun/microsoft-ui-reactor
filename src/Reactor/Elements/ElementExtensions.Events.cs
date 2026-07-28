@@ -465,14 +465,6 @@ public static partial class ElementExtensions
     public static VirtualListElement VisibleRangeChanged(this VirtualListElement el, Action<int, int>? handler) =>
         el with { OnVisibleRangeChanged = handler };
 
-    /// <summary>
-    /// Wires the multi-select snapshot handler for <see cref="DataGridElement{T}"/>.
-    /// Receives the full set of currently-selected <c>RowKey</c>s on every
-    /// change (not added/removed deltas). Passing <c>null</c> clears.
-    /// </summary>
-    public static DataGridElement<T> SelectionChanged<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicConstructors)] T>(this DataGridElement<T> el, Action<IReadOnlySet<RowKey>>? handler) =>
-        el with { OnSelectionChanged = handler };
-
     // ── §10 TabView drag callbacks (Phase 11.1 surface-guard coverage) ─
 
     /// <summary>Wires the tab-drag-starting handler. Receives the source tab index. Passing <c>null</c> clears.</summary>

@@ -4,6 +4,7 @@ using Microsoft.UI.Reactor.Controls;
 using Microsoft.UI.Reactor.Data;
 using Microsoft.UI.Reactor.Data.Providers;
 using static Microsoft.UI.Reactor.Factories;
+using static Microsoft.UI.Reactor.Advanced.Factories;
 using static WinUIGalleryReactor.SamplePageHost;
 
 namespace WinUIGalleryReactor.ControlPages.Data;

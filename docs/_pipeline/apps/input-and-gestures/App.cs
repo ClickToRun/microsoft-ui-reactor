@@ -5,6 +5,7 @@ using Microsoft.UI.Reactor.Hooks;
 using Microsoft.UI.Reactor.Input;
 using Microsoft.UI.Xaml;
 using static Microsoft.UI.Reactor.Factories;
+using static Microsoft.UI.Reactor.Advanced.Factories;
 
 ReactorApp.Run<PointerModifiersExample>("Input and Gestures", width: 640, height: 520
 );
