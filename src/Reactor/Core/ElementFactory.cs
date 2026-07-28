@@ -52,14 +52,30 @@ public sealed partial class ElementFactory<T> : IElementFactory
     // bounded; allocating fresh on every realize creates one orphan in
     // Children per call.
     //
-    // Used as a stack (push/pop at the end) but stored as a List so GetElement
-    // can SCAN it for a container whose last Element is diff-compatible with
+    // Used as a stack (append/remove at the end) but stored as a List so
+    // GetElement can SCAN it for a container whose last Element is reusable for
     // the row being realized. Blindly popping the newest entry orphans it
     // whenever the root element type flipped (issue #919): Reconcile mints a
     // different control, and the popped one can never be un-parented from the
-    // repeater. The pool stays small — bounded by the realized window times the
-    // number of distinct root shapes in flight — so the scan is a few compares.
-    private readonly List<UIElement> _recyclePool = new();
+    // repeater. Bounded by <see cref="PoolCapacity"/>, so the scan is short.
+    private readonly List<PoolEntry> _recyclePool = new();
+
+    // A parked container plus the Visibility it had before RecycleElement
+    // collapsed it, so reuse restores exactly what the author asked for.
+    private readonly record struct PoolEntry(UIElement Control, Visibility Visibility);
+
+    // Retaining a container that cannot serve the current row is what bounds the
+    // working set across a root-type flip (issue #919) — but it only ever pays
+    // off for a row shape that comes BACK, and for a keyed list it never does:
+    // ApplyItemIdentityKey stamps a per-item key on the row root, CanUpdate
+    // rejects unequal keys, so scrolling forward through N distinct items would
+    // retain N containers and make the scan quadratic. Cap the pool at twice the
+    // largest realized window seen so far (the flip case needs exactly one
+    // window; the second window is the incoming shape) with a small floor, and
+    // evict oldest-first beyond that — an evicted container is parked collapsed
+    // and untracked, which is the pre-#919 outcome and no worse.
+    private int _maxRealized;
+    private int PoolCapacity => global::System.Math.Max(32, _maxRealized * 2);
 
     // Last Element bound to a given realized control. On reuse from the
     // recycle pool, this is the oldElement passed to Reconciler.Reconcile so
@@ -504,15 +520,18 @@ public sealed partial class ElementFactory<T> : IElementFactory
         var element = BuildOrCache(key, item, index, keyed);
 
         UIElement? control;
-        if (TryTakeCompatibleFromPool(element, out var reused, out var oldElement))
+        if (TryTakeCompatibleFromPool(element, out var reused, out var oldElement, out var parkedVisibility))
         {
             // Reuse a previously-recycled container. The framework still has
             // it parented to the ItemsRepeater, so the ViewManager.cpp:866
             // Append-skip kicks in and the visual tree stays stable.
             //
-            // Undo the parking collapse from RecycleElement BEFORE reconciling,
-            // so an element that genuinely asks to be collapsed still wins.
-            RestoreFromPool(reused);
+            // Undo the parking collapse from RecycleElement BEFORE reconciling.
+            // Restore the exact pre-park value rather than forcing Visible: an
+            // in-place diff whose Visibility modifier is unchanged writes
+            // nothing, so forcing Visible would silently un-collapse a row the
+            // author asked to hide.
+            reused.Visibility = parkedVisibility;
             var replacement = _reconciler.Reconcile(oldElement, element, reused, _requestRerender);
             if (replacement is not null && !ReferenceEquals(replacement, reused))
             {
@@ -553,6 +572,7 @@ public sealed partial class ElementFactory<T> : IElementFactory
         {
             _keyByControl[control] = key;
             _lastElementByControl[control] = element;
+            if (_keyByControl.Count > _maxRealized) _maxRealized = _keyByControl.Count;
 
             // Issue #383: arm the multi-select checkmark flicker guard on the
             // realized container. Idempotent per container instance.
@@ -575,11 +595,14 @@ public sealed partial class ElementFactory<T> : IElementFactory
     // be cache-warm and shape-identical). Two passes, in priority order:
     //
     //   1. CanUpdate → a pure in-place diff, the cheapest possible reuse.
-    //   2. A component-wrapper Border paired with a ComponentElement → CanUpdate
-    //      is false (the row's key changed), so Reconcile unmounts the old
-    //      component — running its effect cleanups — and mints a fresh wrapper,
-    //      which TryAdoptRealizedReplacement then moves back into this still-
-    //      parented Border. Same container, fresh per-item state. (Issue #326.)
+    //   2. Two component wrappers of the same shape → CanUpdate is false (the
+    //      row's key changed), so Reconcile unmounts the old component — running
+    //      its effect cleanups — and mints a fresh wrapper, which
+    //      TryAdoptRealizedReplacement then moves back into this still-parented
+    //      Border. Same container, fresh per-item state. (Issue #326.)
+    //      Adoption transplants only the component subtree, so the wrapper's own
+    //      modifiers/extensions must already match or they would survive from the
+    //      previous row.
     //
     // Issue #919: anything else must STAY in the pool. Handing it to Reconcile
     // would mint a different control, and the rejected one can never be removed
@@ -591,38 +614,46 @@ public sealed partial class ElementFactory<T> : IElementFactory
     private bool TryTakeCompatibleFromPool(
         Element element,
         [NotNullWhen(true)] out UIElement? reused,
-        [NotNullWhen(true)] out Element? oldElement)
+        [NotNullWhen(true)] out Element? oldElement,
+        out Visibility parkedVisibility)
     {
         for (var pass = 0; pass < 2; pass++)
         {
             for (var i = _recyclePool.Count - 1; i >= 0; i--)
             {
-                var candidate = _recyclePool[i];
-                if (!_lastElementByControl.TryGetValue(candidate, out var candidateElement))
+                var entry = _recyclePool[i];
+                if (!_lastElementByControl.TryGetValue(entry.Control, out var candidateElement))
                 {
                     // Untracked pool entry (its tracking was dropped elsewhere) can
                     // never be reconciled — evict it so the scan stays short. It
                     // stays parented but collapsed, which is the best available
                     // outcome for a repeater child.
                     _recyclePool.RemoveAt(i);
-                    ParkOrphan(candidate);
+                    ParkOrphan(entry.Control);
                     continue;
                 }
 
                 var usable = pass == 0
                     ? _reconciler.CanUpdate(candidateElement, element)
-                    : candidate is Border && element is ComponentElement;
+                    : entry.Control is Border
+                        && candidateElement is ComponentElement oldComp
+                        && element is ComponentElement newComp
+                        && oldComp.ComponentType == newComp.ComponentType
+                        && Equals(oldComp.Modifiers, newComp.Modifiers)
+                        && Equals(oldComp.Extensions, newComp.Extensions);
                 if (!usable) continue;
 
                 _recyclePool.RemoveAt(i);
-                reused = candidate;
+                reused = entry.Control;
                 oldElement = candidateElement;
+                parkedVisibility = entry.Visibility;
                 return true;
             }
         }
 
         reused = null;
         oldElement = null;
+        parkedVisibility = Visibility.Visible;
         return false;
     }
 
@@ -631,8 +662,6 @@ public sealed partial class ElementFactory<T> : IElementFactory
     // re-arranged, so it would otherwise keep painting at its last arranged
     // bounds on top of the live rows.
     private static void ParkOrphan(UIElement control) => control.Visibility = Visibility.Collapsed;
-
-    private static void RestoreFromPool(UIElement control) => control.Visibility = Visibility.Visible;
 
     // Detach a UIElement from whatever container it's parented to.
     //
@@ -677,13 +706,39 @@ public sealed partial class ElementFactory<T> : IElementFactory
         // tearing down Reactor state here would just be discarded work.
         // The _lastElementByControl entry stays valid for the next realize.
         //
-        // Collapse while parked. The repeater stops arranging a recycled child
-        // but keeps it parented, so a still-Visible one paints at its last
-        // arranged bounds — a ghost row over the live list whenever the pool
-        // isn't drained in the same pass (issue #919). GetElement restores
-        // visibility on reuse. This mirrors WinUI's own RecyclePool.
+        // Collapse while parked, remembering the visibility to restore. The
+        // repeater stops arranging a recycled child but keeps it parented, so a
+        // still-Visible one paints at its last arranged bounds — a ghost row over
+        // the live list whenever the pool isn't drained in the same pass
+        // (issue #919). This mirrors WinUI's own RecyclePool.
+        var restore = args.Element is FrameworkElement fe ? fe.Visibility : Visibility.Visible;
         ParkOrphan(args.Element);
-        _recyclePool.Add(args.Element);
+        _recyclePool.Add(new PoolEntry(args.Element, restore));
+
+        TrimPool();
+    }
+
+    // Evict oldest-first once the pool exceeds the capacity its realized window
+    // justifies. An evicted container is parked collapsed and untracked: it is
+    // still parented (nothing can un-parent an ItemsRepeater child) but inert.
+    // Without this, a keyed list — where every row root carries a per-item key,
+    // so CanUpdate rejects every cross-item reuse — would retain one container
+    // and one tracking entry per item scrolled past, and the reuse scan would
+    // grow with it.
+    private void TrimPool()
+    {
+        var capacity = PoolCapacity;
+        if (_recyclePool.Count <= capacity) return;
+
+        var excess = _recyclePool.Count - capacity;
+        for (var i = 0; i < excess; i++)
+        {
+            var evicted = _recyclePool[i].Control;
+            DetachFromParent(evicted);
+            ParkOrphan(evicted);
+            _lastElementByControl.Remove(evicted);
+        }
+        _recyclePool.RemoveRange(0, excess);
     }
 
 }

@@ -246,6 +246,32 @@ internal static class ElementFactoryRecyclingFixtures
             H.Check($"EFR_Heterogeneous_BookkeepingBounded_count={factory.DebugLastElementByControlCount}",
                 factory.DebugLastElementByControlCount == 2);
 
+            // Retention must not become its own leak. A keyed list stamps a
+            // per-item key on every row root (ApplyItemIdentityKey), and
+            // CanUpdate rejects unequal keys — so scrolling forward through
+            // distinct items never finds a reusable container. Without the pool
+            // cap, that retained one container plus one tracking entry per item
+            // scrolled past and made the reuse scan grow with it.
+            var many = Enumerable.Range(0, 200).Select(i => new Item($"k{i}", $"L{i}")).ToArray();
+            var scrollFactory = new ElementFactory<Item>(
+                many,
+                (it, _) => TextBlock(it.Label),
+                new Reconciler(),
+                requestRerender: static () => { },
+                pool: null);
+            var iscroll = (IElementFactory)scrollFactory;
+            UIElement? previous = null;
+            for (var i = 0; i < many.Length; i++)
+            {
+                if (previous is not null) iscroll.RecycleElement(MakeRecycleArgs(previous));
+                previous = iscroll.GetElement(MakeRowGetArgs(i, $"k{i}"));
+            }
+
+            H.Check($"EFR_KeyedScroll_PoolBounded_pool={scrollFactory.DebugRecyclePoolCount}",
+                scrollFactory.DebugRecyclePoolCount <= 32);
+            H.Check($"EFR_KeyedScroll_TrackingBounded_lastEl={scrollFactory.DebugLastElementByControlCount}",
+                scrollFactory.DebugLastElementByControlCount <= 33);
+
             return Task.CompletedTask;
         }
     }
