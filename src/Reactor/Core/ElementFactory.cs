@@ -85,11 +85,27 @@ public sealed partial class ElementFactory<T> : IElementFactory
     // The per-shape term matters: a list that cycles its rows through three or
     // more root types needs every shape's window retained, or the shape evicted
     // this pass is re-minted next pass and the repeater's children grow without
-    // bound (nothing can un-parent them). The shape count is clamped so the
-    // capacity itself stays bounded.
-    private const int MaxPooledShapes = 8;
+    // bound (nothing can un-parent them).
+    //
+    // Because a pool miss is not a cache miss but a permanent native leak, the
+    // per-shape window is granted to EVERY recurring shape and only an absolute
+    // container ceiling caps the total. A clamp on the shape COUNT would quietly
+    // reintroduce the leak for any list cycling more shapes than the clamp: the
+    // managed pool would stay bounded while the visual tree grew forever.
+    private const int MaxPooledContainers = 512;
     private int _maxRealized;
-    private readonly Dictionary<(global::System.Type, global::System.Type?), int> _shapeCounts = new();
+    private readonly Dictionary<ShapeKey, int> _shapeCounts = new();
+
+    // A pooled container's reuse class. Two containers are interchangeable only
+    // if these match, so the census must discriminate on exactly the STRUCTURAL
+    // terms of Reconciler.CanUpdate — element type, ComponentElement.ComponentType
+    // and XamlHostElement.TypeKey. Element.Key is deliberately excluded: it is
+    // per-item and rotates, so folding it in would make every row of a keyed list
+    // its own shape and blow the capacity up instead of bounding it.
+    private readonly record struct ShapeKey(
+        global::System.Type Element,
+        global::System.Type? Component,
+        string? HostTypeKey);
 
     // Last Element bound to a given realized control. On reuse from the
     // recycle pool, this is the oldElement passed to Reconciler.Reconcile so
@@ -378,16 +394,25 @@ public sealed partial class ElementFactory<T> : IElementFactory
                 // CanUpdate was false (the row's Element.Key changed — e.g. the
                 // documented .WithKey($"{id}:{rev}") pattern — or a root type
                 // change) → Reconcile unmounted `child` and built a fresh
-                // `replacement`. The ItemsRepeater that still parents `child`
-                // isn't a Panel, so we can't swap the realized slot the way the
-                // GetElement framework return-channel does. Adopt the fresh
-                // subtree into the still-parented wrapper when the shapes allow
-                // it; otherwise keep the maps consistent so no stale entry
-                // survives and the next scroll re-realize fixes the visual.
+                // `replacement`. It can ALSO be true: a decorator-style V1
+                // handler (spec 048 §14) may substitute a different instance
+                // when only its inner target changed shape — FlyoutElement is
+                // the live example, and CanUpdate(FlyoutElement, FlyoutElement)
+                // is true regardless of what happens to Target. The ItemsRepeater
+                // that still parents `child` isn't a Panel, so we can't swap the
+                // realized slot the way the GetElement framework return-channel
+                // does. Adopt the fresh subtree into the still-parented wrapper
+                // only when CanSafelyAdopt allows it — adoption moves the
+                // component subtree and nothing else, so a decorator's own
+                // wiring (the element tag the flyout's Opened/Closed handlers
+                // read back, the attached flyout itself) would be left on the
+                // discarded replacement. Otherwise keep the maps consistent so
+                // no stale entry survives and re-realize fixes the visual.
                 // Without this, the old control was orphaned (stale state still
                 // visible) and _lastElementByControl[child] pointed at an
                 // element the control no longer hosted. (Issue #326 pr-review H1)
-                if (_reconciler.TryAdoptRealizedReplacement(child, replacement))
+                if (CanSafelyAdopt(child, oldElement, newElement)
+                    && _reconciler.TryAdoptRealizedReplacement(child, replacement))
                 {
                     // `child` now hosts the fresh component subtree — tracking
                     // stays anchored on the still-realized `child`.
@@ -554,7 +579,14 @@ public sealed partial class ElementFactory<T> : IElementFactory
                 // subtree back into the container we already have — returning the
                 // replacement instead would strand `reused`, which cannot be un-parented
                 // from an ItemsRepeater (see DetachFromParent). (Issues #326, #919.)
-                if (_reconciler.TryAdoptRealizedReplacement(reused, replacement))
+                //
+                // A pass-1 selection can land here too: CanUpdate was true, but a
+                // decorator-style handler substituted a different instance. Re-check
+                // CanSafelyAdopt so only wrappers whose entire state lives in the
+                // component subtree are adopted; everything else takes the fresh
+                // replacement and parks the container.
+                if (CanSafelyAdopt(reused, oldElement, element)
+                    && _reconciler.TryAdoptRealizedReplacement(reused, replacement))
                 {
                     control = reused;
                 }
@@ -842,8 +874,9 @@ public sealed partial class ElementFactory<T> : IElementFactory
         if (_recyclePool.Count <= capacity) return;
 
         CensusShapes();
-        var shapes = global::System.Math.Min(MaxPooledShapes, _shapeCounts.Count);
-        capacity = global::System.Math.Max(capacity, _maxRealized * shapes);
+        capacity = global::System.Math.Max(
+            capacity,
+            global::System.Math.Min(MaxPooledContainers, _maxRealized * _shapeCounts.Count));
         if (_recyclePool.Count <= capacity) return;
 
         var excess = _recyclePool.Count - capacity;
@@ -855,10 +888,15 @@ public sealed partial class ElementFactory<T> : IElementFactory
     // pooled containers interchangeable. Three modifier-free Component<A/B/C>
     // roots all mount as Border, so keying the census on Control.GetType()
     // would see one shape where there are really three and under-size the pool.
-    private (global::System.Type Element, global::System.Type? Component) ShapeKeyOf(UIElement control)
+    // Same for XamlHostElement: CanUpdate discriminates on TypeKey, so hosts
+    // with different TypeKeys can never be reused for one another either.
+    private ShapeKey ShapeKeyOf(UIElement control)
         => _lastElementByControl.TryGetValue(control, out var element)
-            ? (element.GetType(), (element as ComponentElement)?.ComponentType)
-            : (control.GetType(), null);
+            ? new ShapeKey(
+                element.GetType(),
+                (element as ComponentElement)?.ComponentType,
+                (element as global::Microsoft.UI.Reactor.Hosting.XamlHostElement)?.TypeKey)
+            : new ShapeKey(control.GetType(), null, null);
 
     private void CensusShapes()
     {
@@ -875,7 +913,7 @@ public sealed partial class ElementFactory<T> : IElementFactory
     // that is still being cycled back to.
     private void EvictOldestOfLargestShape()
     {
-        (global::System.Type, global::System.Type?) worst = default;
+        ShapeKey worst = default;
         var max = -1;
         foreach (var kv in _shapeCounts)
         {
@@ -894,7 +932,9 @@ public sealed partial class ElementFactory<T> : IElementFactory
         }
 
         // The census disagreed with the pool (it shouldn't). Fall back to plain
-        // oldest-first so trimming always makes progress.
+        // oldest-first so trimming always makes progress, and drop the phantom
+        // bucket so the next call doesn't re-pick a victim that isn't there.
+        _shapeCounts.Remove(worst);
         RetireContainer(_recyclePool[0].Control);
         _recyclePool.RemoveAt(0);
     }

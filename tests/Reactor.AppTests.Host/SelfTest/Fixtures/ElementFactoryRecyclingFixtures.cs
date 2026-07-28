@@ -508,7 +508,7 @@ internal static class ElementFactoryRecyclingFixtures
             // park/unpark round-trip.
             var hidden = new ElementFactory<int>(
                 items,
-                (i, _) => TextBlock($"r{i}").Visible(false),
+                (i, _) => TextBlock($"r{i}").IsVisible(false),
                 new Reconciler(),
                 requestRerender: static () => { },
                 pool: null);
@@ -1010,6 +1010,162 @@ internal static class ElementFactoryRecyclingFixtures
             H.Check("EFR919_RefAdopt_RefIsParented",
                 rowRef.Current is not null
                 && Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(rowRef.Current) is not null);
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #919 — adoption must be gated even when CanUpdate is TRUE.
+    //
+    //  CanUpdate does not imply "Reconcile preserved control identity". A
+    //  decorator-style V1 handler (spec 048 §14) may substitute a different
+    //  instance when only its inner target changed shape. FlyoutElement is the
+    //  live example: CanUpdate(FlyoutElement, FlyoutElement) only compares type
+    //  and Key, but UpdateFlyoutElement unmounts and re-mounts its Target when
+    //  CanUpdate(o.Target, n.Target) is false, and returns the fresh control.
+    //
+    //  Both the old and new realized controls are component-wrapper Borders, so
+    //  TryAdoptRealizedReplacement happily succeeds — and silently drops
+    //  everything MountFlyout/UpdateFlyoutElement installed on the replacement:
+    //  the attached flyout and the element tag its Opened/Closed handlers read
+    //  back through Reconciler.GetElementTag. The row keeps rendering, so only
+    //  the tag exposes the damage.
+    // ────────────────────────────────────────────────────────────────────
+
+    private class FlyoutRowA : Microsoft.UI.Reactor.Core.Component
+    {
+        public override Microsoft.UI.Reactor.Core.Element Render() => TextBlock("flyrowA");
+    }
+
+    private class FlyoutRowB : Microsoft.UI.Reactor.Core.Component
+    {
+        public override Microsoft.UI.Reactor.Core.Element Render() => TextBlock("flyrowB");
+    }
+
+    internal class Factory_DecoratorSubstitution_IsNotSilentlyAdopted(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (flip, setFlip) = ctx.UseState(false);
+                var items = new[] { new Item("a", "A") };
+                return VStack(
+                    Button("FlipFlyoutTarget", () => setFlip(!flip)),
+                    LazyVStack<Item>(items, i => i.Id, (i, _) =>
+                        Flyout(
+                            flip ? Component<FlyoutRowB>() : Component<FlyoutRowA>(),
+                            TextBlock("flymenu"))).Height(200)
+                );
+            });
+            await Harness.Render();
+
+            var repeater = H.FindControl<WinXC.ItemsRepeater>(_ => true);
+            var factory = repeater?.ItemTemplate as ElementFactory<Item>;
+            H.Check("EFR919_Decorator_FactoryFound", factory is not null && repeater is not null);
+            if (factory is null || repeater is null) return;
+
+            H.Check("EFR919_Decorator_InitialRowA", H.FindText("flyrowA") is not null);
+
+            // Guard the premise: the realized row really is a component-wrapper
+            // Border, so TryAdoptRealizedReplacement *would* succeed if unguarded.
+            H.Check("EFR919_Decorator_RealizedIsBorder", repeater.TryGetElement(0) is Border);
+
+            // Flip only the flyout's Target shape. The FlyoutElement itself keeps
+            // the same type and Key, so CanUpdate stays TRUE while the decorator
+            // hands back a brand-new control.
+            H.ClickButton("FlipFlyoutTarget");
+            await Harness.Render();
+            await Harness.WaitFor(() => H.FindText("flyrowB") is not null);
+
+            H.Check("EFR919_Decorator_ShowsRowB", H.FindText("flyrowB") is not null);
+
+            // The pre-flip container can't be un-parented from the repeater, so
+            // the rowA subtree stays in the tree — but parked collapsed. What
+            // must never happen is a still-Visible repeater child that is no
+            // longer a live realized item, i.e. a ghost painting over the row.
+            var ghosts = 0;
+            var childCount = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(repeater);
+            for (var i = 0; i < childCount; i++)
+            {
+                if (Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(repeater, i) is not FrameworkElement fe) continue;
+                if (fe.Visibility != Visibility.Visible) continue;
+                if (repeater.GetElementIndex(fe) < 0) ghosts++;
+            }
+            H.Check($"EFR919_Decorator_NoVisibleGhosts_ghosts={ghosts}/{childCount}", ghosts == 0);
+
+            // The guard. The control the repeater actually realized must carry the
+            // CURRENT FlyoutElement as its element tag — that tag is what the
+            // flyout's Opened/Closed handlers dereference at click time. A silent
+            // adopt leaves the pre-flip element here.
+            var realizedAfter = repeater.TryGetElement(0);
+            var tag = realizedAfter is null ? null : Reconciler.GetElementTag(realizedAfter);
+            var targetType = (tag as FlyoutElement)?.Target as ComponentElement;
+            H.Check($"EFR919_Decorator_RealizedCarriesCurrentTag_target={targetType?.ComponentType?.Name ?? "<null>"}",
+                targetType is not null && targetType.ComponentType == typeof(FlyoutRowB));
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #919 (pr-review round 5) — the pool census must discriminate on
+    //  XamlHostElement.TypeKey, and must grant a window to EVERY recurring
+    //  shape rather than clamping the shape count.
+    //
+    //  Nine XamlHostElements with distinct TypeKeys are nine mutually
+    //  incompatible reuse classes (Reconciler.CanUpdate compares TypeKey) that
+    //  share ONE element type and ONE native control type. So this stays
+    //  bounded only if (a) ShapeKeyOf folds TypeKey in — otherwise the census
+    //  sees a single shape and sizes the pool for one window — and (b) capacity
+    //  is not clamped below the number of recurring shapes. Under-provisioning
+    //  is not a mere cache miss: the missing container is re-minted and the
+    //  evicted one stays parented to the repeater forever, so a bounded managed
+    //  pool would be silently trading itself for unbounded native growth.
+    // ────────────────────────────────────────────────────────────────────
+
+    internal class Factory_HostTypeKeyCycle_KeepsContainerSetBounded(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            const int rows = 12;
+            const int shapes = 9;
+            const int cycles = shapes * 2;
+
+            var items = Enumerable.Range(0, rows).ToArray();
+            var shape = 0;
+            var factory = new ElementFactory<int>(
+                items,
+                (_, _) => new Microsoft.UI.Reactor.Hosting.XamlHostElement(static () => new TextBlock())
+                {
+                    TypeKey = $"host{shape}",
+                },
+                new Reconciler(),
+                requestRerender: static () => { },
+                pool: null);
+            var ifactory = (IElementFactory)factory;
+
+            var distinct = new HashSet<UIElement>();
+            var live = new UIElement[rows];
+            for (var c = 0; c < cycles; c++)
+            {
+                shape = c % shapes;
+                if (c > 0)
+                    for (var i = 0; i < rows; i++) ifactory.RecycleElement(MakeRecycleArgs(live[i]));
+
+                for (var i = 0; i < rows; i++)
+                {
+                    live[i] = ifactory.GetElement(MakeRowGetArgs(i, $"k{i}"));
+                    distinct.Add(live[i]);
+                }
+            }
+
+            // Guards the premise: one element type, one control type — the only
+            // thing that can tell these nine apart is TypeKey.
+            var nativeTypes = distinct.Select(c => c.GetType()).Distinct().Count();
+            H.Check($"EFR_HostShape_AllRootsSameNativeType_types={nativeTypes}", nativeTypes == 1);
+            H.Check($"EFR_HostShape_ContainersBounded_distinct={distinct.Count}",
+                distinct.Count <= rows * shapes);
+
+            return Task.CompletedTask;
         }
     }
 }
