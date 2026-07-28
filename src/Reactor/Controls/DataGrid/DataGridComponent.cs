@@ -485,6 +485,38 @@ public class DataGridComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMe
 
     // ── Data rows ────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Test seam (issue #919). Builds the virtualized data-row host exactly as
+    /// <see cref="Render"/> does, so the headless regression tests can assert the
+    /// virtualization mode (fixed vs measured row height) the grid asks for.
+    /// </summary>
+    internal static Element BuildDataRowsForTests(
+        DataGridState<T> state,
+        IReadOnlyList<FieldDescriptor> columns,
+        DataGridElement<T> el,
+        TypeRegistry registry)
+        => RenderDataRows(state, columns, el, registry);
+
+    /// <summary>
+    /// Test seam (issue #919). Builds a single data row with the same column layout
+    /// <see cref="RenderDataRows"/> would pass, so the headless regression tests can assert
+    /// that a row's ROOT element type never changes across expand / edit / commit states.
+    /// </summary>
+    internal static Element BuildRowForTests(
+        int index,
+        DataGridState<T> state,
+        IReadOnlyList<FieldDescriptor> columns,
+        DataGridElement<T> el,
+        TypeRegistry registry)
+    {
+        var (colWidths, gridDef) = state.GetColumnLayout(
+            columns,
+            el.RowDetailTemplate is not null,
+            el.SelectionMode != SelectionMode.None,
+            el.Editable && el.EditMode == EditMode.Row);
+        return RenderRow(index, state, columns, el, registry, colWidths, gridDef);
+    }
+
     private static Element RenderDataRows(
         DataGridState<T> state,
         IReadOnlyList<FieldDescriptor> columns,
@@ -505,14 +537,22 @@ public class DataGridComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMe
         var (colWidths, gridDef) = state.GetColumnLayout(
             columns, hasRowDetailTemplate, selectable, hasRowEditActions);
 
+        // Issue #919 — VirtualListComponent's fixed-height fast path stamps `.Height(rowHeight)`
+        // on every row, which clips an expanded row's detail pane. Fall back to measured
+        // (variable-height) virtualization only while a row is actually expanded; a detail-capable
+        // grid with everything collapsed keeps the O(1) offset fast path.
+        var hasExpandedRow = hasRowDetailTemplate && state.ExpandedRows.Count > 0;
+
         return VirtualList(
             itemCount: totalItems,
             renderItem: index =>
             {
                 return RenderRow(index, state, columns, el, registry, colWidths, gridDef);
             },
-            itemHeight: el.RowHeight,
-            estimatedItemHeight: el.EstimatedRowHeight,
+            itemHeight: hasExpandedRow ? null : el.RowHeight,
+            estimatedItemHeight: hasExpandedRow
+                ? (el.RowHeight ?? el.EstimatedRowHeight)
+                : el.EstimatedRowHeight,
             spacing: 0,
             getItemKey: index =>
             {
@@ -733,8 +773,9 @@ public class DataGridComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMe
         // Placeholders (no key) share the stable no-op — the original handler early-returned for them.
         row = row.OnPointerPressed(isPlaceholder ? StableNoopPointer : state.GetRowPointerHandler(rowKey));
 
-        // Per-row validation visualizer — always evaluate (never wraps for placeholders
-        // since isEditingThisRow is false, so the element tree stays flat).
+        // Per-row validation visualizer — always evaluate (never emitted for placeholders
+        // since isEditingThisRow is false).
+        Element? validationSummary = null;
         var isEditingThisRow = !isPlaceholder && state.EditingRowKey?.Equals(rowKey) == true;
         if (isEditingThisRow && state.HasValidationErrors)
         {
@@ -744,10 +785,8 @@ public class DataGridComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMe
                 .Select(m => m.Text);
             var errorSummary = string.Join("; ", errorTexts);
 
-            row = FlexColumn(
-                row,
-                TextBlock(errorSummary).Foreground(SystemCritical).FontSize(11).Padding(horizontal: 8, vertical: 2)
-            );
+            validationSummary = TextBlock(errorSummary)
+                .Foreground(SystemCritical).FontSize(11).Padding(horizontal: 8, vertical: 2);
         }
 
         // Async commit: loading indicator during commit
@@ -757,41 +796,54 @@ public class DataGridComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMe
         }
 
         // Async commit: error display after failed commit
+        Element? commitErrorBar = null;
         var commitError = isPlaceholder ? null : state.GetCommitError(rowKey);
         if (commitError is not null)
         {
             var capturedKey = rowKey;
-            row = FlexColumn(
-                row,
-                FlexRow(
-                    TextBlock(commitError).Foreground(SystemCritical).FontSize(11).Flex(grow: 1),
-                    Button("Dismiss", () =>
+            commitErrorBar = FlexRow(
+                TextBlock(commitError).Foreground(SystemCritical).FontSize(11).Flex(grow: 1),
+                Button("Dismiss", () =>
+                {
+                    Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread()?.TryEnqueue(() =>
                     {
-                        Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread()?.TryEnqueue(() =>
-                        {
-                            state.DismissCommitError(capturedKey);
-                        });
-                    })
-                ).Padding(horizontal: 8, vertical: 2)
-            );
+                        state.DismissCommitError(capturedKey);
+                    });
+                })
+            ).Padding(horizontal: 8, vertical: 2);
         }
 
         // Row detail expansion — expand icon is already in the Grid (column 0).
-        // Only wrap in FlexColumn when the row IS expanded (to show the detail pane).
-        if (el.RowDetailTemplate is not null)
+        Element? detailPane = null;
+        if (el.RowDetailTemplate is not null && !isPlaceholder && state.IsExpanded(rowKey))
         {
-            var isExpanded = !isPlaceholder && state.IsExpanded(rowKey);
-            if (isExpanded)
-            {
-                var detail = el.RowDetailTemplate(item!, rowKey).Padding(horizontal: 16, vertical: 8);
-                row = FlexColumn(
-                    row,
-                    detail.Background(CardBackground)
-                );
-            }
+            detailPane = el.RowDetailTemplate(item!, rowKey)
+                .Padding(horizontal: 16, vertical: 8)
+                .Background(CardBackground);
         }
 
-        return row;
+        // Issue #919 — the row's ROOT element type must never change across renders. Rows are
+        // virtualized through ItemsRepeater, and a realized container CANNOT be swapped from
+        // managed code (ItemsRepeater is a FrameworkElement, not a Panel), so a Grid -> FlexPanel
+        // flip on expand desynced ElementFactory's realized-row bookkeeping and threw
+        // InvalidCastException on the next render pass.
+        //
+        // Grids that can ever grow a row therefore ALWAYS wrap the row Grid in a stable VStack
+        // shell; the extras below are ordinary conditional children, which the child reconciler
+        // adds/removes natively. VStack (StackPanel) is deliberate: it keeps the shell off the
+        // Yoga layout path that the per-row FlexRow wrapper used to cost.
+        //
+        // The decision reads ONLY element-level props — never per-row or placeholder state — so an
+        // async-paging placeholder resolving into a loaded row can't flip the root type either.
+        // Grids without these features keep the bare Grid root and pay nothing.
+        var needsRowShell = el.RowDetailTemplate is not null
+            || el.Editable
+            || el.OnRowChanged is not null;
+
+        if (!needsRowShell)
+            return row;
+
+        return VStack(spacing: 0, row, validationSummary, commitErrorBar, detailPane);
     }
 
     // ── Cell rendering ──────────────────────────────────────────────

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -59,7 +60,25 @@ internal sealed class V1HandlerAdapter<TElement, TControl> : IV1HandlerEntry
     {
         var typedOld = (TElement)oldEl;
         var typedNew = (TElement)newEl;
-        var typedControl = (TControl)control;
+
+        // Issue #919 — defense in depth. The engine only routes here when
+        // Reconciler.CanUpdate matched the element types, which normally implies the realized
+        // control is a TControl. A bookkeeping desync (historically: a virtualized row whose
+        // realized container could not be swapped) could pair a TElement with a foreign control,
+        // and the previous hard `(TControl)control` cast turned that into an app-crashing
+        // InvalidCastException mid-render. Remount instead: returning a control that differs from
+        // `control` is already part of the update contract — Reconciler.ReconcileImperative
+        // unmounts the stale control and the caller installs the replacement in the parent slot.
+        if (control is not TControl typedControl)
+        {
+            reconciler._logger?.LogWarning(
+                "Reconciler: {Element} was paired with a {Actual}, expected {Expected} — remounting the subtree.",
+                typeof(TElement).Name, control.GetType().Name, typeof(TControl).Name);
+            // Mount only returns null for empty elements, which CanUpdate never routes here;
+            // keep the stale control in the slot rather than breaking the non-null contract.
+            return reconciler.Mount(typedNew, requestRerender) ?? control;
+        }
+
         var ctx = new UpdateContext(reconciler, requestRerender);
         _handler.Update(ctx, typedOld, typedNew, typedControl);
 

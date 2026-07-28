@@ -728,6 +728,9 @@ internal static class SelfTestFixtureRegistry
         "DataGrid_CellTypeFlipPreservesTrailingCells",
         "DataGrid_RowEditTemplatesAndEmptyState",
         "DataGrid_KeyboardAndPrivateRenderPaths",
+        // DataGrid row-detail expansion (issue #919)
+        "DataGrid_ExpandRowKeepsRealizedRow",
+        "DataGrid_LazyStackRootTypeFlip",
         // DataGrid incremental paging
         "DataGrid_IncrementalLoadVerification",
         "DataGrid_SmallDatasetFullyLoaded",
@@ -2237,6 +2240,9 @@ internal static class SelfTestFixtureRegistry
         "DataGrid_CellTypeFlipPreservesTrailingCells" => new DataGridEditFixtures.CellTypeFlipPreservesTrailingCells(harness),
         "DataGrid_RowEditTemplatesAndEmptyState" => new DataGridEditFixtures.RowEditTemplatesAndEmptyState(harness),
         "DataGrid_KeyboardAndPrivateRenderPaths" => new DataGridEditFixtures.KeyboardAndPrivateRenderPaths(harness),
+        // DataGrid row-detail expansion (issue #919)
+        "DataGrid_ExpandRowKeepsRealizedRow" => new DataGridExpandFixtures.ExpandRowKeepsRealizedRow(harness),
+        "DataGrid_LazyStackRootTypeFlip" => new DataGridExpandFixtures.LazyStackRootTypeFlip(harness),
         // DataGrid incremental paging
         "DataGrid_IncrementalLoadVerification" => new DataGridPagingFixtures.IncrementalLoadVerification(harness),
         "DataGrid_SmallDatasetFullyLoaded" => new DataGridPagingFixtures.SmallDatasetFullyLoaded(harness),

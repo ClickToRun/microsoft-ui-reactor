@@ -308,6 +308,29 @@ public sealed partial class ElementFactory<T> : IElementFactory
             if (currentIndex < 0 || currentIndex >= _items.Count) continue;
 
             var newElement = BuildOrCache(key, _items[currentIndex], currentIndex, keyed: _listState is not null);
+
+            // Issue #919 — when CanUpdate is false, Reconcile unmounts `child` and mints a
+            // REPLACEMENT control, but a realized ItemsRepeater child cannot be swapped from
+            // managed code: ItemsRepeater is a FrameworkElement, not a Panel, so there is no
+            // Children collection to assign into. The only in-place rescue is
+            // TryAdoptRealizedReplacement, which requires the realized control to be a
+            // component-wrapper Border. For every other shape (e.g. a DataGrid row flipping from
+            // a Grid root to a FlexPanel root on expand) the replacement had nowhere to go: the
+            // old control was detached, the replacement was never parented, and — because
+            // _mountedElements[key] had already been advanced to `newElement` — the NEXT refresh
+            // paired the new element with the still-realized old control, so CanUpdate returned
+            // true and the handler dispatch hard-cast a Grid to a FlexPanel (InvalidCastException).
+            //
+            // Detect that case before mounting a doomed replacement: leave `child` and all of its
+            // tracking untouched (the control still faithfully hosts `oldElement`) and ask the
+            // framework to recycle + re-realize the row, where GetElement's return channel CAN
+            // install a different control type.
+            if (child is not Border && !_reconciler.CanUpdate(oldElement, newElement))
+            {
+                ScheduleReRealize(key);
+                continue;
+            }
+
             _mountedElements[key] = newElement;
 
             var replacement = _reconciler.Reconcile(oldElement, newElement, child, _requestRerender);
@@ -333,11 +356,17 @@ public sealed partial class ElementFactory<T> : IElementFactory
                 }
                 else
                 {
+                    // Adoption failed, so `replacement` can never be installed. `child` was
+                    // already unmounted inside Reconcile, so drop every tracking entry that
+                    // points at it, tear the orphaned replacement down (otherwise its component
+                    // effect cleanups leak — it is mounted but unreachable), and route the row
+                    // back through the framework's realize channel. (Issue #919)
                     DetachFromParent(child);
                     _keyByControl.Remove(child);
                     _lastElementByControl.Remove(child);
-                    _keyByControl[replacement] = key;
-                    _lastElementByControl[replacement] = newElement;
+                    _mountedElements.Remove(key);
+                    _reconciler.UnmountChild(replacement);
+                    ScheduleReRealize(key);
                 }
             }
             else
@@ -350,6 +379,80 @@ public sealed partial class ElementFactory<T> : IElementFactory
                 // (PR #324 review)
                 _lastElementByControl[child] = newElement;
             }
+        }
+    }
+
+    // ── Deferred row re-realization (issue #919) ─────────────────────
+    //
+    // A realized ItemsRepeater container can only be *replaced* by the framework's own
+    // realize channel (IElementFactory.GetElement), so when a row's root element type or key
+    // changes in a way that cannot be diffed in place, we ask WinUI to recycle and re-realize
+    // that row: swap the row's ReactorRow instance inside the internally-owned
+    // ObservableCollection<ReactorRow>, which raises a Replace collection change.
+    //
+    // The swap is deferred onto the dispatcher because RefreshRealizedItems runs inside a
+    // reconcile pass (often mid-layout), and mutating the items source there throws
+    // "Cannot run layout in the middle of a collection change".
+    private HashSet<string>? _pendingReRealize;
+    private bool _reRealizeQueued;
+
+    private void ScheduleReRealize(string key)
+    {
+        // Nothing to drive the swap through on the legacy (unkeyed) path — the row simply
+        // keeps its current content until the framework recycles the container on scroll.
+        if (_listState is null) return;
+
+        (_pendingReRealize ??= new(global::System.StringComparer.Ordinal)).Add(key);
+        if (_reRealizeQueued) return;
+
+        var queue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        if (queue is null)
+        {
+            // No dispatcher (headless harnesses): apply immediately. There is no layout pass
+            // in flight in that configuration, so the collection change is safe.
+            FlushReRealize();
+            return;
+        }
+
+        _reRealizeQueued = true;
+        if (!queue.TryEnqueue(() =>
+        {
+            _reRealizeQueued = false;
+            FlushReRealize();
+        }))
+        {
+            _reRealizeQueued = false;
+            FlushReRealize();
+        }
+    }
+
+    private void FlushReRealize()
+    {
+        var pending = _pendingReRealize;
+        _pendingReRealize = null;
+        if (pending is null || pending.Count == 0) return;
+
+        var listState = _listState;
+        if (listState is null) return;
+
+        foreach (var key in pending)
+        {
+            if (!listState.ByKey.TryGetValue(key, out var row)) continue;
+            var index = row.Index;
+            if (index < 0 || index >= listState.Source.Count) continue;
+            // The row may have moved (or been rebuilt) between scheduling and flushing.
+            if (!ReferenceEquals(listState.Source[index], row)) continue;
+
+            // A fresh instance is required: INotifyCollectionChanged consumers track items by
+            // object identity, so replacing a row with itself is a no-op for the repeater.
+            var fresh = new ReactorRow
+            {
+                Index = row.Index,
+                Key = row.Key,
+                PendingEnterAnimation = row.PendingEnterAnimation,
+            };
+            listState.ByKey[key] = fresh;
+            listState.Source[index] = fresh;
         }
     }
 
