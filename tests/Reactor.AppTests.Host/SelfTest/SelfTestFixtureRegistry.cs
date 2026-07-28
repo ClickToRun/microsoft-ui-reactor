@@ -966,6 +966,12 @@ internal static class SelfTestFixtureRegistry
         "SelectionEvt_Pivot",
         "SelectionEvt_NavigationView",
 
+        // NavigationView pane-state round-trip (issue #916)
+        "NavPane_OpenChangedFires",
+        "NavPane_ControlledResync",
+        "NavPane_CancelledClose",
+        "NavPane_HandlerTransitions",
+
         // Value-change / toggle event wiring (Tier 2 gap closure)
         "ValueEvt_CheckBox",
         "ValueEvt_RadioButton",
@@ -2490,6 +2496,12 @@ internal static class SelfTestFixtureRegistry
         "SelectionEvt_TabView" => new SelectionEventFixtures.TabViewSelectionFires(harness),
         "SelectionEvt_Pivot" => new SelectionEventFixtures.PivotSelectionFires(harness),
         "SelectionEvt_NavigationView" => new SelectionEventFixtures.NavigationViewSelectionFires(harness),
+
+        // NavigationView pane-state round-trip (issue #916)
+        "NavPane_OpenChangedFires" => new NavigationViewPaneFixtures.PaneOpenChangedFires(harness),
+        "NavPane_ControlledResync" => new NavigationViewPaneFixtures.ControlledPaneResyncsAfterControlDrivenClose(harness),
+        "NavPane_CancelledClose" => new NavigationViewPaneFixtures.CancelledCloseKeepsCallbackInSyncWithControl(harness),
+        "NavPane_HandlerTransitions" => new NavigationViewPaneFixtures.HandlerTransitionsAcrossRenders(harness),
 
         // Value-change / toggle event wiring
         "ValueEvt_CheckBox" => new ValueChangeEventFixtures.CheckBoxToggleFires(harness),
