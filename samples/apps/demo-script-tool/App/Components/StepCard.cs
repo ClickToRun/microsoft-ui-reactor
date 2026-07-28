@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using DemoScriptTool.App.Models;
 using Microsoft.UI.Reactor.Animation;
 using static Microsoft.UI.Reactor.Factories;
+using static Microsoft.UI.Reactor.Advanced.Factories;
 
 namespace DemoScriptTool.App.Components;
 

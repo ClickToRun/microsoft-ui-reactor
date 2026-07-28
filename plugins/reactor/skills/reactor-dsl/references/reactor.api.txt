@@ -116,8 +116,6 @@ ListView<T>(IReadOnlyList<T> items, Func<T, int, Element> viewBuilder) → Templ
 ListView<T>(IReadOnlyList<T> items, Func<T, string> keySelector, Func<T, int, Element> viewBuilder) → TemplatedListViewElement<T>
 LocaleProvider(string locale, Element child, IStringResourceProvider resourceProvider = null, string defaultLocale = "en-US", bool pseudoLocalize = false) → ComponentElement<LocaleProviderElement>
 MapControl(string mapServiceToken = null, double zoomLevel = 1) → MapControlElement
-Markdown(string markdown) → Element
-Markdown(string markdown, MarkdownOptions options) → Element
 MediaPlayerElement(string source = null) → MediaPlayerElementElement
 Memo(Func<RenderContext, Element> render, object[] dependencies) → MemoElement
 Memo<TKey>(TKey key, Func<Element> factory) → KeyedMemoElement
@@ -1004,11 +1002,6 @@ FlexWrap { NoWrap, Wrap, WrapReverse }
 DateStyle { Default, Short, Long, Full }
 ListFormatType { Conjunction, Disjunction }
 NumberStyle { Default, Currency, Percent }
-MarkdownAlign { Default, Left, Center, Right }
-MarkdownBlockType { Doc, Quote, Ul, Ol, Li, Hr, H, Code, Html, P, Table, Thead, Tbody, Tr, Th, Td }
-MarkdownParserFlags { None, DialectCommonMark, CollapseWhitespace, PermissiveAtxHeaders, PermissiveUrlAutolinks, PermissiveEmailAutolinks, NoIndentedCodeBlocks, NoHtmlBlocks, NoHtmlSpans, NoHtml, Tables, Strikethrough, PermissiveWwwAutolinks, PermissiveAutolinks, TaskLists, DialectGitHub, LatexMathSpans, WikiLinks, Underline, HardSoftBreaks }
-MarkdownSpanType { Em, Strong, A, Img, Code, Del, LatexMath, LatexMathDisplay, WikiLink, U }
-MarkdownTextType { Normal, NullChar, Br, SoftBr, Entity, Code, Html, LatexMath }
 NavigationCacheMode { Disabled, Enabled, Required }
 NavigationMode { Push, Pop, Replace, Reset, Forward }
 SlideDirection { FromRight, FromLeft, FromBottom, FromTop }
@@ -3519,35 +3512,6 @@ double ZoomLevel { get; init; }
 string MapServiceToken { get; init; }
 Equals(Element other) → bool
 Equals(MapControlElement other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### struct MarkdownAttribute
-new(string text, MarkdownTextType[] substrTypes, int[] substrOffsets)
-Simple(string text) → MarkdownAttribute
-
-### record MarkdownOptions
-new()
-Func<Element, Element> BlockQuote { get; init; }
-Func<Element, Element> ListItem { get; init; }
-Func<Element, Element> Paragraph { get; init; }
-Func<Element> ThematicBreak { get; init; }
-Func<Element[], Element> UnorderedList { get; init; }
-Func<Element[], MarkdownAlign[], Element> Table { get; init; }
-Func<Element[], Uri, Element> LinkBuilder { get; init; }
-Func<int, Element, Element> Heading { get; init; }
-Func<int, Element[], Element> OrderedList { get; init; }
-Func<string, Element> HtmlBlock { get; init; }
-Func<string, Uri, Element> Image { get; init; }
-Func<string, string, Element> CodeBlock { get; init; }
-MarkdownParserFlags ParserFlags { get; init; }
-ThemeRef? TableHeaderBackground { get; init; }
-Thickness TableCellPadding { get; init; }
-bool UnifiedRichText { get; init; }
-int MaxInputBytes { get; init; }
-string CodeFontFamily { get; init; }
-Equals(MarkdownOptions other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string

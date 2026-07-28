@@ -1,12 +1,12 @@
 # Microsoft.UI.Reactor.Advanced
 
-**Optional Reactor components with heavier native and graphics dependencies — a Win2D canvas family for immediate-mode drawing, the D3-derived charting subsystem, and the docking / dock-layout subsystem, all inside a Reactor element tree.**
+**Optional Reactor components with heavier native and graphics dependencies — a Win2D canvas family for immediate-mode drawing, the D3-derived charting subsystem, the docking / dock-layout subsystem, and a CommonMark markdown renderer, all inside a Reactor element tree.**
 
 ## About
 
-`Microsoft.UI.Reactor.Advanced` extends [`Microsoft.UI.Reactor`](https://www.nuget.org/packages/Microsoft.UI.Reactor) with components that pull in larger native or graphics stacks: a Win2D canvas family (manual, animated, and virtual) that lets you draw with `CanvasDrawingSession` directly from a declarative Reactor component; the `Microsoft.UI.Reactor.Charting` subsystem — a C# port of the D3 primitives plus ready-made chart components and chart accessibility; and the `Microsoft.UI.Reactor.Docking` subsystem — a Visual-Studio-style docking host with floating windows, tear-off tabs, splitters, and layout persistence.
+`Microsoft.UI.Reactor.Advanced` extends [`Microsoft.UI.Reactor`](https://www.nuget.org/packages/Microsoft.UI.Reactor) with components that pull in larger native or graphics stacks: a Win2D canvas family (manual, animated, and virtual) that lets you draw with `CanvasDrawingSession` directly from a declarative Reactor component; the `Microsoft.UI.Reactor.Charting` subsystem — a C# port of the D3 primitives plus ready-made chart components and chart accessibility; the `Microsoft.UI.Reactor.Docking` subsystem — a Visual-Studio-style docking host with floating windows, tear-off tabs, splitters, and layout persistence; and the `Microsoft.UI.Reactor.Markdown` subsystem — a CommonMark renderer (C# md4c port) that turns markdown into a Reactor element tree.
 
-This package is intentionally separate from the core framework so that apps which don't need Win2D, charting, or docking keep their trim/AOT closure and native payload isolated. The relocated charting and docking types keep their existing `Microsoft.UI.Reactor.Charting` / `Microsoft.UI.Reactor.Docking` namespaces, so moving to this package is a package reference with no source change.
+This package is intentionally separate from the core framework so that apps which don't need Win2D, charting, docking, or markdown keep their trim/AOT closure and native payload isolated. The relocated charting, docking, and markdown types keep their existing `Microsoft.UI.Reactor.Charting` / `Microsoft.UI.Reactor.Docking` / `Microsoft.UI.Reactor.Markdown` namespaces, so moving to this package is a package reference with no source change — except the `Markdown(...)` factory, whose DSL entry point moves into `Microsoft.UI.Reactor.Advanced.Factories` (add `using static Microsoft.UI.Reactor.Advanced.Factories;`).
 
 ## How to Use
 
@@ -56,6 +56,7 @@ When `radius` changes, the new `redrawKey` tells Reactor to invalidate the canva
 - **Isolated native payload** — keeps Win2D out of the core framework's trim/AOT closure.
 - **Charting (`Microsoft.UI.Reactor.Charting`)** — a C# port of the D3 primitives (scales, shapes, layouts, color/format/interpolate) plus high-level `Charts` components and chart accessibility. Import with `using static Microsoft.UI.Reactor.Charting.Charts;`.
 - **Docking (`Microsoft.UI.Reactor.Docking`)** — a Visual-Studio-style docking host: dockable tool windows and documents, floating windows, tear-off tabs, splitters, keyboard navigation, and JSON layout persistence. Register the native renderer with `DockingNativeInterop.Register(reconciler)`.
+- **Markdown (`Microsoft.UI.Reactor.Markdown`)** — a CommonMark renderer (C# port of the md4c parser) that turns a markdown string into a Reactor element tree. The `Markdown(...)` factory ships in `Microsoft.UI.Reactor.Advanced.Factories`, so add `using static Microsoft.UI.Reactor.Advanced.Factories;`.
 
 ## Main Types
 

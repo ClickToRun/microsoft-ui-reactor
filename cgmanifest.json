@@ -21,7 +21,7 @@
           "CommitHash": "0000000000000000000000000000000000000000"
         }
       },
-      "Path": "src/Reactor/Markdown/",
+      "Path": "src/Reactor.Advanced/Markdown/",
       "DevelopmentDependency": false
     },
     {

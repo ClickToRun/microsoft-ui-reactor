@@ -10,7 +10,7 @@ namespace Microsoft.UI.Reactor.Tests;
 /// <summary>
 /// Unit tests for MarkdownBuilder.Build() — verifying that markdown strings
 /// are converted to the correct Reactor Element tree structure.
-/// Tests the public API via Factories.Markdown(...) which delegates to MarkdownBuilder.Build().
+/// Tests the public API via Microsoft.UI.Reactor.Advanced.Factories.Markdown(...) which delegates to MarkdownBuilder.Build().
 ///
 /// Note on WinUI dependencies:
 /// The MarkdownBuilder's default rendering for certain block types (blockquote, code block,
@@ -36,10 +36,10 @@ public class MarkdownBuilderTests
     // ════════════════════════════════════════════════════════════════════
 
     /// <summary>Build markdown to Element tree (avoids namespace/method name clash with Microsoft.UI.Reactor.Markdown).</summary>
-    private static Element Md(string markdown) => Factories.Markdown(markdown);
+    private static Element Md(string markdown) => Microsoft.UI.Reactor.Advanced.Factories.Markdown(markdown);
 
     /// <summary>Build markdown to Element tree with custom options.</summary>
-    private static Element Md(string markdown, MarkdownOptions options) => Factories.Markdown(markdown, options);
+    private static Element Md(string markdown, MarkdownOptions options) => Microsoft.UI.Reactor.Advanced.Factories.Markdown(markdown, options);
 
     /// <summary>Cast the top-level result to a VStack (StackElement with Vertical orientation).</summary>
     private static StackElement AsVStack(Element el)
