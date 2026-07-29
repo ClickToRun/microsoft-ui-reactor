@@ -463,6 +463,45 @@ namespace Shadowed
     }
 
     [Fact]
+    public Task Fix_Fully_Qualifies_ItemContainer_When_The_Reactor_Namespace_Is_Not_Imported()
+    {
+        // Neither `using Microsoft.UI.Reactor;` nor the static import is present, so
+        // ToMinimalDisplayString has to render the containing type as a dotted, namespace-qualified
+        // name. Exercises the multi-segment path through BuildFactoryReference; the harness compiles
+        // FixedCode, so this fails if the emitted syntax is not a valid expression.
+        const string Before = @"
+namespace FullyQualified
+{
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+
+    public static class D
+    {
+        public static Element Build(IReadOnlyList<string> products) =>
+            Microsoft.UI.Reactor.Factories.ItemsView(products, p => p, (p, i) => {|REACTOR_ITEMS_002:Microsoft.UI.Reactor.Factories.Border(Microsoft.UI.Reactor.Factories.TextBlock(p))|});
+    }
+}";
+        const string After = @"
+namespace FullyQualified
+{
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+
+    public static class D
+    {
+        public static Element Build(IReadOnlyList<string> products) =>
+            Microsoft.UI.Reactor.Factories.ItemsView(products, p => p, (p, i) => Microsoft.UI.Reactor.Factories.ItemContainer(Microsoft.UI.Reactor.Factories.Border(Microsoft.UI.Reactor.Factories.TextBlock(p))));
+    }
+}";
+
+        return new CSharpCodeFixTest<ItemsViewContainerRootAnalyzer, ItemsViewContainerRootCodeFix, DefaultVerifier>
+        {
+            TestCode = Stubs + Before,
+            FixedCode = Stubs + After,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public Task Fix_Is_Not_Offered_For_A_Method_Group()
     {
         // There is no returned expression at the call site, so wrapping would produce

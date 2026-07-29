@@ -114,8 +114,18 @@ public sealed class ItemsViewContainerRootCodeFix : CodeFixProvider
     /// Builds the callee expression for the emitted wrap: the bare name when every
     /// <c>ItemContainer</c> visible at this position is the Reactor factory, otherwise the factory
     /// qualified by its containing type (rendered minimally for the call site, so it reads
-    /// <c>Factories.ItemContainer</c> where <c>Microsoft.UI.Reactor</c> is imported).
+    /// <c>Factories.ItemContainer</c> where <c>Microsoft.UI.Reactor</c> is imported and
+    /// <c>Microsoft.UI.Reactor.Factories.ItemContainer</c> where it is not).
     /// </summary>
+    /// <remarks>
+    /// The qualified form is built with <see cref="SyntaxFactory.ParseExpression"/> over the whole
+    /// dotted string rather than <c>MemberAccessExpression(ParseTypeName(type), name)</c>. When the
+    /// minimal name needs namespace qualification, <c>ParseTypeName</c> yields a
+    /// <c>QualifiedNameSyntax</c>; wrapping that in a member access emits the right <em>text</em> but
+    /// a tree shape the parser never produces for it (C# models <c>A.B.C.M</c> in expression position
+    /// as nested <c>MemberAccessExpressionSyntax</c>), so the fixed document fails to round-trip.
+    /// Parsing as an expression yields the correct chain. Mirrors <see cref="UseThemeRefCodeFix"/>.
+    /// </remarks>
     private static ExpressionSyntax BuildFactoryReference(
         IMethodSymbol factory, SemanticModel semanticModel, ExpressionSyntax position)
     {
@@ -126,12 +136,7 @@ public sealed class ItemsViewContainerRootCodeFix : CodeFixProvider
             return SyntaxFactory.IdentifierName(ItemContainerFactoryName);
         }
 
-        var containingType = SyntaxFactory.ParseTypeName(
-            factory.ContainingType.ToMinimalDisplayString(semanticModel, position.SpanStart));
-
-        return SyntaxFactory.MemberAccessExpression(
-            SyntaxKind.SimpleMemberAccessExpression,
-            containingType,
-            SyntaxFactory.IdentifierName(ItemContainerFactoryName));
+        var containingType = factory.ContainingType.ToMinimalDisplayString(semanticModel, position.SpanStart);
+        return SyntaxFactory.ParseExpression($"{containingType}.{ItemContainerFactoryName}");
     }
 }
