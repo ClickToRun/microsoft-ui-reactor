@@ -49,3 +49,4 @@ dotnet_diagnostic.REACTOR_HOOKS_013.severity = suggestion
 dotnet_diagnostic.REACTOR_DSL_001.severity = suggestion
 dotnet_diagnostic.REACTOR_GRID_001.severity = suggestion
 dotnet_diagnostic.REACTOR_NAV_001.severity = suggestion
+
