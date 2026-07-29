@@ -44,7 +44,7 @@ class SpacingPage : Component
                 TextBlock("WinUI's spacing scale is built on a 4px base unit. Consistent use of these values creates a clear visual hierarchy.")
                     .Foreground(Theme.SecondaryText)
                     .FontSize(13)
-                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                    .TextWrapping(TextWrapping.Wrap)
                     .Margin(0, 0, 0, 4),
 
                 VStack(4, steps.Select(s =>
@@ -78,7 +78,7 @@ class SpacingPage : Component
                 TextBlock("Margin adds space outside an element; Padding adds space inside. In Reactor, .Padding() only works on Border and Control elements (Button, TextBox, etc.). Layout panels like VStack and HStack only support .Margin() — wrap content in a Border if you need inner padding on a stack.")
                     .Foreground(Theme.SecondaryText)
                     .FontSize(13)
-                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                    .TextWrapping(TextWrapping.Wrap)
                     .Margin(0, 0, 0, 4),
 
                 Grid(
@@ -166,7 +166,7 @@ Border(
         Grid(
             columns: [GridSize.Px(120), GridSize.Px(80), GridSize.Px(80)], rows: [GridSize.Auto],
             TextBlock(element).FontSize(13).Foreground(Theme.PrimaryText)
-                .Set(tb => tb.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code, Consolas, monospace"))
+                .FontFamily("Cascadia Code, Consolas, monospace")
                 .VAlign(VerticalAlignment.Center)
                 .Grid(column: 0),
             TextBlock(margin ? "✓ Margin" : "✗")
@@ -189,7 +189,7 @@ Border(
                 TextBlock("Margin pushes an element away from its neighbors. It works on every Reactor element.")
                     .Foreground(Theme.SecondaryText)
                     .FontSize(13)
-                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                    .TextWrapping(TextWrapping.Wrap)
                     .Margin(0, 0, 0, 4),
 
                 MarginDemo("Uniform (16)", 16, 16, 16, 16),
@@ -237,7 +237,7 @@ element.Margin(4, 8, 16, 24)");
                 TextBlock("Padding adds inner space between a container's edge and its content. In Reactor it applies to Border and Control-based elements only.")
                     .Foreground(Theme.SecondaryText)
                     .FontSize(13)
-                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                    .TextWrapping(TextWrapping.Wrap)
                     .Margin(0, 0, 0, 4),
 
                 PaddingDemo("Uniform (16)", 16, 16, 16, 16),
@@ -279,7 +279,7 @@ Border(child).Padding(4, 8, 16, 24)");
                 TextBlock("VStack and HStack accept a spacing parameter that inserts uniform gaps between children. This is the recommended way to space siblings — use it instead of adding margins to individual items.")
                     .Foreground(Theme.SecondaryText)
                     .FontSize(13)
-                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                    .TextWrapping(TextWrapping.Wrap)
                     .Margin(0, 0, 0, 4),
 
                 TextBlock("VStack spacing").SemiBold().FontSize(13).Foreground(Theme.PrimaryText),
@@ -346,7 +346,7 @@ HStack(12,
                 TextBlock("A typical page combines all spacing techniques: page-level margins, section spacing in stacks, card padding via Border, and control gaps. Here is a common pattern:")
                     .Foreground(Theme.SecondaryText)
                     .FontSize(13)
-                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                    .TextWrapping(TextWrapping.Wrap)
                     .Margin(0, 0, 0, 4),
 
                 // Mock page layout
@@ -365,7 +365,7 @@ HStack(12,
                                 TextBlock("Section Card").SemiBold().Foreground(Theme.PrimaryText),
                                 TextBlock("Content inside a card uses 16px padding via the Border wrapper.")
                                     .FontSize(13).Foreground(Theme.SecondaryText)
-                                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap),
+                                    .TextWrapping(TextWrapping.Wrap),
                                 HStack(8,
                                     Button("Primary", () => { }).Background(Theme.Accent),
                                     Button("Secondary", () => { })

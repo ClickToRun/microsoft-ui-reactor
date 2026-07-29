@@ -38,21 +38,17 @@ public class StatusBar : Component<StatusBarProps>
                 ComboBox(permOptions, permIndex, idx =>
                 {
                     Props.OnPermissionsChanged(idx == 0);
-                }).Set(cb =>
-                {
-                    cb.MinWidth = 120;
-                    cb.CornerRadius = new CornerRadius(4);
-                }).VAlign(VerticalAlignment.Center),
+                }).MinWidth(120)
+                .CornerRadius(4)
+                .VAlign(VerticalAlignment.Center),
                 models.Length > 0
                     ? ComboBox(models, Math.Max(modelIndex, 0), idx =>
                     {
                         if (idx >= 0 && idx < models.Length)
                             Props.OnModelChanged(models[idx]);
-                    }).Set(cb =>
-                    {
-                        cb.MinWidth = 140;
-                        cb.CornerRadius = new CornerRadius(4);
-                    }).VAlign(VerticalAlignment.Center)
+                    }).MinWidth(140)
+                    .CornerRadius(4)
+                    .VAlign(VerticalAlignment.Center)
                     : Caption(currentModel).Foreground(TertiaryText).VAlign(VerticalAlignment.Center)
             ) with { ColumnGap = 12 })
         ).Padding(12, 8, 12, 8);

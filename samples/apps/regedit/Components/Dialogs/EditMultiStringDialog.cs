@@ -30,11 +30,8 @@ internal sealed class EditMultiStringDialog : Component<EditMultiStringDialogPro
                 VStack(4,
                     TextBlock(Strings.ValueData),
                     TextBox(Props.ValueData, Props.OnValueDataChanged)
-                        .Set(tb =>
-                        {
-                            tb.AcceptsReturn = true;
-                            tb.TextWrapping = TextWrapping.Wrap;
-                        })
+                        .AcceptsReturn()
+                        .TextWrapping(TextWrapping.Wrap)
                         .Height(200)
                 )
             ).Width(400),

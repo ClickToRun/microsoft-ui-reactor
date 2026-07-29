@@ -126,10 +126,10 @@ class FlyoutDemo : Component
                                         };
                                         ((Microsoft.UI.Xaml.Controls.Border)b.Content).Background =
                                             BrushHelper.Parse(hex);
-                                        b.Padding = new Microsoft.UI.Xaml.Thickness(0);
-                                        b.MinWidth = 0;
-                                        b.MinHeight = 0;
-                                    });
+                                    })
+                                    .Padding(0)
+                                    .MinWidth(0)
+                                    .MinHeight(0);
                             }).ToArray()
                         )
                     ),

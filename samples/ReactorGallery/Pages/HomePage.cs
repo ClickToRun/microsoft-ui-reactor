@@ -35,7 +35,7 @@ class HomePage : Component<Action<string>>
                             .Bold(),
                         TextBlock("A showcase of WinUI controls built entirely with Reactor — a declarative,\ncomponent-based UI framework for WinUI 3.")
                             .Foreground(Theme.SecondaryText)
-                            .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                            .TextWrapping(TextWrapping.Wrap)
                             .MaxWidth(600)
                     )
                     .Margin(0, 0, 0, 36)

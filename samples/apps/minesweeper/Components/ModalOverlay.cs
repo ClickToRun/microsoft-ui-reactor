@@ -30,8 +30,11 @@ public static class ModalOverlay
         var buttonRow = HStack(8,
             buttons.Select(b =>
                 b.IsPrimary
-                    ? Button(b.Label, b.OnClick).MinWidth(96)
-                        .Set(btn => btn.Style = Microsoft.UI.Xaml.Application.Current.Resources["AccentButtonStyle"] as Microsoft.UI.Xaml.Style)
+                    // NOTE: .AccentButton() (like .ApplyStyle) applies at mount only,
+                    // so a button whose IsPrimary flips on an in-place update keeps its
+                    // original style. Safe here because IsPrimary is fixed per call site
+                    // and the overlay remounts its subtree when isOpen flips.
+                    ? Button(b.Label, b.OnClick).MinWidth(96).AccentButton()
                     : Button(b.Label, b.OnClick).MinWidth(96)
             ).Cast<Element>().ToArray()
         ).HAlign(HorizontalAlignment.Right);

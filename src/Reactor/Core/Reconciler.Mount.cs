@@ -509,7 +509,7 @@ public sealed partial class Reconciler
             MinHeight = 0,
             Content = new WinUI.FontIcon
             {
-                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
+                FontFamily = WinRTCache.GetFontFamily(IconResolver.SymbolFontFallback),
                 Glyph = tabItem.IsPinned ? "" : "",
                 FontSize = 12,
             },

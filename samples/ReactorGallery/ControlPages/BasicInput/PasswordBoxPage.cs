@@ -27,10 +27,10 @@ PasswordBox(password, p => setPassword(p), ""Enter password"")
 
             SampleCard("PasswordBox with Reveal Button",
                 PasswordBox(revealPwd, p => setRevealPwd(p), "Password")
-                    .Set(pb => pb.PasswordRevealMode = PasswordRevealMode.Peek),
+                    .PasswordRevealMode(PasswordRevealMode.Peek),
                 sourceCode: @"
 PasswordBox(revealPwd, p => setRevealPwd(p), ""Password"")
-    .Set(pb => pb.PasswordRevealMode = PasswordRevealMode.Peek)
+    .PasswordRevealMode(PasswordRevealMode.Peek)
 ")
         ).Margin(36, 24, 36, 36));
     }

@@ -125,13 +125,10 @@ class GalleryApp : Component
             .Resources(r => r
                 .Set("ButtonBackground", Theme.Ref("SubtleFillColorTransparentBrush"))
                 .Set("ButtonBorderBrush", Theme.Ref("SubtleFillColorTransparentBrush")))
-            .Set(b =>
-            {
-                b.FontFamily = new FontFamily("Segoe MDL2 Assets");
-                b.Padding = new Thickness(0);
-                b.MinWidth = 0;
-                b.MinHeight = 0;
-            });
+            .FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets")
+            .Padding(0)
+            .MinWidth(0)
+            .MinHeight(0);
 }
 
 // ─── Landing page — category grid of samples ─────────────────────────
@@ -213,7 +210,7 @@ class SampleDetailPage : Component<GallerySample>
                 Heading(sample.Title).Foreground(Theme.PrimaryText),
                 TextBlock(sample.Description)
                     .Foreground(Theme.SecondaryText)
-                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap),
+                    .TextWrapping(TextWrapping.Wrap),
 
                 // Chart card. The sample's rendered Element is centered horizontally
                 // so charts with explicit Width sit in the middle of the card rather
@@ -234,11 +231,8 @@ class SampleDetailPage : Component<GallerySample>
                             IsTextSelectionEnabled = true,
                             TextWrapping = TextWrapping.NoWrap,
                         })
-                        .Set(tb =>
-                        {
-                            tb.FontFamily = new FontFamily("Cascadia Code, Consolas, monospace");
-                            tb.FontSize = 12;
-                        })
+                        .FontFamily("Cascadia Code, Consolas, monospace")
+                        .FontSize(12)
                         .Foreground(Theme.PrimaryText)
                     )
                     .HorizontalScrollMode(ScrollMode.Auto)

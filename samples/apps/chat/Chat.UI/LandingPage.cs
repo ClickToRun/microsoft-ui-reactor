@@ -46,20 +46,18 @@ public class LandingPage : Component<LandingPageProps>
             return (Element)Button(
                 VStack(2,
                     TextBlock(s.DisplayTitle).SemiBold()
-                        .Set(t => { t.TextTrimming = TextTrimming.CharacterEllipsis; t.MaxLines = 1; }),
+                        .TextTrimming(TextTrimming.CharacterEllipsis).MaxLines(1),
                     Caption($"{timeStr} · {wsStr}")
                         .Foreground(TertiaryText)
-                        .Set(t => { t.TextTrimming = TextTrimming.CharacterEllipsis; t.MaxLines = 1; })
+                        .TextTrimming(TextTrimming.CharacterEllipsis).MaxLines(1)
                 ),
                 () => Props.OnSelectSession(sid)
-            ).Set(b =>
-            {
-                b.HorizontalAlignment = HorizontalAlignment.Stretch;
-                b.HorizontalContentAlignment = HorizontalAlignment.Left;
-                b.Padding = new Thickness(16, 12, 16, 12);
-                b.CornerRadius = new CornerRadius(8);
-                b.MinWidth = 160;
-            }).Resources(r => r
+            ).HAlign(HorizontalAlignment.Stretch)
+            .HorizontalContentAlignment(HorizontalAlignment.Left)
+            .Padding(16, 12, 16, 12)
+            .CornerRadius(8)
+            .MinWidth(160)
+            .Resources(r => r
                 .Set("ButtonBackground", SubtleFill)
                 .Set("ButtonBackgroundPointerOver", Ref("SubtleFillColorSecondaryBrush"))
                 .Set("ButtonBackgroundPressed", Ref("SubtleFillColorTertiaryBrush"))
@@ -77,11 +75,8 @@ public class LandingPage : Component<LandingPageProps>
                     Caption("+").Foreground(SecondaryText).VAlign(VerticalAlignment.Center)
                         .Padding(8, 0, 0, 0).Grid(row: 0, column: 0),
                     TextBox(inputState.Value, v => inputState.Set(v))
-                        .Set(tb =>
-                        {
-                            tb.PlaceholderText = "Ask the sample assistant...";
-                            tb.AcceptsReturn = false;
-                        })
+                        .PlaceholderText("Ask the sample assistant...")
+                        .AcceptsReturn(false)
                         .OnMount(fe =>
                         {
                             var textBox = (Microsoft.UI.Xaml.Controls.TextBox)fe;
@@ -97,26 +92,22 @@ public class LandingPage : Component<LandingPageProps>
                     Button(
                         TextBlock("↑").FontSize(16),
                         createAction
-                    ).Set(b =>
-                    {
-                        b.CornerRadius = new CornerRadius(20);
-                        b.Padding = new Thickness(8, 4, 8, 4);
-                        b.MinWidth = 32; b.MinHeight = 32;
-                        b.IsEnabled = !string.IsNullOrWhiteSpace(inputState.Value);
-                        b.Background = !string.IsNullOrWhiteSpace(inputState.Value)
-                            ? Res.Get("AccentFillColorDefaultBrush") : Res.Get("SubtleFillColorTransparentBrush");
-                    }).VAlign(VerticalAlignment.Center).Grid(row: 0, column: 2)
+                    ).CornerRadius(20)
+                    .Padding(8, 4, 8, 4)
+                    .MinWidth(32).MinHeight(32)
+                    .IsEnabled(!string.IsNullOrWhiteSpace(inputState.Value))
+                    .Background(!string.IsNullOrWhiteSpace(inputState.Value)
+                        ? Res.Get("AccentFillColorDefaultBrush") : Res.Get("SubtleFillColorTransparentBrush"))
+                    .VAlign(VerticalAlignment.Center).Grid(row: 0, column: 2)
                 )
             ).WithBorder(DividerStroke, 1).CornerRadius(8).Padding(4, 4, 4, 4),
 
             // Workspace pill
             Props.WorkspacePicker is not null
                 ? Button(wsLabel, () => showWorkspacePicker.Set(true))
-                    .Set(b =>
-                    {
-                        b.Padding = new Thickness(12, 6, 12, 6);
-                        b.CornerRadius = new CornerRadius(16);
-                    }).Resources(r => r
+                    .Padding(12, 6, 12, 6)
+                    .CornerRadius(16)
+                    .Resources(r => r
                         .Set("ButtonBackground", SubtleFill)
                         .Set("ButtonBackgroundPointerOver", Ref("SubtleFillColorSecondaryBrush"))
                         .Set("ButtonBackgroundPressed", Ref("SubtleFillColorTertiaryBrush"))

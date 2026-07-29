@@ -104,17 +104,17 @@ class SlotsDemo : Component
             TextBlock("Another slot pattern: a row with optional leading icon, title area, and trailing action."),
             VStack(4,
                 Component<InfoRow, InfoRowProps>(new(
-                    Leading: TextBlock("\uE77B").Set(t => t.FontFamily = (FontFamily)Application.Current.Resources["SymbolThemeFontFamily"]),
+                    Leading: TextBlock("\uE77B").FontFamily((FontFamily)Application.Current.Resources["SymbolThemeFontFamily"]),
                     Title: TextBlock("Inbox").SemiBold(),
                     Trailing: TextBlock("12").Foreground(TertiaryText)
                 )),
                 Component<InfoRow, InfoRowProps>(new(
-                    Leading: TextBlock("\uE724").Set(t => t.FontFamily = (FontFamily)Application.Current.Resources["SymbolThemeFontFamily"]),
+                    Leading: TextBlock("\uE724").FontFamily((FontFamily)Application.Current.Resources["SymbolThemeFontFamily"]),
                     Title: TextBlock("Sent"),
                     Trailing: TextBlock("3").Foreground(TertiaryText)
                 )),
                 Component<InfoRow, InfoRowProps>(new(
-                    Leading: TextBlock("\uE74D").Set(t => t.FontFamily = (FontFamily)Application.Current.Resources["SymbolThemeFontFamily"]),
+                    Leading: TextBlock("\uE74D").FontFamily((FontFamily)Application.Current.Resources["SymbolThemeFontFamily"]),
                     Title: TextBlock("Deleted"),
                     Trailing: TextBlock("0").Foreground(TertiaryText)
                 ))

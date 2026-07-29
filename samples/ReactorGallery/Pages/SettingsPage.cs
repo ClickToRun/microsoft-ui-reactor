@@ -33,7 +33,7 @@ class SettingsPage : Component
                             // App icon placeholder
                             Border(
                                 TextBlock("\uE80F")
-                                    .Set(tb => tb.FontFamily = new FontFamily("Segoe MDL2 Assets"))
+                                    .FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets")
                                     .FontSize(24)
                                     .Foreground(Theme.AccentText)
                                     .Center()
@@ -55,7 +55,7 @@ class SettingsPage : Component
                         TextBlock("This app is built with Reactor, a declarative component-based UI framework for WinUI 3. It demonstrates how to recreate the WinUI Gallery experience using reactive hooks and a composable element DSL.")
                             .Foreground(Theme.SecondaryText)
                             .FontSize(13)
-                            .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                            .TextWrapping(TextWrapping.Wrap)
                     )
                 )
                 .Padding(20)

@@ -75,11 +75,13 @@ public sealed class CellComponent : Component<CellProps>
                     .FontWeight(FontWeights.Bold)
                     .HAlign(HorizontalAlignment.Center)
                     .VAlign(VerticalAlignment.Center)
+                    .TextAlignment(TextAlignment.Center)
+                    .LineHeight(p.Size)                // pin baseline so emoji descenders don't clip
                     .Set(tb =>
                     {
-                        tb.LineHeight = p.Size;        // pin baseline so emoji descenders don't clip
                         tb.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
-                        tb.TextAlignment = TextAlignment.Center;
+                        // TextBlock is not a Control/Border/StackPanel, so .Padding() would
+                        // silently no-op here (see ApplyModifiers in Reconciler.cs).
                         tb.Padding = new Thickness(0);
                     }),
                 glyphColor);
@@ -307,17 +309,13 @@ public sealed class CellComponent : Component<CellProps>
             ? (shadow, highlight)
             : (highlight, shadow);
 
-        var withBR = inner.Set(b =>
-        {
-            b.BorderThickness = new Thickness(0, 0, 2, 2);
-            b.BorderBrush = bottomRightBrush;
-        });
+        var withBR = inner
+            .BorderThickness(0, 0, 2, 2)
+            .BorderBrush(bottomRightBrush);
 
-        return Border(withBR).Set(b =>
-        {
-            b.BorderThickness = new Thickness(2, 2, 0, 0);
-            b.BorderBrush = topLeftBrush;
-        });
+        return Border(withBR)
+            .BorderThickness(2, 2, 0, 0)
+            .BorderBrush(topLeftBrush);
     }
 
     static BorderElement WithBackground(BorderElement el, object bg) => bg switch

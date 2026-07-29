@@ -249,7 +249,7 @@ class CommandHostDemo : Component
             CommandHost([save, undo, redo],
                 VStack(8,
                     TextBlock("INSIDE CommandHost scope — Ctrl+S / Ctrl+Z / Ctrl+Y fire here:")
-                        .Set(tb => tb.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold),
+                        .SemiBold(),
                     TextBox("", _ => { }, placeholderText: "Click here and press Ctrl+S..."),
                     Caption(log).Foreground(SecondaryText))
                 .Padding(16)
@@ -259,7 +259,7 @@ class CommandHostDemo : Component
 
             VStack(8,
                 TextBlock("OUTSIDE CommandHost scope — accelerators do NOT fire here:")
-                    .Set(tb => tb.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold),
+                    .SemiBold(),
                 TextBox("", _ => { }, placeholderText: "Click here and press Ctrl+S — nothing should happen...")
             ).Padding(16).Margin(horizontal: 16, vertical: 0).Background(SystemCriticalBackground).CornerRadius(8));
     }

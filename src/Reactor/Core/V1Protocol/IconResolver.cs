@@ -8,6 +8,40 @@ namespace Microsoft.UI.Reactor.Core.V1Protocol;
 // Shared V1 projection helpers for Reactor icon descriptors and symbol strings.
 internal static class IconResolver
 {
+    /// <summary>
+    /// Icon font stack used when the <c>SymbolThemeFontFamily</c> theme resource cannot be
+    /// resolved (no <c>Application.Current</c>, or a host that did not merge
+    /// <c>XamlControlsResources</c>). "Segoe Fluent Icons" ships with Windows 11; the
+    /// "Segoe MDL2 Assets" tail keeps glyphs rendering on Windows 10, which WinUI 3 still
+    /// supports. Always resolve it through <c>WinRTCache.GetFontFamily</c> — a raw
+    /// <c>new FontFamily(...)</c> crosses the managed→WinRT boundary on every call.
+    /// </summary>
+    internal const string SymbolFontFallback = "Segoe Fluent Icons, Segoe MDL2 Assets";
+
+    /// <summary>
+    /// Resolves the <c>SymbolThemeFontFamily</c> theme resource, falling back to
+    /// <see cref="SymbolFontFallback"/> when it is unavailable.
+    /// <para>
+    /// Uses <c>TryGetValue</c> rather than the <c>Resources[key]</c> indexer on purpose:
+    /// <c>ResourceDictionary</c> implements <c>IDictionary</c>, so the indexer <em>throws</em>
+    /// on a missing key instead of returning null. With the indexer the <c>??</c> fallback
+    /// below could never run — a host that had not merged <c>XamlControlsResources</c> would
+    /// get a <c>KeyNotFoundException</c> rather than the fallback stack this method exists to
+    /// provide. Matches the lookup idiom already used by <c>Theme.cs</c>.
+    /// </para>
+    /// </summary>
+    private static Microsoft.UI.Xaml.Media.FontFamily ResolveSymbolFontFamily()
+    {
+        var resources = Microsoft.UI.Xaml.Application.Current?.Resources;
+        if (resources is not null
+            && resources.TryGetValue("SymbolThemeFontFamily", out var value)
+            && value is Microsoft.UI.Xaml.Media.FontFamily themeFont)
+        {
+            return themeFont;
+        }
+        return WinRTCache.GetFontFamily(SymbolFontFallback);
+    }
+
     /// <summary>Descriptor-accessible bridge to <see cref="ResolveIcon"/>
     /// for icon-bearing descriptor controls. Static so it can be invoked from a
     /// descriptor lambda without a Reconciler instance.</summary>
@@ -45,8 +79,7 @@ internal static class IconResolver
         return new WinUI.FontIcon
         {
             Glyph = iconSymbol,
-            FontFamily = Microsoft.UI.Xaml.Application.Current?.Resources["SymbolThemeFontFamily"] as Microsoft.UI.Xaml.Media.FontFamily
-                         ?? new Microsoft.UI.Xaml.Media.FontFamily("Segoe Fluent Icons"),
+            FontFamily = ResolveSymbolFontFamily(),
         };
     }
 
@@ -61,8 +94,7 @@ internal static class IconResolver
         return new WinUI.FontIconSource
         {
             Glyph = iconSymbol,
-            FontFamily = Microsoft.UI.Xaml.Application.Current?.Resources["SymbolThemeFontFamily"] as Microsoft.UI.Xaml.Media.FontFamily
-                         ?? new Microsoft.UI.Xaml.Media.FontFamily("Segoe Fluent Icons"),
+            FontFamily = ResolveSymbolFontFamily(),
         };
     }
 

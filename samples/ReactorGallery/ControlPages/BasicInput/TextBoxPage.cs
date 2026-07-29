@@ -31,11 +31,13 @@ TextBox(text, v => setText(v), ""Type here..."")
 
             SampleCard("Multiline TextBox",
                 TextBox(multiline, v => setMultiline(v), "Enter multiple lines...")
-                    .Set(tb => { tb.AcceptsReturn = true; tb.TextWrapping = TextWrapping.Wrap; })
+                    .AcceptsReturn()
+                    .TextWrapping(TextWrapping.Wrap)
                     .Height(120),
                 sourceCode: @"
 TextBox(multiline, v => setMultiline(v), ""Enter multiple lines..."")
-    .Set(tb => { tb.AcceptsReturn = true; tb.TextWrapping = TextWrapping.Wrap; })
+    .AcceptsReturn()
+    .TextWrapping(TextWrapping.Wrap)
     .Height(120)
 "),
 

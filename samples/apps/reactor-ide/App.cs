@@ -318,7 +318,8 @@ class IdeApp : Component
                 TextBlock("Changes").SemiBold(),
                 VStack(2, changeRows),
                 TextBox(message, setMessage, placeholderText: "Commit message…")
-                    .Set(tb => { tb.AcceptsReturn = true; tb.MinHeight = 56; })
+                    .AcceptsReturn()
+                    .MinHeight(56)
                     .Margin(0, 6, 0, 0),
                 Button("Commit", Commit),
                 TextBlock("History").SemiBold().Margin(0, 8, 0, 0),
@@ -357,7 +358,7 @@ class IdeApp : Component
                 VStack(2, lines),
                 HStack(6,
                     TextBox(entry, setEntry, placeholderText: "Append output line… (Enter)")
-                        .Set(tb => tb.KeyDown += (_, e) =>
+                        .OnKeyDown((_, e) =>
                         {
                             if (e.Key == global::Windows.System.VirtualKey.Enter) { e.Handled = true; Append(); }
                         })
@@ -402,13 +403,10 @@ class IdeApp : Component
                 HStack(6,
                     TextBlock("PS>").FontFamily("Consolas, monospace").SemiBold(),
                     TextBox(input, setInput, placeholderText: "Type a command and press Enter…")
-                        .Set(tb =>
+                        .FontFamily("Consolas, monospace")
+                        .OnKeyDown((_, e) =>
                         {
-                            tb.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas, monospace");
-                            tb.KeyDown += (_, e) =>
-                            {
-                                if (e.Key == global::Windows.System.VirtualKey.Enter) { e.Handled = true; Run(); }
-                            };
+                            if (e.Key == global::Windows.System.VirtualKey.Enter) { e.Handled = true; Run(); }
                         })
                         .Flex(grow: 1))
             ).Padding(10);
@@ -473,14 +471,11 @@ class IdeApp : Component
                     // so the multi-line body would collapse to one line.
                     .AcceptsReturn()
                     .TextWrapping(TextWrapping.NoWrap)
-                    .Set(tb =>
-                    {
-                        tb.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code, Consolas, monospace");
-                        tb.FontSize = 13;
-                        tb.HorizontalAlignment = HorizontalAlignment.Stretch;
-                        tb.VerticalAlignment = VerticalAlignment.Stretch;
-                        tb.VerticalContentAlignment = VerticalAlignment.Top;
-                    })
+                    .FontFamily("Cascadia Code, Consolas, monospace")
+                    .FontSize(13)
+                    .HAlign(HorizontalAlignment.Stretch)
+                    .VAlign(VerticalAlignment.Stretch)
+                    .VerticalContentAlignment(VerticalAlignment.Top)
                     .Flex(grow: 1, basis: 0))
                 .Flex(grow: 1);
         });

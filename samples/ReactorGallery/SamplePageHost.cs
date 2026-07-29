@@ -33,10 +33,7 @@ public static class SamplePageHost
     public static Element SourceBlock(string code) =>
         Border(
             (TextBlock(code.Trim()) with { IsTextSelectionEnabled = true, TextWrapping = Microsoft.UI.Xaml.TextWrapping.Wrap })
-                .Set(tb =>
-                {
-                    tb.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code, Consolas, monospace");
-                })
+                .FontFamily("Cascadia Code, Consolas, monospace")
                 .Foreground(Theme.PrimaryText)
                 .ApplyStyle("CaptionTextBlockStyle")
         )

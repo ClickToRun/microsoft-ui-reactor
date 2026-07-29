@@ -273,7 +273,7 @@ class MaskedInputDemo : Component
                 TextBlock("Uppercase Formatter").Foreground(Theme.SecondaryText),
                 TextBox(shout, v => setShout(v.ToUpperInvariant()),
                     placeholderText: "auto uppercased")
-                    .Set(tb => tb.CharacterCasing = CharacterCasing.Upper)
+                    .CharacterCasing(CharacterCasing.Upper)
             )
         ).Padding(24);
     }
@@ -309,14 +309,14 @@ class DirtyResetDemo : Component
 
             VStack(4,
                 TextBlock("Name")
-                    .Set(t => t.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold),
+                    .SemiBold(),
                 TextBox(name, v => { setName(v); ctx.MarkTouched("name"); }),
                 TextBlock("Initial: \"John Doe\"").Foreground(Theme.SecondaryText)
             ),
 
             VStack(4,
                 TextBlock("Favorite Color")
-                    .Set(t => t.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold),
+                    .SemiBold(),
                 ComboBox(colors, color, v => { setColor(v); ctx.MarkTouched("color"); }),
                 TextBlock("Initial: Red").Foreground(Theme.SecondaryText)
             ),

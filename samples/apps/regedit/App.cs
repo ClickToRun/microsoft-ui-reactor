@@ -613,7 +613,7 @@ class RegeditApp : Component
                     .VAlign(VerticalAlignment.Center)
                     .SemiBold(),
                 AutoSuggestBox(addressBarText, setAddressBarText, text => AddressBarSubmit(text))
-                    .Set(asb => { asb.PlaceholderText = "HKEY_LOCAL_MACHINE\\SOFTWARE"; })
+                    .PlaceholderText("HKEY_LOCAL_MACHINE\\SOFTWARE")
                     .HAlign(HorizontalAlignment.Stretch)
             ).Margin(4, 2, 4, 2)
         );
@@ -643,11 +643,8 @@ class RegeditApp : Component
         var statusBar = When(showStatusBar, () =>
             HStack(8,
                 TextBlock(string.IsNullOrEmpty(currentKeyPath) ? Strings.Computer : currentKeyPath)
-                    .Set(tb =>
-                    {
-                        tb.TextTrimming = Microsoft.UI.Xaml.TextTrimming.CharacterEllipsis;
-                        tb.TextWrapping = Microsoft.UI.Xaml.TextWrapping.NoWrap;
-                    }),
+                    .TextTrimming(Microsoft.UI.Xaml.TextTrimming.CharacterEllipsis)
+                    .TextWrapping(Microsoft.UI.Xaml.TextWrapping.NoWrap),
                 When(isLoading, () => ProgressRing().Width(16).Height(16).IsActive(true))
             )
             .Padding(8, 4, 8, 4)

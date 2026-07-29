@@ -2164,7 +2164,7 @@
         {
           "header": "Light / Dark Toggle",
           "language": "csharp",
-          "code": "var (isDark, setIsDark) = UseState(false);\nBorder(content)\n    .Set(b => b.RequestedTheme = isDark\n        ? ElementTheme.Dark : ElementTheme.Light)\n    .Background(Theme.SolidBackground)"
+          "code": "var (isDark, setIsDark) = UseState(false);\nBorder(content)\n    .RequestedTheme(isDark ? ElementTheme.Dark : ElementTheme.Light)\n    .Background(Theme.SolidBackground)"
         }
       ]
     },

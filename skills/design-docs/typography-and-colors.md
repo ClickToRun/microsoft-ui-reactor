@@ -73,13 +73,17 @@ TextBlock("Prominent text").Set(tb =>
 
 3. **Minimum font size: 12px** — Anything below 12px makes complex Asian characters unreadable. `Caption()` at 12px is the smallest acceptable body text size.
 
-4. **Icon font family** — Never hardcode `"Segoe Fluent Icons"`. Use the system resource:
+4. **Icon font family** — Never hardcode a bare `"Segoe Fluent Icons"`. Use the system resource, and apply it with the `.FontFamily(FontFamily)` modifier rather than `.Set` — the modifier is diffed structurally, so an unchanged font costs nothing, and it is cleared when removed:
 
    ```csharp
-   TextBlock("\uE710").Set(tb =>
-       tb.FontFamily = (FontFamily)Application.Current.Resources["SymbolThemeFontFamily"])
+   TextBlock("\uE710")
+       .FontFamily((FontFamily)Application.Current.Resources["SymbolThemeFontFamily"])
        .Set(tb => tb.IsTextScaleFactorEnabled = false)
    ```
+
+   Where no live `Application.Current` is available, the explicit
+   `"Segoe Fluent Icons, Segoe MDL2 Assets"` stack is an acceptable static
+   fallback — it keeps the Windows 10 tail that a bare `"Segoe Fluent Icons"` drops.
 
 5. **Icon TextBlocks should not scale with text settings:**
 
@@ -121,7 +125,7 @@ TextBlock("Prominent text").Set(tb =>
 10. **TextWrapping** — `NoWrap` is the default (do not set it explicitly). Choose `Wrap` when text should flow to multiple lines, or `WrapWholeWords` for body text to avoid mid-word breaks:
 
     ```csharp
-    TextBlock(paragraph).Set(tb => tb.TextWrapping = TextWrapping.WrapWholeWords)
+    TextBlock(paragraph).TextWrapping(TextWrapping.WrapWholeWords)
     ```
 
 11. **Top-align icons with text** — When icons and text are paired in wrapping layouts, prefer top alignment for both. At larger text scales, center-aligned icons drift visually:
@@ -129,11 +133,11 @@ TextBlock("Prominent text").Set(tb =>
     ```csharp
     HStack(8,
         TextBlock("\uE710")
-            .Set(tb => tb.FontFamily = (FontFamily)Application.Current.Resources["SymbolThemeFontFamily"])
+            .FontFamily((FontFamily)Application.Current.Resources["SymbolThemeFontFamily"])
             .Set(tb => tb.IsTextScaleFactorEnabled = false)
             .VAlign(VerticalAlignment.Top),
         TextBlock(description)
-            .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+            .TextWrapping(TextWrapping.Wrap)
             .VAlign(VerticalAlignment.Top))
     ```
 

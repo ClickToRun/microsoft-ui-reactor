@@ -27,7 +27,7 @@ namespace Microsoft.UI.Reactor;
 ///       .Bold()
 ///       .Margin(16)
 ///       .HAlign(HorizontalAlignment.Center)
-///       .Set(tb => tb.TextWrapping = TextWrapping.Wrap)  // still TextBlockElement!
+///       .Set(tb => tb.IsTextScaleFactorEnabled = false)  // still TextBlockElement!
 ///
 /// The Set() extension gives strongly-typed native property access:
 ///   Button("Click", onClick)
@@ -552,9 +552,17 @@ public static partial class ElementExtensions
     // ── Theme / Style ───────────────────────────────────────────────
 
     /// <summary>
-    /// Apply a named WinUI Style to the element's control at mount/update time.
-    /// Style is on FrameworkElement — works on any element.
+    /// Apply a named WinUI Style to the element's control. Style is on
+    /// FrameworkElement — works on any element.
     /// Usage: Text("Hello").ApplyStyle("BodyTextBlockStyle")
+    /// <para>
+    /// <b>Applied at mount only.</b> This routes through <c>OnMount</c>, and the
+    /// reconciler runs <c>OnMountAction</c> only when there is no previous
+    /// element (first mount). Conditionally chaining a style therefore will not
+    /// apply or remove it when the condition flips on an in-place update — give
+    /// the variants different <see cref="WithKey{T}(T, string)"/> values to force
+    /// a remount when the style itself must change.
+    /// </para>
     /// </summary>
     public static T ApplyStyle<T>(this T el, string styleName) where T : Element =>
         el.OnMount(StyleApplier(styleName));

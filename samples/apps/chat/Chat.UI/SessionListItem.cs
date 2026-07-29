@@ -40,7 +40,7 @@ public class SessionListItem : Component<SessionListItemProps>
                     FlexRow(
                         StatusIndicator.VAlign(VerticalAlignment.Center),
                         TextBlock(S.DisplayTitle).SemiBold()
-                            .Set(t => { t.TextTrimming = TextTrimming.CharacterEllipsis; t.MaxLines = 1; })
+                            .TextTrimming(TextTrimming.CharacterEllipsis).MaxLines(1)
                             .Flex(grow: 1)
                     ) with { ColumnGap = 8 },
                     (FlexRow(
@@ -54,15 +54,16 @@ public class SessionListItem : Component<SessionListItemProps>
                 selectedBar.Grid(row: 0, column: 0)
             ),
             () => Props.OnSelect(S.Id)
-        ).Set(b =>
-        {
-            b.BorderThickness = new Thickness(0);
-            b.Padding = new Thickness(0);
-            b.CornerRadius = new CornerRadius(0);
-            b.HorizontalAlignment = HorizontalAlignment.Stretch;
-            b.HorizontalContentAlignment = HorizontalAlignment.Stretch;
-            b.ContextFlyout = BuildContextMenu();
-        }).Resources(r => r
+        ).BorderThickness(0)
+        .Padding(0)
+        .CornerRadius(0)
+        .HAlign(HorizontalAlignment.Stretch)
+        .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+        .WithContextFlyout(MenuItems(
+            MenuItem(S.Status == ChatThreadStatus.Suspended ? "Resume" : "Suspend",
+                () => Props.OnSuspend(S.Id)),
+            MenuItem("Delete", () => Props.OnDelete(S.Id))))
+        .Resources(r => r
             .Set("ButtonBackground", Props.IsSelected ? Ref("SubtleFillColorTertiaryBrush") : Ref("SubtleFillColorTransparentBrush"))
             .Set("ButtonBackgroundPointerOver", Ref("SubtleFillColorSecondaryBrush"))
             .Set("ButtonBackgroundPressed", Ref("SubtleFillColorTertiaryBrush"))
@@ -70,22 +71,5 @@ public class SessionListItem : Component<SessionListItemProps>
             .Set("ButtonBorderBrushPointerOver", Ref("SubtleFillColorTransparentBrush"))
             .Set("ButtonBorderBrushPressed", Ref("SubtleFillColorTransparentBrush"))
         ).WithKey(S.Id);
-    }
-
-    Microsoft.UI.Xaml.Controls.MenuFlyout BuildContextMenu()
-    {
-        var suspendItem = new Microsoft.UI.Xaml.Controls.MenuFlyoutItem
-        {
-            Text = S.Status == ChatThreadStatus.Suspended ? "Resume" : "Suspend",
-        };
-        suspendItem.Click += (_, _) => Props.OnSuspend(S.Id);
-
-        var deleteItem = new Microsoft.UI.Xaml.Controls.MenuFlyoutItem
-        {
-            Text = "Delete",
-        };
-        deleteItem.Click += (_, _) => Props.OnDelete(S.Id);
-
-        return new Microsoft.UI.Xaml.Controls.MenuFlyout { Items = { suspendItem, deleteItem } };
     }
 }

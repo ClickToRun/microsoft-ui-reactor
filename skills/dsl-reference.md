@@ -403,10 +403,14 @@ element.WithKey("stable-id")  // always last
 
 ```csharp
 Button("Go", fn).Set(b => b.FlowDirection = FlowDirection.RightToLeft)
-TextBlock("Hello").Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+TextBlock("Hello").Set(tb => tb.IsTextScaleFactorEnabled = false)
 ```
 
 The lambda parameter is the real WinUI control — full IntelliSense.
+Reach for `.Set()` only when no modifier exists: it re-runs on every update,
+is never unwound, and keeps the element on the reconciler's update path.
+Properties like `FontFamily`, `FontSize`, `TextWrapping`, `TextTrimming` and
+`MaxLines` all have first-class modifiers — prefer those.
 
 ---
 

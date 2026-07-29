@@ -152,9 +152,9 @@ These are the **exact** factory signatures from `Dsl.cs` — use them precisely.
 | Figma Component | Reactor Factory Call |
 |---|---|
 | **Button** (Standard) | `Button("Label", () => { })` |
-| **Button** (Accent) | `Button("Label", () => { }).Set(b => b.Style = (Style)Application.Current.Resources["AccentButtonStyle"])` |
+| **Button** (Accent) | `Button("Label", () => { }).AccentButton()` |
 | **Button** (Subtle) | `Button("Label", () => { }).Resources(r => r.Set("ButtonBackground", Theme.SubtleFill).Set("ButtonBackgroundPointerOver", Theme.Ref("SubtleFillColorSecondaryBrush")).Set("ButtonBackgroundPressed", Theme.Ref("SubtleFillColorTertiaryBrush")).Set("ButtonBorderBrush", Theme.SubtleFill))` |
-| **Button** (with icon) | `Button(HStack(4, TextBlock("\uE710").Set(tb => tb.FontFamily = (FontFamily)Application.Current.Resources["SymbolThemeFontFamily"]), TextBlock("Label")), () => { })` |
+| **Button** (with icon) | `Button(HStack(4, TextBlock("\uE710").FontFamily((FontFamily)Application.Current.Resources["SymbolThemeFontFamily"]), TextBlock("Label")), () => { })` |
 | **HyperlinkButton** | `HyperlinkButton("Link text", navigateUri: new Uri("https://..."))` |
 | **ToggleButton** | `ToggleButton("Label", isChecked, v => setChecked(v))` |
 | **RepeatButton** | `RepeatButton("Label", () => { })` |
@@ -366,11 +366,15 @@ Use WinUI semantic text styles via `.ApplyStyle()` or Reactor text factories. Do
 - Don't set `Theme.PrimaryText` foreground on body text — it's the default
 - Use `.Foreground(Theme.SecondaryText)` for captions and secondary labels
 - Use `.TextWrapping(TextWrapping.WrapWholeWords)` on body text that should wrap
-- Use `SymbolThemeFontFamily` for icon glyphs:
+- Use `SymbolThemeFontFamily` for icon glyphs, applied with the `.FontFamily(...)` modifier (not `.Set`):
   ```csharp
-  TextBlock("\uE710").Set(tb =>
-      tb.FontFamily = (FontFamily)Application.Current.Resources["SymbolThemeFontFamily"])
+  TextBlock("\uE710")
+      .FontFamily((FontFamily)Application.Current.Resources["SymbolThemeFontFamily"])
   ```
+  Where no live `Application.Current` is available, the explicit
+  `"Segoe Fluent Icons, Segoe MDL2 Assets"` stack is an acceptable static fallback.
+  Never a bare `"Segoe MDL2 Assets"` (Windows 10 legacy) or a bare
+  `"Segoe Fluent Icons"` (drops the Windows 10 tail).
 
 ## Corner Radius
 

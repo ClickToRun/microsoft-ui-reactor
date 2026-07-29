@@ -32,12 +32,9 @@ public static class SmileyButton
                 onReset)
             .Width(size).Height(size)
             .CornerRadius(size / 2)
-            .Set(b =>
-            {
-                b.HorizontalContentAlignment = HorizontalAlignment.Center;
-                b.VerticalContentAlignment = VerticalAlignment.Center;
-                b.Padding = new Thickness(0);
-            })
+            .HorizontalContentAlignment(HorizontalAlignment.Center)
+            .VerticalContentAlignment(VerticalAlignment.Center)
+            .Padding(0)
             .AutomationName($"Reset game (status: {DescribePhase(phase)})");
     }
 

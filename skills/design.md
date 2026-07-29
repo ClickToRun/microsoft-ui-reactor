@@ -454,11 +454,15 @@ TextBlock("Title").FontSize(28).FontWeight(new FontWeight(700))
 **Rules:**
 - Use `SemiBold` (600), never `Bold` (700) for emphasis — except `Heading()` which intentionally uses 700 for page titles.
 - Minimum font size: 12px. Anything smaller makes complex scripts unreadable.
-- Use `{ThemeResource SymbolThemeFontFamily}` for icon fonts via `.Set()`:
+- Use `SymbolThemeFontFamily` for icon fonts, applied with the `.FontFamily(...)` modifier (not `.Set`, which re-runs every update and is never unwound):
   ```csharp
-  TextBlock("\uE710").Set(tb =>
-      tb.FontFamily = (FontFamily)Application.Current.Resources["SymbolThemeFontFamily"])
+  TextBlock("\uE710")
+      .FontFamily((FontFamily)Application.Current.Resources["SymbolThemeFontFamily"])
   ```
+  Where no live `Application.Current` is available, the explicit
+  `"Segoe Fluent Icons, Segoe MDL2 Assets"` stack is an acceptable static fallback.
+  Never a bare `"Segoe MDL2 Assets"` (Windows 10 legacy) or a bare
+  `"Segoe Fluent Icons"` (drops the Windows 10 tail).
 - When icons and text are paired, **top-align both** in wrapping scenarios to prevent visual drift at larger text scales.
 - **TextWrapping:** `NoWrap` is the default — use `TextWrapping.Wrap` or `TextWrapping.WrapWholeWords` when text should flow to multiple lines. Choose `WrapWholeWords` for body text to avoid mid-word breaks.
 - **Smart tooltips for trimmed text:** When text is trimmed with `TextTrimming`, add a tooltip that only appears when the text is actually trimmed:

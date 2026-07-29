@@ -54,24 +54,18 @@ public class Sidebar : Component<SidebarProps>
                     ? VStack(4,
                         Caption("Profile").Foreground(TertiaryText),
                         ComboBox(Props.ProfileNames, Props.SelectedProfileIndex, Props.OnProfileChanged)
-                            .Set(cb =>
-                            {
-                                cb.HorizontalAlignment = HorizontalAlignment.Stretch;
-                                cb.CornerRadius = new CornerRadius(6);
-                            })
+                            .HAlign(HorizontalAlignment.Stretch)
+                            .CornerRadius(6)
                     )
                     : Props.ProfileNames.Length == 1
                         ? Caption($"Profile: {Props.ProfileNames[0]}").Foreground(TertiaryText)
                         : (Element)Empty(),
 
                 Button("+ New session", Props.OnNewSession)
-                    .Set(b =>
-                    {
-                        b.HorizontalAlignment = HorizontalAlignment.Stretch;
-                        b.HorizontalContentAlignment = HorizontalAlignment.Center;
-                        b.Padding = new Thickness(0, 8, 0, 8);
-                        b.CornerRadius = new CornerRadius(6);
-                    })
+                    .HAlign(HorizontalAlignment.Stretch)
+                    .HorizontalContentAlignment(HorizontalAlignment.Center)
+                    .Padding(0, 8, 0, 8)
+                    .CornerRadius(6)
             ).Padding(0, 0, 0, 12).Grid(row: 0, column: 0),
 
             // "Recent" label
@@ -97,7 +91,7 @@ public class Sidebar : Component<SidebarProps>
             (FlexRow(
                 Caption(Props.ConnectionStatus ?? "Connecting…").Foreground(TertiaryText).Flex(grow: 1),
                 Caption("\uE713").Foreground(TertiaryText)
-                    .Set(t => t.FontFamily = new FontFamily("Segoe MDL2 Assets"))
+                    .FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets")
             ) with { ColumnGap = 8 }).Padding(0, 8, 0, 0).Grid(row: 5, column: 0)
         )
     ).Padding(20, 16, 20, 12).Background(LayerFill);

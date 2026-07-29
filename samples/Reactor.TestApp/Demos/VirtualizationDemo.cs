@@ -69,7 +69,8 @@ class VirtualizationDemo : Component
                     )
                 ).Padding(horizontal: 12, vertical: 8)).ToArray()
             )
-            .Set(lv => { lv.Height = 500; lv.SelectionMode = Microsoft.UI.Xaml.Controls.ListViewSelectionMode.Single; }),
+            .Height(500)
+            .SelectionMode(Microsoft.UI.Xaml.Controls.ListViewSelectionMode.Single),
 
             _ => Empty()
         };

@@ -41,7 +41,7 @@ class DockingPage : Component
                             TextBlock($"You selected entry #{selected + 1}.").Foreground(Theme.SecondaryText),
                             TextBlock("Drag tabs to re-dock, or tear one out to float it in its own window.")
                                 .Foreground(Theme.SecondaryText)
-                                .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                                .TextWrapping(TextWrapping.Wrap)
                         ).Padding(16),
                         Key: "detail",
                         CanClose: true),

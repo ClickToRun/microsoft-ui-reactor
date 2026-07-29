@@ -43,21 +43,16 @@ public class InputBar : Component<InputBarProps>
                 Button(
                     TextBlock("+").FontSize(16),
                     () => { /* Future: attach files */ }
-                ).Set(b =>
-                {
-                    b.Background = Res.Get("SubtleFillColorTransparentBrush");
-                    b.BorderThickness = new Thickness(0);
-                    b.Padding = new Thickness(8, 4, 8, 4);
-                    b.MinWidth = 0; b.MinHeight = 0;
-                    b.CornerRadius = new CornerRadius(4);
-                }).VAlign(VerticalAlignment.Bottom).Grid(row: 0, column: 0),
+                ).Background(Res.Get("SubtleFillColorTransparentBrush"))
+                .BorderThickness(0)
+                .Padding(8, 4, 8, 4)
+                .MinWidth(0).MinHeight(0)
+                .CornerRadius(4)
+                .VAlign(VerticalAlignment.Bottom).Grid(row: 0, column: 0),
                 TextBox(inputState.Value, v => inputState.Set(v))
-                    .Set(tb =>
-                    {
-                        tb.PlaceholderText = placeholder;
-                        tb.AcceptsReturn = false;
-                        tb.IsEnabled = isConnected;
-                    })
+                    .PlaceholderText(placeholder)
+                    .AcceptsReturn(false)
+                    .IsEnabled(isConnected)
                     .OnMount(fe =>
                     {
                         var textBox = (Microsoft.UI.Xaml.Controls.TextBox)fe;
@@ -75,26 +70,22 @@ public class InputBar : Component<InputBarProps>
                     ? Button(
                         TextBlock("■").FontSize(14),
                         Props.OnStop
-                    ).Set(b =>
-                    {
-                        b.CornerRadius = new CornerRadius(20);
-                        b.Padding = new Thickness(8, 4, 8, 4);
-                        b.MinWidth = 32; b.MinHeight = 32;
-                        b.Background = Res.Get("SystemFillColorCriticalBrush");
-                    }).VAlign(VerticalAlignment.Bottom).Grid(row: 0, column: 2)
+                    ).CornerRadius(20)
+                    .Padding(8, 4, 8, 4)
+                    .MinWidth(32).MinHeight(32)
+                    .Background(Res.Get("SystemFillColorCriticalBrush"))
+                    .VAlign(VerticalAlignment.Bottom).Grid(row: 0, column: 2)
                     .AutomationName("Stop response")
                     : Button(
                         TextBlock("↑").FontSize(16),
                         sendAction
-                    ).Set(b =>
-                    {
-                        b.CornerRadius = new CornerRadius(20);
-                        b.Padding = new Thickness(8, 4, 8, 4);
-                        b.MinWidth = 32; b.MinHeight = 32;
-                        b.IsEnabled = isConnected && !string.IsNullOrWhiteSpace(inputState.Value);
-                        b.Background = isConnected && !string.IsNullOrWhiteSpace(inputState.Value)
-                            ? Res.Get("AccentFillColorDefaultBrush") : Res.Get("SubtleFillColorTransparentBrush");
-                    }).VAlign(VerticalAlignment.Bottom).Grid(row: 0, column: 2)
+                    ).CornerRadius(20)
+                    .Padding(8, 4, 8, 4)
+                    .MinWidth(32).MinHeight(32)
+                    .IsEnabled(isConnected && !string.IsNullOrWhiteSpace(inputState.Value))
+                    .Background(isConnected && !string.IsNullOrWhiteSpace(inputState.Value)
+                        ? Res.Get("AccentFillColorDefaultBrush") : Res.Get("SubtleFillColorTransparentBrush"))
+                    .VAlign(VerticalAlignment.Bottom).Grid(row: 0, column: 2)
                     .AutomationName("Send message")
             )
         ).Padding(16, 12, 16, 16);
@@ -113,12 +104,14 @@ public class InputBar : Component<InputBarProps>
                 ? Border(
                     HStack(8,
                         TextBlock($"⚠ {perm.ToolName}: {perm.Detail}")
-                            .Set(t => { t.TextWrapping = TextWrapping.Wrap; t.TextTrimming = TextTrimming.CharacterEllipsis; })
+                            .TextWrapping(TextWrapping.Wrap)
+                            .TextTrimming(TextTrimming.CharacterEllipsis)
                             .HAlign(HorizontalAlignment.Stretch),
                         Button("Allow", () => Props.OnPermissionResponse(perm.RequestId, true))
-                            .Background(Accent).Set(b => { b.CornerRadius = new CornerRadius(4); b.Padding = new Thickness(12, 4, 12, 4); b.MinWidth = 0; b.MinHeight = 0; }),
+                            .Background(Accent)
+                            .CornerRadius(4).Padding(12, 4, 12, 4).MinWidth(0).MinHeight(0),
                         Button("Deny", () => Props.OnPermissionResponse(perm.RequestId, false))
-                            .Set(b => { b.CornerRadius = new CornerRadius(4); b.Padding = new Thickness(12, 4, 12, 4); b.MinWidth = 0; b.MinHeight = 0; })
+                            .CornerRadius(4).Padding(12, 4, 12, 4).MinWidth(0).MinHeight(0)
                     ).Padding(12, 8, 12, 8)
                   ).Background(SubtleFill).CornerRadius(8).WithBorder(DividerStroke, 1).Margin(12, 4, 12, 4)
                 : Empty()),

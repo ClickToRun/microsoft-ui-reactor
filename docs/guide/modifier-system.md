@@ -82,7 +82,7 @@ element type — `T : Element`. That generic constraint is what lets
 the call chain stay typed as `TextBlockElement` all the way through
 `.Bold().Margin(8).FontSize(24)`. SwiftUI returns
 `some View` and Compose returns `Modifier`; Reactor keeps the concrete
-type so `.Set(tb => tb.TextWrapping = TextWrapping.Wrap)` two modifiers
+type so `.Set(tb => tb.IsTextScaleFactorEnabled = false)` two modifiers
 later still binds to a `TextBlockElement` action — the WinUI control
 you get inside the callback is a typed `TextBlock`, not a base
 `UIElement`.

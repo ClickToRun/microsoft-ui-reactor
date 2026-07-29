@@ -42,7 +42,7 @@ class GeometryPage : Component
                 TextBlock("WinUI provides two corner radius theme resources. Using these instead of hard-coded values ensures your UI stays consistent with the system design language and adapts if the values are customized.")
                     .Foreground(Theme.SecondaryText)
                     .FontSize(13)
-                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                    .TextWrapping(TextWrapping.Wrap)
                     .Margin(0, 0, 0, 4),
 
                 VStack(8, entries.Select(RadiusRow).ToArray())
@@ -78,11 +78,11 @@ Border(dialog).CornerRadius(overlayRadius.TopLeft)");
                     TextBlock(entry.ResourceKey)
                         .FontSize(11)
                         .Foreground(Theme.TertiaryText)
-                        .Set(tb => tb.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code, Consolas, monospace")),
+                        .FontFamily("Cascadia Code, Consolas, monospace"),
                     TextBlock(entry.Recommendation)
                         .FontSize(12)
                         .Foreground(Theme.SecondaryText)
-                        .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                        .TextWrapping(TextWrapping.Wrap)
                 ).VAlign(VerticalAlignment.Center)
             ).Margin(12)
         )
@@ -98,7 +98,7 @@ Border(dialog).CornerRadius(overlayRadius.TopLeft)");
                 TextBlock("ControlCornerRadius is used by interactive controls to maintain a consistent, compact rounding. Apply it to buttons, inputs, cards, and other standard controls.")
                     .Foreground(Theme.SecondaryText)
                     .FontSize(13)
-                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                    .TextWrapping(TextWrapping.Wrap)
                     .Margin(0, 0, 0, 4),
 
                 // Buttons
@@ -128,7 +128,7 @@ Border(dialog).CornerRadius(overlayRadius.TopLeft)");
                         TextBlock("Card content using ControlCornerRadius for its border rounding.")
                             .FontSize(13)
                             .Foreground(Theme.SecondaryText)
-                            .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                            .TextWrapping(TextWrapping.Wrap)
                     ).Margin(16)
                 )
                 .Background(Theme.CardBackground)
@@ -181,7 +181,7 @@ Border(TextBlock(""Tag"").Padding(6, 2, 6, 2))
                 TextBlock("OverlayCornerRadius is larger than ControlCornerRadius and is used for surfaces that float above the app layer — dialogs, flyouts, menus, teaching tips, and modal overlays.")
                     .Foreground(Theme.SecondaryText)
                     .FontSize(13)
-                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                    .TextWrapping(TextWrapping.Wrap)
                     .Margin(0, 0, 0, 4),
 
                 // Dialog mock
@@ -193,7 +193,7 @@ Border(TextBlock(""Tag"").Padding(6, 2, 6, 2))
                         TextBlock("This action cannot be undone. The item will be permanently removed.")
                             .FontSize(13)
                             .Foreground(Theme.SecondaryText)
-                            .Set(tb => tb.TextWrapping = TextWrapping.Wrap),
+                            .TextWrapping(TextWrapping.Wrap),
                         HStack(8,
                             Button("Delete", () => { })
                                 .Background(Theme.SystemCritical),
@@ -234,7 +234,7 @@ Border(TextBlock(""Tag"").Padding(6, 2, 6, 2))
                         TextBlock("You can use OverlayCornerRadius to round any floating surface so it matches the system style for popups and overlays.")
                             .FontSize(13)
                             .Foreground(Theme.SecondaryText)
-                            .Set(tb => tb.TextWrapping = TextWrapping.Wrap),
+                            .TextWrapping(TextWrapping.Wrap),
                         TextBlock("Got it").Foreground(Theme.AccentText).FontSize(13)
                     ).Margin(20)
                 )
@@ -271,7 +271,7 @@ Border(tipContent)
                 TextBlock("Nesting controls inside overlay surfaces is a common pattern. The outer container uses OverlayCornerRadius, while the inner controls use ControlCornerRadius.")
                     .Foreground(Theme.SecondaryText)
                     .FontSize(13)
-                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                    .TextWrapping(TextWrapping.Wrap)
                     .Margin(0, 0, 0, 4),
 
                 // A dialog-like container with inner controls
@@ -334,7 +334,7 @@ Border(
             HStack(10,
                 TextBlock(glyph)
                     .FontSize(14)
-                    .Set(t => t.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe MDL2 Assets"))
+                    .FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets")
                     .Foreground(Theme.PrimaryText)
                     .VAlign(VerticalAlignment.Center),
                 TextBlock(label)
