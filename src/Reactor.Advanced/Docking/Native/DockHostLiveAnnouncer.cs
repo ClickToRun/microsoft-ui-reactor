@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using Microsoft.UI.Reactor.Core.Diagnostics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation.Peers;
 
@@ -29,6 +30,13 @@ namespace Microsoft.UI.Reactor.Docking.Native;
 
 internal static class DockHostLiveAnnouncer
 {
+    /// <summary>
+    /// Stable operation label for the <see cref="DiagnosticLog"/> trace emitted
+    /// when a focus hand-off fails. Kept as a constant so the emit sites and
+    /// the tests that assert on them cannot drift apart.
+    /// </summary>
+    internal const string TryFocusOperation = "DockHostLiveAnnouncer.TryFocus";
+
     private static readonly ConditionalWeakTable<DockManager, FrameworkElement> _table = new();
 
     public static void Register(DockManager element, FrameworkElement host)
@@ -91,22 +99,60 @@ internal static class DockHostLiveAnnouncer
 
     private static void TryFocus(FrameworkElement host)
     {
-        if (host is Microsoft.UI.Xaml.Controls.Control control)
+        try
         {
-            control.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
-            return;
-        }
-        // Border / Panel — focus the nearest focusable child via the
-        // FocusManager's automatic walk so a tab group inside still
-        // gets focus when its container hands off. Fire-and-forget:
-        // the focus shift completes asynchronously but its outcome
-        // doesn't gate any caller — we don't need the IAsyncOp.
-        _ = Microsoft.UI.Xaml.Input.FocusManager.TryMoveFocusAsync(
-            Microsoft.UI.Xaml.Input.FocusNavigationDirection.Next,
-            new Microsoft.UI.Xaml.Input.FindNextElementOptions
+            if (host is Microsoft.UI.Xaml.Controls.Control control)
             {
-                SearchRoot = host,
-            });
+                control.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+                return;
+            }
+
+            // Border / Panel — focus the first focusable element *inside* the
+            // host so a tab group within still gets focus when its container
+            // hands off.
+            //
+            // Deliberately NOT
+            //   TryMoveFocusAsync(FocusNavigationDirection.Next,
+            //                     new FindNextElementOptions { SearchRoot = host })
+            // WinUI rejects that pairing during parameter validation —
+            // "Focus navigation directions Next and Previous are not supported
+            // when using FindNextElementOptions" — so the call threw an
+            // ArgumentException on every hand-off and focus never moved.
+            // FindNextElementOptions only accepts the four directional values.
+            // Dropping the options instead would make `Next` walk the *global*
+            // tab order from wherever focus happens to be, which can land
+            // outside the dock host entirely; FindFirstFocusableElement keeps
+            // the subtree scoping this fallback needs and takes no direction.
+            var target = Microsoft.UI.Xaml.Input.FocusManager.FindFirstFocusableElement(host);
+            if (target is null) return;
+            ObserveFocusMove(
+                Microsoft.UI.Xaml.Input.FocusManager.TryFocusAsync(
+                    target, Microsoft.UI.Xaml.FocusState.Programmatic));
+        }
+        catch (Exception ex)
+        {
+            // The hand-off is an accessibility nicety — never take the app
+            // down for it. But do not discard the failure either: silently
+            // swallowing exactly this exception is what hid the illegal
+            // Next + FindNextElementOptions pairing above for so long.
+            DiagnosticLog.SwallowedError(LogCategory.Docking, TryFocusOperation, ex);
+        }
+    }
+
+    /// <summary>
+    /// Observes the outcome of a fire-and-forget focus move. No caller gates
+    /// on the result, but an unobserved fault would be invisible — route it to
+    /// the same swallowed-error trace the synchronous path uses.
+    /// </summary>
+    private static void ObserveFocusMove(
+        global::Windows.Foundation.IAsyncOperation<Microsoft.UI.Xaml.Input.FocusMovementResult> operation)
+    {
+        operation.AsTask().ContinueWith(
+            static t => DiagnosticLog.SwallowedError(
+                LogCategory.Docking, TryFocusOperation, t.Exception?.GetBaseException()),
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     private static void RaiseNotification(FrameworkElement host, string message)

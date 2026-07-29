@@ -74,22 +74,45 @@ internal static class NativeDockingCoverageMiscFixtures
             H.Check("LiveAnn_FocusFallback_Null_NoOps", true);
 
             // Register a Control host so the Control.Focus branch runs.
-            // (The Border/Panel branch in TryFocus uses
-            // FocusManager.TryMoveFocusAsync(Next, FindNextElementOptions),
-            // which is unsupported in this WinUI version — calling it
-            // throws an ArgumentException. The Control branch is safe.)
+            // (The Border/Panel branch in TryFocus scopes a
+            // FocusManager.FindFirstFocusableElement search to the host and
+            // focuses the result — see
+            // NativeDocking_A11y_FocusFallback_LandsInsideHostSubtree, which
+            // pins that arm against a real focusable subtree.)
+            // A decoy sibling gives the focus assertions below something to
+            // move *away* from, so they fail if the hand-off stops working.
             var controlHost = new Button { Content = "host" };
-            H.SetContent(controlHost);
+            var decoyControl = new Button { Content = "decoy" };
+            var controlRoot = new StackPanel();
+            controlRoot.Children.Add(decoyControl);
+            controlRoot.Children.Add(controlHost);
+            H.SetContent(controlRoot);
             await Harness.Render();
             DockHostLiveAnnouncer.Register(fakeManager, controlHost);
+            decoyControl.Focus(FocusState.Programmatic);
+            await Harness.Render();
             DockHostLiveAnnouncer.FocusHostFallback(fakeManager);
             await Harness.Render();
-            H.Check("LiveAnn_FocusFallback_ControlHost_DoesNotThrow", true);
+            var xamlRoot = controlHost.XamlRoot;
+            H.Check("LiveAnn_FocusFallback_ControlHost_Focused",
+                xamlRoot is not null
+                && ReferenceEquals(
+                    Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(xamlRoot), controlHost));
 
-            // Off-thread focus fallback queues onto dispatcher.
+            // Off-thread focus fallback queues onto the host's dispatcher. Move
+            // focus back to the decoy first so the assertion proves the queued
+            // work actually ran.
+            decoyControl.Focus(FocusState.Programmatic);
+            await Harness.Render();
             await Task.Run(() => DockHostLiveAnnouncer.FocusHostFallback(fakeManager));
             await Harness.Render();
-            H.Check("LiveAnn_FocusFallback_OffThread_DoesNotThrow", true);
+            await Harness.WaitFor(() => xamlRoot is not null
+                && ReferenceEquals(
+                    Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(xamlRoot), controlHost));
+            H.Check("LiveAnn_FocusFallback_OffThread_Focused",
+                xamlRoot is not null
+                && ReferenceEquals(
+                    Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(xamlRoot), controlHost));
 
             DockHostLiveAnnouncer.Clear(fakeManager);
             H.Check("LiveAnn_AfterClear_GetHostNull",
