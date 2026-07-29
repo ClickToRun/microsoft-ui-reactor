@@ -265,10 +265,19 @@ public sealed class ItemsViewContainerRootAnalyzer : DiagnosticAnalyzer
 
     /// <summary>
     /// Matches the two-parameter lambda / anonymous method shapes a
-    /// <c>Func&lt;T, int, Element&gt;</c> argument can take and yields its body. A parameterless
-    /// <c>delegate { … }</c> is convertible to any delegate type, so it is accepted too. Method
-    /// groups and single-parameter lambdas are rejected.
+    /// <c>Func&lt;T, int, Element&gt;</c> argument can take and yields its body. Method groups and
+    /// single-parameter lambdas are rejected.
     /// </summary>
+    /// <remarks>
+    /// The anonymous-method arm is deliberately asymmetric: an anonymous method with <b>no</b>
+    /// parameter list (<c>delegate { … }</c>, <c>ParameterList is null</c>) is convertible to any
+    /// delegate type, so it really can supply a <c>viewBuilder</c> and is accepted. One with an
+    /// explicit <b>empty</b> list (<c>delegate() { … }</c>, <c>Parameters.Count == 0</c>) must match
+    /// the target signature exactly and so cannot bind here at all — it is <c>CS1593: Delegate
+    /// 'Func&lt;T, int, Element&gt;' does not take 0 arguments</c> — which is why only <c>null</c> and
+    /// <c>2</c> are accepted. Widening this to <c>Count == 0</c> would only ever run over code that
+    /// does not compile.
+    /// </remarks>
     private static bool TryGetAnonymousFunctionBody(ExpressionSyntax expression, out SyntaxNode? body)
     {
         switch (expression)
