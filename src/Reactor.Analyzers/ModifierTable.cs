@@ -6,7 +6,7 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// How a <c>.Set(x =&gt; x.PROP = v)</c> write maps onto a Reactor fluent modifier, and
 /// under what conditions suggesting that modifier is actually sound.
 /// </summary>
-public sealed class ModifierInfo
+internal sealed class ModifierInfo
 {
     internal ModifierInfo(
         string modifier,
@@ -92,7 +92,7 @@ public sealed class ModifierInfo
 /// render drops it → <c>REACTOR_MOD_002</c>, Info.</description></item>
 /// </list>
 /// </remarks>
-public static class ModifierTable
+internal static class ModifierTable
 {
     // Type groups, named once so the intent is legible at each use site.
     private static readonly string[] ControlBorderStack = { "Control", "Border", "StackPanel" };
