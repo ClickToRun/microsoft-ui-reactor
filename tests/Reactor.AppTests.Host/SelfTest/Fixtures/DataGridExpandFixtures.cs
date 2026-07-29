@@ -34,7 +34,7 @@ internal static class DataGridExpandFixtures
             Id: i,
             Name: $"Product {i}",
             Category: i % 3 == 0 ? "A" : "B",
-            Price: 10.0 + i * 5
+            Price: 10.0 + i * 5.0
         ));
         return new ListDataSource<TestProduct>(items, p => (RowKey)p.Id);
     }
