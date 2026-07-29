@@ -121,7 +121,7 @@ TextBlock("Prominent text").Set(tb =>
 10. **TextWrapping** — `NoWrap` is the default (do not set it explicitly). Choose `Wrap` when text should flow to multiple lines, or `WrapWholeWords` for body text to avoid mid-word breaks:
 
     ```csharp
-    TextBlock(paragraph).Set(tb => tb.TextWrapping = TextWrapping.WrapWholeWords)
+    TextBlock(paragraph).TextWrapping(TextWrapping.WrapWholeWords)
     ```
 
 11. **Top-align icons with text** — When icons and text are paired in wrapping layouts, prefer top alignment for both. At larger text scales, center-aligned icons drift visually:
@@ -133,7 +133,7 @@ TextBlock("Prominent text").Set(tb =>
             .Set(tb => tb.IsTextScaleFactorEnabled = false)
             .VAlign(VerticalAlignment.Top),
         TextBlock(description)
-            .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+            .TextWrapping(TextWrapping.Wrap)
             .VAlign(VerticalAlignment.Top))
     ```
 

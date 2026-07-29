@@ -297,11 +297,11 @@ public class ChatTimeline : Component<ChatTimelineProps>
                     }).Grid(row: 1, column: 0),
                     Border(Empty()).Height(24).Grid(row: 2, column: 0)
                 )
-            ).Set(sv =>
+            ).HorizontalContentAlignment(HorizontalAlignment.Stretch)
+            .Set(sv =>
             {
                 sv.HorizontalScrollBarVisibility = Microsoft.UI.Xaml.Controls.ScrollBarVisibility.Disabled;
                 sv.HorizontalScrollMode = Microsoft.UI.Xaml.Controls.ScrollMode.Disabled;
-                sv.HorizontalContentAlignment = HorizontalAlignment.Stretch;
                 if (scrollViewRef.Current != sv)
                 {
                     scrollViewRef.Current = sv;

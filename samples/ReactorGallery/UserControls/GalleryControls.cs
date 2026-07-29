@@ -247,11 +247,8 @@ public static class GalleryControls
                     TextBlock(c.Description)
                         .ApplyStyle("CaptionTextBlockStyle")
                         .Foreground(Theme.SecondaryText)
-                        .Set(tb =>
-                        {
-                            tb.TextWrapping = TextWrapping.Wrap;
-                            tb.TextTrimming = TextTrimming.WordEllipsis;
-                        })
+                        .TextWrapping(TextWrapping.Wrap)
+                        .TextTrimming(TextTrimming.WordEllipsis)
                         .Grid(row: 1, column: 1)
                 )
             )

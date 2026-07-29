@@ -172,10 +172,10 @@ class RichTextDemo : Component
             .Spacing(12)
         )
         .HorizontalScrollMode(Microsoft.UI.Xaml.Controls.ScrollMode.Disabled)
+        .HorizontalContentAlignment(Microsoft.UI.Xaml.HorizontalAlignment.Stretch)
         .Set(sv =>
         {
             sv.HorizontalScrollBarVisibility = Microsoft.UI.Xaml.Controls.ScrollBarVisibility.Disabled;
-            sv.HorizontalContentAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Stretch;
             // Scroll position is preserved automatically across inline-UI
             // mutations: the RichTextBlock descriptor anchors the ancestor
             // ScrollViewer's offset around WinUI's transient inline re-measure

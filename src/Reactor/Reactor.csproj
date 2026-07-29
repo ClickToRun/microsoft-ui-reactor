@@ -213,6 +213,8 @@
           Condition="Exists('..\..\skills\reactor.api.txt')" />
     <None Include="..\..\skills\*.md"
           Pack="true" PackagePath="agentkit/skills/" Visible="false" />
+    <None Include="..\..\skills\design-docs\*.md"
+          Pack="true" PackagePath="agentkit/skills/design-docs/" Visible="false" />
     <None Include="..\..\skills\recipes\*.md;..\..\skills\recipes\*.cs"
           Pack="true" PackagePath="agentkit/skills/recipes/" Visible="false" />
     <!-- Plugin format (Copilot CLI / Claude). Preferred path for agent loading.

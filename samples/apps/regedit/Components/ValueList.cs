@@ -34,12 +34,12 @@ internal sealed class ValueList : Component<ValueListProps>
             TextBlock(Strings.ColumnName).SemiBold().VAlign(VerticalAlignment.Center).Grid(row: 0, column: 0),
             TextBlock(Strings.ColumnType).SemiBold().VAlign(VerticalAlignment.Center).Grid(row: 0, column: 1),
             TextBlock(Strings.ColumnData).SemiBold().VAlign(VerticalAlignment.Center).Grid(row: 0, column: 2)
-        ).Set(g =>
-        {
-            g.Padding = new Thickness(8, 0, 8, 0);
-            g.BorderThickness = new Thickness(0, 0, 0, 1);
-            g.BorderBrush = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["DividerStrokeColorDefaultBrush"];
-        });
+        ).Padding(8, 0, 8, 0)
+         .BorderThickness(0, 0, 0, 1)
+         .Set(g =>
+         {
+             g.BorderBrush = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["DividerStrokeColorDefaultBrush"];
+         });
 
         var list = LazyVStack<RegistryValueEntry>(
             values,
@@ -72,11 +72,8 @@ internal sealed class ValueList : Component<ValueListProps>
                 .VAlign(VerticalAlignment.Center)
                 .Grid(row: 0, column: 1),
             TextBlock(value.DisplayData)
-                .Set(tb =>
-                {
-                    tb.TextTrimming = TextTrimming.CharacterEllipsis;
-                    tb.TextWrapping = TextWrapping.NoWrap;
-                })
+                .TextTrimming(TextTrimming.CharacterEllipsis)
+                .TextWrapping(TextWrapping.NoWrap)
                 .VAlign(VerticalAlignment.Center)
                 .Grid(row: 0, column: 2)
         ).Padding(8, 0, 8, 0)

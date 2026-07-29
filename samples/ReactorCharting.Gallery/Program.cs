@@ -126,12 +126,9 @@ class GalleryApp : Component
                 .Set("ButtonBackground", Theme.Ref("SubtleFillColorTransparentBrush"))
                 .Set("ButtonBorderBrush", Theme.Ref("SubtleFillColorTransparentBrush")))
             .FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets")
-            .Set(b =>
-            {
-                b.Padding = new Thickness(0);
-                b.MinWidth = 0;
-                b.MinHeight = 0;
-            });
+            .Padding(0)
+            .MinWidth(0)
+            .MinHeight(0);
 }
 
 // ─── Landing page — category grid of samples ─────────────────────────

@@ -152,11 +152,8 @@ class TransitionsDemo : Component
             )
                 .Width(200).CornerRadius(8)
                 .Opacity(comboOpacity)
-                .Set(g =>
-                {
-                    g.Background = new SolidColorBrush(ColorFromHex(comboBg));
-                    g.Scale = new global::System.Numerics.Vector3((float)comboScale, (float)comboScale, 1);
-                })
+                .Background(new SolidColorBrush(ColorFromHex(comboBg)))
+                .Scale(new global::System.Numerics.Vector3((float)comboScale, (float)comboScale, 1))
                 .OpacityTransition(TimeSpan.FromMilliseconds(400))
                 .ScaleTransition()
                 .BackgroundTransition(TimeSpan.FromMilliseconds(400)),

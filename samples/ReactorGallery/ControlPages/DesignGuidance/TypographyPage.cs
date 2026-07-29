@@ -221,11 +221,8 @@ TextBlock(""Caption"").ApplyStyle(""CaptionTextBlockStyle"")");
                 Border(
                     TextBlock("This is a long line of text that will be trimmed with an ellipsis when it reaches the edge of its container.")
                         .Foreground(Theme.PrimaryText)
-                        .Set(tb =>
-                        {
-                            tb.TextWrapping = TextWrapping.NoWrap;
-                            tb.TextTrimming = TextTrimming.CharacterEllipsis;
-                        })
+                        .TextWrapping(TextWrapping.NoWrap)
+                        .TextTrimming(TextTrimming.CharacterEllipsis)
                 )
                 .Background(Theme.SubtleFill)
                 .WithBorder(Theme.DividerStroke)
@@ -237,12 +234,9 @@ TextBlock(""Caption"").ApplyStyle(""CaptionTextBlockStyle"")");
                 Border(
                     TextBlock("This paragraph wraps but is limited to two lines. Any additional content beyond the second line is trimmed with an ellipsis to keep the layout compact and predictable.")
                         .Foreground(Theme.PrimaryText)
-                        .Set(tb =>
-                        {
-                            tb.TextWrapping = TextWrapping.Wrap;
-                            tb.TextTrimming = TextTrimming.CharacterEllipsis;
-                            tb.MaxLines = 2;
-                        })
+                        .TextWrapping(TextWrapping.Wrap)
+                        .TextTrimming(TextTrimming.CharacterEllipsis)
+                        .MaxLines(2)
                 )
                 .Background(Theme.SubtleFill)
                 .WithBorder(Theme.DividerStroke)
@@ -256,18 +250,14 @@ TextBlock(""Long text..."")
 
 // Trimming with ellipsis
 TextBlock(""Long text..."")
-    .Set(tb => {
-        tb.TextWrapping = TextWrapping.NoWrap;
-        tb.TextTrimming = TextTrimming.CharacterEllipsis;
-    })
+    .TextWrapping(TextWrapping.NoWrap)
+    .TextTrimming(TextTrimming.CharacterEllipsis)
 
 // Max lines with trimming
 TextBlock(""Long text..."")
-    .Set(tb => {
-        tb.TextWrapping = TextWrapping.Wrap;
-        tb.TextTrimming = TextTrimming.CharacterEllipsis;
-        tb.MaxLines = 2;
-    })");
+    .TextWrapping(TextWrapping.Wrap)
+    .TextTrimming(TextTrimming.CharacterEllipsis)
+    .MaxLines(2)");
 
     // ── Section 7: Text color with typography ────────────────────────
 

@@ -75,12 +75,12 @@ public sealed class CellComponent : Component<CellProps>
                     .FontWeight(FontWeights.Bold)
                     .HAlign(HorizontalAlignment.Center)
                     .VAlign(VerticalAlignment.Center)
+                    .Padding(0)
                     .Set(tb =>
                     {
                         tb.LineHeight = p.Size;        // pin baseline so emoji descenders don't clip
                         tb.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
                         tb.TextAlignment = TextAlignment.Center;
-                        tb.Padding = new Thickness(0);
                     }),
                 glyphColor);
 
@@ -307,17 +307,13 @@ public sealed class CellComponent : Component<CellProps>
             ? (shadow, highlight)
             : (highlight, shadow);
 
-        var withBR = inner.Set(b =>
-        {
-            b.BorderThickness = new Thickness(0, 0, 2, 2);
-            b.BorderBrush = bottomRightBrush;
-        });
+        var withBR = inner
+            .BorderThickness(0, 0, 2, 2)
+            .Set(b => b.BorderBrush = bottomRightBrush);
 
-        return Border(withBR).Set(b =>
-        {
-            b.BorderThickness = new Thickness(2, 2, 0, 0);
-            b.BorderBrush = topLeftBrush;
-        });
+        return Border(withBR)
+            .BorderThickness(2, 2, 0, 0)
+            .Set(b => b.BorderBrush = topLeftBrush);
     }
 
     static BorderElement WithBackground(BorderElement el, object bg) => bg switch

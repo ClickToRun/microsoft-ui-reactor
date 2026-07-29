@@ -54,15 +54,13 @@ public class SessionListItem : Component<SessionListItemProps>
                 selectedBar.Grid(row: 0, column: 0)
             ),
             () => Props.OnSelect(S.Id)
-        ).Set(b =>
-        {
-            b.BorderThickness = new Thickness(0);
-            b.Padding = new Thickness(0);
-            b.CornerRadius = new CornerRadius(0);
-            b.HorizontalAlignment = HorizontalAlignment.Stretch;
-            b.HorizontalContentAlignment = HorizontalAlignment.Stretch;
-            b.ContextFlyout = BuildContextMenu();
-        }).Resources(r => r
+        ).BorderThickness(0)
+        .Padding(0)
+        .CornerRadius(0)
+        .HAlign(HorizontalAlignment.Stretch)
+        .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+        .Set(b => b.ContextFlyout = BuildContextMenu())
+        .Resources(r => r
             .Set("ButtonBackground", Props.IsSelected ? Ref("SubtleFillColorTertiaryBrush") : Ref("SubtleFillColorTransparentBrush"))
             .Set("ButtonBackgroundPointerOver", Ref("SubtleFillColorSecondaryBrush"))
             .Set("ButtonBackgroundPressed", Ref("SubtleFillColorTertiaryBrush"))

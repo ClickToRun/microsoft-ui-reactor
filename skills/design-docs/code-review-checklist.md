@@ -21,7 +21,7 @@ Use this checklist when reviewing Reactor UI code for Windows 11 design complian
 - [ ] `FontWeight` is SemiBold (600), not Bold (700) — except `Heading()` page titles
 - [ ] Applied WinUI styles via `.Set()` don't also re-declare properties the style already defines
 - [ ] Minimum font size is 12px
-- [ ] Icon fonts use `SymbolThemeFontFamily` — not hardcoded `"Segoe Fluent Icons"`
+- [ ] Icon fonts use `SymbolThemeFontFamily` where a live `Application.Current` is available; an explicit `"Segoe Fluent Icons, Segoe MDL2 Assets"` stack is acceptable as a static fallback — never a bare `"Segoe MDL2 Assets"` (Windows 10 legacy) or a bare `"Segoe Fluent Icons"` (no Windows 10 tail)
 - [ ] Font family applied via the `.FontFamily(...)` modifier, not `.Set(x => x.FontFamily = new FontFamily(...))` (which allocates per render, blocks the skip-update path, and is never unwound)
 - [ ] Icon TextBlocks set `IsTextScaleFactorEnabled = false`
 - [ ] Icons and text top-aligned in wrapping scenarios (not center, which drifts at large text scales)

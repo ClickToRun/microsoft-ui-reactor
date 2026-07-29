@@ -1746,6 +1746,29 @@ internal static class ReconcilerBigCoverageFixtures
             };
             H.Check("PrivMount_IconSources", iconSources.Take(6).All(i => i is not null));
 
+            // The symbol-glyph fallback font must keep BOTH families: "Segoe Fluent
+            // Icons" (Windows 11) and the "Segoe MDL2 Assets" tail (Windows 10, still a
+            // supported WinUI 3 target). Assert the exact stack rather than non-null, so
+            // reverting either half — or dropping back to a single family — fails here.
+            var fallbackSource = WinRTCache.GetFontFamily(IconResolver.SymbolFontFallback).Source;
+            H.Check("PrivMount_SymbolFontFallbackStack",
+                fallbackSource == "Segoe Fluent Icons, Segoe MDL2 Assets");
+
+            // …and both glyph resolvers must actually consume it. With
+            // SymbolThemeFontFamily present (the case under a live app, so the arm this
+            // fixture normally takes) the resolved family is that resource; without it,
+            // exactly the fallback. This guards the resolver wiring — a hardcoded third
+            // family fails both arms — while the check above guards the constant itself.
+            // "\uE700" is not a Symbol enum name, so it takes the glyph path.
+            var themeFont = Application.Current?.Resources["SymbolThemeFontFamily"]
+                as Microsoft.UI.Xaml.Media.FontFamily;
+            var expectedGlyphFont = themeFont?.Source ?? fallbackSource;
+            var glyphIcon = IconResolver.ResolveIconString("\uE700") as WinXC.FontIcon;
+            var glyphIconSource = IconResolver.ResolveIconSource("\uE700") as WinXC.FontIconSource;
+            H.Check("PrivMount_SymbolGlyphUsesFallbackStack",
+                glyphIcon?.FontFamily?.Source == expectedGlyphFont
+                && glyphIconSource?.FontFamily?.Source == expectedGlyphFont);
+
             // Regression: a FontIcon with NO explicit FontSize must resolve to a
             // FontIconSource that TitleBar.IconSource accepts. The IconSource path
             // used to force FontSize = double.NaN, which TitleBar.set_IconSource
