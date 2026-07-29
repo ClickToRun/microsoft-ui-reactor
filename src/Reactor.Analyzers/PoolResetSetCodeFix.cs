@@ -28,7 +28,8 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// </para>
 /// <para>
 /// Multi-statement bodies are converted all-or-nothing; see
-/// <see cref="TryBuildChain"/> for why a partial extraction is not offered.
+/// <see cref="TryBuildChain"/> for why a partial extraction is not offered, and
+/// <see cref="TryBuildCarriedTrivia"/> for how comments are preserved.
 /// </para>
 /// </remarks>
 [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(PoolResetSetCodeFix))]
@@ -86,6 +87,9 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
             var steps = TryBuildChain(assignments, reported);
             if (steps is null) continue; // Mixed or untranslatable body — leave the diagnostic unfixed.
 
+            var carriedTrivia = TryBuildCarriedTrivia(args[0].Expression, assignments);
+            if (carriedTrivia is null) continue; // A comment with nowhere safe to go.
+
             var title = steps.Count == 1
                 ? $"Use .{steps[0].Modifier}() modifier"
                 : $"Use .{string.Join("().", steps.Select(s => s.Modifier))}() modifiers";
@@ -98,14 +102,29 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
                         // Chain in source order so any ordering the author relied on between
                         // the writes is preserved.
                         ExpressionSyntax rewritten = memberAccess.Expression;
-                        foreach (var step in steps)
+                        for (var i = 0; i < steps.Count; i++)
                         {
+                            // Trivia that preceded the statement hangs off the END of what came
+                            // before, not the start of this step — the same reason Roslyn puts it
+                            // on the separator comma. Attaching it to the dot instead would make
+                            // the formatter treat a same-line trailing comment as leading the next
+                            // call and move it onto its own line.
+                            var (preceding, own) = carriedTrivia[i];
+                            if (preceding.Count > 0)
+                            {
+                                rewritten = rewritten.WithTrailingTrivia(
+                                    rewritten.GetTrailingTrivia().AddRange(preceding));
+                            }
+
+                            var dot = SyntaxFactory.Token(SyntaxKind.DotToken).WithLeadingTrivia(own);
+
                             rewritten = SyntaxFactory.InvocationExpression(
                                 SyntaxFactory.MemberAccessExpression(
                                     SyntaxKind.SimpleMemberAccessExpression,
                                     rewritten,
-                                    SyntaxFactory.IdentifierName(step.Modifier)),
-                                step.Arguments);
+                                    dot,
+                                    SyntaxFactory.IdentifierName(steps[i].Modifier)),
+                                steps[i].Arguments);
                         }
 
                         var newRoot = root.ReplaceNode(invocation, rewritten.WithTriviaFrom(invocation));
@@ -115,6 +134,104 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
                 diagnostic);
         }
     }
+
+    /// <summary>
+    /// Work out the trivia to place before each modifier call's <c>.</c>, or <c>null</c> when
+    /// a comment in the body has nowhere safe to go.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Follows Roslyn's own N-statements-to-one-expression fix rather than inventing a scheme:
+    /// <c>CSharpUseObjectInitializerCodeFixProvider.CreateExpressions</c> carries each matched
+    /// statement's leading trivia onto the initializer element that statement becomes. The
+    /// fluent-chain analogue is the <c>.</c> that introduces each modifier call — a legal
+    /// comment position, and safe for <c>//</c> because the statement's original line breaks
+    /// travel with it.
+    /// </para>
+    /// <para>
+    /// Carried all-or-nothing so the common uncommented body still collapses onto one line:
+    /// with no comments anywhere the chain takes no trivia at all, and a single comment makes
+    /// every step take its original line break, yielding a formatted multi-line chain instead
+    /// of one long line with a comment wedged into it.
+    /// </para>
+    /// <para>
+    /// Roslyn can additionally park its last statement's <em>trailing</em> trivia on the last
+    /// element, because an initializer is followed by <c>}</c>. A chain is not: a trailing
+    /// <c>//</c> on the final statement would land immediately before the enclosing <c>;</c>
+    /// and comment it out. A trailing comment on any <em>earlier</em> statement is fine — it
+    /// rides along on the next step's <c>.</c> and stays on the line the author wrote it on —
+    /// but anything that cannot be placed exactly declines the fix, the same all-or-nothing
+    /// rule the rest of this fix follows.
+    /// </para>
+    /// </remarks>
+    private static List<(SyntaxTriviaList Preceding, SyntaxTriviaList Own)>? TryBuildCarriedTrivia(
+        ExpressionSyntax lambda,
+        ImmutableArray<AssignmentExpressionSyntax> assignments)
+    {
+        var perStatement = new List<(SyntaxTriviaList Preceding, SyntaxTriviaList Own)>(assignments.Length);
+
+        // Spans must be gathered from the ORIGINAL attached lists. A list rebuilt with AddRange
+        // is detached and its positions restart at zero, so spans taken from a combined list
+        // would never match the ones the tree walk below reports.
+        var carried = new HashSet<TextSpan>();
+
+        foreach (var assignment in assignments)
+        {
+            // Block bodies hang their trivia off the statement; an expression body has none
+            // of its own worth carrying (it is on the invocation, which keeps it).
+            var owner = assignment.Parent is ExpressionStatementSyntax statement
+                ? (SyntaxNode)statement
+                : assignment;
+
+            // The preceding token's trailing trivia matters as much as the statement's own
+            // leading trivia: it holds the line break (and any same-line trailing comment) that
+            // makes the '//' safe and the chain readable. That token is '{' for the first
+            // statement and the previous statement's ';' after that, so one lookup covers both.
+            var precedingTrailing = owner.GetFirstToken().GetPreviousToken().TrailingTrivia;
+            var ownLeading = owner.GetLeadingTrivia();
+
+            foreach (var trivia in precedingTrailing)
+            {
+                if (IsComment(trivia))
+                    carried.Add(trivia.Span);
+            }
+            foreach (var trivia in ownLeading)
+            {
+                if (IsComment(trivia))
+                    carried.Add(trivia.Span);
+            }
+
+            perStatement.Add((precedingTrailing, ownLeading));
+        }
+
+        if (carried.Count == 0)
+        {
+            // Nothing to preserve: keep the chain compact rather than reflowing it.
+            foreach (var trivia in lambda.DescendantTrivia())
+            {
+                if (IsComment(trivia))
+                    return null;
+            }
+            return perStatement.ConvertAll(_ => (default(SyntaxTriviaList), default(SyntaxTriviaList)));
+        }
+
+        // Every comment in the body must be one we are about to carry. Anything else — a
+        // trailing comment on the final statement, one dangling before the closing brace, one
+        // inside the lambda header or an assignment — would be dropped by the rewrite.
+        foreach (var trivia in lambda.DescendantTrivia())
+        {
+            if (IsComment(trivia) && !carried.Contains(trivia.Span))
+                return null;
+        }
+
+        return perStatement;
+    }
+
+    private static bool IsComment(SyntaxTrivia trivia)
+        => trivia.IsKind(SyntaxKind.SingleLineCommentTrivia)
+            || trivia.IsKind(SyntaxKind.MultiLineCommentTrivia)
+            || trivia.IsKind(SyntaxKind.SingleLineDocumentationCommentTrivia)
+            || trivia.IsKind(SyntaxKind.MultiLineDocumentationCommentTrivia);
 
     /// <summary>
     /// Build the ordered modifier chain replacing a whole <c>.Set(...)</c> body, or

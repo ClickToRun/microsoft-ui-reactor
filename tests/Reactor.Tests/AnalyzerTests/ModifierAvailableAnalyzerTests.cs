@@ -522,6 +522,117 @@ class C
     }
 
     [Fact]
+    public async Task CodeFix_Carries_Comments_Onto_The_Chain()
+    {
+        // Matches Roslyn's UseObjectInitializer, which carries each matched statement's
+        // leading trivia onto the element that statement becomes. Here that element is the '.'
+        // introducing the modifier call — a legal comment position, and safe for '//' because
+        // the statement's own line break travels with it.
+        var before = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => {|REACTOR_MOD_002:{|REACTOR_MOD_002:b.Set(c =>
+    {
+        // theme spec says disabled until loaded
+        c.IsEnabled = false;
+        c.Padding = new Thickness(4);
+    })|}|};
+}";
+        var after = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => b
+        // theme spec says disabled until loaded
+        .IsEnabled(false)
+        .Padding(4);
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Preserves_A_Trailing_Comment_Between_The_Calls()
+    {
+        // Carrying the PRECEDING token's trailing trivia (not just the statement's own leading
+        // trivia) is what gives a same-line trailing comment a home. It is attached to the end
+        // of the previous call — the same slot Roslyn uses when it hangs a statement's
+        // semicolon trivia off the separator comma — so the raw rewrite reads
+        //     .IsEnabled(false) // only until the theme loads
+        // and Roslyn's formatter then normalises it onto its own line. Either way the comment
+        // survives and stays between the two calls it separated as statements. Only the FINAL
+        // statement's trailing comment has nowhere to go — see the decline test below.
+        var before = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => {|REACTOR_MOD_002:{|REACTOR_MOD_002:b.Set(c =>
+    {
+        c.IsEnabled = false; // only until the theme loads
+        c.Padding = new Thickness(4);
+    })|}|};
+}";
+        var after = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => b
+        .IsEnabled(false)
+        // only until the theme loads
+        .Padding(4);
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Declines_When_A_Trailing_Comment_Has_Nowhere_To_Go()
+    {
+        // Roslyn can park its last statement's trailing trivia on the last initializer element
+        // because a '}' follows. A chain has no such slot: this comment would land immediately
+        // before the enclosing ';' and comment it out. Declining beats relocating it to a line
+        // the author did not write it on.
+        var source = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => {|REACTOR_MOD_002:{|REACTOR_MOD_002:b.Set(c =>
+    {
+        c.IsEnabled = false;
+        c.Padding = new Thickness(4); // matches the design token
+    })|}|};
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Declines_When_A_Comment_Dangles_Before_The_Closing_Brace()
+    {
+        // Leading trivia of '}' — not attached to any statement, so no step would carry it.
+        var source = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => {|REACTOR_MOD_002:{|REACTOR_MOD_002:b.Set(c =>
+    {
+        c.IsEnabled = false;
+        c.Padding = new Thickness(4);
+        // TODO: revisit once theming lands
+    })|}|};
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task CodeFix_Declines_Body_Containing_A_Preprocessor_Directive()
     {
         // Conditionally-compiled statements are inactive *trivia*, not members of
