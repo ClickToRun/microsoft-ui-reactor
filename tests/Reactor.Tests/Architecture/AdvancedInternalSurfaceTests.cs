@@ -489,9 +489,8 @@ public class AdvancedInternalSurfaceTests
         {
             if (core.GetString(method.Name) is not (".ctor" or ".cctor")) return false;
 
-            foreach (var handle in method.GetCustomAttributes())
+            foreach (var attribute in method.GetCustomAttributes().Select(core.GetCustomAttribute))
             {
-                var attribute = core.GetCustomAttribute(handle);
                 if (attribute.Constructor.Kind != HandleKind.MemberReference) continue;
 
                 var ctor = core.GetMemberReference((MemberReferenceHandle)attribute.Constructor);
