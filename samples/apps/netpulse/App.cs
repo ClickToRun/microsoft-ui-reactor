@@ -129,11 +129,8 @@ sealed class App : Component
                 Component<ConnectionSparklines, ConnectionSparklinesProps>(
                     new(sparklineData))
             ).Height(300)
-        ).Set(s =>
-        {
-            s.HorizontalAlignment = HorizontalAlignment.Stretch;
-            s.VerticalAlignment = VerticalAlignment.Top;
-        });
+        ).HAlign(HorizontalAlignment.Stretch)
+         .VAlign(VerticalAlignment.Top);
     }
 
     static Microsoft.UI.Xaml.Media.SolidColorBrush Gray(byte v) =>

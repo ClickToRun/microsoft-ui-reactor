@@ -301,20 +301,26 @@ class C
     }
 
     [Fact]
-    public async Task No_Diagnostic_For_Block_Bodied_Lambda_With_Multiple_Statements()
+    public async Task Diagnostic_For_Block_Bodied_Lambda_With_Multiple_Statements()
     {
-        // Multi-statement block bodies are intentionally not detected in v1:
-        // the codefix can't safely rewrite them (it would need to extract the
-        // matched assignment while preserving the rest of the body), and the
-        // analyzer mirrors the codefix scope. If a future PR adds multi-stmt
-        // support, this test should flip to a positive case.
+        // Flipped from No_Diagnostic_For_Block_Bodied_Lambda_With_Multiple_Statements, which
+        // scoped detection to the codefix's reach and said: "If a future PR adds multi-stmt
+        // support, this test should flip to a positive case." This is that change.
+        //
+        // The analyzer now reports every modifier-backed assignment in the body, while
+        // PoolResetSetCodeFix still declines to rewrite multi-statement lambdas (it would
+        // have to extract one assignment and preserve the rest). Diagnostic and fix scope
+        // are therefore deliberately no longer identical — a real trap is reported even when
+        // it cannot be auto-fixed, which matters because this shape hid live bugs: the
+        // widening immediately surfaced MaxWidth/MaxHeight writes in minesweeper's App.cs
+        // that were silently lost on pool reuse.
         var source = Stubs + @"
 class C
 {
     void M()
     {
         var el = new FakeElement();
-        el.Set(fe => { fe.MaxHeight = 260; fe.MinHeight = 100; });
+        {|REACTOR_POOL_001:{|REACTOR_POOL_001:el.Set(fe => { fe.MaxHeight = 260; fe.MinHeight = 100; })|}|};
     }
 }";
 

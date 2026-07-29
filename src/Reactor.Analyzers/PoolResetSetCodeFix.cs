@@ -26,7 +26,9 @@ namespace Microsoft.UI.Reactor.Analyzers;
 public sealed class PoolResetSetCodeFix : CodeFixProvider
 {
     public override ImmutableArray<string> FixableDiagnosticIds =>
-        ImmutableArray.Create(PoolResetSetAnalyzer.DiagnosticId);
+        ImmutableArray.Create(
+            PoolResetSetAnalyzer.DiagnosticId,
+            PoolResetSetAnalyzer.ModifierAvailableDiagnosticId);
 
     public override FixAllProvider GetFixAllProvider() => WellKnownFixAllProviders.BatchFixer;
 
@@ -50,8 +52,9 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
             if (assignment.Left is not MemberAccessExpressionSyntax leftAccess) continue;
 
             var propName = leftAccess.Name.Identifier.Text;
-            if (!PoolResetSetAnalyzer.TrappedProperties.TryGetValue(propName, out var modifierName))
+            if (!ModifierTable.Properties.TryGetValue(propName, out var info))
                 continue;
+            var modifierName = info.Modifier;
 
             var modifierArgs = TryBuildModifierArguments(propName, assignment.Right);
             if (modifierArgs is null) continue; // Cannot safely translate RHS; leave the warning unfixed.
@@ -72,7 +75,7 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
                         var newRoot = root.ReplaceNode(invocation, newInvocation);
                         return Task.FromResult(context.Document.WithSyntaxRoot(newRoot));
                     },
-                    equivalenceKey: PoolResetSetAnalyzer.DiagnosticId + ":" + modifierName),
+                    equivalenceKey: diagnostic.Id + ":" + modifierName),
                 diagnostic);
         }
     }
@@ -87,37 +90,37 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
     /// </returns>
     private static ArgumentListSyntax? TryBuildModifierArguments(string propName, ExpressionSyntax value)
     {
-        // The FrameworkElement.Margin property is a Thickness, but Reactor's
-        // .Margin(...) modifier overloads all take doubles. Translate the
-        // common literal shapes:
-        //   new Thickness(uniform)           → .Margin(uniform)
-        //   new Thickness(l, t, r, b)        → .Margin(l, t, r, b)
-        // Other RHS shapes (variables, member access, Thickness without
-        // constructor args, etc.) we can't rewrite safely — skip the fix.
-        if (propName == "Margin")
+        // Margin/Padding/BorderThickness are Thickness-typed properties whose modifiers all
+        // take doubles, and CornerRadius is the same shape with a CornerRadius struct.
+        // Translate the literal constructor forms:
+        //   new Thickness(uniform)      → .Padding(uniform)
+        //   new Thickness(l, t, r, b)   → .Padding(l, t, r, b)
+        // Other RHS shapes (variables, member access, no-arg construction) cannot be
+        // rewritten safely — skip the fix and leave the diagnostic for a human.
+        if (propName is "Margin" or "Padding" or "BorderThickness" or "CornerRadius")
         {
+            var structName = propName == "CornerRadius" ? "CornerRadius" : "Thickness";
             if (value is not ObjectCreationExpressionSyntax oce) return null;
-            if (!IsThicknessType(oce.Type)) return null;
+            if (!IsNamedType(oce.Type, structName)) return null;
             var ctorArgs = oce.ArgumentList?.Arguments;
             if (ctorArgs is null) return null;
-            // Thickness has constructors for 0, 1, and 4 args. The 0-arg
-            // (default Thickness) is not interesting; 1 and 4 map cleanly to
-            // Margin(double) and Margin(double, double, double, double).
+            // Both structs have 0/1/4-arg constructors. The 0-arg form is not interesting;
+            // 1 and 4 map cleanly onto the uniform and per-edge modifier overloads.
             if (ctorArgs.Value.Count is 1 or 4)
                 return SyntaxFactory.ArgumentList(SyntaxFactory.SeparatedList(ctorArgs.Value));
             return null;
         }
 
         // All other tracked properties: the modifier accepts the same type
-        // as the property (double / enum / string), so pass the RHS through.
+        // as the property (double / enum / string / Brush), so pass the RHS through.
         return SyntaxFactory.ArgumentList(
             SyntaxFactory.SingletonSeparatedList(SyntaxFactory.Argument(value)));
     }
 
-    private static bool IsThicknessType(TypeSyntax type) => type switch
+    private static bool IsNamedType(TypeSyntax type, string simpleName) => type switch
     {
-        IdentifierNameSyntax { Identifier.Text: "Thickness" } => true,
-        QualifiedNameSyntax q when q.Right.Identifier.Text == "Thickness" => true,
+        IdentifierNameSyntax id => id.Identifier.Text == simpleName,
+        QualifiedNameSyntax q => q.Right.Identifier.Text == simpleName,
         _ => false,
     };
 }

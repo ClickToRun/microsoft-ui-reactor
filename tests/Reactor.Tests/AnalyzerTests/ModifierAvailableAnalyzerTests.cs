@@ -7,7 +7,7 @@ using Xunit;
 namespace Microsoft.UI.Reactor.Tests.AnalyzerTests;
 
 /// <summary>
-/// Tests for <see cref="SetModifierAvailableAnalyzer"/> (<c>REACTOR_MOD_002</c>).
+/// Tests for <see cref="PoolResetSetAnalyzer"/> (<c>REACTOR_MOD_002</c>).
 /// <para>
 /// The gating tests are the point of this file. <c>ApplyModifiers</c> applies
 /// <c>Padding</c>/<c>CornerRadius</c>/<c>BorderThickness</c>/<c>BorderBrush</c>/<c>Background</c>
@@ -17,7 +17,7 @@ namespace Microsoft.UI.Reactor.Tests.AnalyzerTests;
 /// ValueList.cs (a Grid) and CellComponent.cs (a TextBlock).
 /// </para>
 /// </summary>
-public class SetModifierAvailableAnalyzerTests
+public class ModifierAvailableAnalyzerTests
 {
     private const string Stubs = @"
 using System;
@@ -118,7 +118,7 @@ class C
 {
     ButtonElement M(ButtonElement b) => {|REACTOR_MOD_002:b.Set(c => c.IsEnabled = false)|};
 }";
-        await new CSharpAnalyzerTest<SetModifierAvailableAnalyzer, DefaultVerifier>
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
@@ -133,7 +133,7 @@ class C
 {
     ButtonElement M(ButtonElement b) => {|REACTOR_MOD_002:{|REACTOR_MOD_002:b.Set(c => { c.IsEnabled = false; c.Padding = new Thickness(4); })|}|};
 }";
-        await new CSharpAnalyzerTest<SetModifierAvailableAnalyzer, DefaultVerifier>
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
@@ -149,7 +149,7 @@ class C
 {
     ButtonElement M(ButtonElement b) => {|REACTOR_MOD_002:b.Set(c => c.Padding = new Thickness(8))|};
 }";
-        await new CSharpAnalyzerTest<SetModifierAvailableAnalyzer, DefaultVerifier>
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
@@ -166,7 +166,7 @@ class C
 {
     GridElement M(GridElement g) => g.Set(x => x.Padding = new Thickness(8));
 }";
-        await new CSharpAnalyzerTest<SetModifierAvailableAnalyzer, DefaultVerifier>
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
@@ -180,7 +180,7 @@ class C
 {
     GridElement M(GridElement g) => g.Set(x => x.BorderThickness = new Thickness(1));
 }";
-        await new CSharpAnalyzerTest<SetModifierAvailableAnalyzer, DefaultVerifier>
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
@@ -198,7 +198,7 @@ class C
     GridElement M(GridElement g, Microsoft.UI.Xaml.Media.Brush brush)
         => {|REACTOR_MOD_002:g.Set(x => x.Background = brush)|};
 }";
-        await new CSharpAnalyzerTest<SetModifierAvailableAnalyzer, DefaultVerifier>
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
@@ -216,7 +216,7 @@ class C
     StackElement A(StackElement s) => {|REACTOR_MOD_002:s.Set(x => x.Padding = new Thickness(4))|};
     StackElement B(StackElement s) => s.Set(x => x.CornerRadius = new CornerRadius(4));
 }";
-        await new CSharpAnalyzerTest<SetModifierAvailableAnalyzer, DefaultVerifier>
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
@@ -238,7 +238,7 @@ class C
     ButtonElement M(ButtonElement b) => b.Set(c => c.Background = null);
     ButtonElement N(ButtonElement b) => b.Set(c => c.Background = default);
 }";
-        await new CSharpAnalyzerTest<SetModifierAvailableAnalyzer, DefaultVerifier>
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
@@ -255,7 +255,7 @@ class C
     ButtonElement M(ButtonElement b) => {|REACTOR_MOD_002:b.Set(c => c.HorizontalContentAlignment = HorizontalAlignment.Left)|};
     ButtonElement N(ButtonElement b, Microsoft.UI.Xaml.Media.Brush brush) => {|REACTOR_MOD_002:b.Set(c => c.Background = brush)|};
 }";
-        await new CSharpAnalyzerTest<SetModifierAvailableAnalyzer, DefaultVerifier>
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
@@ -273,7 +273,7 @@ class C
 {
     ButtonElement M(ButtonElement b) => b.Set(c => c.Name = ""x"");
 }";
-        await new CSharpAnalyzerTest<SetModifierAvailableAnalyzer, DefaultVerifier>
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
@@ -290,7 +290,7 @@ class C
 {
     ButtonElement M(ButtonElement b) => b.Set(c => c.RequestedTheme = 1);
 }";
-        await new CSharpAnalyzerTest<SetModifierAvailableAnalyzer, DefaultVerifier>
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
@@ -306,7 +306,7 @@ class C
     ButtonElement M(ButtonElement b, Microsoft.UI.Xaml.Controls.Button other)
         => b.Set(c => other.IsEnabled = false);
 }";
-        await new CSharpAnalyzerTest<SetModifierAvailableAnalyzer, DefaultVerifier>
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
@@ -326,9 +326,10 @@ class C
 {
     string M(string s) => s.Set(t => t.IsEnabled = false);
 }";
-        await new CSharpAnalyzerTest<SetModifierAvailableAnalyzer, DefaultVerifier>
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 }
+

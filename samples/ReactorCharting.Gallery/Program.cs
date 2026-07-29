@@ -236,11 +236,8 @@ class SampleDetailPage : Component<GallerySample>
                         .Foreground(Theme.PrimaryText)
                     )
                     .HorizontalScrollMode(ScrollMode.Auto)
-                    .Set(sv =>
-                    {
-                        sv.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
-                        sv.MaxHeight = 400;
-                    })
+                    .MaxHeight(400)
+                    .Set(sv => sv.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto)
                 )
                 .Background(Theme.LayerFill)
                 .WithBorder(Theme.SurfaceStroke)
