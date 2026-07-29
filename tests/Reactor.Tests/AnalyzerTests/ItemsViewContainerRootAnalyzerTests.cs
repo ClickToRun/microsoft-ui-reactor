@@ -57,6 +57,12 @@ namespace Microsoft.UI.Reactor
             IReadOnlyList<T> items, Func<T, string> keySelector, Func<T, int, Element> viewBuilder)
             => new TemplatedListViewElement<T>();
 
+        // A near-miss overload on the SAME Factories type with a parameter genuinely named
+        // viewBuilder, but a different delegate shape — the Func<T, int, Element> pin must reject it.
+        public static TemplatedListViewElement<T> ItemsView<T>(
+            IReadOnlyList<T> items, Func<T, string> keySelector, Func<T, string, Element> viewBuilder, bool grouped)
+            => new TemplatedListViewElement<T>();
+
         public static ItemContainerElement ItemContainer(Element child) => new ItemContainerElement(child);
         public static FancyContainerElement FancyContainer(Element child) => new FancyContainerElement(child);
         public static BorderElement Border(Element child) => new BorderElement(child);
@@ -105,6 +111,11 @@ namespace TestApp
         public static Element Loose(Product p) => ItemContainer(TextBlock(p.Name));
         public static Element Build(Product p, int i) => ItemContainer(TextBlock(p.Name));
         public static Element BuildLoose(Product p, int i) => Border(TextBlock(p.Name));
+        public static BorderElement BuildBorder(Product p, int i) => Border(TextBlock(p.Name));
+        public static ItemContainerElement BuildTyped(Product p, int i) => ItemContainer(TextBlock(p.Name));
+        public static TElement BuildGeneric<TElement>(Product p, int i) where TElement : Element => default;
+        public static BorderElement BuildOverloaded(Product p, int i) => Border(TextBlock(p.Name));
+        public static ItemContainerElement BuildOverloaded(Product p, string s) => ItemContainer(TextBlock(p.Name));
     }
 
     public static class C
@@ -200,8 +211,29 @@ namespace TestApp
             });");
 
     [Fact]
+    public Task Fires_For_Parameterless_Anonymous_Method() =>
+        // `delegate { … }` is convertible to any delegate type, so it binds to viewBuilder with no
+        // parameter list at all.
+        Verify(@"            ItemsView(products, p => p.Name, delegate
+            {
+                return {|REACTOR_ITEMS_002:Border(TextBlock(""row""))|};
+            });");
+
+    [Fact]
     public Task Fires_For_Helper_Typed_To_A_Concrete_NonContainer() =>
         Verify(@"            ItemsView(products, p => p.Name, (p, i) => {|REACTOR_ITEMS_002:Border(Rows.Loose(p))|});");
+
+    [Fact]
+    public Task Fires_For_Method_Group_Declared_To_Return_A_Concrete_NonContainer() =>
+        // No lambda, but the helper's declared return type decides every realized root just as
+        // surely — the same soundness test applies.
+        Verify(@"            ItemsView(products, p => p.Name, {|REACTOR_ITEMS_002:Rows.BuildBorder|});");
+
+    [Fact]
+    public Task Fires_For_The_Overload_A_Method_Group_Actually_Converts_To() =>
+        // BuildOverloaded has a (Product, string) overload returning ItemContainerElement; the
+        // delegate conversion selects the (Product, int) one, which returns BorderElement.
+        Verify(@"            ItemsView(products, p => p.Name, {|REACTOR_ITEMS_002:Rows.BuildOverloaded|});");
 
     // ── Negative: silent ────────────────────────────────────────────────
 
@@ -248,9 +280,24 @@ namespace TestApp
         Verify(@"            ItemsView(products, p => p.Name, (p, i) => i switch { 0 => ItemContainer(TextBlock(p.Name)), _ => ItemContainer(null) });");
 
     [Fact]
-    public Task Silent_For_Method_Group_ViewBuilder() =>
-        // No return expression to type-check; the mount-time guard still covers it.
+    public Task Silent_For_Method_Group_Declared_To_Return_Element() =>
+        // Statically known as the base type only — the helper may well return a container, so this
+        // is left to the mount-time guard. This is the shape samples/Reactor.TestApp uses.
         Verify(@"            ItemsView(products, p => p.Name, Rows.BuildLoose);");
+
+    [Fact]
+    public Task Silent_For_Method_Group_Returning_ItemContainerElement() =>
+        Verify(@"            ItemsView(products, p => p.Name, Rows.BuildTyped);");
+
+    [Fact]
+    public Task Silent_For_Method_Group_With_A_Type_Parameter_Return() =>
+        Verify(@"            ItemsView(products, p => p.Name, Rows.BuildGeneric<ItemContainerElement>);");
+
+    [Fact]
+    public Task Silent_For_A_Delegate_Typed_Local() =>
+        // A local holding a delegate is opaque: the analyzer cannot see what it points at.
+        Verify(@"            Func<Product, int, Element> builder = (p, i) => Border(TextBlock(p.Name));
+            ItemsView(products, p => p.Name, builder);");
 
     [Fact]
     public Task Silent_For_Return_Inside_A_Nested_Lambda() =>
@@ -279,6 +326,13 @@ namespace TestApp
     [Fact]
     public Task Silent_For_SameNamed_ItemsView_On_An_Unrelated_Type() =>
         Verify(@"            Look.Widgets.ItemsView(products, p => p.Name, (p, i) => Border(TextBlock(p.Name)));");
+
+    [Fact]
+    public Task Silent_For_A_ViewBuilder_Overload_With_A_Different_Delegate_Shape() =>
+        // Same Factories type, same parameter name, but Func<T, string, Element> rather than
+        // Func<T, int, Element> — a future grouped/sectioned builder must not be misread as the
+        // per-item one whose root ItemsView constrains.
+        Verify(@"            ItemsView(products, p => p.Name, (p, s) => Border(TextBlock(p.Name)), true);");
 
     // ── Code fix ────────────────────────────────────────────────────────
 
@@ -309,6 +363,20 @@ namespace TestApp
     public Task Fix_Wraps_A_Conditional_Whole() => Fix(
         before: @"            ItemsView(products, p => p.Name, (p, i) => {|REACTOR_ITEMS_002:i == 0 ? Border(TextBlock(p.Name)) : Border(null)|});",
         after: @"            ItemsView(products, p => p.Name, (p, i) => ItemContainer(i == 0 ? Border(TextBlock(p.Name)) : Border(null)));");
+
+    [Fact]
+    public Task Fix_Wraps_Every_Offending_Return_In_One_Document() => Fix(
+        // Two diagnostics in one lambda — exercises the batch / fix-all path.
+        before: @"            ItemsView(products, p => p.Name, (p, i) =>
+            {
+                if (i == 0) return {|REACTOR_ITEMS_002:HStack(TextBlock(p.Name))|};
+                return {|REACTOR_ITEMS_002:Border(TextBlock(p.Name))|};
+            });",
+        after: @"            ItemsView(products, p => p.Name, (p, i) =>
+            {
+                if (i == 0) return ItemContainer(HStack(TextBlock(p.Name)));
+                return ItemContainer(Border(TextBlock(p.Name)));
+            });");
 
     [Fact]
     public Task Fix_Qualifies_ItemContainer_When_The_Factories_Static_Import_Is_Absent()
@@ -391,6 +459,21 @@ namespace Shadowed
         {
             TestCode = Stubs + Before,
             FixedCode = Stubs + After,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public Task Fix_Is_Not_Offered_For_A_Method_Group()
+    {
+        // There is no returned expression at the call site, so wrapping would produce
+        // `ItemContainer(Rows.BuildBorder)`, which does not compile. TestCode == FixedCode asserts
+        // the diagnostic still fires but no rewrite happens.
+        var code = Wrap(@"            ItemsView(products, p => p.Name, {|REACTOR_ITEMS_002:Rows.BuildBorder|});");
+
+        return new CSharpCodeFixTest<ItemsViewContainerRootAnalyzer, ItemsViewContainerRootCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 

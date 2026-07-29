@@ -36,8 +36,9 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// already have.
 /// </para>
 /// <para>
-/// The <c>viewBuilder</c> must be a lambda / anonymous method for the rule to see a return
-/// expression at all; a method group (<c>ItemsView(items, key, BuildRow)</c>) is skipped. Matching is
+/// The <c>viewBuilder</c> must be a lambda / anonymous method (every return path is type-checked) or
+/// a method group (its target's declared return type is the realized root); a delegate-typed local,
+/// a cast, or a call returning a delegate is opaque and left to the mount-time guard. Matching is
 /// confirmed semantically against <c>Microsoft.UI.Reactor.Factories</c> and the <c>viewBuilder</c>
 /// parameter's <c>Func&lt;T, int, Element&gt;</c> shape, so the sibling collection factories
 /// (<c>ListView</c>/<c>GridView</c>/<c>LazyVStack</c>/…), which carry no container requirement, and
@@ -48,6 +49,17 @@ namespace Microsoft.UI.Reactor.Analyzers;
 public sealed class ItemsViewContainerRootAnalyzer : DiagnosticAnalyzer
 {
     public const string DiagnosticId = "REACTOR_ITEMS_002";
+
+    /// <summary>
+    /// Marks a diagnostic whose location is an expression the
+    /// <see cref="ItemsViewContainerRootCodeFix"/> can wrap in <c>ItemContainer(...)</c>. Absent on
+    /// the method-group form, where there is no returned expression at the call site to wrap — that
+    /// diagnostic is a nudge to fix the helper's own return.
+    /// </summary>
+    internal const string WrappableProperty = "Wrappable";
+
+    private static readonly ImmutableDictionary<string, string?> WrappableProperties =
+        ImmutableDictionary<string, string?>.Empty.Add(WrappableProperty, "true");
 
     /// <summary>The Reactor element type ItemsView requires at the root of every realized item.</summary>
     internal const string ItemContainerMetadataName = "Microsoft.UI.Reactor.Core.ItemContainerElement";
@@ -136,9 +148,12 @@ public sealed class ItemsViewContainerRootAnalyzer : DiagnosticAnalyzer
             return;
 
         // ── Cheap syntactic pre-gate ──────────────────────────────────────
-        // Only a lambda / anonymous method exposes a return expression to type-check. A method
-        // group (samples pass `BuildItem`) is deliberately out of scope.
-        if (!TryGetAnonymousFunctionBody(argument.Expression, out var body))
+        // The argument has to be something whose realized root type is statically knowable: a
+        // lambda / anonymous method (every return path is type-checked below) or a method group
+        // (the target's declared return type is the root). Anything else — a delegate-typed local,
+        // a cast, a call returning a delegate — is opaque and bails.
+        var isAnonymousFunction = TryGetAnonymousFunctionBody(argument.Expression, out var body);
+        if (!isAnonymousFunction && !IsPotentialMethodGroup(argument.Expression))
             return;
 
         // ── Semantic confirmation ─────────────────────────────────────────
@@ -158,15 +173,60 @@ public sealed class ItemsViewContainerRootAnalyzer : DiagnosticAnalyzer
         if (!IsItemViewBuilderDelegate(parameter.Type, elementType))
             return;
 
-        // Every return path is checked: one bad branch is enough to break the page at run time.
-        foreach (var returned in ReturnExpressions(body!))
+        if (isAnonymousFunction)
         {
-            var type = context.SemanticModel.GetTypeInfo(returned, context.CancellationToken).Type;
-            if (!IsProvablyNotItemContainer(type, elementType, containerType))
-                continue;
+            // Every return path is checked: one bad branch is enough to break the page at run time.
+            foreach (var returned in ReturnExpressions(body!))
+            {
+                var type = context.SemanticModel.GetTypeInfo(returned, context.CancellationToken).Type;
+                if (!IsProvablyNotItemContainer(type, elementType, containerType))
+                    continue;
 
-            context.ReportDiagnostic(Diagnostic.Create(Rule, returned.GetLocation(), type!.Name));
+                context.ReportDiagnostic(Diagnostic.Create(
+                    Rule, returned.GetLocation(), WrappableProperties, type!.Name));
+            }
+
+            return;
         }
+
+        // Method group: the target's *declared* return type is the root every realized item gets,
+        // so it is decidable by exactly the same test. A helper declared to return `Element` stays
+        // statically unknown and is left to the mount-time guard.
+        if (ResolveMethodGroupTarget(context, argument.Expression) is not { } builder)
+            return;
+        if (!IsProvablyNotItemContainer(builder.ReturnType, elementType, containerType))
+            return;
+
+        // No returned expression at this call site to wrap, so no WrappableProperty: the author
+        // fixes the helper's own return instead.
+        context.ReportDiagnostic(Diagnostic.Create(
+            Rule, argument.Expression.GetLocation(), builder.ReturnType.Name));
+    }
+
+    /// <summary>
+    /// True for the syntax shapes a method group can take (<c>BuildRow</c>, <c>Rows.BuildRow</c>,
+    /// <c>Build&lt;T&gt;</c>). A delegate-typed local or field parses the same way; those are
+    /// rejected by <see cref="ResolveMethodGroupTarget"/>, which requires a method symbol.
+    /// </summary>
+    private static bool IsPotentialMethodGroup(ExpressionSyntax expression) =>
+        expression is IdentifierNameSyntax or GenericNameSyntax or MemberAccessExpressionSyntax;
+
+    /// <summary>
+    /// The single method a method-group argument converts to, or <see langword="null"/> when the
+    /// expression is not a method group (a delegate-typed local / field / property) or when the
+    /// group is ambiguous — in which case the selected overload, and therefore the realized root
+    /// type, is not decidable and the rule stays silent.
+    /// </summary>
+    private static IMethodSymbol? ResolveMethodGroupTarget(
+        SyntaxNodeAnalysisContext context, ExpressionSyntax expression)
+    {
+        var info = context.SemanticModel.GetSymbolInfo(expression, context.CancellationToken);
+        if (info.Symbol is IMethodSymbol resolved)
+            return resolved;
+
+        return info.CandidateReason == CandidateReason.MemberGroup && info.CandidateSymbols.Length == 1
+            ? info.CandidateSymbols[0] as IMethodSymbol
+            : null;
     }
 
     /// <summary>

@@ -24,6 +24,11 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// from the border onto the container.
 /// </para>
 /// <para>
+/// Only diagnostics carrying <see cref="ItemsViewContainerRootAnalyzer.WrappableProperty"/> are
+/// fixed. The method-group form (<c>ItemsView(items, key, BuildRow)</c>) reports on the method group
+/// itself, where there is no returned expression to wrap, so it is a nudge only.
+/// </para>
+/// <para>
 /// The emitted call is a bare <c>ItemContainer(...)</c> when — and only when — every symbol of that
 /// name in scope is the Reactor factory (the usual <c>using static Microsoft.UI.Reactor.Factories;</c>
 /// case). Otherwise it is qualified with the factory's containing type, so a fully-qualified
@@ -52,6 +57,11 @@ public sealed class ItemsViewContainerRootCodeFix : CodeFixProvider
 
         foreach (var diagnostic in context.Diagnostics)
         {
+            // The method-group form of the diagnostic has no returned expression at the call site,
+            // so there is nothing to wrap — it is a nudge to fix the helper's own return.
+            if (!diagnostic.Properties.ContainsKey(ItemsViewContainerRootAnalyzer.WrappableProperty))
+                continue;
+
             var node = root.FindNode(diagnostic.Location.SourceSpan, getInnermostNodeForTie: true);
             if (node.FirstAncestorOrSelf<ExpressionSyntax>() is not { } returned)
                 continue;
