@@ -1729,6 +1729,77 @@ public static partial class ElementExtensions
     public static NavigationViewElement PaneTitle(this NavigationViewElement el, string title) =>
         el with { PaneTitle = title };
 
+    /// <summary>
+    /// Sets the visibility of NavigationView's built-in back button
+    /// (<c>NavigationView.IsBackButtonVisible</c>).
+    /// </summary>
+    public static NavigationViewElement BackButtonVisible(this NavigationViewElement el, NavigationViewBackButtonVisible visible) =>
+        el with { IsBackButtonVisible = visible };
+
+    /// <summary>
+    /// Sets the visibility of NavigationView's built-in back button using a bool —
+    /// <c>true</c> maps to <see cref="NavigationViewBackButtonVisible.Visible"/> and
+    /// <c>false</c> to <see cref="NavigationViewBackButtonVisible.Collapsed"/>.
+    /// </summary>
+    public static NavigationViewElement BackButtonVisible(this NavigationViewElement el, bool visible) =>
+        el with
+        {
+            IsBackButtonVisible = visible
+                ? NavigationViewBackButtonVisible.Visible
+                : NavigationViewBackButtonVisible.Collapsed,
+        };
+
+    /// <summary>
+    /// Shows or hides NavigationView's built-in pane-toggle ("hamburger") button
+    /// (<c>NavigationView.IsPaneToggleButtonVisible</c>).
+    /// </summary>
+    public static NavigationViewElement PaneToggleButtonVisible(this NavigationViewElement el, bool visible) =>
+        el with { IsPaneToggleButtonVisible = visible };
+
+    /// <summary>Shows or hides the whole pane, leaving only the content area.</summary>
+    public static NavigationViewElement PaneVisible(this NavigationViewElement el, bool visible = true) =>
+        el with { IsPaneVisible = visible };
+
+    /// <summary>Sets whether the header stays visible in Minimal/Compact display modes.</summary>
+    public static NavigationViewElement AlwaysShowHeader(this NavigationViewElement el, bool alwaysShow = true) =>
+        el with { AlwaysShowHeader = alwaysShow };
+
+    /// <summary>Sets whether NavigationView reserves top padding for the window's title bar.</summary>
+    public static NavigationViewElement TitleBarAutoPadding(this NavigationViewElement el, bool enabled = true) =>
+        el with { IsTitleBarAutoPaddingEnabled = enabled };
+
+    /// <summary>Sets whether moving keyboard focus between menu items also changes the selection.</summary>
+    public static NavigationViewElement SelectionFollowsFocus(this NavigationViewElement el, bool follows = true) =>
+        el with
+        {
+            SelectionFollowsFocus = follows
+                ? NavigationViewSelectionFollowsFocus.Enabled
+                : NavigationViewSelectionFollowsFocus.Disabled,
+        };
+
+    /// <summary>Sets whether the Top pane's overflow button shows a "More" label or only the chevron.</summary>
+    public static NavigationViewElement OverflowLabelMode(this NavigationViewElement el, NavigationViewOverflowLabelMode mode) =>
+        el with { OverflowLabelMode = mode };
+
+    /// <summary>Sets whether gamepad shoulder buttons cycle the selection.</summary>
+    public static NavigationViewElement ShoulderNavigation(this NavigationViewElement el, NavigationViewShoulderNavigationEnabled mode) =>
+        el with { ShoulderNavigationEnabled = mode };
+
+    /// <summary>Sets the element rendered at the top of the pane, above the menu items.</summary>
+    public static NavigationViewElement PaneHeader(this NavigationViewElement el, Element header) =>
+        el with { PaneHeader = header };
+
+    /// <summary>Sets the element overlaid on top of the content area.</summary>
+    public static NavigationViewElement ContentOverlay(this NavigationViewElement el, Element overlay) =>
+        el with { ContentOverlay = overlay };
+
+    /// <summary>
+    /// Sets the menu items pinned to the bottom of the pane. They share the
+    /// <c>SelectedTag</c> namespace with the primary menu items.
+    /// </summary>
+    public static NavigationViewElement FooterMenuItems(this NavigationViewElement el, params NavigationViewItemData[] items) =>
+        el with { FooterMenuItems = items };
+
     /// <summary>Sets the AutoSuggestBox rendered at the top of the pane.</summary>
     public static NavigationViewElement AutoSuggestBox(this NavigationViewElement el, AutoSuggestBoxElement box) =>
         el with { AutoSuggestBox = box };
@@ -1760,6 +1831,10 @@ public static partial class ElementExtensions
         Action<bool> onPaneOpenChanged) =>
         el with { IsPaneOpen = isPaneOpen, OnPaneOpenChanged = onPaneOpenChanged };
 
+    /// <summary>Sets the width of the pane when compact.</summary>
+    public static NavigationViewElement CompactPaneLength(this NavigationViewElement el, double length) =>
+        el with { CompactPaneLength = length };
+
     /// <summary>Sets the window width below which the pane collapses to compact mode.</summary>
     public static NavigationViewElement CompactModeThresholdWidth(this NavigationViewElement el, double width) =>
         el with { CompactModeThresholdWidth = width };
@@ -1772,31 +1847,52 @@ public static partial class ElementExtensions
     /// Auto-syncs this NavigationView with a NavigationHandle: sets <c>SelectedTag</c>
     /// from the current route, wires <c>OnSelectedTagChanged</c> to navigate,
     /// <c>OnBackRequested</c> to <c>GoBack</c>, and <c>IsBackEnabled</c> to <c>CanGoBack</c>.
+    /// <para>
+    /// The built-in settings item is opt-in: pass <paramref name="settingsRoute"/> to make
+    /// selecting it navigate. It is a separate parameter rather than a
+    /// <see cref="NavigationViewElement.SettingsTag"/> lookup through
+    /// <paramref name="tagToRoute"/> because that delegate must return a route for every
+    /// string it is handed — callers typically throw on an unrecognized tag — so there is
+    /// no way for it to decline. Left null, settings selection does not navigate.
+    /// </para>
+    /// <para>
+    /// To show the settings item as selected while its route is current, return
+    /// <see cref="NavigationViewElement.SettingsTag"/> from <paramref name="routeToTag"/>.
+    /// </para>
     /// </summary>
     /// <param name="el">The NavigationView element to configure.</param>
     /// <param name="nav">The navigation handle obtained from <c>UseNavigation</c>.</param>
-    /// <param name="routeToTag">Maps a route to its NavigationViewItem tag. Return null for routes without a corresponding menu item.</param>
-    /// <param name="tagToRoute">Maps a NavigationViewItem tag back to a route for <c>OnSelectedTagChanged</c>.</param>
+    /// <param name="routeToTag">Maps a route to its NavigationViewItem tag. Return null for routes without a corresponding menu item, or <see cref="NavigationViewElement.SettingsTag"/> for the built-in settings item.</param>
+    /// <param name="tagToRoute">Maps a NavigationViewItem tag back to a route for <c>OnSelectedTagChanged</c>. Never called with <see cref="NavigationViewElement.SettingsTag"/> — that value is reserved and routed via <paramref name="settingsRoute"/> instead, so an ordinary item must not carry it or it will select without navigating.</param>
+    /// <param name="settingsRoute">Route to navigate to when the built-in settings item is selected. Null (the default) leaves settings selection unrouted.</param>
     public static NavigationViewElement WithNavigation<TRoute>(
         this NavigationViewElement el,
         Navigation.NavigationHandle<TRoute> nav,
         Func<TRoute, string?> routeToTag,
-        Func<string, TRoute> tagToRoute) where TRoute : notnull
+        Func<string, TRoute> tagToRoute,
+        Func<TRoute>? settingsRoute = null) where TRoute : notnull
     => el with
     {
         SelectedTag = routeToTag(nav.CurrentRoute),
         IsBackEnabled = nav.CanGoBack,
         OnSelectedTagChanged = tag =>
         {
-            if (tag is not null)
-            {
-                var route = tagToRoute(tag);
-                if (!EqualityComparer<TRoute>.Default.Equals(route, nav.CurrentRoute))
-                    nav.Navigate(route);
-            }
+            if (tag is not null && tag != NavigationViewElement.SettingsTag)
+                NavigateTo(nav, tagToRoute(tag));
         },
+        OnSettingsSelected = settingsRoute is null
+            ? null
+            : () => NavigateTo(nav, settingsRoute()),
         OnBackRequested = () => nav.GoBack(),
     };
+
+    private static void NavigateTo<TRoute>(
+        Navigation.NavigationHandle<TRoute> nav,
+        TRoute route) where TRoute : notnull
+    {
+        if (!EqualityComparer<TRoute>.Default.Equals(route, nav.CurrentRoute))
+            nav.Navigate(route);
+    }
 
     // ── TitleBar sugar ──────────────────────────────────────────────
 
@@ -1857,6 +1953,28 @@ public static partial class ElementExtensions
 
     public static TitleBarElement Set(this TitleBarElement el, Action<WinUI.TitleBar> configure) =>
         el with { Setters = [.. el.Setters, configure] };
+
+    /// <summary>
+    /// Sets the system caption height for the hosting window. (issue #917)
+    /// </summary>
+    /// <remarks>
+    /// Applies both halves — the native caption
+    /// (<c>AppWindow.TitleBar.PreferredHeightOption</c>) and, for
+    /// <see cref="WindowTitleBarHeight.Tall"/>, the control's own 48 DIP height,
+    /// which the WinUI <c>TitleBar</c> control does not derive from the caption.
+    /// An explicit <c>.Height(...)</c> on this element still wins.
+    /// <see cref="WindowSpec.TitleBarHeight"/>, when set, wins over this.
+    /// </remarks>
+    public static TitleBarElement HeightOption(this TitleBarElement el, WindowTitleBarHeight height) =>
+        el with { HeightOption = height };
+
+    /// <summary>
+    /// Shorthand for <c>.HeightOption(WindowTitleBarHeight.Tall)</c> — the
+    /// standard layout when the title bar hosts navigation chrome (back button /
+    /// pane toggle). Pass <c>false</c> to force the standard caption. (issue #917)
+    /// </summary>
+    public static TitleBarElement Tall(this TitleBarElement el, bool tall = true) =>
+        el with { HeightOption = tall ? WindowTitleBarHeight.Tall : WindowTitleBarHeight.Standard };
 
     // ── ExpanderElement sugar ───────────────────────────────────────
 
@@ -2609,6 +2727,16 @@ public static partial class ElementExtensions
     /// <example>Border(content).IsTabStop(false)</example>
     public static T IsTabStop<T>(this T el, bool isTabStop = true) where T : Element =>
         Modify(el, new ElementModifiers { IsTabStop = isTabStop });
+
+    /// <summary>
+    /// Sets UIElement.IsHitTestVisible — whether the element (and its subtree) can be
+    /// the target of pointer input. Set <c>false</c> for decorative or overlay layers
+    /// that should let pointer events pass through to whatever is underneath.
+    /// Works on any element type (Panel, Control, etc.) in WinUI 3.
+    /// </summary>
+    /// <example>Border(content).IsHitTestVisible(false)</example>
+    public static T IsHitTestVisible<T>(this T el, bool isHitTestVisible = true) where T : Element =>
+        Modify(el, new ElementModifiers { IsHitTestVisible = isHitTestVisible });
 
     /// <summary>
     /// Marks how this element participates in a window title bar's drag region

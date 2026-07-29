@@ -1,6 +1,5 @@
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Reactor.Localization;
-using Microsoft.UI.Reactor.Markdown;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -1816,20 +1815,6 @@ public static partial class Factories
     /// </summary>
     public static RichTextInlineUIContainer InlineUI(Func<FrameworkElement> factory) =>
         new() { Factory = factory };
-
-    // ── Markdown ─────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Render a markdown string as a Reactor element tree.
-    /// </summary>
-    public static Element Markdown(string markdown) =>
-        MarkdownBuilder.Build(markdown, null);
-
-    /// <summary>
-    /// Render a markdown string as a Reactor element tree with custom rendering options.
-    /// </summary>
-    public static Element Markdown(string markdown, MarkdownOptions options) =>
-        MarkdownBuilder.Build(markdown, options);
 
     // ── Icons ────────────────────────────────────────────────────────
 

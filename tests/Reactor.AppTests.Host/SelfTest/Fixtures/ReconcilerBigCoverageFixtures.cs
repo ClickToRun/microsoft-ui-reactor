@@ -372,6 +372,450 @@ internal static class ReconcilerBigCoverageFixtures
     }
 
     // ════════════════════════════════════════════════════════════════════
+    //  7b. Issue #915 — NavigationView back / pane-toggle chrome is written
+    //      declaratively by the descriptor's OneWay props on BOTH mount and
+    //      update. The re-render arm is the differential oracle: if the
+    //      update-path write were dropped the control would keep the mount
+    //      values and the Phase1 checks would fail.
+    // ════════════════════════════════════════════════════════════════════
+    internal class NavViewChromeVisibility(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (phase, set) = ctx.UseState(0);
+                return VStack(
+                    Button("NVChromePhase", () => set(1)),
+                    new NavigationViewElement([NavItem("Home", icon: "Home")], TextBlock("nv-chrome"))
+                    {
+                        IsBackButtonVisible = phase == 0
+                            ? WinXC.NavigationViewBackButtonVisible.Collapsed
+                            : WinXC.NavigationViewBackButtonVisible.Visible,
+                        IsPaneToggleButtonVisible = phase != 0,
+                    }
+                );
+            });
+
+            await Harness.Render();
+            var nv = H.FindControl<WinXC.NavigationView>(_ => true);
+            H.Check("NVChrome_Mounted", nv is not null);
+            H.Check(
+                "NVChrome_Phase0_BackCollapsed",
+                nv is not null && nv.IsBackButtonVisible == WinXC.NavigationViewBackButtonVisible.Collapsed);
+            H.Check("NVChrome_Phase0_ToggleHidden", nv is not null && !nv.IsPaneToggleButtonVisible);
+
+            H.ClickButton("NVChromePhase");
+            await Harness.Render();
+            nv = H.FindControl<WinXC.NavigationView>(_ => true);
+            H.Check(
+                "NVChrome_Phase1_BackVisible",
+                nv is not null && nv.IsBackButtonVisible == WinXC.NavigationViewBackButtonVisible.Visible);
+            H.Check("NVChrome_Phase1_ToggleShown", nv is not null && nv.IsPaneToggleButtonVisible);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  7c. Follow-up to #915 — the rest of the NavigationView surface.
+    //      Phase 0 asserts a freshly-constructed WinUI NavigationView agrees
+    //      with every NavigationViewElement default: the new props are
+    //      unconditional OneWay writes, so a wrong record default would
+    //      silently change behaviour for existing callers.
+    //      Phase 1 flips each one and re-renders — the differential oracle for
+    //      the update-path write, plus the PaneHeader/ContentOverlay slots.
+    // ════════════════════════════════════════════════════════════════════
+    internal class NavViewSurfaceProps(Harness h) : SelfTestFixtureBase(h)
+    {
+        // CodeQL flags exact == / != on doubles. These values are literals written
+        // and read back with no arithmetic in between, so exact comparison is
+        // correct — but a tolerance says the same thing without the alert. NaN
+        // falls out of Approx as false, which is exactly what the sentinel checks
+        // below want ("the WinUI default is not the value we wrote").
+        private static bool Approx(double a, double b) =>
+            global::System.Math.Abs(a - b) < 0.0001;
+
+        public override async Task RunAsync()
+        {
+            var bare = new WinXC.NavigationView();
+            var defaults = new NavigationViewElement([]);
+            H.Check(
+                "NVSurface_DefaultsMatchWinUI",
+                bare.IsPaneVisible == defaults.IsPaneVisible
+                && bare.AlwaysShowHeader == defaults.AlwaysShowHeader
+                && bare.IsTitleBarAutoPaddingEnabled == defaults.IsTitleBarAutoPaddingEnabled
+                && bare.SelectionFollowsFocus == defaults.SelectionFollowsFocus
+                && bare.OverflowLabelMode == defaults.OverflowLabelMode
+                && bare.ShoulderNavigationEnabled == defaults.ShoulderNavigationEnabled
+                && bare.IsSettingsVisible == defaults.IsSettingsVisible
+                && bare.IsPaneToggleButtonVisible == defaults.IsPaneToggleButtonVisible
+                && bare.IsBackButtonVisible == defaults.IsBackButtonVisible);
+            // The NaN sentinels must agree with the live WinUI defaults too, since
+            // NaN means "don't write" — the control keeps whatever WinUI chose.
+            var sentinelDefaults = bare.CompactPaneLength;
+
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (phase, set) = ctx.UseState(0);
+                return VStack(
+                    Button("NVSurfacePhase", () => set(phase + 1)),
+                    new NavigationViewElement([NavItem("Home", icon: "Home")], TextBlock("nv-surface"))
+                    {
+                        IsPaneVisible = phase != 0,
+                        AlwaysShowHeader = phase != 0,
+                        IsTitleBarAutoPaddingEnabled = phase != 0,
+                        SelectionFollowsFocus = phase == 0
+                            ? WinXC.NavigationViewSelectionFollowsFocus.Enabled
+                            : WinXC.NavigationViewSelectionFollowsFocus.Disabled,
+                        OverflowLabelMode = phase == 0
+                            ? WinXC.NavigationViewOverflowLabelMode.NoLabel
+                            : WinXC.NavigationViewOverflowLabelMode.MoreLabel,
+                        ShoulderNavigationEnabled = phase == 0
+                            ? WinXC.NavigationViewShoulderNavigationEnabled.Always
+                            : WinXC.NavigationViewShoulderNavigationEnabled.Never,
+                        CompactPaneLength = phase switch { 0 => 72, 1 => 96, _ => double.NaN },
+                        PaneHeader = TextBlock($"pane-header-{phase}"),
+                        ContentOverlay = phase == 0 ? TextBlock("overlay-0") : null,
+                    }
+                );
+            });
+
+            await Harness.Render();
+            var nv = H.FindControl<WinXC.NavigationView>(_ => true);
+            H.Check("NVSurface_Mounted", nv is not null);
+            H.Check("NVSurface_Phase0_IsPaneVisible", nv is not null && !nv.IsPaneVisible);
+            H.Check("NVSurface_Phase0_AlwaysShowHeader", nv is not null && !nv.AlwaysShowHeader);
+            H.Check("NVSurface_Phase0_TitleBarAutoPadding", nv is not null && !nv.IsTitleBarAutoPaddingEnabled);
+            H.Check(
+                "NVSurface_Phase0_SelectionFollowsFocus",
+                nv is not null && nv.SelectionFollowsFocus == WinXC.NavigationViewSelectionFollowsFocus.Enabled);
+            H.Check(
+                "NVSurface_Phase0_OverflowLabelMode",
+                nv is not null && nv.OverflowLabelMode == WinXC.NavigationViewOverflowLabelMode.NoLabel);
+            H.Check(
+                "NVSurface_Phase0_ShoulderNavigation",
+                nv is not null && nv.ShoulderNavigationEnabled == WinXC.NavigationViewShoulderNavigationEnabled.Always);
+            // 72 is not the WinUI default, so this fails if the NaN-sentinel entry is dropped.
+            H.Check(
+                "NVSurface_Phase0_CompactPaneLength",
+                nv is not null && Approx(nv.CompactPaneLength, 72) && !Approx(sentinelDefaults, 72));
+            H.Check(
+                "NVSurface_Phase0_PaneHeader",
+                nv?.PaneHeader is TextBlock ph && (string)ph.Text == "pane-header-0");
+            H.Check(
+                "NVSurface_Phase0_ContentOverlay",
+                nv?.ContentOverlay is TextBlock co && (string)co.Text == "overlay-0");
+
+            H.ClickButton("NVSurfacePhase");
+            await Harness.Render();
+            nv = H.FindControl<WinXC.NavigationView>(_ => true);
+            H.Check("NVSurface_Phase1_IsPaneVisible", nv is not null && nv.IsPaneVisible);
+            H.Check("NVSurface_Phase1_AlwaysShowHeader", nv is not null && nv.AlwaysShowHeader);
+            H.Check("NVSurface_Phase1_TitleBarAutoPadding", nv is not null && nv.IsTitleBarAutoPaddingEnabled);
+            H.Check(
+                "NVSurface_Phase1_SelectionFollowsFocus",
+                nv is not null && nv.SelectionFollowsFocus == WinXC.NavigationViewSelectionFollowsFocus.Disabled);
+            H.Check(
+                "NVSurface_Phase1_OverflowLabelMode",
+                nv is not null && nv.OverflowLabelMode == WinXC.NavigationViewOverflowLabelMode.MoreLabel);
+            H.Check(
+                "NVSurface_Phase1_ShoulderNavigation",
+                nv is not null && nv.ShoulderNavigationEnabled == WinXC.NavigationViewShoulderNavigationEnabled.Never);
+            H.Check(
+                "NVSurface_Phase1_CompactPaneLength",
+                nv is not null && Approx(nv.CompactPaneLength, 96));
+            H.Check(
+                "NVSurface_Phase1_PaneHeaderSwapped",
+                nv?.PaneHeader is TextBlock ph1 && (string)ph1.Text == "pane-header-1");
+            H.Check("NVSurface_Phase1_ContentOverlayCleared", nv is not null && nv.ContentOverlay is null);
+
+            // Phase 2 sets CompactPaneLength back to the NaN sentinel. NaN means
+            // "Reactor never writes this property", so the control keeps 96 rather
+            // than snapping back to the WinUI default — the documented sticky
+            // contract this NaN-sentinel family shares. Asserting the WinUI default
+            // here instead would be the bug.
+            H.ClickButton("NVSurfacePhase");
+            await Harness.Render();
+            nv = H.FindControl<WinXC.NavigationView>(_ => true);
+            H.Check(
+                "NVSurface_Phase2_NaNIsStickyNotReset",
+                nv is not null && Approx(nv.CompactPaneLength, 96) && !Approx(sentinelDefaults, 96));
+            // The other props must still track phase 2, proving the render happened
+            // and the NaN check above isn't reading a stale pre-click tree.
+            H.Check(
+                "NVSurface_Phase2_OtherPropsStillWrite",
+                nv?.PaneHeader is TextBlock ph2 && (string)ph2.Text == "pane-header-2");
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  7d. Follow-up to #915 — FooterMenuItems reconcile, SelectedTag across
+    //      both menu collections + the SettingsTag sentinel, and the event
+    //      wiring for every NavigationView event.
+    //      This fixture is the *wiring* oracle: it reads the per-control V1
+    //      payload box, so a missing .HandCodedEvent/.Immediate entry leaves
+    //      its slot null, and the callback-free NavigationView in the same
+    //      tree is the negative control proving the slots aren't filled
+    //      unconditionally. The complementary *firing* oracles live in 7e
+    //      (and, for the pane, NavigationViewPaneFixtures).
+    // ════════════════════════════════════════════════════════════════════
+    internal class NavViewFooterAndEvents(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            var settingsHits = 0;
+            var nullTagHits = 0;
+            host.Mount(ctx =>
+            {
+                var (phase, set) = ctx.UseState(0);
+                NavigationViewItemData[] footer = phase == 0
+                    ? [NavItem("About", tag: "about")]
+                    : [NavItem("About", tag: "about"), NavItem("Help", tag: "help")];
+                return VStack(
+                    Button("NVFooterPhase", () => set(1)),
+                    new NavigationViewElement([NavItem("Home", tag: "home")], TextBlock("nv-footer"))
+                    {
+                        PaneTitle = "nv-wired",
+                        FooterMenuItems = footer,
+                        // Phase 0 selects a *footer* item — unreachable before FooterMenuItems
+                        // existed. Phase 1 selects the built-in settings item, which has no
+                        // NavigationViewItemData at all.
+                        SelectedTag = phase == 0 ? "about" : NavigationViewElement.SettingsTag,
+                        PaneDisplayMode = WinXC.NavigationViewPaneDisplayMode.Left,
+                        OnSelectedTagChanged = _ => { },
+                        OnBackRequested = () => { },
+                        OnSettingsSelected = () => { },
+                        OnItemInvoked = _ => { },
+                        OnPaneOpenChanged = _ => { },
+                        OnDisplayModeChanged = _ => { },
+                        OnItemExpanding = _ => { },
+                        OnItemCollapsed = _ => { },
+                    },
+                    // Settings-selection oracle, isolated so no deselect-of-a-previous-item
+                    // SelectionChanged can muddy the counts: nothing is selected in phase 0.
+                    new NavigationViewElement([NavItem("Home", tag: "home")], TextBlock("nv-settings"))
+                    {
+                        PaneTitle = "nv-settings",
+                        SelectedTag = phase == 0 ? null : NavigationViewElement.SettingsTag,
+                        PaneDisplayMode = WinXC.NavigationViewPaneDisplayMode.Left,
+                        OnSelectedTagChanged = t => { if (t is null) nullTagHits++; },
+                        OnSettingsSelected = () => settingsHits++,
+                    },
+                    new NavigationViewElement([NavItem("Home", tag: "home")], TextBlock("nv-bare"))
+                    {
+                        PaneTitle = "nv-bare",
+                    }
+                );
+            });
+
+            await Harness.Render();
+            var nv = H.FindControl<WinXC.NavigationView>(c => (string?)c.PaneTitle == "nv-wired");
+            var bare = H.FindControl<WinXC.NavigationView>(c => (string?)c.PaneTitle == "nv-bare");
+            H.Check("NVFooter_Mounted", nv is not null && bare is not null);
+            H.Check("NVFooter_Phase0_Count", nv is not null && nv.FooterMenuItems.Count == 1);
+            H.Check(
+                "NVFooter_Phase0_MenuItemsUntouched",
+                nv is not null
+                && nv.MenuItems.Count == 1
+                && (nv.MenuItems[0] as WinXC.NavigationViewItem)?.Tag as string == "home");
+            H.Check(
+                "NVFooter_Phase0_SelectsFooterItem",
+                nv is not null && ReferenceEquals(nv.SelectedItem, nv.FooterMenuItems[0]));
+
+            var wired = nv is null ? null : Reconciler.TryGetControlEventPayload<NavigationViewEventPayload>(nv);
+            H.Check("NVEvents_PayloadCreated", wired is not null);
+            H.Check("NVEvents_SelectionChanged", wired?.SelectionChangedTrampoline is not null);
+            H.Check("NVEvents_BackRequested", wired?.BackRequestedTrampoline is not null);
+            H.Check("NVEvents_ItemInvoked", wired?.ItemInvokedTrampoline is not null);
+            H.Check("NVEvents_DisplayModeChanged", wired?.DisplayModeChangedTrampoline is not null);
+            H.Check("NVEvents_Expanding", wired?.ExpandingTrampoline is not null);
+            H.Check("NVEvents_Collapsed", wired?.CollapsedTrampoline is not null);
+            H.Check("NVEvents_IsPaneOpenObserved", wired?.IsPaneOpenObserver is not null);
+
+            // Negative control — no callbacks declared, so nothing may be subscribed.
+            var bareBox = bare is null ? null : Reconciler.TryGetControlEventPayload<NavigationViewEventPayload>(bare);
+            H.Check(
+                "NVEvents_BareNavViewUnsubscribed",
+                bareBox is null
+                || (bareBox.SelectionChangedTrampoline is null
+                    && bareBox.BackRequestedTrampoline is null
+                    && bareBox.ItemInvokedTrampoline is null
+                    && bareBox.DisplayModeChangedTrampoline is null
+                    && bareBox.ExpandingTrampoline is null
+                    && bareBox.CollapsedTrampoline is null
+                    && bareBox.IsPaneOpenObserver is null));
+
+            H.Check("NVEvents_SettingsNotFiredBeforePhase1", settingsHits == 0 && nullTagHits == 0);
+
+            H.ClickButton("NVFooterPhase");
+            await Harness.Render();
+            nv = H.FindControl<WinXC.NavigationView>(c => (string?)c.PaneTitle == "nv-wired");
+            // Eviction guard. All seven NavigationView events share ONE payload type on
+            // purpose: Reconciler keeps a single ControlEventStateBox per control keyed by
+            // HandlerType, so a second payload type would evict this one on every reconcile.
+            // If that regressed, the post-update lookup returns a different (freshly built)
+            // box, so both the identity check and the all-slots-wired check below fail.
+            //
+            // Deliberately NOT asserted here: slot *identity*. Each HandCodedEvent entry
+            // caches one trampoline delegate and re-writes that same instance, so the slot
+            // references are stable even when the reconciler re-subscribes — an identity
+            // comparison would be vacuous. The genuine re-subscription oracle is the
+            // double-fire counters below (verified: forcing slotIsNull => true fails
+            // NVEvents_SettingsSelectedFiredOnce, and leaves this check passing).
+            var afterUpdate = nv is null ? null : Reconciler.TryGetControlEventPayload<NavigationViewEventPayload>(nv);
+            H.Check(
+                "NVEvents_PayloadSurvivesUpdate",
+                wired is not null && afterUpdate is not null && ReferenceEquals(afterUpdate, wired));
+            H.Check(
+                "NVEvents_AllSlotsStillWiredAfterUpdate",
+                afterUpdate is not null
+                && afterUpdate.SelectionChangedTrampoline is not null
+                && afterUpdate.BackRequestedTrampoline is not null
+                && afterUpdate.ItemInvokedTrampoline is not null
+                && afterUpdate.DisplayModeChangedTrampoline is not null
+                && afterUpdate.ExpandingTrampoline is not null
+                && afterUpdate.CollapsedTrampoline is not null
+                && afterUpdate.IsPaneOpenObserver is not null);
+            // THE re-subscription oracle. The phase flip moves selection to the settings
+            // item exactly once, so a handler subscribed twice reports two hits. Verified
+            // by mutation: forcing the SelectionChanged entry's slotIsNull to always return
+            // true (i.e. re-subscribe on every reconcile) makes this check — and the tag
+            // check below — fail, while every structural check above still passes.
+            H.Check("NVEvents_SettingsSelectedFiredOnce", settingsHits == 1);
+            // Settings selection must ALSO still report null to OnSelectedTagChanged — the
+            // pre-existing contract, which OnSettingsSelected augments rather than replaces.
+            H.Check("NVEvents_SettingsAlsoReportsNullTag", nullTagHits == 1);
+            H.Check("NVFooter_Phase1_Count", nv is not null && nv.FooterMenuItems.Count == 2);
+            H.Check(
+                "NVFooter_Phase1_Tags",
+                nv is not null
+                && (nv.FooterMenuItems[0] as WinXC.NavigationViewItem)?.Tag as string == "about"
+                && (nv.FooterMenuItems[1] as WinXC.NavigationViewItem)?.Tag as string == "help");
+            H.Check(
+                "NVFooter_Phase1_SettingsTagSelectsSettingsItem",
+                nv is not null && nv.SettingsItem is not null && ReferenceEquals(nv.SelectedItem, nv.SettingsItem));
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  7e. Follow-up to #915 — FIRING oracles for the hand-coded events.
+    //      7d proves the trampolines are installed; this proves they are
+    //      installed on the right control event and unpack the right payload
+    //      field. Each event is driven the way WinUI actually raises it:
+    //      ItemInvoked through the item's automation peer (the same
+    //      IInvokeProvider a click goes through), Expanding/Collapsed by
+    //      toggling IsExpanded on a hierarchical parent, and
+    //      DisplayModeChanged by flipping PaneDisplayMode so the adaptive
+    //      layout recomputes. Deleting any one .HandCodedEvent entry, or
+    //      swapping which args field a trampoline reads, fails a check here.
+    // ════════════════════════════════════════════════════════════════════
+    internal class NavViewEventFiring(Harness h) : SelfTestFixtureBase(h)
+    {
+        private const string NvName = "nvEventFiring";
+
+        public override async Task RunAsync()
+        {
+            var invoked = new List<string?>();
+            var expanded = new List<string?>();
+            var collapsed = new List<string?>();
+            var displayModes = new List<NavigationViewDisplayMode>();
+
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (minimal, setMinimal) = ctx.UseState(false);
+                return VStack(
+                    Button("NVFireCollapse", () => setMinimal(true)),
+                    (new NavigationViewElement(
+                        [
+                            NavItem("Parent", tag: "parent") with
+                            {
+                                Children = [NavItem("Child", tag: "child")],
+                            },
+                            NavItem("Leaf", tag: "leaf"),
+                        ],
+                        TextBlock("nv-fire-body"))
+                    {
+                        IsSettingsVisible = false,
+                        PaneDisplayMode = minimal
+                            ? NavigationViewPaneDisplayMode.LeftMinimal
+                            : NavigationViewPaneDisplayMode.Left,
+                        OnItemInvoked = t => invoked.Add(t),
+                        OnItemExpanding = t => expanded.Add(t),
+                        OnItemCollapsed = t => collapsed.Add(t),
+                        OnDisplayModeChanged = m => displayModes.Add(m),
+                    })
+                    .Set(n => n.Name = NvName));
+            });
+
+            await Harness.Render(200);
+
+            var nv = H.FindControl<WinXC.NavigationView>(n => n.Name == NvName);
+            H.Check("NVFire_Mounted", nv is not null);
+
+            // ── ItemInvoked ── drive the real invoke path (automation peer),
+            // not SelectedItem, which would only raise SelectionChanged.
+            var leaf = nv?.MenuItems.OfType<WinXC.NavigationViewItem>()
+                .FirstOrDefault(i => (i.Tag as string) == "leaf");
+            H.Check("NVFire_LeafRealized", leaf is not null);
+            if (leaf is not null)
+            {
+                var peer = Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer
+                    .CreatePeerForElement(leaf);
+                var invokeProvider = peer?.GetPattern(
+                    Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)
+                    as Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider;
+                var selectProvider = peer?.GetPattern(
+                    Microsoft.UI.Xaml.Automation.Peers.PatternInterface.SelectionItem)
+                    as Microsoft.UI.Xaml.Automation.Provider.ISelectionItemProvider;
+                // NavigationViewItem exposes exactly one of these depending on the
+                // pane mode; asserting we found one keeps the drive step honest
+                // rather than silently no-op'ing into a vacuous pass below.
+                H.Check("NVFire_LeafHasInvokePattern", invokeProvider is not null || selectProvider is not null);
+                invokeProvider?.Invoke();
+                selectProvider?.Select();
+                await Harness.Render(200);
+            }
+            // The tag must come from InvokedItemContainer.Tag — an empty list means the
+            // event never reached the trampoline, and a wrong tag means it read the
+            // wrong args field.
+            H.Check("NVFire_ItemInvokedFired", invoked.Count >= 1);
+            H.Check("NVFire_ItemInvokedTag", invoked.Contains("leaf"));
+
+            // ── Expanding / Collapsed ── a hierarchical parent raises these when
+            // its IsExpanded flips.
+            var parent = nv?.MenuItems.OfType<WinXC.NavigationViewItem>()
+                .FirstOrDefault(i => (i.Tag as string) == "parent");
+            H.Check("NVFire_ParentRealized", parent is not null && parent.MenuItems.Count == 1);
+            if (parent is not null)
+            {
+                parent.IsExpanded = true;
+                await Harness.Render(200);
+                parent.IsExpanded = false;
+                await Harness.Render(200);
+            }
+            H.Check("NVFire_ExpandingFired", expanded.Contains("parent"));
+            H.Check("NVFire_CollapsedFired", collapsed.Contains("parent"));
+
+            // ── DisplayModeChanged ── flipping PaneDisplayMode through the element
+            // (not the control) also proves the update path keeps the subscription.
+            displayModes.Clear();
+            H.ClickButton("NVFireCollapse");
+            await Harness.Render(200);
+            nv = H.FindControl<WinXC.NavigationView>(n => n.Name == NvName);
+            H.Check("NVFire_DisplayModeIsMinimal", nv?.DisplayMode == NavigationViewDisplayMode.Minimal);
+            H.Check("NVFire_DisplayModeChangedFired", displayModes.Count >= 1);
+            // The payload must be the control's new mode, not a default-valued enum.
+            H.Check(
+                "NVFire_DisplayModeChangedPayload",
+                displayModes.Count >= 1 && displayModes[^1] == NavigationViewDisplayMode.Minimal
+                && nv is not null && displayModes[^1] == nv.DisplayMode);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
     //  8. SwipeControl with item-array changes.
     //     Targets Update.cs lines 2314-2333 (LeftItems/RightItems mode swap).
     // ════════════════════════════════════════════════════════════════════

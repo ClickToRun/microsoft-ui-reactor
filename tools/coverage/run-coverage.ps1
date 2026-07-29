@@ -74,14 +74,19 @@ if ($UnitOnly) {
   Write-Host "==> UnitOnly: copying unit -> merged for downstream reporting" -ForegroundColor Yellow
   Copy-Item $unitOut $mergedOut -Force
 } else {
-  Write-Host '==> Locating Reactor.dll for static instrumentation' -ForegroundColor Cyan
-  $dll = Get-ChildItem -Path "tests/Reactor.AppTests.Host/bin" -Recurse -Filter "Reactor.dll" |
-           Where-Object { $_.FullName -notmatch 'ref[\\/]' } |
-           Select-Object -First 1
-  if (-not $dll) { throw "Reactor.dll not found under tests/Reactor.AppTests.Host/bin" }
-  Write-Host "    Instrumenting: $($dll.FullName)"
-  dotnet-coverage instrument $dll.FullName -s coverage.settings.xml
-  if ($LASTEXITCODE -ne 0) { throw "instrument failed" }
+  Write-Host '==> Locating product DLLs for static instrumentation' -ForegroundColor Cyan
+  # Spec 062 Track B moved charting/docking/markdown/data-grid into Reactor.Advanced.dll,
+  # so it is instrumented alongside core — otherwise the selftest leg contributes no
+  # coverage for those subsystems.
+  foreach ($dllName in @('Reactor.dll', 'Reactor.Advanced.dll')) {
+    $dll = Get-ChildItem -Path "tests/Reactor.AppTests.Host/bin" -Recurse -Filter $dllName |
+             Where-Object { $_.FullName -notmatch 'ref[\\/]' } |
+             Select-Object -First 1
+    if (-not $dll) { throw "$dllName not found under tests/Reactor.AppTests.Host/bin" }
+    Write-Host "    Instrumenting: $($dll.FullName)"
+    dotnet-coverage instrument $dll.FullName -s coverage.settings.xml
+    if ($LASTEXITCODE -ne 0) { throw "instrument failed ($dllName)" }
+  }
 
   Write-Host '==> Selftest coverage' -ForegroundColor Cyan
   dotnet-coverage collect -s coverage.settings.xml `

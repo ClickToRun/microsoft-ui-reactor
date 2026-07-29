@@ -3,6 +3,7 @@ using Microsoft.UI.Reactor.Controls;
 using Microsoft.UI.Reactor.Controls.Validation;
 using Xunit;
 using static Microsoft.UI.Reactor.Factories;
+using static Microsoft.UI.Reactor.Advanced.Factories;
 
 namespace Microsoft.UI.Reactor.Tests;
 

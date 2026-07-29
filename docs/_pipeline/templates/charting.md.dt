@@ -35,7 +35,13 @@ ReactorD3 brings data visualization to Microsoft.UI.Reactor (Reactor). The chart
 standard Reactor elements. You bind data, configure appearance with a fluent
 API, and the chart renders as native WinUI shapes on a Canvas.
 
-Import the DSL alongside the standard Reactor factories:
+Import the DSL alongside the standard Reactor factories. Charting ships in the
+optional `Microsoft.UI.Reactor.Advanced` package (spec 062 §7), so add its
+package reference first:
+
+```xml
+<PackageReference Include="Microsoft.UI.Reactor.Advanced" />
+```
 
 ```csharp
 using static Microsoft.UI.Reactor.Factories;

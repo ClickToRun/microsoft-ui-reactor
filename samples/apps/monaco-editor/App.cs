@@ -23,6 +23,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.System;
 using static Microsoft.UI.Reactor.Factories;
+using static Microsoft.UI.Reactor.Advanced.Factories;
 using static Microsoft.UI.Reactor.Core.Theme;
 using static MonacoEditorApp.MonacoDsl;
 using Path = System.IO.Path;

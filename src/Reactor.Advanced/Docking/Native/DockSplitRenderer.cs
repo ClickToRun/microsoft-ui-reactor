@@ -71,13 +71,12 @@ internal static class DockSplitRenderer
         var splitterDir = isRow ? DockSplitterDirection.Columns : DockSplitterDirection.Rows;
 
         var n = children.Count;
-        // Setters intentionally empty for now — re-issuing them each render
-        // (even when the value doesn't change) was suspected of causing
-        // child detach/reattach. RTL flip will re-attach via a stable
-        // reference once we confirm the splitter stays mounted.
-        Action<FlexPanel>[] setters = [];
+        // Splitter setters are intentionally not re-issued each render — doing so
+        // (even when the value doesn't change) was suspected of causing child
+        // detach/reattach. RTL flip will re-attach via a stable reference once we
+        // confirm the splitter stays mounted.
         if (n == 0)
-            return Flex([]) with { Direction = direction, Setters = setters };
+            return Flex([]) with { Direction = direction };
 
         // Children interleaved with splitters: [c0, s0, c1, s1, ..., c(n-1)].
         var composed = new List<Element>(2 * n - 1);
@@ -116,7 +115,6 @@ internal static class DockSplitRenderer
             Direction = direction,
             AlignItems = FlexAlign.Stretch,
             Wrap = FlexWrap.NoWrap,
-            Setters = setters,
         };
     }
 }

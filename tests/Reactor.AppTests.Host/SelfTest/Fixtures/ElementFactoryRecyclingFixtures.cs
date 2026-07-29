@@ -176,11 +176,18 @@ internal static class ElementFactoryRecyclingFixtures
     }
 
     // ────────────────────────────────────────────────────────────────────
-    //  PR #324 review fix #1 — heterogeneous-row replacement.
-    //  When the row's root element type changes between cycles, Reconcile
-    //  returns a fresh control. The old reused control must be untracked
-    //  from _lastElementByControl (and detached from any parent, but the
-    //  standalone factory has no parent so we only assert tracking).
+    //  Heterogeneous-row realization.
+    //
+    //  PR #324 review fix #1 originally popped the pooled container blindly:
+    //  Reconcile then minted a fresh control for the new root type and the
+    //  popped one was untracked and left behind. Issue #919 showed that is a
+    //  leak, not a fix — a container realized by an ItemsRepeater can never be
+    //  un-parented from managed code, so a repeatedly-flipping list stranded a
+    //  full realized window of live, visible containers on every flip.
+    //
+    //  The container that cannot serve this row must therefore STAY POOLED and
+    //  STAY TRACKED, so the next realize of a matching root type reuses that
+    //  exact instance instead of allocating another one.
     // ────────────────────────────────────────────────────────────────────
 
     internal class Factory_ReplacementOnRootTypeChange_DropsOldControlTracking(Harness h) : SelfTestFixtureBase(h)
@@ -210,10 +217,9 @@ internal static class ElementFactoryRecyclingFixtures
 
             int beforeLastEl = factory.DebugLastElementByControlCount;
 
-            // Realize index 1 → TextBlock root. Reconcile returns a fresh
-            // control because the root type changed; old reused FlexRow
-            // becomes orphaned in any real parent (no parent here in the
-            // standalone test, but tracking-removal should still happen).
+            // Realize index 1 → TextBlock root. The pooled FlexRow cannot be
+            // diffed into a TextBlock, so the factory must leave it in the pool
+            // and mount a fresh control for this row.
             var txtCtl = ifactory.GetElement(MakeGetArgs(1));
 
             H.Check("EFR_Heterogeneous_ReturnsReplacementNotReused",
@@ -221,14 +227,353 @@ internal static class ElementFactoryRecyclingFixtures
             H.Check("EFR_Heterogeneous_ReturnedControlIsTextBlock",
                 txtCtl is TextBlock);
 
-            // The factory must have dropped its _lastElementByControl entry
-            // for the orphaned old FlexRow. Otherwise the bookkeeping leaks
-            // one entry per heterogeneous-cycle pair.
+            // The rejected FlexRow must KEEP its _lastElementByControl entry —
+            // that entry is what lets the next matching realize find and reuse
+            // it. Dropping it (the pre-#919 behaviour) stranded the control:
+            // untracked, un-detachable, and re-allocated on every flip.
             int afterLastEl = factory.DebugLastElementByControlCount;
-            // beforeLastEl had 1 (the FlexRow). afterLastEl should be 1 (the new TextBlock).
-            // The FlexRow's entry was dropped, TextBlock's entry was added → net 0 delta.
-            H.Check($"EFR_Heterogeneous_LastElementByControlSwapped_before={beforeLastEl}_after={afterLastEl}",
-                afterLastEl == beforeLastEl);
+            H.Check($"EFR_Heterogeneous_RejectedControlStaysTracked_before={beforeLastEl}_after={afterLastEl}",
+                afterLastEl == beforeLastEl + 1
+                    && factory.DebugTryGetLastElementByControl(rowCtl, out _));
+
+            // …and the proof that retention is what bounds the working set:
+            // recycle the TextBlock, realize an even index again, and the very
+            // same FlexRow instance must come back instead of a third control.
+            ifactory.RecycleElement(MakeRecycleArgs(txtCtl));
+            var rowCtl2 = ifactory.GetElement(MakeGetArgs(0));
+            H.Check("EFR_Heterogeneous_PooledRootReusedOnFlipBack",
+                ReferenceEquals(rowCtl2, rowCtl));
+            H.Check($"EFR_Heterogeneous_BookkeepingBounded_count={factory.DebugLastElementByControlCount}",
+                factory.DebugLastElementByControlCount == 2);
+
+            // Retention must not become its own leak. A keyed list stamps a
+            // per-item key on every row root (ApplyItemIdentityKey), and
+            // CanUpdate rejects unequal keys — so scrolling forward through
+            // distinct items never finds a reusable container. Without the pool
+            // cap, that retained one container plus one tracking entry per item
+            // scrolled past and made the reuse scan grow with it.
+            var many = Enumerable.Range(0, 200).Select(i => new Item($"k{i}", $"L{i}")).ToArray();
+            var scrollFactory = new ElementFactory<Item>(
+                many,
+                (it, _) => TextBlock(it.Label),
+                new Reconciler(),
+                requestRerender: static () => { },
+                pool: null);
+            var iscroll = (IElementFactory)scrollFactory;
+            UIElement? previous = null;
+            for (var i = 0; i < many.Length; i++)
+            {
+                if (previous is not null) iscroll.RecycleElement(MakeRecycleArgs(previous));
+                previous = iscroll.GetElement(MakeRowGetArgs(i, $"k{i}"));
+            }
+
+            H.Check($"EFR_KeyedScroll_PoolBounded_pool={scrollFactory.DebugRecyclePoolCount}",
+                scrollFactory.DebugRecyclePoolCount <= 32);
+            H.Check($"EFR_KeyedScroll_TrackingBounded_lastEl={scrollFactory.DebugLastElementByControlCount}",
+                scrollFactory.DebugLastElementByControlCount <= 33);
+
+            return Task.CompletedTask;
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #919 — the pool cap must not defeat the bounded-children
+    //  guarantee for a list that cycles its rows through THREE or more root
+    //  shapes. A flat two-window cap fills up with the first two shapes and
+    //  then evicts the oldest shape on every recycle, so the shape that comes
+    //  back next pass is re-minted — and a re-minted container is one more
+    //  permanently-parented ItemsRepeater child.
+    // ────────────────────────────────────────────────────────────────────
+
+    internal class Factory_MultiShapeCycle_KeepsContainerSetBounded(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            const int rows = 20;
+            const int cycles = 6;
+
+            // Value-type T deliberately: ElementFactory skips _viewBuilderCache
+            // for value types, so flipping `shape` actually rebuilds the row.
+            var items = Enumerable.Range(0, rows).ToArray();
+            var shape = 0;
+            var factory = new ElementFactory<int>(
+                items,
+                (i, _) => shape switch
+                {
+                    0 => TextBlock($"r{i}"),
+                    1 => VStack(TextBlock($"r{i}")),
+                    _ => FlexColumn(TextBlock($"r{i}")),
+                },
+                new Reconciler(),
+                requestRerender: static () => { },
+                pool: null);
+            var ifactory = (IElementFactory)factory;
+
+            var distinct = new HashSet<UIElement>();
+            var live = new UIElement[rows];
+            for (var c = 0; c < cycles; c++)
+            {
+                shape = c % 3;
+                if (c > 0)
+                    for (var i = 0; i < rows; i++) ifactory.RecycleElement(MakeRecycleArgs(live[i]));
+
+                for (var i = 0; i < rows; i++)
+                {
+                    live[i] = ifactory.GetElement(MakeRowGetArgs(i, $"k{i}"));
+                    distinct.Add(live[i]);
+                }
+            }
+
+            // Three shapes × one realized window each. Anything above that means
+            // a shape was evicted before it came back around and had to be
+            // re-minted, which on a real ItemsRepeater is a permanent orphan.
+            H.Check($"EFR_MultiShape_ContainersBounded_distinct={distinct.Count}",
+                distinct.Count <= rows * 3);
+
+            // …and the retention is real reuse, not luck: the last cycle must
+            // hand back containers seen in the matching earlier cycle.
+            H.Check($"EFR_MultiShape_PoolStillBounded_pool={factory.DebugRecyclePoolCount}",
+                factory.DebugRecyclePoolCount <= rows * 3);
+
+            return Task.CompletedTask;
+        }
+    }
+
+    private class ShapeRowA : Component { public override Element Render() => TextBlock("a"); }
+    private class ShapeRowB : Component { public override Element Render() => TextBlock("b"); }
+    private class ShapeRowC : Component { public override Element Render() => TextBlock("c"); }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #919 — pool "shape" must mean reuse compatibility, not native
+    //  control type. Three modifier-free Component<A/B/C> roots are mutually
+    //  incompatible pool entries but ALL mount as Border, so a census keyed on
+    //  Control.GetType() sees one shape, under-sizes the pool, and evicts the
+    //  shape that is about to be cycled back to.
+    // ────────────────────────────────────────────────────────────────────
+
+    internal class Factory_ComponentShapeCycle_KeepsContainerSetBounded(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            const int rows = 20;
+            const int cycles = 6;
+
+            var items = Enumerable.Range(0, rows).ToArray();
+            var shape = 0;
+            var factory = new ElementFactory<int>(
+                items,
+                (_, _) => shape switch
+                {
+                    0 => Component<ShapeRowA>(),
+                    1 => Component<ShapeRowB>(),
+                    _ => Component<ShapeRowC>(),
+                },
+                new Reconciler(),
+                requestRerender: static () => { },
+                pool: null);
+            var ifactory = (IElementFactory)factory;
+
+            var distinct = new HashSet<UIElement>();
+            var live = new UIElement[rows];
+            for (var c = 0; c < cycles; c++)
+            {
+                shape = c % 3;
+                if (c > 0)
+                    for (var i = 0; i < rows; i++) ifactory.RecycleElement(MakeRecycleArgs(live[i]));
+
+                for (var i = 0; i < rows; i++)
+                {
+                    live[i] = ifactory.GetElement(MakeRowGetArgs(i, $"k{i}"));
+                    distinct.Add(live[i]);
+                }
+            }
+
+            // Every root here is a Border, so this only stays bounded if the
+            // census distinguishes them by ComponentType.
+            H.Check($"EFR_CompShape_AllRootsAreBorders_distinctTypes={distinct.Select(c => c.GetType()).Distinct().Count()}",
+                distinct.All(c => c is Border));
+            H.Check($"EFR_CompShape_ContainersBounded_distinct={distinct.Count}",
+                distinct.Count <= rows * 3);
+
+            return Task.CompletedTask;
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #919 — a container evicted by the pool cap must be UNMOUNTED.
+    //  Recycling deliberately leaves a container mounted so the next realize
+    //  can diff it in place; eviction is where that lease ends. Skipping the
+    //  unmount leaves every evicted row's components in the reconciler's node
+    //  table with their effects, subscriptions and captured state alive — the
+    //  pool counts stay flat while real Reactor state grows per visited item.
+    // ────────────────────────────────────────────────────────────────────
+
+    internal class Factory_PoolEviction_UnmountsEvictedRows(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            s_rowCtorCount = 0;
+            s_rowEffectMountCount = 0;
+            s_rowEffectCleanupCount = 0;
+
+            const int visited = 200;
+            var items = Enumerable.Range(0, visited).ToArray();
+            // A StackPanel root (not a component-wrapper Border) so the pool's
+            // component-adoption pass can't serve these, and a distinct key per
+            // row so CanUpdate can't either. Every realize therefore mints a
+            // fresh container and the pool has to evict — which is the path
+            // under test. The nested Component is what carries the effect whose
+            // cleanup proves the eviction unmounted the subtree.
+            var factory = new ElementFactory<int>(
+                items,
+                (_, _) => VStack(Component<IdentityRowComponent>()),
+                new Reconciler(),
+                requestRerender: static () => { },
+                pool: null);
+            var ifactory = (IElementFactory)factory;
+
+            UIElement? previous = null;
+            UIElement? first = null;
+            for (var i = 0; i < visited; i++)
+            {
+                if (previous is not null) ifactory.RecycleElement(MakeRecycleArgs(previous));
+                previous = ifactory.GetElement(MakeRowGetArgs(i, $"k{i}"));
+                first ??= previous;
+            }
+
+            H.Check($"EFR_Eviction_AllRowsMounted_mount={s_rowEffectMountCount}",
+                s_rowEffectMountCount == visited);
+            // Everything recycled beyond the pool capacity gets evicted, and
+            // each eviction must run one cleanup. Without the unmount this
+            // reads 0.
+            H.Check($"EFR_Eviction_EvictedRowsCleanedUp_cleanup={s_rowEffectCleanupCount}",
+                s_rowEffectCleanupCount >= 100);
+            H.Check($"EFR_Eviction_PoolStillBounded_pool={factory.DebugRecyclePoolCount}",
+                factory.DebugRecyclePoolCount <= 32);
+
+            // Unmounting tears the components down but leaves ReactorState's
+            // Element pointer and the modifier-event trampolines attached — and
+            // the repeater keeps the evicted tree parented forever, so those
+            // captured closures stay reachable and can still fire. The first
+            // row is long since evicted by now; its Reactor state must be gone.
+            H.Check("EFR_Eviction_FirstRowWasEvicted",
+                first is not null && !factory.DebugTryGetLastElementByControl(first, out _));
+            var detached = first is FrameworkElement ffe
+                && (ffe.GetValue(Reconciler.ReactorAttached.StateProperty) is not Reconciler.ReactorState st
+                    || st.Element is null);
+            H.Check("EFR_Eviction_EvictedRowStateDetached", detached);
+
+            return Task.CompletedTask;
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #919 — parking must not vandalise the Visibility DP.
+    //  RecycleElement collapses a container so it can't paint as a ghost, and
+    //  reuse has to undo exactly that. Two ways to get it wrong: force Visible
+    //  on reuse (un-hides a row the author hid), or write back the *evaluated*
+    //  enum (pins a local value on a row that had none, permanently outranking
+    //  a Style- or default-provided Visibility).
+    // ────────────────────────────────────────────────────────────────────
+
+    internal class Factory_PoolParking_PreservesVisibilityValueSource(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            var items = Enumerable.Range(0, 2).ToArray();
+
+            // Row A: no Visibility modifier at all → no local value.
+            var plain = new ElementFactory<int>(
+                items,
+                (i, _) => TextBlock($"r{i}"),
+                new Reconciler(),
+                requestRerender: static () => { },
+                pool: null);
+            var iplain = (IElementFactory)plain;
+
+            var a0 = iplain.GetElement(MakeGetArgs(0));
+            H.Check("EFR_Park_FreshRowHasNoLocalVisibility",
+                ReferenceEquals(a0.ReadLocalValue(UIElement.VisibilityProperty), DependencyProperty.UnsetValue));
+
+            iplain.RecycleElement(MakeRecycleArgs(a0));
+            var a1 = iplain.GetElement(MakeGetArgs(0));
+            H.Check("EFR_Park_ReusedRowIsSameControl", ReferenceEquals(a1, a0));
+            H.Check("EFR_Park_ReusedRowIsVisible", a1.Visibility == Visibility.Visible);
+            // The real assertion: the container came back with its Visibility
+            // value source untouched, not with an invented local value.
+            H.Check("EFR_Park_ReusedRowHasNoLocalVisibility",
+                ReferenceEquals(a1.ReadLocalValue(UIElement.VisibilityProperty), DependencyProperty.UnsetValue));
+
+            // Row B: author explicitly hid it → local Collapsed must survive the
+            // park/unpark round-trip.
+            var hidden = new ElementFactory<int>(
+                items,
+                (i, _) => TextBlock($"r{i}").IsVisible(false),
+                new Reconciler(),
+                requestRerender: static () => { },
+                pool: null);
+            var ihidden = (IElementFactory)hidden;
+
+            var b0 = ihidden.GetElement(MakeGetArgs(0));
+            H.Check("EFR_Park_HiddenRowStartsCollapsed", b0.Visibility == Visibility.Collapsed);
+            ihidden.RecycleElement(MakeRecycleArgs(b0));
+            var b1 = ihidden.GetElement(MakeGetArgs(0));
+            H.Check("EFR_Park_HiddenRowIsSameControl", ReferenceEquals(b1, b0));
+            H.Check("EFR_Park_HiddenRowStaysCollapsed", b1.Visibility == Visibility.Collapsed);
+
+            return Task.CompletedTask;
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #919 — a row whose Visibility is BOUND cannot be parked
+    //  reversibly: collapsing it clobbers the binding and no public API can
+    //  reinstall it. Pooling it un-collapsed instead would leave a visible,
+    //  no-longer-arranged repeater child painting at its last bounds — the
+    //  exact ghost row this change exists to prevent. It must be retired.
+    // ────────────────────────────────────────────────────────────────────
+
+    internal class Factory_BoundVisibilityRow_IsRetiredNotPooled(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            // The binding source must be a built-in WinUI type, not a plain
+            // managed class: XAML resolves a WinRT source's properties from
+            // native metadata, whereas a POCO source goes through
+            // ICustomProperty, which NativeAOT cannot synthesize without
+            // [WinRT.GeneratedBindableCustomProperty].
+            var source = new WinXC.Border { Visibility = Visibility.Visible };
+            var factory = new ElementFactory<int>(
+                new[] { 0 },
+                (i, _) => TextBlock($"r{i}").Set(fe => fe.SetBinding(
+                    UIElement.VisibilityProperty,
+                    new Microsoft.UI.Xaml.Data.Binding
+                    {
+                        Source = source,
+                        Path = new PropertyPath(nameof(UIElement.Visibility)),
+                    })),
+                new Reconciler(),
+                requestRerender: static () => { },
+                pool: null);
+            var ifactory = (IElementFactory)factory;
+
+            var ctl = ifactory.GetElement(MakeGetArgs(0));
+            // Guard the premise: if WinUI ever stops handing back a
+            // BindingExpression from ReadLocalValue, the retire branch is dead
+            // code and this fixture is the thing that says so.
+            H.Check("EFR_BoundVis_ReadLocalValueIsBindingExpression",
+                ctl.ReadLocalValue(UIElement.VisibilityProperty) is not Visibility
+                && !ReferenceEquals(ctl.ReadLocalValue(UIElement.VisibilityProperty), DependencyProperty.UnsetValue));
+
+            ifactory.RecycleElement(MakeRecycleArgs(ctl));
+
+            H.Check($"EFR_BoundVis_NotPooled_pool={factory.DebugRecyclePoolCount}",
+                factory.DebugRecyclePoolCount == 0);
+            H.Check("EFR_BoundVis_Untracked",
+                !factory.DebugTryGetLastElementByControl(ctl, out _));
+            // Retired, so it must not be left painting.
+            H.Check($"EFR_BoundVis_Collapsed_vis={ctl.Visibility}",
+                ctl.Visibility == Visibility.Collapsed);
 
             return Task.CompletedTask;
         }
@@ -437,7 +782,18 @@ internal static class ElementFactoryRecyclingFixtures
             // Recycle it so the container is pool-available, then realize a
             // DIFFERENT logical item ("b") that reuses the pooled container.
             ifactory.RecycleElement(MakeRecycleArgs(ctlA));
-            ifactory.GetElement(MakeRowGetArgs(1, "b"));
+            var ctlB = ifactory.GetElement(MakeRowGetArgs(1, "b"));
+
+            // The pooled container itself must come back. CanUpdate is false
+            // here (the key changed), so this can only happen through the
+            // component-wrapper pass of TryTakeCompatibleFromPool, which gates
+            // on ComponentType + Equals(Modifiers) + Equals(Extensions). If
+            // that pass ever goes dead — e.g. ElementModifiers stops being a
+            // value-equal record — the pool would miss and a fresh Border would
+            // be minted here. The effect/ctor counts below would still read 2/2
+            // in that case, so they cannot detect it; this identity check can.
+            H.Check("EFR326_KeyChange_PooledContainerReused",
+                ReferenceEquals(ctlB, ctlA));
 
             // Key "a" → "b" differs → CanUpdate false → the old Component is
             // unmounted (cleanup runs) and a fresh one is mounted (new hook
@@ -588,6 +944,546 @@ internal static class ElementFactoryRecyclingFixtures
                 realizedBefore is null
                 || ReferenceEquals(realizedBefore, realizedAfter)
                 || !factory.DebugTryGetLastElementByControl(realizedBefore, out _));
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #919 (pr-review round 4, finding A) — the RefreshRealizedItems
+    //  adoption gate, exercised through the refresh path specifically.
+    //
+    //  A keyed row whose root is a component wrapper carrying MODIFIERS must
+    //  not be silently adopted when its key changes. TryAdoptRealizedReplacement
+    //  transplants only the component subtree; the wrapper's own runtime
+    //  bookkeeping — here the ElementRef cell that ApplyModifiers installs — is
+    //  keyed on the REPLACEMENT Border. Adopting therefore leaves Ref.Current
+    //  pointing at a control that is never parented, so imperative code
+    //  (Focus, scroll-into-view, measurement) targets a detached element.
+    //
+    //  The gate must route this through the framework's realize channel so the
+    //  ref lands on the control the repeater actually realized. Gating on
+    //  "is the realized child a Border" alone is not enough: the wrapper here
+    //  IS a Border.
+    // ────────────────────────────────────────────────────────────────────
+
+    internal class Factory_RefreshKeyChange_ModifiedRootKeepsRefLive(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var rowRef = new Microsoft.UI.Reactor.Input.ElementRef();
+
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (rev, setRev) = ctx.UseState(0);
+                var items = new[] { new Item("a", "A") };
+                return VStack(
+                    Button("BumpRefRev", () => setRev(rev + 1)),
+                    LazyVStack<Item>(items, i => i.Id, (i, _) =>
+                        Component<StatefulKeyedRow>().Ref(rowRef).WithKey($"{i.Id}:{rev}")).Height(200)
+                );
+            });
+            await Harness.Render();
+
+            var repeater = H.FindControl<WinXC.ItemsRepeater>(_ => true);
+            var factory = repeater?.ItemTemplate as ElementFactory<Item>;
+            H.Check("EFR919_RefAdopt_FactoryFound", factory is not null && repeater is not null);
+            if (factory is null || repeater is null) return;
+
+            var realizedBefore = repeater.TryGetElement(0);
+            H.Check("EFR919_RefAdopt_RefTracksRealizedBefore",
+                realizedBefore is not null && ReferenceEquals(rowRef.Current, realizedBefore));
+
+            // Key "a:0" → "a:1" with the same list slot: RefreshRealizedItems
+            // sees CanUpdate == false on a Border-rooted row.
+            H.ClickButton("BumpRefRev");
+            await Harness.Render();
+            await Harness.WaitFor(() =>
+                repeater.TryGetElement(0) is { } e && !ReferenceEquals(e, realizedBefore));
+
+            var realizedAfter = repeater.TryGetElement(0);
+            H.Check("EFR919_RefAdopt_RowStillRealized", realizedAfter is not null);
+
+            // The guard: Ref.Current must be the control the repeater actually
+            // realized, and that control must be in the visual tree.
+            H.Check("EFR919_RefAdopt_RefPointsAtRealizedControl",
+                realizedAfter is not null && ReferenceEquals(rowRef.Current, realizedAfter));
+            H.Check("EFR919_RefAdopt_RefIsParented",
+                rowRef.Current is not null
+                && Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(rowRef.Current) is not null);
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #919 — adoption must be gated even when CanUpdate is TRUE.
+    //
+    //  CanUpdate does not imply "Reconcile preserved control identity". A
+    //  decorator-style V1 handler (spec 048 §14) may substitute a different
+    //  instance when only its inner target changed shape. FlyoutElement is the
+    //  live example: CanUpdate(FlyoutElement, FlyoutElement) only compares type
+    //  and Key, but UpdateFlyoutElement unmounts and re-mounts its Target when
+    //  CanUpdate(o.Target, n.Target) is false, and returns the fresh control.
+    //
+    //  Both the old and new realized controls are component-wrapper Borders, so
+    //  TryAdoptRealizedReplacement happily succeeds — and silently drops
+    //  everything MountFlyout/UpdateFlyoutElement installed on the replacement:
+    //  the attached flyout and the element tag its Opened/Closed handlers read
+    //  back through Reconciler.GetElementTag. The row keeps rendering, so only
+    //  the tag exposes the damage.
+    // ────────────────────────────────────────────────────────────────────
+
+    private class FlyoutRowA : Microsoft.UI.Reactor.Core.Component
+    {
+        public override Microsoft.UI.Reactor.Core.Element Render() => TextBlock("flyrowA");
+    }
+
+    private class FlyoutRowB : Microsoft.UI.Reactor.Core.Component
+    {
+        public override Microsoft.UI.Reactor.Core.Element Render() => TextBlock("flyrowB");
+    }
+
+    internal class Factory_DecoratorSubstitution_IsNotSilentlyAdopted(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (flip, setFlip) = ctx.UseState(false);
+                var items = new[] { new Item("a", "A") };
+                return VStack(
+                    Button("FlipFlyoutTarget", () => setFlip(!flip)),
+                    LazyVStack<Item>(items, i => i.Id, (i, _) =>
+                        Flyout(
+                            flip ? Component<FlyoutRowB>() : Component<FlyoutRowA>(),
+                            TextBlock("flymenu"))).Height(200)
+                );
+            });
+            await Harness.Render();
+
+            var repeater = H.FindControl<WinXC.ItemsRepeater>(_ => true);
+            var factory = repeater?.ItemTemplate as ElementFactory<Item>;
+            H.Check("EFR919_Decorator_FactoryFound", factory is not null && repeater is not null);
+            if (factory is null || repeater is null) return;
+
+            H.Check("EFR919_Decorator_InitialRowA", H.FindText("flyrowA") is not null);
+
+            // Guard the premise: the realized row really is a component-wrapper
+            // Border, so TryAdoptRealizedReplacement *would* succeed if unguarded.
+            H.Check("EFR919_Decorator_RealizedIsBorder", repeater.TryGetElement(0) is Border);
+
+            // Flip only the flyout's Target shape. The FlyoutElement itself keeps
+            // the same type and Key, so CanUpdate stays TRUE while the decorator
+            // hands back a brand-new control.
+            H.ClickButton("FlipFlyoutTarget");
+            await Harness.Render();
+            await Harness.WaitFor(() => H.FindText("flyrowB") is not null);
+
+            H.Check("EFR919_Decorator_ShowsRowB", H.FindText("flyrowB") is not null);
+
+            // The pre-flip container can't be un-parented from the repeater, so
+            // the rowA subtree stays in the tree — but parked collapsed. What
+            // must never happen is a still-Visible repeater child that is no
+            // longer a live realized item, i.e. a ghost painting over the row.
+            var ghosts = 0;
+            var childCount = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(repeater);
+            for (var i = 0; i < childCount; i++)
+            {
+                if (Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(repeater, i) is not FrameworkElement fe) continue;
+                if (fe.Visibility != Visibility.Visible) continue;
+                if (repeater.GetElementIndex(fe) < 0) ghosts++;
+            }
+            H.Check($"EFR919_Decorator_NoVisibleGhosts_ghosts={ghosts}/{childCount}", ghosts == 0);
+
+            // The guard. The control the repeater actually realized must carry the
+            // CURRENT FlyoutElement as its element tag — that tag is what the
+            // flyout's Opened/Closed handlers dereference at click time. A silent
+            // adopt leaves the pre-flip element here.
+            var realizedAfter = repeater.TryGetElement(0);
+            var tag = realizedAfter is null ? null : Reconciler.GetElementTag(realizedAfter);
+            var targetType = (tag as FlyoutElement)?.Target as ComponentElement;
+            H.Check($"EFR919_Decorator_RealizedCarriesCurrentTag_target={targetType?.ComponentType?.Name ?? "<null>"}",
+                targetType is not null && targetType.ComponentType == typeof(FlyoutRowB));
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #919 (pr-review round 5) — the pool census must discriminate on
+    //  XamlHostElement.TypeKey, and must grant a window to EVERY recurring
+    //  shape rather than clamping the shape count.
+    //
+    //  Nine XamlHostElements with distinct TypeKeys are nine mutually
+    //  incompatible reuse classes (Reconciler.CanUpdate compares TypeKey) that
+    //  share ONE element type and ONE native control type. So this stays
+    //  bounded only if (a) ShapeKeyOf folds TypeKey in — otherwise the census
+    //  sees a single shape and sizes the pool for one window — and (b) capacity
+    //  is not clamped below the number of recurring shapes. Under-provisioning
+    //  is not a mere cache miss: the missing container is re-minted and the
+    //  evicted one stays parented to the repeater forever, so a bounded managed
+    //  pool would be silently trading itself for unbounded native growth.
+    // ────────────────────────────────────────────────────────────────────
+
+    internal class Factory_HostTypeKeyCycle_KeepsContainerSetBounded(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            const int rows = 12;
+            const int shapes = 9;
+            const int cycles = shapes * 2;
+
+            var items = Enumerable.Range(0, rows).ToArray();
+            var shape = 0;
+            var factory = new ElementFactory<int>(
+                items,
+                (_, _) => new Microsoft.UI.Reactor.Hosting.XamlHostElement(static () => new TextBlock())
+                {
+                    TypeKey = $"host{shape}",
+                },
+                new Reconciler(),
+                requestRerender: static () => { },
+                pool: null);
+            var ifactory = (IElementFactory)factory;
+
+            var distinct = new HashSet<UIElement>();
+            var live = new UIElement[rows];
+            for (var c = 0; c < cycles; c++)
+            {
+                shape = c % shapes;
+                if (c > 0)
+                    for (var i = 0; i < rows; i++) ifactory.RecycleElement(MakeRecycleArgs(live[i]));
+
+                for (var i = 0; i < rows; i++)
+                {
+                    live[i] = ifactory.GetElement(MakeRowGetArgs(i, $"k{i}"));
+                    distinct.Add(live[i]);
+                }
+            }
+
+            // Guards the premise: one element type, one control type — the only
+            // thing that can tell these nine apart is TypeKey.
+            var nativeTypes = distinct.Select(c => c.GetType()).Distinct().Count();
+            H.Check($"EFR_HostShape_AllRootsSameNativeType_types={nativeTypes}", nativeTypes == 1);
+            H.Check($"EFR_HostShape_ContainersBounded_distinct={distinct.Count}",
+                distinct.Count <= rows * shapes);
+
+            return Task.CompletedTask;
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #919 (pr-review round 6, M1/M2) — a retired container must have
+    //  its Reactor state detached ALL THE WAY DOWN, and the ownership slots
+    //  cleared.
+    //
+    //  UnmountChild tears the components down but deliberately leaves the
+    //  per-control ReactorState in place: Element still points at the last
+    //  element, the modifier trampolines stay subscribed, and ListState /
+    //  ItemViewSource / ControlEventState still hold their payloads (a pooled
+    //  control re-uses those on its next rent). An evicted repeater container
+    //  has no next rent — the repeater keeps it parented forever — so every one
+    //  of those slots is pure retention on a dead subtree, and a trampoline that
+    //  fires can still reach the dead component's captured rerender closure.
+    //
+    //  The DESCENDANT is the interesting assertion: RetireContainer walks the
+    //  subtree, so a check on the container root alone would pass even with the
+    //  recursion deleted.
+    // ────────────────────────────────────────────────────────────────────
+
+    private class EventBearingRow : Microsoft.UI.Reactor.Core.Component
+    {
+        public override Microsoft.UI.Reactor.Core.Element Render()
+            // Button.Click is a control-intrinsic event, so mounting this
+            // populates ReactorState.ControlEventState on the Button — one of
+            // the ownership slots a permanent retire has to clear. It sits
+            // BELOW the container root, so it also proves the walk recurses.
+            => VStack(Button("row-btn", () => { }));
+    }
+
+    internal class Factory_RetiredContainer_DetachesNestedStateAndOwnership(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            var items = Enumerable.Range(0, 400)
+                .Select(i => new Item(i.ToString(), $"Item {i}")).ToArray();
+            var factory = new ElementFactory<Item>(
+                items,
+                (_, _) => VStack(Component<EventBearingRow>()),
+                new Reconciler(),
+                requestRerender: static () => { },
+                pool: null);
+            var ifactory = (IElementFactory)factory;
+
+            // Cycle far past the pool capacity so the first container is long
+            // since evicted and retired.
+            UIElement? previous = null;
+            UIElement? first = null;
+            for (var i = 0; i < 400; i++)
+            {
+                if (previous is not null) ifactory.RecycleElement(MakeRecycleArgs(previous));
+                previous = ifactory.GetElement(MakeRowGetArgs(i, $"rk{i}"));
+                first ??= previous;
+            }
+
+            H.Check("EFR_Retire_FirstRowWasEvicted",
+                first is not null && !factory.DebugTryGetLastElementByControl(first, out _));
+            if (first is null) return Task.CompletedTask;
+
+            // Find the Button somewhere beneath the retired container.
+            var button = FindDescendant<WinXC.Button>(first);
+            H.Check("EFR_Retire_FoundNestedButton", button is not null);
+            if (button is null) return Task.CompletedTask;
+
+            // Guard the premise: the Button really is a DESCENDANT, not the
+            // container root, so this can only pass if the walk recursed.
+            H.Check("EFR_Retire_ButtonIsNotTheRoot", !ReferenceEquals(button, first));
+
+            var st = button.GetValue(Reconciler.ReactorAttached.StateProperty)
+                as Reconciler.ReactorState;
+
+            // Recursion oracle. Delete the recursive walk and the nested
+            // Button keeps its Element pointer.
+            H.Check($"EFR_Retire_NestedElementDetached_el={st?.Element?.GetType().Name ?? "<null>"}",
+                st is null || st.Element is null);
+
+            // Ownership-slot oracle. UnmountChild + DetachReactorState both
+            // leave ControlEventState alone; only the permanent-retire clearing
+            // nulls it. Guarded by the premise check below so a Button that
+            // never had a payload can't make this vacuously true.
+            H.Check($"EFR_Retire_NestedControlEventStateCleared",
+                st is null || st.ControlEventState is null);
+
+            // Premise: a LIVE button of the same shape does carry a
+            // ControlEventState box. Without this, the assertion above would
+            // pass even if Button.Click never populated the slot at all.
+            var liveRoot = ifactory.GetElement(MakeRowGetArgs(0, "live-k"));
+            var liveButton = FindDescendant<WinXC.Button>(liveRoot);
+            var liveSt = liveButton?.GetValue(Reconciler.ReactorAttached.StateProperty)
+                as Reconciler.ReactorState;
+            H.Check("EFR_Retire_LiveButtonHasControlEventState",
+                liveSt is not null && liveSt.ControlEventState is not null);
+
+            return Task.CompletedTask;
+        }
+
+        private static TControl? FindDescendant<TControl>(DependencyObject root)
+            where TControl : class
+        {
+            if (root is TControl hit) return hit;
+            var n = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root);
+            for (var i = 0; i < n; i++)
+            {
+                var found = FindDescendant<TControl>(
+                    Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i));
+                if (found is not null) return found;
+            }
+            return null;
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #919 (pr-review round 6, M6) — the CanSafelyAdopt gate on the
+    //  POOL-REUSE path needs its own regression, not just the refresh path.
+    //
+    //  Factory_DecoratorSubstitution_IsNotSilentlyAdopted covers the
+    //  RefreshRealizedItems call site. This one covers GetElement: recycle a
+    //  decorator row into the pool, then realize the same KEY with a different
+    //  wrapped target. Pass 1 picks the container (CanUpdate on FlyoutElement
+    //  compares type + Key only, both unchanged), Reconcile's decorator arm
+    //  unmounts the old target and hands back a DIFFERENT control, and the gate
+    //  has to refuse to adopt it — a FlyoutElement is not a ComponentElement, so
+    //  its wiring (the element tag the Opened/Closed handlers read at click
+    //  time) does not travel with the adopted subtree.
+    // ────────────────────────────────────────────────────────────────────
+
+    internal class Factory_PoolReuseDecoratorSubstitution_IsNotSilentlyAdopted(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            var items = new[] { new Item("a", "A") };
+            var factory = new ElementFactory<Item>(
+                items,
+                (_, _) => Flyout(Component<FlyoutRowA>(), TextBlock("flymenu")),
+                new Reconciler(),
+                requestRerender: static () => { },
+                pool: null);
+            var ifactory = (IElementFactory)factory;
+
+            var firstControl = ifactory.GetElement(MakeRowGetArgs(0, "dk0"));
+            var tagBefore = Reconciler.GetElementTag(firstControl) as FlyoutElement;
+            H.Check($"EFR919_PoolDecorator_InitialTargetIsA_target={(tagBefore?.Target as ComponentElement)?.ComponentType?.Name ?? "<null>"}",
+                (tagBefore?.Target as ComponentElement)?.ComponentType == typeof(FlyoutRowA));
+
+            // Guard the premise: the realized control is a component-wrapper
+            // Border, i.e. TryAdoptRealizedReplacement *would* succeed here if
+            // the gate did not refuse it first.
+            H.Check("EFR919_PoolDecorator_RealizedIsBorder", firstControl is Border);
+
+            ifactory.RecycleElement(MakeRecycleArgs(firstControl));
+            H.Check($"EFR919_PoolDecorator_WentToPool_pool={factory.DebugRecyclePoolCount}",
+                factory.DebugRecyclePoolCount == 1);
+
+            // Swap the view builder the way a re-rendering LazyVStack does.
+            // This is what makes the next GetElement build a DIFFERENT element
+            // for the same key — UpdateInPlace clears the per-key build cache,
+            // so without it the cached FlyoutRowA element is served right back
+            // and no substitution ever happens.
+            factory.UpdateInPlace(items, (_, _) => Flyout(Component<FlyoutRowB>(), TextBlock("flymenu")));
+
+            // Same key — so pass 1 matches on CanUpdate — but a different
+            // wrapped target, so the decorator substitutes the control.
+            var secondControl = ifactory.GetElement(MakeRowGetArgs(0, "dk0"));
+
+            // Guard the premise: the container really was taken from the pool
+            // and the decorator really did substitute. If either stopped being
+            // true the oracle below would pass for the wrong reason.
+            H.Check($"EFR919_PoolDecorator_PoolWasDrained_pool={factory.DebugRecyclePoolCount}",
+                factory.DebugRecyclePoolCount == 0);
+            H.Check("EFR919_PoolDecorator_SubstitutionHappened",
+                !ReferenceEquals(secondControl, firstControl));
+
+            // The oracle. Whatever control ends up in the slot must carry the
+            // CURRENT FlyoutElement as its tag. A silent adopt returns the
+            // pooled container, whose tag still names FlyoutRowA.
+            var tagAfter = Reconciler.GetElementTag(secondControl) as FlyoutElement;
+            var afterTarget = (tagAfter?.Target as ComponentElement)?.ComponentType;
+            H.Check($"EFR919_PoolDecorator_SlotCarriesCurrentTag_target={afterTarget?.Name ?? "<null>"}",
+                afterTarget == typeof(FlyoutRowB));
+
+            // And the refused container must not be left tracked or visible.
+            H.Check("EFR919_PoolDecorator_RefusedContainerUntracked",
+                !factory.DebugTryGetLastElementByControl(firstControl, out _));
+            H.Check($"EFR919_PoolDecorator_RefusedContainerCollapsed",
+                firstControl is not FrameworkElement rfe || rfe.Visibility == Visibility.Collapsed);
+
+            return Task.CompletedTask;
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #919 (pr-review round 6, M7) — V1HandlerAdapter.Update must
+    //  remount rather than hard-cast when it is handed a foreign control.
+    //
+    //  This is the exact line that threw the InvalidCastException in the bug
+    //  report. The rest of this change makes the desync unreachable; this
+    //  fixture drives the guard directly through the registry seam so the
+    //  defense-in-depth arm cannot rot. Reverting it to `(TControl)control`
+    //  makes this fixture throw.
+    // ────────────────────────────────────────────────────────────────────
+
+    internal class Adapter_ForeignControl_RemountsInsteadOfThrowing(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            var resolved = Microsoft.UI.Reactor.Core.V1Protocol.ControlRegistry.TryResolve(
+                typeof(TextBlockElement), out var entryFactory);
+            H.Check("EFR919_Adapter_ResolvedTextBlockHandler", resolved && entryFactory is not null);
+            if (!resolved || entryFactory is null) return Task.CompletedTask;
+
+            var entry = entryFactory();
+            var reconciler = new Reconciler();
+
+            var oldEl = TextBlock("before");
+            var newEl = TextBlock("after");
+
+            // The desync the bug produced: a TextBlockElement paired with a
+            // control that is not a TextBlock.
+            var foreign = new WinXC.Button { Content = "not-a-textblock" };
+
+            UIElement? result = null;
+            global::System.Exception? thrown = null;
+            try
+            {
+                result = entry.Update(oldEl, newEl, foreign, static () => { }, reconciler);
+            }
+            catch (global::System.Exception ex)
+            {
+                thrown = ex;
+            }
+
+            H.Check($"EFR919_Adapter_DidNotThrow_ex={thrown?.GetType().Name ?? "<none>"}",
+                thrown is null);
+
+            // Not merely "didn't throw": it must hand back a correctly mounted
+            // replacement for the NEW element, so the caller can install it.
+            H.Check($"EFR919_Adapter_RemountedCorrectType_type={result?.GetType().Name ?? "<null>"}",
+                result is WinXC.TextBlock);
+            H.Check($"EFR919_Adapter_RemountedCarriesNewText_text={(result as WinXC.TextBlock)?.Text ?? "<null>"}",
+                (result as WinXC.TextBlock)?.Text == "after");
+            H.Check("EFR919_Adapter_DidNotReturnForeignControl",
+                !ReferenceEquals(result, foreign));
+
+            // Sanity: the same call with a MATCHING control still takes the
+            // normal in-place arm and returns that very control, so the guard
+            // isn't remounting everything.
+            var proper = entry.Mount(oldEl, static () => { }, reconciler);
+            var same = entry.Update(oldEl, newEl, proper, static () => { }, reconciler);
+            H.Check("EFR919_Adapter_MatchingControlUpdatedInPlace", ReferenceEquals(same, proper));
+            H.Check($"EFR919_Adapter_MatchingControlGotNewText_text={(proper as WinXC.TextBlock)?.Text ?? "<null>"}",
+                (proper as WinXC.TextBlock)?.Text == "after");
+
+            return Task.CompletedTask;
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #919 (pr-review round 6, M3) — the census must also discriminate
+    //  on KeyedMemoElement.MemoKey.
+    //
+    //  Mirrors the XamlHostElement fixture: nine DECORATED KeyedMemoElements
+    //  with distinct MemoKeys are nine mutually incompatible reuse classes
+    //  (Reconciler.CanUpdate compares MemoKey) sharing one element type and one
+    //  native control type. Decorated is load-bearing — BuildOrCache resolves a
+    //  *bare* wrapper through the memo LRU and returns its inner element, so
+    //  only a decorated wrapper survives as a KeyedMemoElement to be censused.
+    //  Unkeyed args are load-bearing too: the keyed path stamps Element.Key,
+    //  which CanUpdate checks first, so MemoKey would never be the deciding
+    //  term. Under-counting here evicts containers that are still wanted, and
+    //  every such eviction is a permanently-parented native leak.
+    // ────────────────────────────────────────────────────────────────────
+
+    internal class Factory_MemoKeyCycle_KeepsContainerSetBounded(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            const int rows = 12;
+            const int shapes = 9;
+            const int cycles = shapes * 2;
+
+            var items = Enumerable.Range(0, rows).ToArray();
+            var shape = 0;
+            var factory = new ElementFactory<int>(
+                items,
+                // .Margin(1) keeps this a KeyedMemoElement instead of being
+                // unwrapped to its inner TextBlock by the memo LRU.
+                (_, _) => Memo($"memo{shape}", static () => TextBlock("memo")).Margin(1),
+                new Reconciler(),
+                requestRerender: static () => { },
+                pool: null);
+            var ifactory = (IElementFactory)factory;
+
+            var distinct = new HashSet<UIElement>();
+            var live = new UIElement[rows];
+            for (var c = 0; c < cycles; c++)
+            {
+                shape = c % shapes;
+                if (c > 0)
+                    for (var i = 0; i < rows; i++) ifactory.RecycleElement(MakeRecycleArgs(live[i]));
+
+                for (var i = 0; i < rows; i++)
+                {
+                    // Unkeyed (int) args — see the comment above.
+                    live[i] = ifactory.GetElement(MakeGetArgs(i));
+                    distinct.Add(live[i]);
+                }
+            }
+
+            // Guards the premise: one native control type, so the only thing
+            // that can tell these nine reuse classes apart is MemoKey.
+            var nativeTypes = distinct.Select(c => c.GetType()).Distinct().Count();
+            H.Check($"EFR_MemoShape_AllRootsSameNativeType_types={nativeTypes}", nativeTypes == 1);
+            H.Check($"EFR_MemoShape_ContainersBounded_distinct={distinct.Count}",
+                distinct.Count <= rows * shapes);
+
+            return Task.CompletedTask;
         }
     }
 }

@@ -6,6 +6,7 @@ using Microsoft.UI.Reactor.Controls;
 using Microsoft.UI.Reactor.Layout;
 using Microsoft.UI.Xaml;
 using static Microsoft.UI.Reactor.Factories;
+using static Microsoft.UI.Reactor.Advanced.Factories;
 using static Microsoft.UI.Reactor.Core.Theme;
 
 // ═══════════════════════════════════════════════════════════════════════

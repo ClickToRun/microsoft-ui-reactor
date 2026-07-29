@@ -4,7 +4,6 @@ using System.Diagnostics.CodeAnalysis;
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Reactor.Controls;
 using Microsoft.UI.Reactor.Data;
-using Microsoft.UI.Reactor.Docking;
 using Microsoft.UI.Xaml.Controls;
 
 namespace Microsoft.UI.Reactor;
@@ -213,6 +212,22 @@ public static partial class ElementExtensions
         el with { OnBackRequested = handler };
 
     /// <summary>
+    /// Wires the settings-selected handler, raised when the built-in settings item becomes
+    /// selected — by the user, or by setting <c>SelectedTag</c> to
+    /// <see cref="NavigationViewElement.SettingsTag"/>. Passing <c>null</c> clears.
+    /// </summary>
+    public static NavigationViewElement SettingsSelected(this NavigationViewElement el, Action? handler) =>
+        el with { OnSettingsSelected = handler };
+
+    /// <summary>
+    /// Wires the item-invoked handler, which also fires when the already-selected item is
+    /// re-invoked. Receives the item's tag, or <see cref="NavigationViewElement.SettingsTag"/>
+    /// for the settings item. Passing <c>null</c> clears.
+    /// </summary>
+    public static NavigationViewElement ItemInvoked(this NavigationViewElement el, Action<string?>? handler) =>
+        el with { OnItemInvoked = handler };
+
+    /// <summary>
     /// Wires the pane-open-state-changed handler. Fires for pane changes the app never
     /// requested (light dismiss, adaptive display-mode changes) as well as the echo of a
     /// programmatic <c>IsPaneOpen</c> write — feed the value back into the state that drives
@@ -220,6 +235,19 @@ public static partial class ElementExtensions
     /// </summary>
     public static NavigationViewElement PaneOpenChanged(this NavigationViewElement el, Action<bool>? handler) =>
         el with { OnPaneOpenChanged = handler };
+
+    /// <summary>Wires the display-mode-changed handler. Passing <c>null</c> clears.</summary>
+    public static NavigationViewElement DisplayModeChanged(this NavigationViewElement el, Action<NavigationViewDisplayMode>? handler) =>
+        el with { OnDisplayModeChanged = handler };
+
+    /// <summary>Wires the hierarchical item-expanding handler. Passing <c>null</c> clears.</summary>
+    public static NavigationViewElement ItemExpanding(this NavigationViewElement el, Action<string?>? handler) =>
+        el with { OnItemExpanding = handler };
+
+    /// <summary>Wires the hierarchical item-collapsed handler. Passing <c>null</c> clears.</summary>
+    public static NavigationViewElement ItemCollapsed(this NavigationViewElement el, Action<string?>? handler) =>
+        el with { OnItemCollapsed = handler };
+
 
     /// <summary>Wires the back-requested handler. Passing <c>null</c> clears.</summary>
     public static TitleBarElement BackRequested(this TitleBarElement el, Action? handler) =>
@@ -475,14 +503,6 @@ public static partial class ElementExtensions
     public static VirtualListElement VisibleRangeChanged(this VirtualListElement el, Action<int, int>? handler) =>
         el with { OnVisibleRangeChanged = handler };
 
-    /// <summary>
-    /// Wires the multi-select snapshot handler for <see cref="DataGridElement{T}"/>.
-    /// Receives the full set of currently-selected <c>RowKey</c>s on every
-    /// change (not added/removed deltas). Passing <c>null</c> clears.
-    /// </summary>
-    public static DataGridElement<T> SelectionChanged<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicConstructors)] T>(this DataGridElement<T> el, Action<IReadOnlySet<RowKey>>? handler) =>
-        el with { OnSelectionChanged = handler };
-
     // ── §10 TabView drag callbacks (Phase 11.1 surface-guard coverage) ─
 
     /// <summary>Wires the tab-drag-starting handler. Receives the source tab index. Passing <c>null</c> clears.</summary>
@@ -493,89 +513,4 @@ public static partial class ElementExtensions
     public static TabViewElement TabDragCompleted(this TabViewElement el, Action<int, bool>? handler) =>
         el with { OnTabDragCompleted = handler };
 
-    // ── §11 Docking — DockManager event fluents (spec 045) ─────────────
-    //
-    // Every cancellable `*ing` and post-event `*ed` callback exposed by
-    // DockManager mirrors here as a fluent. Mirrors the `el with { OnX = }`
-    // null-clear contract from spec §15 Q2.
-
-    /// <summary>Wires the cancellable layout-changing handler. Passing <c>null</c> clears.</summary>
-    public static DockManager LayoutChanging(this DockManager el, Action<DockLayoutChangingEventArgs>? handler) =>
-        el with { OnLayoutChanging = handler };
-
-    /// <summary>Wires the post-mutation layout-changed handler. Passing <c>null</c> clears.</summary>
-    public static DockManager LayoutChanged(this DockManager el, Action<DockLayoutChangedEventArgs>? handler) =>
-        el with { OnLayoutChanged = handler };
-
-    /// <summary>Wires the cancellable document-closing handler. Passing <c>null</c> clears.</summary>
-    public static DockManager DocumentClosing(this DockManager el, Action<DockDocumentClosingEventArgs>? handler) =>
-        el with { OnDocumentClosing = handler };
-
-    /// <summary>Wires the document-closed handler. Passing <c>null</c> clears.</summary>
-    public static DockManager DocumentClosed(this DockManager el, Action<DockDocumentClosedEventArgs>? handler) =>
-        el with { OnDocumentClosed = handler };
-
-    /// <summary>Wires the cancellable tool-window-hiding handler. Passing <c>null</c> clears.</summary>
-    public static DockManager ToolWindowHiding(this DockManager el, Action<DockToolWindowHidingEventArgs>? handler) =>
-        el with { OnToolWindowHiding = handler };
-
-    /// <summary>Wires the tool-window-hidden handler. Passing <c>null</c> clears.</summary>
-    public static DockManager ToolWindowHidden(this DockManager el, Action<DockToolWindowHiddenEventArgs>? handler) =>
-        el with { OnToolWindowHidden = handler };
-
-    /// <summary>Wires the cancellable tool-window-closing handler. Passing <c>null</c> clears.</summary>
-    public static DockManager ToolWindowClosing(this DockManager el, Action<DockToolWindowClosingEventArgs>? handler) =>
-        el with { OnToolWindowClosing = handler };
-
-    /// <summary>Wires the tool-window-closed handler. Passing <c>null</c> clears.</summary>
-    public static DockManager ToolWindowClosed(this DockManager el, Action<DockToolWindowClosedEventArgs>? handler) =>
-        el with { OnToolWindowClosed = handler };
-
-    /// <summary>Wires the cancellable content-floating (about-to-tear-out) handler. Passing <c>null</c> clears.</summary>
-    public static DockManager ContentFloating(this DockManager el, Action<DockContentFloatingEventArgs>? handler) =>
-        el with { OnContentFloating = handler };
-
-    /// <summary>Wires the content-floated handler. Passing <c>null</c> clears.</summary>
-    public static DockManager ContentFloated(this DockManager el, Action<DockContentFloatedEventArgs>? handler) =>
-        el with { OnContentFloated = handler };
-
-    /// <summary>Wires the cancellable content-docking handler. Passing <c>null</c> clears.</summary>
-    public static DockManager ContentDocking(this DockManager el, Action<DockContentDockingEventArgs>? handler) =>
-        el with { OnContentDocking = handler };
-
-    /// <summary>Wires the content-docked handler. Passing <c>null</c> clears.</summary>
-    public static DockManager ContentDocked(this DockManager el, Action<DockContentDockedEventArgs>? handler) =>
-        el with { OnContentDocked = handler };
-
-    /// <summary>Wires the active-content-changed handler. Passing <c>null</c> clears.</summary>
-    public static DockManager ActiveContentChanged(this DockManager el, Action<DockActiveContentChangedEventArgs>? handler) =>
-        el with { OnActiveContentChanged = handler };
-
-    /// <summary>Wires the floating-window-created handler. Passing <c>null</c> clears.</summary>
-    public static DockManager FloatingWindowCreated(this DockManager el, Action<DockFloatingWindowCreatedEventArgs>? handler) =>
-        el with { OnFloatingWindowCreated = handler };
-
-    /// <summary>Wires the floating-window-closed handler. Passing <c>null</c> clears.</summary>
-    public static DockManager FloatingWindowClosed(this DockManager el, Action<DockFloatingWindowClosedEventArgs>? handler) =>
-        el with { OnFloatingWindowClosed = handler };
-
-    /// <summary>Wires the drop-target hover handler. Receives the hovered target (null = none). Passing <c>null</c> clears.</summary>
-    public static DockManager DropTargetHovered(this DockManager el, Action<DockTarget?>? handler) =>
-        el with { OnDropTargetHovered = handler };
-
-    /// <summary>Wires the drop-target confirm handler. Receives the confirmed target. Passing <c>null</c> clears.</summary>
-    public static DockManager DropTargetConfirmed(this DockManager el, Action<DockTarget>? handler) =>
-        el with { OnDropTargetConfirmed = handler };
-
-    /// <summary>Wires the drop-targets-dismissed handler (overlay closed without a target). Passing <c>null</c> clears.</summary>
-    public static DockManager DropTargetsDismissed(this DockManager el, Action? handler) =>
-        el with { OnDropTargetsDismissed = handler };
-
-    /// <summary>Wires the live (mid-drag) layout-changed handler. Passing <c>null</c> clears.</summary>
-    public static DockManager LiveLayoutChanged(this DockManager el, Action<DockNode?>? handler) =>
-        el with { OnLiveLayoutChanged = handler };
-
-    /// <summary>Wires the splitter-drag-completed handler. Passing <c>null</c> clears.</summary>
-    public static DockManager SplitterDragCompleted(this DockManager el, Action? handler) =>
-        el with { OnSplitterDragCompleted = handler };
 }

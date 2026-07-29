@@ -675,7 +675,7 @@ public class MoreCoverageTests
     {
         // An unknown entity should not be resolved; AddEntityText keeps the raw
         // token in the inline stream.
-        var result = Factories.Markdown("&thisisnotreal;");
+        var result = Microsoft.UI.Reactor.Advanced.Factories.Markdown("&thisisnotreal;");
         var stack = Assert.IsType<StackElement>(result);
         var rtb = Assert.IsType<RichTextBlockElement>(stack.Children[0]);
         var text = string.Join("", rtb.Paragraphs![0].Inlines.OfType<RichTextRun>().Select(r => r.Text));
@@ -691,7 +691,7 @@ public class MoreCoverageTests
             ListItem = (el) => el,
         };
         // md4c may collapse a fully-empty bullet, so provide a trivial item.
-        var result = Factories.Markdown("- ", options);
+        var result = Microsoft.UI.Reactor.Advanced.Factories.Markdown("- ", options);
         var stack = Assert.IsType<StackElement>(result);
         // The top-level vstack either contains a list stack or is empty —
         // the important thing is that the parser doesn't throw.
@@ -713,7 +713,7 @@ public class MoreCoverageTests
             },
         };
 
-        Factories.Markdown("1. one\n2. two", options);
+        Microsoft.UI.Reactor.Advanced.Factories.Markdown("1. one\n2. two", options);
         Assert.True(invoked);
         Assert.NotNull(capturedItems);
         Assert.Equal(2, capturedItems!.Length);
@@ -728,14 +728,14 @@ public class MoreCoverageTests
             CodeBlock = (c, l) => { capturedCode = c; return TextBlock(c); },
         };
 
-        Factories.Markdown("```py\nprint('hi')\n```", options);
+        Microsoft.UI.Reactor.Advanced.Factories.Markdown("```py\nprint('hi')\n```", options);
         Assert.Equal("print('hi')", capturedCode);
     }
 
     [Fact]
     public void Markdown_LinkInsideBoldHasSafeUri()
     {
-        var result = Factories.Markdown("**[text](https://example.org)**");
+        var result = Microsoft.UI.Reactor.Advanced.Factories.Markdown("**[text](https://example.org)**");
         var stack = Assert.IsType<StackElement>(result);
         var rtb = Assert.IsType<RichTextBlockElement>(stack.Children[0]);
         var link = rtb.Paragraphs![0].Inlines.OfType<RichTextHyperlink>().FirstOrDefault();
@@ -749,7 +749,7 @@ public class MoreCoverageTests
         // A list item with multiple block children (paragraph + paragraph) should
         // wrap in a VStack(4, ...) per LeaveListItem.
         var md = "- First paragraph\n\n    Second paragraph\n- Next item";
-        var result = Factories.Markdown(md);
+        var result = Microsoft.UI.Reactor.Advanced.Factories.Markdown(md);
         // Just ensure it doesn't throw and produces some structure.
         var stack = Assert.IsType<StackElement>(result);
         Assert.NotEmpty(stack.Children);
