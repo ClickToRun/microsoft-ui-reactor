@@ -517,6 +517,72 @@ namespace FullyQualified
     }
 
     [Fact]
+    public Task Fix_Is_Withheld_When_The_Only_ItemContainer_Overload_Cannot_Wrap_An_Element()
+    {
+        // A Factories whose only single-parameter ItemContainer takes a string. A name-and-arity
+        // match would accept it and emit ItemContainer(Border(...)), which would not compile — the
+        // shape check (Element parameter, ItemContainerElement return) is what withholds the fix.
+        // TestCode == FixedCode asserts the diagnostic still fires but no rewrite happens.
+        const string WrongShapeStubs = @"
+using System;
+using System.Collections.Generic;
+
+namespace System.Runtime.CompilerServices { public static class IsExternalInit { } }
+
+namespace Microsoft.UI.Reactor.Core
+{
+    using System;
+    using System.Collections.Generic;
+
+    public abstract record Element { }
+    public sealed record BorderElement(Element Child) : Element;
+    public sealed record TextBlockElement(string Text) : Element;
+    public record ItemContainerElement(Element Child) : Element;
+    public sealed record ItemsViewElement<T>(IReadOnlyList<T> Items, Func<T, string> KeySelector, Func<T, int, Element> ViewBuilder) : Element;
+}
+
+namespace Microsoft.UI.Reactor
+{
+    using System;
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+
+    public static class Factories
+    {
+        public static ItemsViewElement<T> ItemsView<T>(
+            IReadOnlyList<T> items, Func<T, string> keySelector, Func<T, int, Element> viewBuilder)
+            => new ItemsViewElement<T>(items, keySelector, viewBuilder);
+
+        public static BorderElement Border(Element child) => new BorderElement(child);
+        public static TextBlockElement TextBlock(string text) => new TextBlockElement(text);
+
+        // Right name and arity, wrong shape: cannot wrap an Element.
+        public static ItemContainerElement ItemContainer(string label) => new ItemContainerElement(null);
+    }
+}
+
+namespace WrongShape
+{
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor;
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Factories;
+
+    public static class D
+    {
+        public static Element Build(IReadOnlyList<string> products) =>
+            ItemsView(products, p => p, (p, i) => {|REACTOR_ITEMS_002:Border(TextBlock(p))|});
+    }
+}";
+
+        return new CSharpCodeFixTest<ItemsViewContainerRootAnalyzer, ItemsViewContainerRootCodeFix, DefaultVerifier>
+        {
+            TestCode = WrongShapeStubs,
+            FixedCode = WrongShapeStubs,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public Task Fix_Is_Withheld_When_No_ItemContainer_Factory_Exists()
     {
         // A Reactor surface without the ItemContainer factory: the diagnostic still fires (the

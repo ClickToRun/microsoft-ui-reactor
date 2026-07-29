@@ -100,15 +100,58 @@ public sealed class ItemsViewContainerRootCodeFix : CodeFixProvider
     }
 
     /// <summary>
-    /// The single-argument <c>Factories.ItemContainer(Element? child)</c> factory, or
-    /// <see langword="null"/> when it isn't present in this compilation (in which case no fix is
+    /// The <c>Factories.ItemContainer(Element? child)</c> factory, or <see langword="null"/> when
+    /// this compilation has no overload that could actually wrap an element (in which case no fix is
     /// offered).
     /// </summary>
-    private static IMethodSymbol? ResolveItemContainerFactory(Compilation compilation) =>
-        compilation.GetTypeByMetadataName(ArgumentShapeGate.FactoriesMetadataName)
-            ?.GetMembers(ItemContainerFactoryName)
-            .OfType<IMethodSymbol>()
-            .FirstOrDefault(m => m.IsStatic && m.Parameters.Length == 1);
+    /// <remarks>
+    /// The match is pinned to the <em>shape</em> the emitted code depends on — static, one
+    /// <c>Element</c>-typed parameter, returning an <c>ItemContainerElement</c> — not just to a
+    /// single-parameter method of the right name. A name-and-arity match would happily accept a
+    /// hypothetical <c>ItemContainer(string)</c> convenience overload and then offer a wrap that
+    /// could not compile. C# forbids duplicate signatures on one type, so at most one overload can
+    /// satisfy this, which is also what makes the choice deterministic rather than
+    /// metadata-order-dependent.
+    /// </remarks>
+    private static IMethodSymbol? ResolveItemContainerFactory(Compilation compilation)
+    {
+        var factoriesType = compilation.GetTypeByMetadataName(ArgumentShapeGate.FactoriesMetadataName);
+        if (factoriesType is null)
+            return null;
+
+        var elementType = compilation.GetTypeByMetadataName(ArgumentShapeGate.ElementMetadataName);
+        var containerType = compilation.GetTypeByMetadataName(
+            ItemsViewContainerRootAnalyzer.ItemContainerMetadataName);
+        if (elementType is null || containerType is null)
+            return null;
+
+        foreach (var member in factoriesType.GetMembers(ItemContainerFactoryName))
+        {
+            if (member is not IMethodSymbol { IsStatic: true } candidate || candidate.Parameters.Length != 1)
+                continue;
+            if (!SymbolEqualityComparer.Default.Equals(
+                    candidate.Parameters[0].Type.OriginalDefinition, elementType))
+                continue;
+            if (!IsContainerOrDerived(candidate.ReturnType, containerType))
+                continue;
+
+            return candidate;
+        }
+
+        return null;
+    }
+
+    /// <summary>True when <paramref name="type"/> is <c>ItemContainerElement</c> or derives from it.</summary>
+    private static bool IsContainerOrDerived(ITypeSymbol type, INamedTypeSymbol containerType)
+    {
+        for (var candidate = type as INamedTypeSymbol; candidate is not null; candidate = candidate.BaseType)
+        {
+            if (SymbolEqualityComparer.Default.Equals(candidate.OriginalDefinition, containerType))
+                return true;
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Builds the callee expression for the emitted wrap: the bare name when every
