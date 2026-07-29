@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Reactor.Localization;
 using Microsoft.UI.Xaml;
@@ -1723,7 +1724,14 @@ public static partial class Factories
 
     // ── Frame ───────────────────────────────────────────────────────
 
-    public static FrameElement Frame(Type? sourcePageType = null, object? navigationParameter = null)
+    /// <summary>
+    /// A WinUI <c>Frame</c> that navigates to <paramref name="sourcePageType"/> once on mount.
+    /// The page type is published to the XAML metadata chain so code-only <c>Page</c>
+    /// subclasses (the norm in a Reactor app, which has no XAML) resolve correctly.
+    /// </summary>
+    public static FrameElement Frame(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] Type? sourcePageType = null,
+        object? navigationParameter = null)
     {
         return new() { SourcePageType = sourcePageType, NavigationParameter = navigationParameter };
     }

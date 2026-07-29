@@ -88,9 +88,13 @@ public sealed class ControlDescriptor<TElement, TControl>
     /// mount hook. The interpreter (<see cref="DescriptorHandler{TElement,TControl}"/>)
     /// surfaces it through <see cref="IElementHandler{TElement,TControl}.AfterChildrenMount"/>,
     /// which the adapter invokes after every child has mounted. Use for events
-    /// that must subscribe after children-add (TabView SelectionChanged).
-    /// Defaults to <c>null</c> (no hook).</summary>
-    public AfterChildrenMountCallback<TElement, TControl>? AfterChildrenMount { get; init; }
+    /// that must subscribe after children-add (TabView SelectionChanged), or for
+    /// imperative work that must run strictly after the prop loop AND the event
+    /// subscriptions (FrameElement's mount-time navigation, which would otherwise
+    /// complete before its own Navigated/NavigationFailed handlers exist).
+    /// Settable — like <see cref="Children"/> — so a generated descriptor's
+    /// <c>Customize</c> hook can install it. Defaults to <c>null</c> (no hook).</summary>
+    public AfterChildrenMountCallback<TElement, TControl>? AfterChildrenMount { get; set; }
 
     /// <summary><c>Setters</c> selector — the descriptor needs an opaque way
     /// to pull the element's <c>Action&lt;TControl&gt;[]</c> setters chain

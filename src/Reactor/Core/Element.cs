@@ -6913,18 +6913,34 @@ public partial record MapControlElement() : Element
 //  Frame
 // ════════════════════════════════════════════════════════════════════════
 
-// Spec 058 §15 (P5.6) — navigation is mount-only (Navigate once), modeled via a
-// [WrapManual] Customize `.Initial` projecting SourcePageType + NavigationParameter.
-// The three navigation events use [WrapEvent] typed projections; NavigationFailed
-// is a MULTI-arg projection (SourcePageType + Exception).
+// Spec 058 §15 (P5.6) — navigation is mount-only (Navigate once). It runs from the
+// descriptor's AfterChildrenMount hook rather than an `.Initial` prop entry because
+// DescriptorHandler.Mount applies every prop write BEFORE it subscribes any event: an
+// `.Initial` navigate therefore completed before Navigating/Navigated/NavigationFailed
+// had a single subscriber, so none of the three could ever fire for the initial
+// navigation. AfterChildrenMount runs after EnsureSubscribed and is still mount-only,
+// which preserves the navigate-once semantics.
+//
+// The three navigation events are hand-written `.HandCodedEvent` entries sharing one
+// FrameEventPayload (a control carries a single typed event-payload box, so all three must
+// use the same payload type). NavigationFailed is hand-written rather than a [WrapEvent]
+// projection because it also has to mark the args Handled — WinUI rethrows an unhandled
+// navigation failure, which would propagate out of the mount pass and kill the app.
 [global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.Frame))]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("SourcePageType")]
-[global::Microsoft.UI.Reactor.Wrappers.WrapEvent("Navigated", Arg = "SourcePageType")]
-[global::Microsoft.UI.Reactor.Wrappers.WrapEvent("Navigating", Arg = "SourcePageType")]
-[global::Microsoft.UI.Reactor.Wrappers.WrapEvent("NavigationFailed", Args = new[] { "SourcePageType", "Exception" })]
 public partial record FrameElement() : Element
 {
+    /// <summary>
+    /// The <see cref="WinUI.Page"/>-derived type to navigate to on mount.
+    /// </summary>
+    /// <remarks>
+    /// Annotated so trimming/AOT keeps the page's parameterless constructor: Reactor
+    /// publishes this type to the WinUI XAML metadata chain and activates it reflectively,
+    /// exactly as the XAML compiler's generated <c>XamlTypeInfo</c> would.
+    /// </remarks>
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
     public Type? SourcePageType { get; init; }
+
     public object? NavigationParameter { get; init; }
 
     /// <summary>Raised after a successful navigation. Receives the new <c>SourcePageType</c>.</summary>
@@ -6933,22 +6949,80 @@ public partial record FrameElement() : Element
     /// <summary>Raised before navigation begins. Receives the target <c>SourcePageType</c>. Cancellation is not supported via this fluent — use <c>.Set(...)</c> to wire the raw <c>Navigating</c> event for that.</summary>
     public Action<Type>? OnNavigating { get; init; }
 
-    /// <summary>Raised when a navigation fails. Receives the target <c>SourcePageType</c> and the failure exception.</summary>
+    /// <summary>
+    /// Raised when a navigation fails. Receives the target <c>SourcePageType</c> and the failure exception.
+    /// Wiring this also marks the failure handled, so a page whose constructor throws degrades
+    /// into this callback instead of tearing down the application.
+    /// </summary>
     public Action<Type, Exception>? OnNavigationFailed { get; init; }
 
     internal Action<WinUI.Frame>[] Setters { get; init; } = [];
 
-    // Mount-only navigation: re-running on Update would re-navigate on every
-    // record-with. A single .Initial entry projects both SourcePageType +
-    // NavigationParameter so the set lambda has both pieces.
+    private static readonly global::Microsoft.UI.Xaml.Navigation.NavigatedEventHandler s_navigatedTrampoline =
+        static (s, args) =>
+        {
+            if (Reconciler.GetElementTag((FrameworkElement)s) is FrameElement live)
+                live.OnNavigated?.Invoke(args.SourcePageType);
+        };
+
+    private static readonly global::Microsoft.UI.Xaml.Navigation.NavigatingCancelEventHandler s_navigatingTrampoline =
+        static (s, args) =>
+        {
+            if (Reconciler.GetElementTag((FrameworkElement)s) is FrameElement live)
+                live.OnNavigating?.Invoke(args.SourcePageType);
+        };
+
+    private static readonly global::Microsoft.UI.Xaml.Navigation.NavigationFailedEventHandler s_navigationFailedTrampoline =
+        static (s, args) =>
+        {
+            if (Reconciler.GetElementTag((FrameworkElement)s) is not FrameElement live) return;
+            if (live.OnNavigationFailed is not { } callback) return;
+            // Mark handled BEFORE invoking the callback: if the user's handler throws, the
+            // failure must still count as handled, otherwise WinUI rethrows the original
+            // navigation exception on top and the app goes down anyway.
+            args.Handled = true;
+            callback(args.SourcePageType, args.Exception);
+        };
+
+    private static void NavigateOnMount(WinUI.Frame frame, FrameElement element)
+    {
+        if (element.SourcePageType is not { } pageType) return;
+
+        var failure = global::Microsoft.UI.Reactor.Hosting.FrameNavigation.TryNavigate(
+            frame, pageType, element.NavigationParameter);
+        if (failure is null) return;
+
+        // WinUI never got the chance to raise NavigationFailed (calling Navigate would have
+        // faulted the process), so report the refusal through the same channel.
+        if (element.OnNavigationFailed is { } callback) callback(pageType, failure);
+        else throw failure;
+    }
+
     private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<FrameElement, WinUI.Frame> Customize(
         global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<FrameElement, WinUI.Frame> d)
-        => d.Initial<(Type? pageType, object? param)>(
-            get: static e => (e.SourcePageType, e.NavigationParameter),
-            set: static (c, v) =>
-            {
-                if (v.pageType is not null) c.Navigate(v.pageType, v.param);
-            });
+    {
+        d.AfterChildrenMount = static (in global::Microsoft.UI.Reactor.Core.V1Protocol.MountContext _, FrameElement el, WinUI.Frame frame)
+            => NavigateOnMount(frame, el);
+        return d
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.FrameEventPayload, global::Microsoft.UI.Xaml.Navigation.NavigatedEventHandler>(
+                subscribe: static (c, h) => c.Navigated += h,
+                callbackPresent: static el => el.OnNavigated,
+                trampoline: s_navigatedTrampoline,
+                slotIsNull: static p => p.NavigatedTrampoline is null,
+                setSlot: static (p, h) => p.NavigatedTrampoline = h)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.FrameEventPayload, global::Microsoft.UI.Xaml.Navigation.NavigatingCancelEventHandler>(
+                subscribe: static (c, h) => c.Navigating += h,
+                callbackPresent: static el => el.OnNavigating,
+                trampoline: s_navigatingTrampoline,
+                slotIsNull: static p => p.NavigatingTrampoline is null,
+                setSlot: static (p, h) => p.NavigatingTrampoline = h)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.FrameEventPayload, global::Microsoft.UI.Xaml.Navigation.NavigationFailedEventHandler>(
+                subscribe: static (c, h) => c.NavigationFailed += h,
+                callbackPresent: static el => el.OnNavigationFailed,
+                trampoline: s_navigationFailedTrampoline,
+                slotIsNull: static p => p.NavigationFailedTrampoline is null,
+                setSlot: static (p, h) => p.NavigationFailedTrampoline = h);
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════

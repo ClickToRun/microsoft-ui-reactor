@@ -1169,6 +1169,11 @@ public partial class ReactorApplication : Application, IXamlMetadataProvider
             t = p.GetXamlType(type);
             if (t is not null) return t;
         }
+        // App-defined page types Reactor published for Frame.Navigate. Last real chance
+        // before the schema-only core provider — a compiler-generated provider, if the app
+        // has one, always wins.
+        t = Hosting.ReactorPageXamlMetadataProvider.Instance.GetXamlType(type);
+        if (t is not null) return t;
         return CoreProvider.GetXamlType(type)!;
     }
 
@@ -1183,6 +1188,8 @@ public partial class ReactorApplication : Application, IXamlMetadataProvider
             t = p.GetXamlType(fullName);
             if (t is not null) return t;
         }
+        t = Hosting.ReactorPageXamlMetadataProvider.Instance.GetXamlType(fullName);
+        if (t is not null) return t;
         return CoreProvider.GetXamlType(fullName)!;
     }
 

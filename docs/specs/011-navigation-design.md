@@ -49,6 +49,16 @@ WinUI's `Frame.Navigate()` requires:
    access violation in `ActivationAPI::ActivateInstance()` because
    `GetXamlTypeNoRef()` returns null.
 
+   > **Mitigated for `FrameElement` / `XamlPageElement` (2026-07).** Reactor now
+   > publishes the navigation target into the metadata chain — see
+   > `src/Reactor/Hosting/ReactorPageXamlMetadata.cs`, which synthesizes the
+   > `XamlUserType` / `XamlSystemBaseType` pair the XAML compiler would have
+   > emitted — and `FrameNavigation.TryNavigate` refuses to call `Navigate` at
+   > all when the type is still unresolvable, so the failure mode is a reported
+   > `NavigationFailed` rather than a process kill. This removes the crash, not
+   > the other three constraints below; developer-owned navigation remains the
+   > recommended model.
+
 2. **IPage interface** — `PageStackEntry::PrepareContent()` hard-casts content
    to `IPage` via `ctl::query_interface<IPage>()` (Frame_Partial.cpp:642).
    Non-Page content fails.

@@ -1721,7 +1721,7 @@ T DefaultValue { get; }
 
 ### class ControlDescriptor<TElement, TControl>
 new()
-AfterChildrenMountCallback<TElement, TControl> AfterChildrenMount { get; init; }
+AfterChildrenMountCallback<TElement, TControl> AfterChildrenMount { get; set; }
 ChildrenStrategy<TElement, TControl> Children { get; set; }
 Func<TControl> Factory { get; init; }
 Func<TElement, Action<TControl>[]> GetSetters { get; init; }

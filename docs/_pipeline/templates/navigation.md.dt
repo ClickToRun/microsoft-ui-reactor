@@ -82,7 +82,7 @@ Here is what each piece does:
 | `NavigationView(items, content)` | element | Sidebar shell. Use `.SelectedTagChanged(handler)` for selection events and `.IsPaneOpen(value, handler)` to drive the pane from state. |
 | `TabView(tabs)` | element | Parallel workspaces; tabs keep their own state. |
 | `BreadcrumbBar(items)` | element | Trail of ancestor routes for drill-down nav. |
-| `Frame(...)` | element | Raw WinUI Frame for XAML-page interop; `.Navigating`, `.Navigated`, `.NavigationFailed`. |
+| `Frame(...)` | element | Raw WinUI Frame for XAML-page interop; `.Navigating`, `.Navigated`, `.NavigationFailed`. Works with code-only `Page` subclasses — Reactor publishes the target to the XAML metadata chain. |
 | `DeepLinkMap<TRoute>` | type | URI pattern → route factory. `.Resolve(uri)` returns the matched route and back-stack. |
 | `NavigationDiagnostics` | static | Static events for tracing: `NavigationRequested`, `NavigationCompleted`, `NavigationCancelled`, cache and transition events. |
 
@@ -321,6 +321,16 @@ The underlying init properties (`OnNavigating`, `OnNavigated`,
 The fluent extensions drop the leading `On` — see
 [spec 039](https://github.com/microsoft/microsoft-ui-reactor/blob/main/docs/specs/039-property-and-event-scrub.md) §0.1 for the C# naming
 constraint that drove that convention.
+
+The target does **not** need a `.xaml` file. WinUI resolves a navigation target
+through the application's XAML metadata, which normally only covers pages the
+XAML compiler saw; Reactor publishes the type you pass to `Frame(...)` into that
+metadata itself, so a plain `class MyPage : Page` written entirely in C# works.
+
+Wiring `.NavigationFailed(...)` also marks the failure handled, so a page whose
+constructor throws is reported to your handler instead of tearing the
+application down. Leave it unwired and the failure surfaces as an ordinary
+managed exception you can break on.
 
 ## NavigationView.SelectedTagChanged
 
