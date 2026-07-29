@@ -291,7 +291,7 @@
         {
           "header": "Absolute Positioning",
           "language": "csharp",
-          "code": "// Shapes paint with Fill — Background has no effect on a Rectangle.\nCanvas(\n    Rectangle().Size(80, 80).Fill(coralBrush).Canvas(left: 10, top: 10),\n    Rectangle().Size(80, 80).Fill(tealBrush).Canvas(left: 60, top: 50)\n)"
+          "code": "// Shapes paint with Fill — Background has no effect on a Rectangle.\nCanvas(\n    Rectangle().Size(80, 80).Fill(BrushHelper.Parse(\"#FF6B6B\")).Canvas(left: 10, top: 10),\n    Rectangle().Size(80, 80).Fill(BrushHelper.Parse(\"#4ECDC4\")).Canvas(left: 60, top: 50)\n)"
         }
       ]
     },
@@ -575,7 +575,7 @@
         {
           "header": "Columns, sorting, selection & cell editing",
           "language": "csharp",
-          "code": "// Memoize the source so the grid isn't remounted on every render\n// (DataGrid keys off source.GetHashCode()).\nvar source = UseMemo(() => new ListDataSource<Product>(products, p => (RowKey)p.Id));\n\nDataGrid(\n    source: source,\n    columns: new FieldDescriptor[]\n    {\n        Column<Product>(\"Id\", p => p.Id, width: 60),                   // read-only\n        Column<Product>(\"Name\", p => p.Name, editable: true, displayName: \"Product\", width: 200),\n        Column<Product>(\"Price\", p => p.Price, editable: true, format: \"C2\", width: 100),\n    },\n    selectionMode: SelectionMode.Single,\n    onSelectionChanged: keys => setSelectedCount(keys.Count),\n    editable: true,                       // grid-level opt-in; columns opt in individually\n    editMode: EditMode.Cell,\n    onRowChanged: (key, item) =>          // runs off the UI thread — dispatch back\n    {\n        dispatcher?.TryEnqueue(() => setLastEdit($\"{key.Value}: {item.Name}\"));\n        return Task.CompletedTask;\n    },\n    rowHeight: 36)\n// Click a header to sort. Columns can be reordered and resized by dragging."
+          "code": "// Memoize the source so the grid isn't remounted on every render\n// (DataGrid keys off source.GetHashCode()).\nvar source = UseMemo(() => new ListDataSource<Product>(products, p => (RowKey)p.Id));\n\nDataGrid(\n    source: source,\n    columns: new FieldDescriptor[]\n    {\n        Column<Product>(\"Id\", p => p.Id, width: 60),                   // read-only\n        Column<Product>(\"Name\", p => p.Name, editable: true, displayName: \"Product\", width: 200),\n        Column<Product>(\"Price\", p => p.Price, editable: true, format: \"C2\", width: 100),\n    },\n    selectionMode: SelectionMode.Single,\n    onSelectionChanged: keys => setSelectedCount(keys.Count),\n    editable: true,                       // grid-level opt-in; columns opt in individually\n    editMode: EditMode.Cell,\n    onRowChanged: (key, item) =>          // runs off the UI thread; UseState setters\n    {                                     // auto-marshal back onto the UI dispatcher\n        setLastCellEdit($\"row {key.Value}: {item.Name}\");\n        return Task.CompletedTask;\n    },\n    rowHeight: 36)\n// Click a header to sort. Columns can be reordered and resized by dragging."
         }
       ]
     },

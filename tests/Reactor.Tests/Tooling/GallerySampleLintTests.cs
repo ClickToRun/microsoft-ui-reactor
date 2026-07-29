@@ -19,8 +19,9 @@ namespace Microsoft.UI.Reactor.Tests.Tooling;
 /// makes the whole page throw (<c>ItemsViewElement.GuardedViewBuilder</c>);</item>
 /// <item><c>.Background(...)</c> on a shape, which the reconciler only applies to
 /// Panel / Control / Border and therefore drops, rendering an invisible shape;</item>
-/// <item>an <c>ms-appx:///</c> asset that either does not exist or is never copied to the
-/// output folder, which renders a blank image with no error of any kind.</item>
+/// <item>an <c>ms-appx:///</c> asset that either does not exist, is never copied to the
+/// output folder, or is composed at runtime so it cannot be checked — all of which render a
+/// blank image with no error of any kind.</item>
 /// </list>
 ///
 /// Roslyn parses the page sources directly — no gallery build, no WinUI objects, so this
@@ -169,11 +170,12 @@ public sealed class GallerySampleLintTests
                 {
                     checkedBuilders++;
                     var head = ChainHeadName(returned);
-                    // Unresolvable heads (a local, a helper call chain) are skipped rather than
-                    // guessed at; only a statically-known non-container root is reported.
-                    if (head is null || head == "ItemContainer") continue;
-                    offenders.Add($"{Where(path, returned)}: ItemsView view builder returns {head}(...) — " +
-                                  "ItemsView requires an ItemContainer root, so the page throws at render.");
+                    if (head == "ItemContainer") continue;
+                    offenders.Add(head is null
+                        ? $"{Where(path, returned)}: could not statically verify the ItemsView view-builder root — " +
+                          "return ItemContainer(...) directly from the builder so the requirement stays checkable."
+                        : $"{Where(path, returned)}: ItemsView view builder returns {head}(...) — " +
+                          "ItemsView requires an ItemContainer root, so the page throws at render.");
                 }
             }
         }
@@ -253,9 +255,16 @@ public sealed class GallerySampleLintTests
             foreach (Match match in MsAppxLiteral.Matches(root.ToFullString()))
             {
                 var assetPath = match.Groups["path"].Value;
-                // Skip interpolated / composed URIs — only literal paths are checkable.
-                if (assetPath.Contains('{') || assetPath.Contains(')')) continue;
                 inspectedAssets++;
+
+                // A composed / interpolated URI cannot be resolved statically, so it would
+                // silently escape this lint — fail instead of quietly skipping it.
+                if (assetPath.Contains('{') || assetPath.Contains(')'))
+                {
+                    offenders.Add($"{Rel(path)}: ms-appx:///{assetPath} is composed at runtime, so this lint cannot " +
+                                  "verify the asset ships. Use a literal ms-appx:/// path in gallery pages.");
+                    continue;
+                }
 
                 if (!File.Exists(Path.Join(GalleryDir(), assetPath.Replace('/', Path.DirectorySeparatorChar))))
                 {

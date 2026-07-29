@@ -36,8 +36,8 @@ class CanvasPage : Component
                     """
                     // Shapes paint with Fill — Background has no effect on a Rectangle.
                     Canvas(
-                        Rectangle().Size(80, 80).Fill(coralBrush).Canvas(left: 10, top: 10),
-                        Rectangle().Size(80, 80).Fill(tealBrush).Canvas(left: 60, top: 50)
+                        Rectangle().Size(80, 80).Fill(BrushHelper.Parse("#FF6B6B")).Canvas(left: 10, top: 10),
+                        Rectangle().Size(80, 80).Fill(BrushHelper.Parse("#4ECDC4")).Canvas(left: 60, top: 50)
                     )
                     """),
 

@@ -45,13 +45,13 @@ class MediaPlayerElementPage : Component
                 sourceCode: @"
 var (failure, setFailure) = UseState<string?>(null);
 
-failure is null
+Element player = failure is null
     ? (MediaPlayerElement(""https://media.w3.org/2010/05/sintel/trailer.mp4"")
         with { OnMediaFailed = message => setFailure(message) })
         .Height(280).Width(480)
     // Handle OnMediaFailed so a dead source explains itself instead of leaving
     // the player showing its opaque built-in error text.
-    : Border(VStack(8, BodyStrong(""Sample stream unavailable""), ...))
+    : Border(VStack(8, BodyStrong(""Sample stream unavailable""), ...)).Height(280).Width(480);
 
 // Transport controls are enabled by default; AutoPlay is opt-in:
 //   .Set(mpe => mpe.AutoPlay = true)

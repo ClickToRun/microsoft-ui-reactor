@@ -37,7 +37,6 @@ class MapControlPage : Component
                 .Background(Theme.SubtleFill)
                 .WithBorder(Theme.CardStroke)
                 .CornerRadius(6);
-
         return ScrollView(VStack(16,
             PageHeader("MapControl", "Displays an interactive map. Tiles require a maps service token."),
 
@@ -53,9 +52,9 @@ class MapControlPage : Component
 // reports no error, so check for it and explain the gap instead.
 var token = Environment.GetEnvironmentVariable(""REACTOR_GALLERY_MAP_TOKEN"");
 
-string.IsNullOrWhiteSpace(token)
-    ? Border(VStack(8, BodyStrong(""No map service token configured""), ...))
-    : MapControl(mapServiceToken: token, zoomLevel: 4).Height(320).Width(480)
+Element map = string.IsNullOrWhiteSpace(token)
+    ? Border(VStack(8, BodyStrong(""No map service token configured""), ...)).Height(320).Width(480)
+    : MapControl(mapServiceToken: token, zoomLevel: 4).Height(320).Width(480);
 
 // Pan and zoom with mouse/touch. Center and layers can be set via
 //   .Set(map => { map.Center = ...; })

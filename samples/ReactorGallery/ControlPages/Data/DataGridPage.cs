@@ -40,10 +40,6 @@ class DataGridPage : Component
         var (lastCellEdit, setLastCellEdit) = UseState("(none yet)");
         var (lastRowEdit, setLastRowEdit) = UseState("(none yet)");
 
-        // onRowChanged is invoked from a threadpool thread, so hop back to the UI thread
-        // before touching component state.
-        var dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
-
         var source = UseMemo(() =>
             new ListDataSource<Product>(BuildProducts(60), p => (RowKey)p.Id));
 
@@ -75,8 +71,9 @@ class DataGridPage : Component
                         editMode: EditMode.Cell,
                         onRowChanged: (key, item) =>
                         {
-                            dispatcher?.TryEnqueue(() =>
-                                setLastCellEdit($"row {key.Value} → {item.Name} / {item.Category} / {item.Price:C2}"));
+                            // onRowChanged runs on a threadpool thread; UseState setters
+                            // auto-marshal back onto the UI dispatcher, so just call it.
+                            setLastCellEdit($"row {key.Value} → {item.Name} / {item.Category} / {item.Price:C2}");
                             return Task.CompletedTask;
                         },
                         rowHeight: 36
@@ -102,9 +99,9 @@ DataGrid(
     onSelectionChanged: keys => setSelectedCount(keys.Count),
     editable: true,                       // grid-level opt-in; columns opt in individually
     editMode: EditMode.Cell,
-    onRowChanged: (key, item) =>          // runs off the UI thread — dispatch back
-    {
-        dispatcher?.TryEnqueue(() => setLastEdit($""{key.Value}: {item.Name}""));
+    onRowChanged: (key, item) =>          // runs off the UI thread; UseState setters
+    {                                     // auto-marshal back onto the UI dispatcher
+        setLastCellEdit($""row {key.Value}: {item.Name}"");
         return Task.CompletedTask;
     },
     rowHeight: 36)
@@ -122,8 +119,7 @@ DataGrid(
                         editMode: EditMode.Row,
                         onRowChanged: (key, item) =>
                         {
-                            dispatcher?.TryEnqueue(() =>
-                                setLastRowEdit($"row {key.Value} → {item.Name} / {item.Category} / {item.Price:C2}"));
+                            setLastRowEdit($"row {key.Value} → {item.Name} / {item.Category} / {item.Price:C2}");
                             return Task.CompletedTask;
                         },
                         rowHeight: 36
