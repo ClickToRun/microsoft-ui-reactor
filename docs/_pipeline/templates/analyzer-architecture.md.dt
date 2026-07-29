@@ -134,6 +134,7 @@ via `.editorconfig`.
 | `REACTOR_EVENT_001` | Warning | Event wired via .Set(+=/-=) re-subscribes every render; use a declarative On* modifier or .OnMountAdd/.OnUnmountAdd | `SetEventSubscriptionAnalyzer.cs` |
 | `REACTOR_POOL_001` | Warning | .Set assigns to a property reset on pool return; use the surviving Reactor modifier | `PoolResetSetAnalyzer.cs` |
 | `REACTOR_ITEMS_001` | Warning | .Set(ItemsSource=...) on a Reactor-owned collection | `SetOwnedItemsSourceAnalyzer.cs` |
+| `REACTOR_ITEMS_002` | Warning | ItemsView viewBuilder returns a statically non-ItemContainer root (mount-time InvalidOperationException); wrap it with ItemContainer(...) | `ItemsViewContainerRootAnalyzer.cs` |
 | `REACTOR_CTRL_001` | Warning | .Set(SelectedItem/SelectedValue) fights controlled SelectedIndex | `SetSelectedItemAnalyzer.cs` |
 | `REACTOR_VIS_001` | Warning | Imperative .Set(Visibility=...) instead of .IsVisible(...) | `PoolResetSetAnalyzer.cs` |
 | `REACTOR_WIN2D_001` | Error | Win2D canvas draws UseCanvasResources output without .UseSharedDevice() (fatal cross-device draw) | `Win2DSharedDeviceAnalyzer.cs` |
