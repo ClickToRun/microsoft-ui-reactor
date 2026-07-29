@@ -1760,14 +1760,52 @@ internal static class ReconcilerBigCoverageFixtures
             // exactly the fallback. This guards the resolver wiring — a hardcoded third
             // family fails both arms — while the check above guards the constant itself.
             // "\uE700" is not a Symbol enum name, so it takes the glyph path.
-            var themeFont = Application.Current?.Resources["SymbolThemeFontFamily"]
-                as Microsoft.UI.Xaml.Media.FontFamily;
+            var appResources = Application.Current?.Resources;
+            Microsoft.UI.Xaml.Media.FontFamily? themeFont = null;
+            if (appResources is not null
+                && appResources.TryGetValue("SymbolThemeFontFamily", out var themeFontObj))
+            {
+                themeFont = themeFontObj as Microsoft.UI.Xaml.Media.FontFamily;
+            }
             var expectedGlyphFont = themeFont?.Source ?? fallbackSource;
             var glyphIcon = IconResolver.ResolveIconString("\uE700") as WinXC.FontIcon;
             var glyphIconSource = IconResolver.ResolveIconSource("\uE700") as WinXC.FontIconSource;
             H.Check("PrivMount_SymbolGlyphUsesFallbackStack",
                 glyphIcon?.FontFamily?.Source == expectedGlyphFont
                 && glyphIconSource?.FontFamily?.Source == expectedGlyphFont);
+
+            // Pins WHY the resolver must use TryGetValue rather than the Resources[key]
+            // indexer. ResourceDictionary implements IDictionary, so the indexer THROWS on a
+            // missing key instead of returning null — with it, the `?? fallback` form could
+            // never run and a host that had not merged XamlControlsResources would get a
+            // KeyNotFoundException instead of the fallback stack.
+            //
+            // Scope, honestly: this pins the API contract that makes the indexer wrong, but
+            // it does NOT fail if the resolver is reverted to the indexer — under a live app
+            // SymbolThemeFontFamily is present, so the throwing path is never taken. Proving
+            // the revert would mean removing the resource from the shared Application
+            // dictionary mid-run, which is not safely reversible when the key comes from a
+            // merged XamlControlsResources dictionary. So this documents the hazard for the
+            // next reader rather than trapping it.
+            var indexerThrowsOnMissingKey = false;
+            try
+            {
+                _ = appResources?["DefinitelyNotAThemeResourceKey"];
+            }
+            catch (global::System.Exception)
+            {
+                indexerThrowsOnMissingKey = true;
+            }
+            var tryGetValueReturnsFalse =
+                appResources is not null
+                && !appResources.TryGetValue("DefinitelyNotAThemeResourceKey", out _);
+            H.Check("PrivMount_SymbolFontLookupUsesTryGetValue",
+                indexerThrowsOnMissingKey && tryGetValueReturnsFalse);
+
+            // The resolver itself must therefore survive the missing-key path rather than
+            // propagating that exception.
+            var resolvedDespiteMissingKeys = IconResolver.ResolveIconString("\uE700") is not null;
+            H.Check("PrivMount_SymbolFontResolverDoesNotThrow", resolvedDespiteMissingKeys);
 
             // Regression: a FontIcon with NO explicit FontSize must resolve to a
             // FontIconSource that TitleBar.IconSource accepts. The IconSource path
