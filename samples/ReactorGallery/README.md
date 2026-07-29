@@ -75,9 +75,9 @@ branch (`GalleryProtocol.IsPackaged`), never a `#if`:
 
 - **Packaged (MSIX)** — `Package.appxmanifest` declares a `windows.protocol`
   extension, so Windows registers the scheme at install time and removes it at
-  uninstall. The app does nothing at startup, and the Settings page shows a single
-  informational line instead of a toggle (an app cannot revoke a manifest-declared
-  protocol, so offering a switch would be a lie).
+  uninstall. The app does nothing at startup, and the Settings card shows no
+  registration UI at all — there is nothing to configure, and an app cannot revoke a
+  manifest-declared protocol anyway.
 - **Unpackaged** — there is no package manifest, so the app registers itself under
   `HKCU\Software\Classes` via `ActivationRegistrationManager` on every launch. Because
   that is a real, persistent side effect on the user's machine, **Settings → Deep
@@ -85,6 +85,11 @@ branch (`GalleryProtocol.IsPackaged`), never a `#if`:
   (rather than only when missing) is what re-points the handler after a rebuild moves
   the binary, so turning it off from Settings lasts for the session and the next launch
   registers again.
+
+`GalleryProtocol.IsPackaged` answers the question with the non-throwing Win32
+`GetCurrentPackageFullName` probe rather than `Windows.ApplicationModel.Package.Current`,
+which reports "unpackaged" by throwing — the normal case here, and not something worth
+a first-chance exception in every debugger session.
 
 ## Search index
 

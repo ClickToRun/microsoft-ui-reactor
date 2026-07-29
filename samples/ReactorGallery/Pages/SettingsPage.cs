@@ -134,13 +134,12 @@ class SettingsPage : Component
 }
 
 /// <summary>
-/// Surfaces the <c>reactor-gallery://</c> scheme and — for the unpackaged build —
-/// lets the user take back the HKCU registration the app made on startup.
+/// Surfaces the <c>reactor-gallery://</c> scheme, and — for the unpackaged build only —
+/// lets the user take back the HKCU registration the app makes on launch.
 /// </summary>
 /// <remarks>
 /// Split out as its own component so the (stateful) toggle doesn't force the rest of
-/// the settings page to re-render, and so the packaged build can collapse the whole
-/// control surface into a single informational line.
+/// the settings page to re-render.
 /// </remarks>
 class DeepLinkSettingsCard : Component
 {
@@ -150,14 +149,12 @@ class DeepLinkSettingsCard : Component
 
         var exampleUri = GalleryRoutes.UriForTag("button");
 
-        Element registration = GalleryProtocol.IsManagedByPackage
-            // MSIX declares the scheme in Package.appxmanifest, so it is installed and
-            // removed with the package. Offering a toggle here would be a lie — the app
-            // cannot revoke a manifest-declared protocol.
-            ? TextBlock("Registered by the app package (MSIX). Installed and removed with the app.")
-                .Foreground(Theme.SecondaryText)
-                .FontSize(13)
-                .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+        // Packaged builds declare the scheme in Package.appxmanifest, so Windows
+        // installs and removes it with the app. There is nothing for the user to do
+        // and nothing they *could* do — an app can't revoke a manifest-declared
+        // protocol — so the card simply shows no registration UI at all.
+        var registration = GalleryProtocol.IsManagedByPackage
+            ? null
             : VStack(8,
                 ToggleSwitch(isRegistered, on =>
                 {
@@ -177,33 +174,35 @@ class DeepLinkSettingsCard : Component
                     .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
             );
 
-        return Border(
-            VStack(12,
-                TextBlock("Deep links")
-                    .Foreground(Theme.PrimaryText)
-                    .SemiBold(),
+        var children = new List<Element>
+        {
+            TextBlock("Deep links")
+                .Foreground(Theme.PrimaryText)
+                .SemiBold(),
 
-                Border(VStack())
-                    .Height(1)
-                    .Background(Theme.DividerStroke),
+            Border(VStack())
+                .Height(1)
+                .Background(Theme.DividerStroke),
 
-                TextBlock("Any page in the gallery has a shareable link. Use the link button in the title bar to copy the link for the page you're on.")
-                    .Foreground(Theme.SecondaryText)
-                    .FontSize(13)
-                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap),
+            TextBlock("Any page in the gallery has a shareable link. Use the link button in the title bar to copy the link for the page you're on.")
+                .Foreground(Theme.SecondaryText)
+                .FontSize(13)
+                .Set(tb => tb.TextWrapping = TextWrapping.Wrap),
 
-                (TextBlock(exampleUri) with { IsTextSelectionEnabled = true })
-                    .Set(tb => tb.FontFamily = new FontFamily("Cascadia Code, Consolas, monospace"))
-                    .Foreground(Theme.PrimaryText)
-                    .FontSize(12),
+            (TextBlock(exampleUri) with { IsTextSelectionEnabled = true })
+                .Set(tb => tb.FontFamily = new FontFamily("Cascadia Code, Consolas, monospace"))
+                .Foreground(Theme.PrimaryText)
+                .FontSize(12),
+        };
 
-                registration
-            )
-        )
-        .Padding(20)
-        .Background(Theme.CardBackground)
-        .WithBorder(Theme.CardStroke)
-        .CornerRadius(8)
-        .MaxWidth(600);
+        if (registration is not null)
+            children.Add(registration);
+
+        return Border(VStack(12, children.ToArray()))
+            .Padding(20)
+            .Background(Theme.CardBackground)
+            .WithBorder(Theme.CardStroke)
+            .CornerRadius(8)
+            .MaxWidth(600);
     }
 }

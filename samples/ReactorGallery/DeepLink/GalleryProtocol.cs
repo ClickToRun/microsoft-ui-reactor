@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using Microsoft.Windows.AppLifecycle;
 
 namespace WinUIGalleryReactor;
@@ -22,7 +23,7 @@ namespace WinUIGalleryReactor;
 /// <para>Every operation is best-effort: a registry failure must never stop the
 /// gallery from starting.</para>
 /// </summary>
-public static class GalleryProtocol
+public static partial class GalleryProtocol
 {
     const string DisplayName = "WinUI Gallery (Reactor)";
 
@@ -31,10 +32,15 @@ public static class GalleryProtocol
 
     /// <summary>True when this process runs under an MSIX package identity.</summary>
     /// <remarks>
-    /// Mirrors Reactor's own <c>Hosting.Shell.PackageRuntime</c>, which is internal to
-    /// the framework. Deliberately a runtime probe rather than a compile-time
+    /// <para>Deliberately a runtime probe rather than a compile-time
     /// <c>#if PACKAGED</c>: both flavours build from the same sources and produce the
-    /// same binaries, so the branch has to be decided at run time.
+    /// same binaries, so the branch has to be decided at run time.</para>
+    /// <para>The probe asks Win32 rather than touching
+    /// <c>Windows.ApplicationModel.Package.Current</c>, which reports "unpackaged" by
+    /// <em>throwing</em> — turning the normal case for this sample into a first-chance
+    /// <c>InvalidOperationException</c> that pollutes the debugger and any crash
+    /// telemetry. Mirrors the framework's own <c>Hosting.Shell.PackageRuntime</c>
+    /// (internal to <c>Microsoft.UI.Reactor</c>, so a sample cannot reuse it).</para>
     /// </remarks>
     public static bool IsPackaged
     {
@@ -43,23 +49,26 @@ public static class GalleryProtocol
             if (Volatile.Read(ref _isPackagedComputed) != 0)
                 return Volatile.Read(ref _isPackaged) != 0;
 
-            bool packaged;
-            try
-            {
-                // Package.Current throws InvalidOperationException when unpackaged.
-                _ = global::Windows.ApplicationModel.Package.Current;
-                packaged = true;
-            }
-            catch
-            {
-                packaged = false;
-            }
+            // A zero-length / NULL buffer asks only the identity question:
+            //   APPMODEL_ERROR_NO_PACKAGE (15700) → no identity      → unpackaged
+            //   ERROR_INSUFFICIENT_BUFFER (122)   → identity exists  → packaged
+            //   ERROR_SUCCESS (0)                 → identity exists  → packaged
+            //   anything else                     → unexpected       → unpackaged
+            // No try/catch: the export has shipped in kernel32 since Windows 8 and this
+            // app's minimum platform is far newer, so wrapping it would only reintroduce
+            // exception-driven control flow.
+            uint length = 0;
+            int status = GetCurrentPackageFullName(ref length, nint.Zero);
+            bool packaged = status is 0 or 122;
 
             Volatile.Write(ref _isPackaged, packaged ? 1 : 0);
             Volatile.Write(ref _isPackagedComputed, 1);
             return packaged;
         }
     }
+
+    [LibraryImport("kernel32.dll")]
+    private static partial int GetCurrentPackageFullName(ref uint packageFullNameLength, nint packageFullName);
 
     /// <summary>
     /// True when the scheme is managed by the OS on the app's behalf (MSIX), meaning

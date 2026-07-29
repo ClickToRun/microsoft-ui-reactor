@@ -28,6 +28,10 @@
     <UseWinUI>true</UseWinUI>
     <RootNamespace>WinUIGalleryReactor</RootNamespace>
     <AssemblyName>ReactorGallery</AssemblyName>
+    <!-- Required by the [LibraryImport] source generator, which DeepLink/GalleryProtocol.cs
+         uses for the non-throwing GetCurrentPackageFullName package-identity probe. No
+         hand-written unsafe code in this project. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Override the default WinUI.ico (from samples/Directory.Build.props) with the
          WinUI Gallery logo, sourced from microsoft/WinUI-Gallery. -->
     <ApplicationIcon>Assets\GalleryIcon.ico</ApplicationIcon>

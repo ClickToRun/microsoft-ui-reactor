@@ -168,12 +168,14 @@ public static class GalleryRoutes
             return true;
         }
 
-        // A relative path (`/item/button`, `item/button`) — reject anything that still
-        // looks like it carries a scheme so `https://evil.example/item/button` can't
-        // sneak through the relative arm.
-        if (trimmed.Contains(':', StringComparison.Ordinal))
-            return false;
-
+        // A relative path (`/item/button`, `item/button`) — the command-line fallback
+        // hands raw argv entries through, and those may be bare paths.
+        //
+        // No extra scheme guard here: a scheme-bearing string parses as an absolute URI
+        // and is rejected above. A colon that survives to this point is inside a path or
+        // query segment (`?q=time:now`), which is legitimate and must not be dropped.
+        // The real boundary is the pattern match plus the registry allow-list below,
+        // not a substring check.
         path = trimmed.StartsWith('/') ? trimmed : "/" + trimmed;
         return true;
     }

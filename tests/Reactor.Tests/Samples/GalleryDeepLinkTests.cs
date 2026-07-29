@@ -24,6 +24,18 @@ public sealed class GalleryDeepLinkTests
 {
     const string Prefix = "reactor-gallery:///";
 
+    /// <summary>
+    /// A real control tag, taken from the registry rather than hard-coded, for the
+    /// cases where *which* control is irrelevant. Deleting or renaming a gallery
+    /// sample should not fail a routing test that has nothing to do with it — the
+    /// documented links are pinned separately, in
+    /// <see cref="DocumentedExampleLinks_AllResolve"/>, where a failure means
+    /// "README.md is now wrong".
+    /// </summary>
+    static readonly string AnyControlTag = ControlRegistry.All[0].Tag;
+
+    static readonly string AnyCategorySlug = GalleryRoutes.CategorySlug(ControlRegistry.Categories[0]);
+
     // ── Patterns ────────────────────────────────────────────────────────────
 
     [Theory]
@@ -50,17 +62,17 @@ public sealed class GalleryDeepLinkTests
     [InlineData("control")]
     public void Resolve_ControlLink_YieldsControlRouteUnderBothSegmentNames(string segment)
     {
-        Assert.True(GalleryRoutes.TryResolve($"{Prefix}{segment}/toggle-switch", out var route), segment);
+        Assert.True(GalleryRoutes.TryResolve($"{Prefix}{segment}/{AnyControlTag}", out var route), segment);
         Assert.Equal(GalleryRouteKind.Control, route.Kind);
-        Assert.Equal("toggle-switch", route.Tag);
+        Assert.Equal(AnyControlTag, route.Tag);
     }
 
     [Fact]
     public void Resolve_CategoryLink_YieldsCategoryRoute()
     {
-        Assert.True(GalleryRoutes.TryResolve(Prefix + "category/basic-input", out var route));
+        Assert.True(GalleryRoutes.TryResolve(Prefix + "category/" + AnyCategorySlug, out var route));
         Assert.Equal(GalleryRouteKind.Category, route.Kind);
-        Assert.Equal("basic-input", route.Tag);
+        Assert.Equal(AnyCategorySlug, route.Tag);
     }
 
     [Fact]
@@ -81,11 +93,12 @@ public sealed class GalleryDeepLinkTests
     [Fact]
     public void Resolve_TrailingSlashAndCasing_DoNotChangeTheRoute()
     {
-        Assert.True(GalleryRoutes.TryResolve(Prefix + "item/button/", out var trailing));
-        Assert.True(GalleryRoutes.TryResolve(Prefix + "Item/BUTTON", out var cased));
+        Assert.True(GalleryRoutes.TryResolve($"{Prefix}item/{AnyControlTag}/", out var trailing));
+        Assert.True(GalleryRoutes.TryResolve($"{Prefix}Item/{AnyControlTag.ToUpperInvariant()}", out var cased));
 
-        Assert.Equal(new GalleryRoute(GalleryRouteKind.Control, "button"), trailing);
-        Assert.Equal(new GalleryRoute(GalleryRouteKind.Control, "button"), cased);
+        var expected = new GalleryRoute(GalleryRouteKind.Control, AnyControlTag);
+        Assert.Equal(expected, trailing);
+        Assert.Equal(expected, cased);
     }
 
     [Fact]
@@ -94,10 +107,10 @@ public sealed class GalleryDeepLinkTests
         // `reactor-gallery://item/button` (two slashes) parses with Host="item" and
         // AbsolutePath="/button". Without the authority fold that is a miss, so this
         // pairing fails the moment the fold is removed.
-        Assert.True(GalleryRoutes.TryResolve("reactor-gallery://item/button", out var twoSlash));
-        Assert.True(GalleryRoutes.TryResolve("reactor-gallery:///item/button", out var threeSlash));
+        Assert.True(GalleryRoutes.TryResolve($"reactor-gallery://item/{AnyControlTag}", out var twoSlash));
+        Assert.True(GalleryRoutes.TryResolve($"reactor-gallery:///item/{AnyControlTag}", out var threeSlash));
         Assert.Equal(threeSlash, twoSlash);
-        Assert.Equal("button", twoSlash.Tag);
+        Assert.Equal(AnyControlTag, twoSlash.Tag);
     }
 
     [Fact]
@@ -116,7 +129,7 @@ public sealed class GalleryDeepLinkTests
     {
         // Differential: identical shape, only the tag differs. Removing the
         // ControlRegistry allow-list check makes the second assert fail.
-        Assert.True(GalleryRoutes.TryResolve(Prefix + "item/button", out _));
+        Assert.True(GalleryRoutes.TryResolve($"{Prefix}item/{AnyControlTag}", out _));
         Assert.False(GalleryRoutes.TryResolve(Prefix + "item/not-a-real-control", out var rejected));
         Assert.Equal(GalleryRoutes.HomeRoute, rejected);
     }
@@ -124,7 +137,7 @@ public sealed class GalleryDeepLinkTests
     [Fact]
     public void Resolve_UnknownCategory_IsRejectedWhileAKnownOneResolves()
     {
-        Assert.True(GalleryRoutes.TryResolve(Prefix + "category/layout", out _));
+        Assert.True(GalleryRoutes.TryResolve($"{Prefix}category/{AnyCategorySlug}", out _));
         Assert.False(GalleryRoutes.TryResolve(Prefix + "category/not-a-real-category", out _));
     }
 
@@ -151,6 +164,17 @@ public sealed class GalleryDeepLinkTests
         Assert.True(GalleryRoutes.TryResolve(Prefix + "item/button", out _));
     }
 
+    [Fact]
+    public void Resolve_QueryValueContainingAColon_Survives()
+    {
+        // Guards against "reject anything with a colon" creeping back into the relative
+        // arm as a scheme check: the scheme is already handled above, and a colon inside
+        // a query value is ordinary data.
+        Assert.True(GalleryRoutes.TryResolve(Prefix + "search?q=time%3Anow", out var route));
+        Assert.Equal(GalleryRouteKind.Search, route.Kind);
+        Assert.Equal("time:now", route.Query);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -170,10 +194,26 @@ public sealed class GalleryDeepLinkTests
     {
         // The command-line fallback hands through raw argv entries, which may be a bare
         // path. Both spellings must land on the same route.
-        Assert.True(GalleryRoutes.TryResolve("/item/button", out var rooted));
-        Assert.True(GalleryRoutes.TryResolve("item/button", out var relative));
+        Assert.True(GalleryRoutes.TryResolve($"/item/{AnyControlTag}", out var rooted));
+        Assert.True(GalleryRoutes.TryResolve($"item/{AnyControlTag}", out var relative));
         Assert.Equal(rooted, relative);
         Assert.Equal(GalleryRouteKind.Control, rooted.Kind);
+    }
+
+    [Fact]
+    public void ResolveOrHome_ReturnsTheMatchedRoute_NotAlwaysHome()
+    {
+        // Without this the helper could be replaced by `=> HomeRoute` and every other
+        // ResolveOrHome assertion (all miss cases) would still pass.
+        Assert.Equal(
+            new GalleryRoute(GalleryRouteKind.Settings, "settings"),
+            GalleryRoutes.ResolveOrHome(Prefix + "settings"));
+
+        Assert.Equal(
+            new GalleryRoute(GalleryRouteKind.Control, AnyControlTag),
+            GalleryRoutes.ResolveOrHome($"{Prefix}item/{AnyControlTag}"));
+
+        Assert.Equal(GalleryRoutes.HomeRoute, GalleryRoutes.ResolveOrHome(Prefix + "item/nope"));
     }
 
     // ── Reverse direction + round trip ──────────────────────────────────────
@@ -216,6 +256,8 @@ public sealed class GalleryDeepLinkTests
         // link, so pin the exact shape.
         Assert.Equal("date-and-time", GalleryRoutes.CategorySlug("Date and Time"));
         Assert.Equal("basic-input", GalleryRoutes.CategorySlug("Basic Input"));
+        // Surrounding whitespace is trimmed, not folded into leading/trailing hyphens.
+        Assert.Equal("basic-input", GalleryRoutes.CategorySlug("  Basic Input  "));
 
         foreach (var category in ControlRegistry.Categories)
         {
@@ -226,16 +268,29 @@ public sealed class GalleryDeepLinkTests
     }
 
     [Fact]
+    public void Resolve_TrimsSurroundingWhitespace()
+    {
+        // Argv entries and clipboard round-trips routinely carry stray whitespace,
+        // inside the segment as well as around the whole URI.
+        Assert.True(GalleryRoutes.TryResolve($"  {Prefix}item/{AnyControlTag}  ", out var padded));
+        Assert.Equal(AnyControlTag, padded.Tag);
+
+        Assert.True(GalleryRoutes.TryResolve($"{Prefix}item/%20{AnyControlTag}%20", out var paddedSegment));
+        Assert.Equal(AnyControlTag, paddedSegment.Tag);
+    }
+
+    [Fact]
     public void UriForTag_EmitsTheExpectedShapePerTagKind()
     {
         Assert.Equal(Prefix + "home", GalleryRoutes.UriForTag("home"));
         Assert.Equal(Prefix + "settings", GalleryRoutes.UriForTag("settings"));
-        Assert.Equal(Prefix + "item/button", GalleryRoutes.UriForTag("button"));
-        Assert.Equal(Prefix + "category/layout", GalleryRoutes.UriForTag("layout"));
+        Assert.Equal(Prefix + "item/" + AnyControlTag, GalleryRoutes.UriForTag(AnyControlTag));
+        Assert.Equal(Prefix + "category/" + AnyCategorySlug, GalleryRoutes.UriForTag(AnyCategorySlug));
 
         // Unknown / empty degrade to home rather than emitting a dead link.
         Assert.Equal(Prefix + "home", GalleryRoutes.UriForTag("not-a-real-tag"));
         Assert.Equal(Prefix + "home", GalleryRoutes.UriForTag(null));
+        Assert.Equal(Prefix + "home", GalleryRoutes.UriForTag("   "));
     }
 
     [Fact]
@@ -259,15 +314,53 @@ public sealed class GalleryDeepLinkTests
         // the selected tag — the copied link has to match what's on screen.
         Assert.Equal(
             GalleryRoutes.UriForSearch("button"),
-            GalleryRoutes.UriForCurrentView("layout", "button"));
+            GalleryRoutes.UriForCurrentView(AnyCategorySlug, "button"));
 
         Assert.Equal(
-            GalleryRoutes.UriForTag("layout"),
-            GalleryRoutes.UriForCurrentView("layout", ""));
+            GalleryRoutes.UriForTag(AnyCategorySlug),
+            GalleryRoutes.UriForCurrentView(AnyCategorySlug, ""));
+
+        // Whitespace is "no search", not a search for spaces: the shell doesn't show
+        // results for it, so the link must still describe the selected tag. Weakening
+        // the guard to IsNullOrEmpty would silently emit a home link here.
+        Assert.Equal(
+            GalleryRoutes.UriForTag(AnyCategorySlug),
+            GalleryRoutes.UriForCurrentView(AnyCategorySlug, "   "));
+
+        Assert.Equal(
+            GalleryRoutes.UriForTag(AnyCategorySlug),
+            GalleryRoutes.UriForCurrentView(AnyCategorySlug, null));
 
         Assert.NotEqual(
-            GalleryRoutes.UriForCurrentView("layout", ""),
-            GalleryRoutes.UriForCurrentView("layout", "button"));
+            GalleryRoutes.UriForCurrentView(AnyCategorySlug, ""),
+            GalleryRoutes.UriForCurrentView(AnyCategorySlug, "button"));
+    }
+
+    [Fact]
+    public void DocumentedExampleLinks_AllResolve()
+    {
+        // The exact links printed in samples/ReactorGallery/README.md and shown on the
+        // Settings page. A failure here means the docs now advertise a dead link —
+        // which is also why these, unlike the tests above, hard-code real tags.
+        (string Uri, GalleryRouteKind Kind, string Tag)[] documented =
+        [
+            ("reactor-gallery:///", GalleryRouteKind.Home, "home"),
+            ("reactor-gallery:///home", GalleryRouteKind.Home, "home"),
+            ("reactor-gallery:///settings", GalleryRouteKind.Settings, "settings"),
+            ("reactor-gallery:///search?q=toggle", GalleryRouteKind.Search, "home"),
+            ("reactor-gallery:///category/basic-input", GalleryRouteKind.Category, "basic-input"),
+            ("reactor-gallery:///item/button", GalleryRouteKind.Control, "button"),
+        ];
+
+        foreach (var (uri, kind, tag) in documented)
+        {
+            Assert.True(GalleryRoutes.TryResolve(uri, out var route), $"README documents {uri}, which no longer resolves");
+            Assert.Equal(kind, route.Kind);
+            Assert.Equal(tag, route.Tag);
+        }
+
+        // The Settings page renders this one, so it must round-trip too.
+        Assert.Equal("reactor-gallery:///item/button", GalleryRoutes.UriForTag("button"));
     }
 
     [Fact]
@@ -278,6 +371,6 @@ public sealed class GalleryDeepLinkTests
         // open the wrong app (or nothing) depending on how the gallery was installed.
         Assert.Equal("reactor-gallery", GalleryRoutes.Scheme);
         Assert.Equal("reactor-gallery:///", GalleryRoutes.UriPrefix);
-        Assert.StartsWith(GalleryRoutes.UriPrefix, GalleryRoutes.UriForTag("button"), StringComparison.Ordinal);
+        Assert.StartsWith(GalleryRoutes.UriPrefix, GalleryRoutes.UriForTag(AnyControlTag), StringComparison.Ordinal);
     }
 }
