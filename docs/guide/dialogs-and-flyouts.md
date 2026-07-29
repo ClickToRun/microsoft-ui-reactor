@@ -286,6 +286,18 @@ inline as icon buttons; secondary commands collapse into the overflow
 menu. The same `AppBarItemBase` records that fill a `CommandBar` fill
 this surface — the entire item array is interchangeable.
 
+A `Button` or `SplitButton` target opens the flyout on click with no
+extra wiring. To open it from your own state instead — say, when a
+selection appears — set `IsOpen`:
+
+```csharp
+CommandBarFlyout(Border(selection), primaryCommands: commands)
+    with { IsOpen = hasSelection }
+```
+
+`IsOpen` is a one-shot trigger, like `FlyoutElement.IsOpen`: it opens the
+flyout on the `false` → `true` edge and the user dismisses it from there.
+
 | Item factory | Shape |
 |---|---|
 | `AppBarButton(label, onClick, icon?)` | Standard tool-strip button. |
@@ -487,7 +499,7 @@ user took, but accept that `None` is the user's right.
 |---|---|---|---|
 | `ContentDialogElement` | `ContentDialog(title, content, primaryButtonText)` | `IsOpen` (init), `OnClosed(result)` | `OnOpened`, `OnClosed` |
 | `MenuFlyoutElement` | `MenuFlyout(target, items...)` | Auto on target click | n/a |
-| `CommandBarFlyoutElement` | `CommandBarFlyout(target, primary?, secondary?)` | Auto on target click | n/a |
+| `CommandBarFlyoutElement` | `CommandBarFlyout(target, primary?, secondary?)` | Auto on target click, or `IsOpen` (init) | n/a |
 | `PopupElement` | `Popup(child, isOpen?, onClosed?)` | `isOpen` arg or `.IsOpen` init | `.Opened`, `.Closed` |
 
 ## Patterns

@@ -292,19 +292,21 @@ internal static class CoreReconcilerRenderCoverageFixtures
             await Harness.Render();
             var btnTarget0 = H.FindButton("cbf-target");
             H.Check("CmdBarFlyout_ButtonTargetMounted", btnTarget0 is not null);
-            var flyout0 = btnTarget0 is null ? null : WinPrim.FlyoutBase.GetAttachedFlyout(btnTarget0) as CommandBarFlyout;
+            // A Button target holds its flyout in Button.Flyout (the slot WinUI opens on
+            // click), not in the attached-flyout metadata — see SetFlyoutOnControl.
+            var flyout0 = btnTarget0?.Flyout as CommandBarFlyout;
             H.Check("CmdBarFlyout_InitialPrimary1", flyout0?.PrimaryCommands.Count == 1);
             H.Check("CmdBarFlyout_InitialSecondary1", flyout0?.SecondaryCommands.Count == 1);
             H.Check("CmdBarFlyout_InitialPlacementTop", flyout0?.Placement == WinPrim.FlyoutPlacementMode.Top);
 
-            // Phase 0 -> 1: same Button target. The attached CommandBarFlyout is
+            // Phase 0 -> 1: same Button target. The installed CommandBarFlyout is
             // reused; placement is patched and both command collections are
             // cleared and re-populated in place.
             H.ClickButton("CbfGo");
             await Harness.Render();
             var btnTarget1 = H.FindButton("cbf-target");
             H.Check("CmdBarFlyout_TargetReusedInPlace", SameInstance(btnTarget0, btnTarget1));
-            var flyout1 = btnTarget1 is null ? null : WinPrim.FlyoutBase.GetAttachedFlyout(btnTarget1) as CommandBarFlyout;
+            var flyout1 = btnTarget1?.Flyout as CommandBarFlyout;
             H.Check("CmdBarFlyout_FlyoutReusedInPlace", SameInstance(flyout0, flyout1));
             H.Check("CmdBarFlyout_PlacementPatchedBottom", flyout1?.Placement == WinPrim.FlyoutPlacementMode.Bottom);
             H.Check("CmdBarFlyout_PrimaryReAdded2", flyout1?.PrimaryCommands.Count == 2);
