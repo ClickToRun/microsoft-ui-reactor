@@ -62,6 +62,10 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
             if (node is not InvocationExpressionSyntax invocation) continue;
             if (invocation.Expression is not MemberAccessExpressionSyntax memberAccess) continue;
 
+            // The rewrite deletes the whole invocation. If it spans a #if/#region, the
+            // surviving directives would be left unbalanced.
+            if (invocation.ContainsDirectives) continue;
+
             var args = invocation.ArgumentList.Arguments;
             if (args.Count != 1) continue;
 
@@ -74,7 +78,9 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
             }
             var reported = new HashSet<string>(packed!.Split(','), StringComparer.Ordinal);
 
-            var assignments = SetLambdaHelpers.GetLambdaAssignments(args[0].Expression);
+            // Fully-convertible only: every statement must be accounted for, or the rewrite
+            // would delete the ones it did not recognise.
+            var assignments = SetLambdaHelpers.GetFullyConvertibleLambdaBody(args[0].Expression);
             if (assignments.IsDefaultOrEmpty) continue;
 
             var steps = TryBuildChain(assignments, reported);
@@ -128,6 +134,12 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
     /// order-sensitive pairs, e.g. TextBox <c>AcceptsReturn</c> before <c>Text</c>). So a
     /// mixed body keeps its diagnostic and gets no automatic fix.
     /// </para>
+    /// <para>
+    /// Assumes <paramref name="assignments"/> came from
+    /// <see cref="SetLambdaHelpers.GetFullyConvertibleLambdaBody"/>, which has already
+    /// established that they are simple assignments to the lambda parameter and that they
+    /// account for every statement in the body.
+    /// </para>
     /// </remarks>
     private static List<(string Modifier, ArgumentListSyntax Arguments)>? TryBuildChain(
         ImmutableArray<AssignmentExpressionSyntax> assignments,
@@ -137,10 +149,7 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
 
         foreach (var assignment in assignments)
         {
-            if (!assignment.IsKind(SyntaxKind.SimpleAssignmentExpression)) return null;
-            if (assignment.Left is not MemberAccessExpressionSyntax leftAccess) return null;
-
-            var propName = leftAccess.Name.Identifier.Text;
+            var propName = ((MemberAccessExpressionSyntax)assignment.Left).Name.Identifier.Text;
 
             // Not reported means the analyzer gated it out (wrong control type for the
             // modifier, or no modifier at all). Converting it would be the silent no-op the

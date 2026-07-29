@@ -442,6 +442,152 @@ class C
     }
 
     [Fact]
+    public async Task CodeFix_Chains_Across_Both_Rule_Ids_In_One_Body()
+    {
+        // The common real-world shape: a pool-reset property (REACTOR_POOL_001) sharing a body
+        // with a modifier-available one (REACTOR_MOD_002). One invocation, two rule IDs, and
+        // the harness hands the fixer each diagnostic separately — so this is the case that
+        // proves each diagnostic carries the complete reported set rather than just its own.
+        var stubs = Stubs
+            .Replace(
+                "public class FrameworkElement : UIElement { }",
+                "public class FrameworkElement : UIElement { public double MaxHeight { get; set; } }")
+            .Replace(
+                "public static T IsEnabled<T>(this T el, bool enabled = true) => el;",
+                "public static T IsEnabled<T>(this T el, bool enabled = true) => el;\n        public static T MaxHeight<T>(this T el, double value) => el;");
+        var before = stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => {|REACTOR_POOL_001:{|REACTOR_MOD_002:b.Set(c => { c.MaxHeight = 260; c.IsEnabled = false; })|}|};
+}";
+        var after = stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => b.MaxHeight(260).IsEnabled(false);
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Declines_Block_Mixing_Visibility_With_A_Modifier_Property()
+    {
+        // Visibility is owned by REACTOR_VIS_001 and SetVisibilityCodeFix, so it is never part
+        // of a modifier chain. Two fixers see this one invocation and both must decline:
+        // SetVisibilityCodeFix because the body is multi-statement, this one because
+        // Visibility is absent from the reported set. Neither may half-convert it.
+        var source = Stubs.Replace(
+            "public class UIElement { public bool IsHitTestVisible { get; set; } }",
+            "public class UIElement { public bool IsHitTestVisible { get; set; } public Visibility Visibility { get; set; } }")
+            .Replace(
+            "public enum HorizontalAlignment { Left, Center, Right, Stretch }",
+            "public enum HorizontalAlignment { Left, Center, Right, Stretch }\n    public enum Visibility { Visible, Collapsed }") + @"
+class C
+{
+    ButtonElement M(ButtonElement b)
+        => {|REACTOR_VIS_001:{|REACTOR_MOD_002:b.Set(c => { c.Visibility = Visibility.Collapsed; c.IsEnabled = false; })|}|};
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Keeps_Last_Write_Wins_For_A_Repeated_Property()
+    {
+        // Two writes to one property. The chain is order-preserving and LayoutModifiers.Merge
+        // resolves collisions as `other ?? this`, so the later call wins — matching .Set's
+        // last-write-wins. Locks that equivalence in: a chain built in reverse, or a merge
+        // with the opposite precedence, would silently change the rendered value.
+        var before = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => {|REACTOR_MOD_002:{|REACTOR_MOD_002:b.Set(c => { c.Padding = new Thickness(4); c.Padding = new Thickness(8); })|}|};
+}";
+        var after = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => b.Padding(4).Padding(8);
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Declines_Body_Containing_A_Preprocessor_Directive()
+    {
+        // Conditionally-compiled statements are inactive *trivia*, not members of
+        // block.Statements — so the completeness check cannot see them and the rewrite would
+        // delete the whole #if along with the code inside it. Only the directive guard
+        // catches this. Here the release build sees one statement (Padding) and would happily
+        // emit `.Padding(4)`, silently dropping the DEBUG-only IsEnabled write.
+        var source = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => {|REACTOR_MOD_002:b.Set(c =>
+    {
+#if DEBUG
+        c.IsEnabled = false;
+#endif
+        c.Padding = new Thickness(4);
+    })|};
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Declines_Block_Containing_A_Non_Assignment_Statement()
+    {
+        // The dangerous shape. GetLambdaAssignments filters the block down to assignment
+        // statements, so a method call is invisible to it — but the fix replaces the WHOLE
+        // invocation. Without a completeness check the rewrite silently deletes c.Focus().
+        var source = Stubs.Replace(
+            "public bool IsEnabled { get; set; }",
+            "public bool IsEnabled { get; set; } public void Focus() { }") + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => {|REACTOR_MOD_002:b.Set(c => { c.IsEnabled = false; c.Focus(); })|};
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Declines_Block_Assigning_To_A_Different_Receiver()
+    {
+        // The analyzer only reports writes whose receiver is the lambda parameter, but the
+        // reported set it hands the fix is keyed by property NAME. A second write to the same
+        // property on a captured variable matches that name without being reported, so a
+        // name-only check would fold `other.IsEnabled` into the chain and drop it.
+        var source = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b, Microsoft.UI.Xaml.Controls.Button other)
+        => {|REACTOR_MOD_002:b.Set(c => { c.IsEnabled = false; other.IsEnabled = true; })|};
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task CodeFix_Declines_Mixed_Block_With_An_Unmapped_Statement()
     {
         // One convertible assignment sharing a body with a statement that has no modifier.

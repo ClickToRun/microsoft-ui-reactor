@@ -123,6 +123,87 @@ internal static class SetLambdaHelpers
     }
 
     /// <summary>
+    /// Extract the assignments from a <c>.Set(...)</c> lambda when — and only when — the
+    /// entire body can be replaced by a modifier chain: every statement is a simple
+    /// assignment whose receiver is the lambda parameter itself.
+    /// Returns empty when the body is not fully convertible.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Deliberately stricter than <see cref="GetLambdaAssignments"/>, which exists for
+    /// <em>detection</em> and may ignore statements it cannot classify. A code fix cannot
+    /// ignore them: it replaces the whole invocation, so anything unaccounted for is silently
+    /// deleted rather than left behind. Two shapes must be rejected:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description>A non-assignment statement (<c>c.Focus();</c>, an <c>if</c>, a local
+    /// declaration). Invisible to a filter over assignments, and destroyed by the
+    /// rewrite.</description></item>
+    /// <item><description>An assignment to a different receiver (<c>other.IsEnabled = true</c>).
+    /// The analyzer only reports writes to the lambda parameter, but it reports them by
+    /// property <em>name</em> — so a same-named write to a captured variable would otherwise
+    /// be folded into the chain and lost.</description></item>
+    /// </list>
+    /// <para>
+    /// Comments inside the block body are not carried over; trivia around the invocation is.
+    /// </para>
+    /// </remarks>
+    internal static ImmutableArray<AssignmentExpressionSyntax> GetFullyConvertibleLambdaBody(
+        ExpressionSyntax lambdaExpr)
+    {
+        string paramName;
+        SyntaxNode? exprOrBlock;
+        switch (lambdaExpr)
+        {
+            case SimpleLambdaExpressionSyntax simple:
+                paramName = simple.Parameter.Identifier.Text;
+                exprOrBlock = (SyntaxNode?)simple.ExpressionBody ?? simple.Block;
+                break;
+            case ParenthesizedLambdaExpressionSyntax paren
+                when paren.ParameterList.Parameters.Count == 1:
+                paramName = paren.ParameterList.Parameters[0].Identifier.Text;
+                exprOrBlock = (SyntaxNode?)paren.ExpressionBody ?? paren.Block;
+                break;
+            default:
+                return ImmutableArray<AssignmentExpressionSyntax>.Empty;
+        }
+
+        switch (exprOrBlock)
+        {
+            case AssignmentExpressionSyntax single:
+                return IsConvertibleAssignment(single, paramName)
+                    ? ImmutableArray.Create(single)
+                    : ImmutableArray<AssignmentExpressionSyntax>.Empty;
+
+            case BlockSyntax block:
+            {
+                var builder = ImmutableArray.CreateBuilder<AssignmentExpressionSyntax>(block.Statements.Count);
+                foreach (var statement in block.Statements)
+                {
+                    if (statement is not ExpressionStatementSyntax expressionStatement
+                        || expressionStatement.Expression is not AssignmentExpressionSyntax assignment
+                        || !IsConvertibleAssignment(assignment, paramName))
+                    {
+                        return ImmutableArray<AssignmentExpressionSyntax>.Empty;
+                    }
+                    builder.Add(assignment);
+                }
+                return builder.Count == 0
+                    ? ImmutableArray<AssignmentExpressionSyntax>.Empty
+                    : builder.ToImmutable();
+            }
+
+            default:
+                return ImmutableArray<AssignmentExpressionSyntax>.Empty;
+        }
+    }
+
+    private static bool IsConvertibleAssignment(AssignmentExpressionSyntax assignment, string paramName)
+        // '+=' / '-=' are event subscriptions (REACTOR_EVENT_001's job) and have no modifier form.
+        => assignment.IsKind(SyntaxKind.SimpleAssignmentExpression)
+            && GetAssignedMemberAccess(assignment, paramName) is not null;
+
+    /// <summary>
     /// Extract the single assignment expression from a lambda passed to <c>.Set(...)</c>.
     /// Supports both expression-body lambdas (<c>fe =&gt; fe.X = v</c>) and block-body
     /// lambdas with a single assignment statement (<c>fe =&gt; { fe.X = v; }</c>).
