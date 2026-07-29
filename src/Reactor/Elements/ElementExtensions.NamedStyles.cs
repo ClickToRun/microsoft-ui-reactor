@@ -16,7 +16,16 @@ public static partial class ElementExtensions
 
     /// <summary>Applies the WinUI <c>AccentButtonStyle</c> — the accent-color
     /// primary-button look. Theme-aware (re-resolves on light/dark/contrast
-    /// switches via the underlying static-resource lookup).</summary>
+    /// switches via the underlying static-resource lookup).
+    /// <para>
+    /// <b>Applied at mount only.</b> Like <see cref="ApplyStyle{T}(T, string)"/>
+    /// this runs through <c>OnMount</c>, which the reconciler gates on first
+    /// mount — so conditionally chaining it (e.g. <c>isPrimary ? btn.AccentButton() : btn</c>)
+    /// will <em>not</em> apply or remove the style when the condition flips on an
+    /// in-place update. Give the two variants different
+    /// <see cref="ElementExtensions.WithKey{T}(T, string)"/> values to force a
+    /// remount when the style must change.
+    /// </para></summary>
     public static ButtonElement AccentButton(this ButtonElement el) =>
         el.ApplyStyle("AccentButtonStyle");
 

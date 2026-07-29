@@ -73,13 +73,17 @@ TextBlock("Prominent text").Set(tb =>
 
 3. **Minimum font size: 12px** — Anything below 12px makes complex Asian characters unreadable. `Caption()` at 12px is the smallest acceptable body text size.
 
-4. **Icon font family** — Never hardcode `"Segoe Fluent Icons"`. Use the system resource, and apply it with the `.FontFamily(FontFamily)` modifier rather than `.Set` — the modifier is diffed structurally, so an unchanged font costs nothing, and it is cleared when removed:
+4. **Icon font family** — Never hardcode a bare `"Segoe Fluent Icons"`. Use the system resource, and apply it with the `.FontFamily(FontFamily)` modifier rather than `.Set` — the modifier is diffed structurally, so an unchanged font costs nothing, and it is cleared when removed:
 
    ```csharp
    TextBlock("\uE710")
        .FontFamily((FontFamily)Application.Current.Resources["SymbolThemeFontFamily"])
        .Set(tb => tb.IsTextScaleFactorEnabled = false)
    ```
+
+   Where no live `Application.Current` is available, the explicit
+   `"Segoe Fluent Icons, Segoe MDL2 Assets"` stack is an acceptable static
+   fallback — it keeps the Windows 10 tail that a bare `"Segoe Fluent Icons"` drops.
 
 5. **Icon TextBlocks should not scale with text settings:**
 

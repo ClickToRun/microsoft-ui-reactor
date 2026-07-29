@@ -66,7 +66,7 @@ class ThemePanel : Component
             ).Padding(16)
         ).Background(Theme.CardBackground)
          .CornerRadius(8)
-         .Set(b => b.RequestedTheme = elTheme);
+         .RequestedTheme(elTheme);
     }
 }
 // </snippet:theme-switch>

@@ -80,18 +80,23 @@ class SetEscapeHatchDemo : Component
         return VStack(12,
             SubHeading(".Set() Escape Hatch"),
             Button("Custom Tooltip", () => { })
+                .Padding(20, 10, 20, 10)
                 .Set(btn =>
                 {
+                    // ToolTipService is an attached property — no modifier exists,
+                    // so this is a genuine .Set() use.
                     Microsoft.UI.Xaml.Controls.ToolTipService
                         .SetToolTip(btn, "This is a native tooltip");
-                    btn.Padding = new Thickness(20, 10, 20, 10);
                 }),
             TextBlock("Styled via .Set()")
+                .TextWrapping(TextWrapping.WrapWholeWords)
+                .CharacterSpacing(80)
+                .IsTextSelectionEnabled()
                 .Set(tb =>
                 {
-                    tb.TextWrapping = TextWrapping.WrapWholeWords;
-                    tb.CharacterSpacing = 80;
-                    tb.IsTextSelectionEnabled = true;
+                    // No TextBlockElement modifiers for these two.
+                    tb.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
+                    tb.IsTextScaleFactorEnabled = false;
                 })
         ).Padding(24);
     }

@@ -257,6 +257,10 @@
           Pack="true" PackagePath="agentkit/plugins/reactor/skills/reactor-wrapping/" Visible="false" />
     <None Include="..\..\plugins\reactor\skills\reactor-windowing\*.md"
           Pack="true" PackagePath="agentkit/plugins/reactor/skills/reactor-windowing/" Visible="false" />
+    <None Include="..\..\plugins\reactor\skills\reactor-advanced\*.md"
+          Pack="true" PackagePath="agentkit/plugins/reactor/skills/reactor-advanced/" Visible="false" />
+    <None Include="..\..\plugins\reactor\skills\reactor-docking\*.md"
+          Pack="true" PackagePath="agentkit/plugins/reactor/skills/reactor-docking/" Visible="false" />
   </ItemGroup>
 
   <!-- ═══════════════════════════════════════════════════════════════════
