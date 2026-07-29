@@ -786,7 +786,8 @@ public class DataGridComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMe
             var errorSummary = string.Join("; ", errorTexts);
 
             validationSummary = TextBlock(errorSummary)
-                .Foreground(SystemCritical).FontSize(11).Padding(horizontal: 8, vertical: 2);
+                .Foreground(SystemCritical).FontSize(11).Padding(horizontal: 8, vertical: 2)
+                .WithKey("validation");
         }
 
         // Async commit: loading indicator during commit
@@ -810,7 +811,7 @@ public class DataGridComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMe
                         state.DismissCommitError(capturedKey);
                     });
                 })
-            ).Padding(horizontal: 8, vertical: 2);
+            ).Padding(horizontal: 8, vertical: 2).WithKey("commit-error");
         }
 
         // Row detail expansion — expand icon is already in the Grid (column 0).
@@ -819,7 +820,8 @@ public class DataGridComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMe
         {
             detailPane = el.RowDetailTemplate(item!, rowKey)
                 .Padding(horizontal: 16, vertical: 8)
-                .Background(CardBackground);
+                .Background(CardBackground)
+                .WithKey("detail");
         }
 
         // Issue #919 — the row's ROOT element type must never change across renders. Rows are
@@ -843,7 +845,26 @@ public class DataGridComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMe
         if (!needsRowShell)
             return row;
 
-        return VStack(spacing: 0, row, validationSummary, commitErrorBar, detailPane);
+        // The shell must not inherit the fixed row height. VirtualListComponent only stamps
+        // .Height(RowHeight) on the item while itemHeight is non-null, and RenderDataRows
+        // drops that to null as soon as ANY row is expanded (so the detail pane isn't
+        // clipped) — which would otherwise let every COLLAPSED sibling shrink from RowHeight
+        // to its natural content height, i.e. the whole list visibly reflows when one row
+        // opens. Pin the height on the inner row Grid instead: collapsed rows stay exactly
+        // RowHeight in both modes, while the shell is free to measure row + detail.
+        if (el.RowHeight.HasValue)
+            row = row.Height(el.RowHeight.Value);
+
+        // Stable keys, not positional slots. The optional children are compacted out when
+        // null, so without keys a validation summary appearing would shift the detail pane
+        // down a slot, diff it against a TextBlock, and remount the whole detail subtree —
+        // discarding any state its component holds mid-edit.
+        return VStack(
+            spacing: 0,
+            row.WithKey("row"),
+            validationSummary,
+            commitErrorBar,
+            detailPane);
     }
 
     // ── Cell rendering ──────────────────────────────────────────────

@@ -217,4 +217,93 @@ public class DataGridRowShapeTests
 
         Assert.Equal(36d, props.ItemHeight);
     }
+
+    // ── Row height across the expand transition (issue #919 pr-review M4) ──
+
+    private static Element FirstChild(Element row)
+        => Assert.IsType<StackElement>(row).Children[0];
+
+    [Fact]
+    public async Task ShellRow_PinsRowHeightOnTheInnerGrid()
+    {
+        var state = await LoadedState();
+
+        // The shell itself must stay unconstrained so an expanded row can grow,
+        // but the row grid inside it carries the author's RowHeight.
+        var row = BuildRow(state, Grid(withDetail: true));
+
+        Assert.Null(Assert.IsType<StackElement>(row).Modifiers?.Height);
+        Assert.Equal(36d, FirstChild(row).Modifiers?.Height);
+    }
+
+    [Fact]
+    public async Task CollapsedSibling_KeepsRowHeightWhileAnotherRowIsExpanded()
+    {
+        var state = await LoadedState();
+        var el = Grid(withDetail: true);
+
+        // Expanding row 0 drops VirtualList's fixed-height stamp for the WHOLE
+        // list (ItemHeight goes null so the detail pane isn't clipped). Row 1 is
+        // still collapsed, so it must keep its height from the inner grid or the
+        // entire list visibly reflows when one row opens.
+        state.ExpandRow(new RowKey(state.GetRowKeyAt(0)!));
+        Assert.Null(DataRowsProps(state, el).ItemHeight);
+
+        var collapsedSibling = BuildRow(state, el, index: 1);
+
+        Assert.Equal(36d, FirstChild(collapsedSibling).Modifiers?.Height);
+    }
+
+    [Fact]
+    public async Task RowWithoutAnAuthorHeight_LeavesTheInnerGridUnconstrained()
+    {
+        var state = await LoadedState();
+        var el = Grid(withDetail: true) with { RowHeight = null };
+
+        var row = BuildRow(state, el);
+
+        // Guards against unconditionally stamping a height (e.g. a default) —
+        // an author who omits RowHeight gets measured rows.
+        Assert.Null(FirstChild(row).Modifiers?.Height);
+    }
+
+    // ── Shell slot identity (issue #919 pr-review M5) ────────────────
+
+    [Fact]
+    public async Task ShellSlots_CarryStableKeysAcrossOptionalChildren()
+    {
+        var state = await LoadedState();
+        var el = Grid(withDetail: true);
+        var key = new RowKey(state.GetRowKeyAt(0)!);
+
+        state.ExpandRow(key);
+        var expanded = Assert.IsType<StackElement>(BuildRow(state, el));
+
+        // Without keys the reconciler matches these positionally, so a
+        // validation summary or commit-error bar appearing above the detail pane
+        // would shift it a slot, diff it against a TextBlock and remount the
+        // whole detail subtree — losing any state it holds.
+        var keys = expanded.Children.Select(c => c.Key).ToArray();
+        Assert.Equal(new[] { "row", "detail" }, keys);
+    }
+
+    [Fact]
+    public async Task DetailSlotKey_IsUnchangedByTheRowIndex()
+    {
+        var state = await LoadedState();
+        var el = Grid(withDetail: true);
+
+        state.ExpandRow(new RowKey(state.GetRowKeyAt(0)!));
+        state.ExpandRow(new RowKey(state.GetRowKeyAt(1)!));
+
+        // Slot keys are per-shell, not per-item: the row's own identity already
+        // comes from ElementFactory's item key. Rotating them per row would make
+        // every row its own reuse shape.
+        var first = Assert.IsType<StackElement>(BuildRow(state, el, index: 0));
+        var second = Assert.IsType<StackElement>(BuildRow(state, el, index: 1));
+
+        var firstKeys = first.Children.Select(c => c.Key).ToArray();
+        Assert.All(firstKeys, k => Assert.False(string.IsNullOrEmpty(k)));
+        Assert.Equal(firstKeys, second.Children.Select(c => c.Key).ToArray());
+    }
 }

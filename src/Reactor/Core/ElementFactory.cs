@@ -98,14 +98,24 @@ public sealed partial class ElementFactory<T> : IElementFactory
 
     // A pooled container's reuse class. Two containers are interchangeable only
     // if these match, so the census must discriminate on exactly the STRUCTURAL
-    // terms of Reconciler.CanUpdate — element type, ComponentElement.ComponentType
-    // and XamlHostElement.TypeKey. Element.Key is deliberately excluded: it is
-    // per-item and rotates, so folding it in would make every row of a keyed list
-    // its own shape and blow the capacity up instead of bounding it.
+    // terms of Reconciler.CanUpdate — element type, ComponentElement.ComponentType,
+    // XamlHostElement.TypeKey and KeyedMemoElement.MemoKey. Element.Key is
+    // deliberately excluded: it is per-item and rotates, so folding it in would
+    // make every row of a keyed list its own shape and blow the capacity up
+    // instead of bounding it.
+    //
+    // MemoKey is included even though it can rotate per-item as well, because
+    // unlike Element.Key it is a CanUpdate discriminator: two memo containers
+    // with different keys can never be reused for one another, so counting them
+    // as one shape under-sizes the pool and evicts containers that are still
+    // wanted — and every such eviction is a permanently parented native leak.
+    // When a MemoKey does rotate per item the census simply degrades to LRU,
+    // which the absolute MaxPooledContainers ceiling already bounds.
     private readonly record struct ShapeKey(
         global::System.Type Element,
         global::System.Type? Component,
-        string? HostTypeKey);
+        string? HostTypeKey,
+        object? MemoKey);
 
     // Last Element bound to a given realized control. On reuse from the
     // recycle pool, this is the oldElement passed to Reconciler.Reconcile so
@@ -425,12 +435,11 @@ public sealed partial class ElementFactory<T> : IElementFactory
                     // points at it, tear the orphaned replacement down (otherwise its component
                     // effect cleanups leak — it is mounted but unreachable), and route the row
                     // back through the framework's realize channel. `child` cannot be
-                    // un-parented from the repeater, so park it collapsed rather than leaving
-                    // an unmounted ghost painted over the row. (Issue #919)
-                    DetachFromParent(child);
-                    ParkOrphan(child);
+                    // un-parented from the repeater, so retire it: park it collapsed with its
+                    // Reactor state fully detached rather than leaving an unmounted ghost
+                    // painted over the row with live trampolines still attached. (Issue #919)
+                    RetireAlreadyUnmounted(child);
                     _keyByControl.Remove(child);
-                    _lastElementByControl.Remove(child);
                     _mountedElements.Remove(key);
                     _reconciler.UnmountChild(replacement);
                     ScheduleReRealize(key);
@@ -592,14 +601,12 @@ public sealed partial class ElementFactory<T> : IElementFactory
                 }
                 else
                 {
-                    // Nothing can install `replacement` into `reused`. Park `reused`
-                    // collapsed and forget it rather than leaving a live ghost row
-                    // painted over the list. Do NOT return it to the pool: it was
-                    // unmounted inside Reconcile, so its tracked Element no longer
-                    // describes it.
-                    DetachFromParent(reused);
-                    ParkOrphan(reused);
-                    _lastElementByControl.Remove(reused);
+                    // Nothing can install `replacement` into `reused`. Retire `reused`
+                    // — park it collapsed with its Reactor state detached — rather than
+                    // leaving a live ghost row painted over the list. Do NOT return it to
+                    // the pool: it was unmounted inside Reconcile, so its tracked Element
+                    // no longer describes it.
+                    RetireAlreadyUnmounted(reused);
                     control = replacement;
                 }
             }
@@ -744,6 +751,19 @@ public sealed partial class ElementFactory<T> : IElementFactory
     private void RetireContainer(UIElement control)
     {
         _reconciler.UnmountChild(control);
+        RetireAlreadyUnmounted(control);
+    }
+
+    // The tail of RetireContainer, for containers Reconcile ALREADY unmounted.
+    // Both rejected-adoption paths land here: Reconcile minted a replacement,
+    // CanSafelyAdopt refused it, and the container it unmounted can never be
+    // un-parented from the repeater. Such a container is permanently parented
+    // and permanently dead, so it needs the same state teardown as an evicted
+    // one — dropping only the map entries would leave its ReactorState Element
+    // pointer and modifier trampolines live on a control that still raises
+    // size/property events. (Issue #919 pr-review M1.)
+    private void RetireAlreadyUnmounted(UIElement control)
+    {
         DetachReactorStateRecursive(control);
         DetachFromParent(control);
         ParkOrphan(control);
@@ -753,7 +773,25 @@ public sealed partial class ElementFactory<T> : IElementFactory
     private static void DetachReactorStateRecursive(DependencyObject node)
     {
         if (node is FrameworkElement fe)
+        {
             Reconciler.DetachReactorState(fe);
+            // DetachReactorState is the shared "leaves Reactor's ownership"
+            // primitive and deliberately keeps the ownership slots that a
+            // pooled control re-uses on its next rent. A retired repeater
+            // container has no next rent — it is parked forever — so the
+            // slots are pure retention: ListState holds the ObservableCollection
+            // WinUI bound to, ItemViewSource holds the per-index view source, and
+            // ControlEventState holds a payload box whose delegates capture the
+            // dead component. Clear them here rather than in DetachReactorState
+            // so the pool-return contract (Q18, issue #114) is untouched.
+            if (fe.GetValue(Reconciler.ReactorAttached.StateProperty)
+                is Reconciler.ReactorState state)
+            {
+                state.ListState = null;
+                state.ItemViewSource = null;
+                state.ControlEventState = null;
+            }
+        }
 
         var count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(node);
         for (var i = 0; i < count; i++)
@@ -889,14 +927,16 @@ public sealed partial class ElementFactory<T> : IElementFactory
     // roots all mount as Border, so keying the census on Control.GetType()
     // would see one shape where there are really three and under-size the pool.
     // Same for XamlHostElement: CanUpdate discriminates on TypeKey, so hosts
-    // with different TypeKeys can never be reused for one another either.
+    // with different TypeKeys can never be reused for one another either — and
+    // likewise KeyedMemoElement on MemoKey.
     private ShapeKey ShapeKeyOf(UIElement control)
         => _lastElementByControl.TryGetValue(control, out var element)
             ? new ShapeKey(
                 element.GetType(),
                 (element as ComponentElement)?.ComponentType,
-                (element as global::Microsoft.UI.Reactor.Hosting.XamlHostElement)?.TypeKey)
-            : new ShapeKey(control.GetType(), null, null);
+                (element as global::Microsoft.UI.Reactor.Hosting.XamlHostElement)?.TypeKey,
+                (element as KeyedMemoElement)?.MemoKey)
+            : new ShapeKey(control.GetType(), null, null, null);
 
     private void CensusShapes()
     {

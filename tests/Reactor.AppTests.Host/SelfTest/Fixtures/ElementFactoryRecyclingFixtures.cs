@@ -533,16 +533,16 @@ internal static class ElementFactoryRecyclingFixtures
     //  exact ghost row this change exists to prevent. It must be retired.
     // ────────────────────────────────────────────────────────────────────
 
-    private sealed class VisibilitySource
-    {
-        public Visibility Vis { get; set; } = Visibility.Visible;
-    }
-
     internal class Factory_BoundVisibilityRow_IsRetiredNotPooled(Harness h) : SelfTestFixtureBase(h)
     {
         public override Task RunAsync()
         {
-            var source = new VisibilitySource();
+            // The binding source must be a built-in WinUI type, not a plain
+            // managed class: XAML resolves a WinRT source's properties from
+            // native metadata, whereas a POCO source goes through
+            // ICustomProperty, which NativeAOT cannot synthesize without
+            // [WinRT.GeneratedBindableCustomProperty].
+            var source = new WinXC.Border { Visibility = Visibility.Visible };
             var factory = new ElementFactory<int>(
                 new[] { 0 },
                 (i, _) => TextBlock($"r{i}").Set(fe => fe.SetBinding(
@@ -550,7 +550,7 @@ internal static class ElementFactoryRecyclingFixtures
                     new Microsoft.UI.Xaml.Data.Binding
                     {
                         Source = source,
-                        Path = new PropertyPath(nameof(VisibilitySource.Vis)),
+                        Path = new PropertyPath(nameof(UIElement.Visibility)),
                     })),
                 new Reconciler(),
                 requestRerender: static () => { },
@@ -1163,6 +1163,324 @@ internal static class ElementFactoryRecyclingFixtures
             var nativeTypes = distinct.Select(c => c.GetType()).Distinct().Count();
             H.Check($"EFR_HostShape_AllRootsSameNativeType_types={nativeTypes}", nativeTypes == 1);
             H.Check($"EFR_HostShape_ContainersBounded_distinct={distinct.Count}",
+                distinct.Count <= rows * shapes);
+
+            return Task.CompletedTask;
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #919 (pr-review round 6, M1/M2) — a retired container must have
+    //  its Reactor state detached ALL THE WAY DOWN, and the ownership slots
+    //  cleared.
+    //
+    //  UnmountChild tears the components down but deliberately leaves the
+    //  per-control ReactorState in place: Element still points at the last
+    //  element, the modifier trampolines stay subscribed, and ListState /
+    //  ItemViewSource / ControlEventState still hold their payloads (a pooled
+    //  control re-uses those on its next rent). An evicted repeater container
+    //  has no next rent — the repeater keeps it parented forever — so every one
+    //  of those slots is pure retention on a dead subtree, and a trampoline that
+    //  fires can still reach the dead component's captured rerender closure.
+    //
+    //  The DESCENDANT is the interesting assertion: RetireContainer walks the
+    //  subtree, so a check on the container root alone would pass even with the
+    //  recursion deleted.
+    // ────────────────────────────────────────────────────────────────────
+
+    private class EventBearingRow : Microsoft.UI.Reactor.Core.Component
+    {
+        public override Microsoft.UI.Reactor.Core.Element Render()
+            // Button.Click is a control-intrinsic event, so mounting this
+            // populates ReactorState.ControlEventState on the Button — one of
+            // the ownership slots a permanent retire has to clear. It sits
+            // BELOW the container root, so it also proves the walk recurses.
+            => VStack(Button("row-btn", () => { }));
+    }
+
+    internal class Factory_RetiredContainer_DetachesNestedStateAndOwnership(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            var items = Enumerable.Range(0, 400)
+                .Select(i => new Item(i.ToString(), $"Item {i}")).ToArray();
+            var factory = new ElementFactory<Item>(
+                items,
+                (_, _) => VStack(Component<EventBearingRow>()),
+                new Reconciler(),
+                requestRerender: static () => { },
+                pool: null);
+            var ifactory = (IElementFactory)factory;
+
+            // Cycle far past the pool capacity so the first container is long
+            // since evicted and retired.
+            UIElement? previous = null;
+            UIElement? first = null;
+            for (var i = 0; i < 400; i++)
+            {
+                if (previous is not null) ifactory.RecycleElement(MakeRecycleArgs(previous));
+                previous = ifactory.GetElement(MakeRowGetArgs(i, $"rk{i}"));
+                first ??= previous;
+            }
+
+            H.Check("EFR_Retire_FirstRowWasEvicted",
+                first is not null && !factory.DebugTryGetLastElementByControl(first, out _));
+            if (first is null) return Task.CompletedTask;
+
+            // Find the Button somewhere beneath the retired container.
+            var button = FindDescendant<WinXC.Button>(first);
+            H.Check("EFR_Retire_FoundNestedButton", button is not null);
+            if (button is null) return Task.CompletedTask;
+
+            // Guard the premise: the Button really is a DESCENDANT, not the
+            // container root, so this can only pass if the walk recursed.
+            H.Check("EFR_Retire_ButtonIsNotTheRoot", !ReferenceEquals(button, first));
+
+            var st = button.GetValue(Reconciler.ReactorAttached.StateProperty)
+                as Reconciler.ReactorState;
+
+            // Recursion oracle. Delete the recursive walk and the nested
+            // Button keeps its Element pointer.
+            H.Check($"EFR_Retire_NestedElementDetached_el={st?.Element?.GetType().Name ?? "<null>"}",
+                st is null || st.Element is null);
+
+            // Ownership-slot oracle. UnmountChild + DetachReactorState both
+            // leave ControlEventState alone; only the permanent-retire clearing
+            // nulls it. Guarded by the premise check below so a Button that
+            // never had a payload can't make this vacuously true.
+            H.Check($"EFR_Retire_NestedControlEventStateCleared",
+                st is null || st.ControlEventState is null);
+
+            // Premise: a LIVE button of the same shape does carry a
+            // ControlEventState box. Without this, the assertion above would
+            // pass even if Button.Click never populated the slot at all.
+            var liveRoot = ifactory.GetElement(MakeRowGetArgs(0, "live-k"));
+            var liveButton = FindDescendant<WinXC.Button>(liveRoot);
+            var liveSt = liveButton?.GetValue(Reconciler.ReactorAttached.StateProperty)
+                as Reconciler.ReactorState;
+            H.Check("EFR_Retire_LiveButtonHasControlEventState",
+                liveSt is not null && liveSt.ControlEventState is not null);
+
+            return Task.CompletedTask;
+        }
+
+        private static TControl? FindDescendant<TControl>(DependencyObject root)
+            where TControl : class
+        {
+            if (root is TControl hit) return hit;
+            var n = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root);
+            for (var i = 0; i < n; i++)
+            {
+                var found = FindDescendant<TControl>(
+                    Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i));
+                if (found is not null) return found;
+            }
+            return null;
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #919 (pr-review round 6, M6) — the CanSafelyAdopt gate on the
+    //  POOL-REUSE path needs its own regression, not just the refresh path.
+    //
+    //  Factory_DecoratorSubstitution_IsNotSilentlyAdopted covers the
+    //  RefreshRealizedItems call site. This one covers GetElement: recycle a
+    //  decorator row into the pool, then realize the same KEY with a different
+    //  wrapped target. Pass 1 picks the container (CanUpdate on FlyoutElement
+    //  compares type + Key only, both unchanged), Reconcile's decorator arm
+    //  unmounts the old target and hands back a DIFFERENT control, and the gate
+    //  has to refuse to adopt it — a FlyoutElement is not a ComponentElement, so
+    //  its wiring (the element tag the Opened/Closed handlers read at click
+    //  time) does not travel with the adopted subtree.
+    // ────────────────────────────────────────────────────────────────────
+
+    internal class Factory_PoolReuseDecoratorSubstitution_IsNotSilentlyAdopted(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            var items = new[] { new Item("a", "A") };
+            var factory = new ElementFactory<Item>(
+                items,
+                (_, _) => Flyout(Component<FlyoutRowA>(), TextBlock("flymenu")),
+                new Reconciler(),
+                requestRerender: static () => { },
+                pool: null);
+            var ifactory = (IElementFactory)factory;
+
+            var firstControl = ifactory.GetElement(MakeRowGetArgs(0, "dk0"));
+            var tagBefore = Reconciler.GetElementTag(firstControl) as FlyoutElement;
+            H.Check($"EFR919_PoolDecorator_InitialTargetIsA_target={(tagBefore?.Target as ComponentElement)?.ComponentType?.Name ?? "<null>"}",
+                (tagBefore?.Target as ComponentElement)?.ComponentType == typeof(FlyoutRowA));
+
+            // Guard the premise: the realized control is a component-wrapper
+            // Border, i.e. TryAdoptRealizedReplacement *would* succeed here if
+            // the gate did not refuse it first.
+            H.Check("EFR919_PoolDecorator_RealizedIsBorder", firstControl is Border);
+
+            ifactory.RecycleElement(MakeRecycleArgs(firstControl));
+            H.Check($"EFR919_PoolDecorator_WentToPool_pool={factory.DebugRecyclePoolCount}",
+                factory.DebugRecyclePoolCount == 1);
+
+            // Swap the view builder the way a re-rendering LazyVStack does.
+            // This is what makes the next GetElement build a DIFFERENT element
+            // for the same key — UpdateInPlace clears the per-key build cache,
+            // so without it the cached FlyoutRowA element is served right back
+            // and no substitution ever happens.
+            factory.UpdateInPlace(items, (_, _) => Flyout(Component<FlyoutRowB>(), TextBlock("flymenu")));
+
+            // Same key — so pass 1 matches on CanUpdate — but a different
+            // wrapped target, so the decorator substitutes the control.
+            var secondControl = ifactory.GetElement(MakeRowGetArgs(0, "dk0"));
+
+            // Guard the premise: the container really was taken from the pool
+            // and the decorator really did substitute. If either stopped being
+            // true the oracle below would pass for the wrong reason.
+            H.Check($"EFR919_PoolDecorator_PoolWasDrained_pool={factory.DebugRecyclePoolCount}",
+                factory.DebugRecyclePoolCount == 0);
+            H.Check("EFR919_PoolDecorator_SubstitutionHappened",
+                !ReferenceEquals(secondControl, firstControl));
+
+            // The oracle. Whatever control ends up in the slot must carry the
+            // CURRENT FlyoutElement as its tag. A silent adopt returns the
+            // pooled container, whose tag still names FlyoutRowA.
+            var tagAfter = Reconciler.GetElementTag(secondControl) as FlyoutElement;
+            var afterTarget = (tagAfter?.Target as ComponentElement)?.ComponentType;
+            H.Check($"EFR919_PoolDecorator_SlotCarriesCurrentTag_target={afterTarget?.Name ?? "<null>"}",
+                afterTarget == typeof(FlyoutRowB));
+
+            // And the refused container must not be left tracked or visible.
+            H.Check("EFR919_PoolDecorator_RefusedContainerUntracked",
+                !factory.DebugTryGetLastElementByControl(firstControl, out _));
+            H.Check($"EFR919_PoolDecorator_RefusedContainerCollapsed",
+                firstControl is not FrameworkElement rfe || rfe.Visibility == Visibility.Collapsed);
+
+            return Task.CompletedTask;
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #919 (pr-review round 6, M7) — V1HandlerAdapter.Update must
+    //  remount rather than hard-cast when it is handed a foreign control.
+    //
+    //  This is the exact line that threw the InvalidCastException in the bug
+    //  report. The rest of this change makes the desync unreachable; this
+    //  fixture drives the guard directly through the registry seam so the
+    //  defense-in-depth arm cannot rot. Reverting it to `(TControl)control`
+    //  makes this fixture throw.
+    // ────────────────────────────────────────────────────────────────────
+
+    internal class Adapter_ForeignControl_RemountsInsteadOfThrowing(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            var resolved = Microsoft.UI.Reactor.Core.V1Protocol.ControlRegistry.TryResolve(
+                typeof(TextBlockElement), out var entryFactory);
+            H.Check("EFR919_Adapter_ResolvedTextBlockHandler", resolved && entryFactory is not null);
+            if (!resolved || entryFactory is null) return Task.CompletedTask;
+
+            var entry = entryFactory();
+            var reconciler = new Reconciler();
+
+            var oldEl = TextBlock("before");
+            var newEl = TextBlock("after");
+
+            // The desync the bug produced: a TextBlockElement paired with a
+            // control that is not a TextBlock.
+            var foreign = new WinXC.Button { Content = "not-a-textblock" };
+
+            UIElement? result = null;
+            global::System.Exception? thrown = null;
+            try
+            {
+                result = entry.Update(oldEl, newEl, foreign, static () => { }, reconciler);
+            }
+            catch (global::System.Exception ex)
+            {
+                thrown = ex;
+            }
+
+            H.Check($"EFR919_Adapter_DidNotThrow_ex={thrown?.GetType().Name ?? "<none>"}",
+                thrown is null);
+
+            // Not merely "didn't throw": it must hand back a correctly mounted
+            // replacement for the NEW element, so the caller can install it.
+            H.Check($"EFR919_Adapter_RemountedCorrectType_type={result?.GetType().Name ?? "<null>"}",
+                result is WinXC.TextBlock);
+            H.Check($"EFR919_Adapter_RemountedCarriesNewText_text={(result as WinXC.TextBlock)?.Text ?? "<null>"}",
+                (result as WinXC.TextBlock)?.Text == "after");
+            H.Check("EFR919_Adapter_DidNotReturnForeignControl",
+                !ReferenceEquals(result, foreign));
+
+            // Sanity: the same call with a MATCHING control still takes the
+            // normal in-place arm and returns that very control, so the guard
+            // isn't remounting everything.
+            var proper = entry.Mount(oldEl, static () => { }, reconciler);
+            var same = entry.Update(oldEl, newEl, proper, static () => { }, reconciler);
+            H.Check("EFR919_Adapter_MatchingControlUpdatedInPlace", ReferenceEquals(same, proper));
+            H.Check($"EFR919_Adapter_MatchingControlGotNewText_text={(proper as WinXC.TextBlock)?.Text ?? "<null>"}",
+                (proper as WinXC.TextBlock)?.Text == "after");
+
+            return Task.CompletedTask;
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Issue #919 (pr-review round 6, M3) — the census must also discriminate
+    //  on KeyedMemoElement.MemoKey.
+    //
+    //  Mirrors the XamlHostElement fixture: nine DECORATED KeyedMemoElements
+    //  with distinct MemoKeys are nine mutually incompatible reuse classes
+    //  (Reconciler.CanUpdate compares MemoKey) sharing one element type and one
+    //  native control type. Decorated is load-bearing — BuildOrCache resolves a
+    //  *bare* wrapper through the memo LRU and returns its inner element, so
+    //  only a decorated wrapper survives as a KeyedMemoElement to be censused.
+    //  Unkeyed args are load-bearing too: the keyed path stamps Element.Key,
+    //  which CanUpdate checks first, so MemoKey would never be the deciding
+    //  term. Under-counting here evicts containers that are still wanted, and
+    //  every such eviction is a permanently-parented native leak.
+    // ────────────────────────────────────────────────────────────────────
+
+    internal class Factory_MemoKeyCycle_KeepsContainerSetBounded(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            const int rows = 12;
+            const int shapes = 9;
+            const int cycles = shapes * 2;
+
+            var items = Enumerable.Range(0, rows).ToArray();
+            var shape = 0;
+            var factory = new ElementFactory<int>(
+                items,
+                // .Margin(1) keeps this a KeyedMemoElement instead of being
+                // unwrapped to its inner TextBlock by the memo LRU.
+                (_, _) => Memo($"memo{shape}", static () => TextBlock("memo")).Margin(1),
+                new Reconciler(),
+                requestRerender: static () => { },
+                pool: null);
+            var ifactory = (IElementFactory)factory;
+
+            var distinct = new HashSet<UIElement>();
+            var live = new UIElement[rows];
+            for (var c = 0; c < cycles; c++)
+            {
+                shape = c % shapes;
+                if (c > 0)
+                    for (var i = 0; i < rows; i++) ifactory.RecycleElement(MakeRecycleArgs(live[i]));
+
+                for (var i = 0; i < rows; i++)
+                {
+                    // Unkeyed (int) args — see the comment above.
+                    live[i] = ifactory.GetElement(MakeGetArgs(i));
+                    distinct.Add(live[i]);
+                }
+            }
+
+            // Guards the premise: one native control type, so the only thing
+            // that can tell these nine reuse classes apart is MemoKey.
+            var nativeTypes = distinct.Select(c => c.GetType()).Distinct().Count();
+            H.Check($"EFR_MemoShape_AllRootsSameNativeType_types={nativeTypes}", nativeTypes == 1);
+            H.Check($"EFR_MemoShape_ContainersBounded_distinct={distinct.Count}",
                 distinct.Count <= rows * shapes);
 
             return Task.CompletedTask;

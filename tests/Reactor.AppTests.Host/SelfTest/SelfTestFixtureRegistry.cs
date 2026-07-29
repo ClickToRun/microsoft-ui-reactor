@@ -275,6 +275,10 @@ internal static class SelfTestFixtureRegistry
         "EFR_Factory_RefreshKeyChange_ModifiedRootKeepsRefLive",
         "EFR_Factory_DecoratorSubstitution_IsNotSilentlyAdopted",
         "EFR_Factory_HostTypeKeyCycle_KeepsContainerSetBounded",
+        "EFR_Factory_RetiredContainer_DetachesNestedStateAndOwnership",
+        "EFR_Factory_PoolReuseDecoratorSubstitution_IsNotSilentlyAdopted",
+        "EFR_Adapter_ForeignControl_RemountsInsteadOfThrowing",
+        "EFR_Factory_MemoKeyCycle_KeepsContainerSetBounded",
         // Spec 042 Phase 3 — Animate(...) ambient end-to-end.
         "AAF_ListView_InsertUnderAnimate_TagsRowWithKind",
         "AAF_ListView_InsertWithoutAnimate_RowNotTagged",
@@ -1804,6 +1808,10 @@ internal static class SelfTestFixtureRegistry
         "EFR_Factory_RefreshKeyChange_ModifiedRootKeepsRefLive" => new ElementFactoryRecyclingFixtures.Factory_RefreshKeyChange_ModifiedRootKeepsRefLive(harness),
         "EFR_Factory_DecoratorSubstitution_IsNotSilentlyAdopted" => new ElementFactoryRecyclingFixtures.Factory_DecoratorSubstitution_IsNotSilentlyAdopted(harness),
         "EFR_Factory_HostTypeKeyCycle_KeepsContainerSetBounded" => new ElementFactoryRecyclingFixtures.Factory_HostTypeKeyCycle_KeepsContainerSetBounded(harness),
+        "EFR_Factory_RetiredContainer_DetachesNestedStateAndOwnership" => new ElementFactoryRecyclingFixtures.Factory_RetiredContainer_DetachesNestedStateAndOwnership(harness),
+        "EFR_Factory_PoolReuseDecoratorSubstitution_IsNotSilentlyAdopted" => new ElementFactoryRecyclingFixtures.Factory_PoolReuseDecoratorSubstitution_IsNotSilentlyAdopted(harness),
+        "EFR_Adapter_ForeignControl_RemountsInsteadOfThrowing" => new ElementFactoryRecyclingFixtures.Adapter_ForeignControl_RemountsInsteadOfThrowing(harness),
+        "EFR_Factory_MemoKeyCycle_KeepsContainerSetBounded" => new ElementFactoryRecyclingFixtures.Factory_MemoKeyCycle_KeepsContainerSetBounded(harness),
         // Spec 042 Phase 3 — Animate(...) ambient end-to-end.
         "AAF_ListView_InsertUnderAnimate_TagsRowWithKind" => new AnimateAmbientFixtures.ListView_InsertUnderAnimate_TagsRowWithKind(harness),
         "AAF_ListView_InsertWithoutAnimate_RowNotTagged" => new AnimateAmbientFixtures.ListView_InsertWithoutAnimate_RowNotTagged(harness),
