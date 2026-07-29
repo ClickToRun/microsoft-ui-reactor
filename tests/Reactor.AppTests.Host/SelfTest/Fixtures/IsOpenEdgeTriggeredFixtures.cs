@@ -197,9 +197,17 @@ internal static class IsOpenEdgeTriggeredFixtures
             var syncedClosed = Declared(isOpen: false);
             rec.UpdateChild(previous, syncedClosed, tip, _noOp);
             await Harness.Render();
-            rec.UpdateChild(syncedClosed, Declared(isOpen: true), tip, _noOp);
+            var reopened = Declared(isOpen: true);
+            rec.UpdateChild(syncedClosed, reopened, tip, _noOp);
             H.Check("IsOpenEdge_TeachingTip_RisingEdgeReopensAfterDismiss",
                 await Harness.WaitFor(() => tip.IsOpen, maxPasses: 40, perPassMs: 25));
+
+            // Teardown: close first and let it settle. Today the tip never
+            // actually presents (see the class doc), so this is a no-op — but if
+            // that defect is fixed, unmounting an open tip would leave a live
+            // overlay behind for the next fixture in this shared host process.
+            rec.UpdateChild(reopened, Declared(isOpen: false), tip, _noOp);
+            await Harness.WaitFor(() => !tip.IsOpen, maxPasses: 40, perPassMs: 25);
 
             rec.UnmountChild(tip);
             parent.Children.Clear();
