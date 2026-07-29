@@ -44,8 +44,14 @@ internal static partial class PackageRuntime
     }
 
     /// <summary>
-    /// Non-throwing package-identity probe. Passing a null buffer with a zero
-    /// length asks only the identity question — the name itself is never needed.
+    /// Non-throwing package-identity probe. <c>packageFullName</c> is documented
+    /// <c>[out, optional]</c>, so passing <c>NULL</c> with a zero length asks only the
+    /// identity question — the name itself is never needed here. The documented status
+    /// codes are <c>ERROR_SUCCESS</c>, <c>APPMODEL_ERROR_NO_PACKAGE</c> ("the process has
+    /// no package identity") and <c>ERROR_INSUFFICIENT_BUFFER</c> ("the buffer is not
+    /// large enough to hold the data"), the last being what a process that *does* have
+    /// identity reports for a zero-length buffer. <c>ERROR_INVALID_PARAMETER</c> is not a
+    /// documented outcome for this call shape.
     /// </summary>
     /// <returns>
     /// The raw <c>GetCurrentPackageFullName</c> status code; feed it to
@@ -75,7 +81,8 @@ internal static partial class PackageRuntime
     };
 
     // Blittable signature only (uint by-ref + native int), so the source-generated
-    // marshalling stub stays trim/AOT-clean.
+    // marshalling stub stays trim/AOT-clean. The return is `int` because the documented
+    // Win32 signature returns LONG (signed 32-bit), not DWORD.
     [LibraryImport("kernel32.dll")]
     private static partial int GetCurrentPackageFullName(ref uint packageFullNameLength, nint packageFullName);
 
