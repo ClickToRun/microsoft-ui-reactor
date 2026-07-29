@@ -28,14 +28,40 @@ class GalleryShell : Component
 
     public override Element Render()
     {
-        var (selectedTag, setSelectedTag) = UseState("home");
-        var (searchQuery, setSearchQuery) = UseState("");
+        // A cold-start deep link (`reactor-gallery:///item/button`) seeds the initial
+        // view. UseState only reads its initial value on the first render, so links
+        // that arrive later go through the RouteActivated subscription below.
+        var initialRoute = GalleryActivation.InitialRoute;
+        var (selectedTag, setSelectedTag) = UseState(initialRoute?.Tag ?? GalleryRoutes.HomeTag, threadSafe: true);
+        var (searchQuery, setSearchQuery) = UseState(SearchTextFor(initialRoute), threadSafe: true);
         var (isDark, setIsDark) = UseState(false);
         var (isPaneOpen, setIsPaneOpen) = UseState(true);
         var (prevTag, setPrevTag) = UseState<string?>(null);
 
+        // Warm-start deep links: GalleryActivation marshals them onto the UI thread and
+        // raises RouteActivated. The subscription mounts once, so the back target is
+        // read through a ref — capturing `selectedTag` directly would pin it to
+        // whatever was selected on the very first render.
+        var currentTag = UseRef(selectedTag);
+        currentTag.Current = selectedTag;
+        UseEffect(() =>
+        {
+            void OnRouteActivated(GalleryRoute route)
+            {
+                setPrevTag(currentTag.Current);
+                setSearchQuery(SearchTextFor(route));
+                setSelectedTag(route.Tag);
+            }
+
+            GalleryActivation.RouteActivated += OnRouteActivated;
+            return () => GalleryActivation.RouteActivated -= OnRouteActivated;
+        });
+
+        // Category slugs double as NavigationView tags AND as the `/category/{name}`
+        // segment of a deep link, so both sides go through GalleryRoutes.CategorySlug —
+        // if these two ever computed the slug differently, category links would break.
         var categoryTags = ControlRegistry.Categories
-            .Select(c => c.ToLowerInvariant().Replace(" ", "-"))
+            .Select(GalleryRoutes.CategorySlug)
             .ToHashSet();
 
         var designCategories = new HashSet<string> { "Design" };
@@ -44,7 +70,7 @@ class GalleryShell : Component
             .Where(cat => !designCategories.Contains(cat))
             .Select(cat =>
                 NavItem(cat,
-                    tag: cat.ToLowerInvariant().Replace(" ", "-")) with
+                    tag: GalleryRoutes.CategorySlug(cat)) with
                 {
                     IconElement = FontIcon(CategoryIcons.GetValueOrDefault(cat, "\uE71D")),
                     Children = ControlRegistry.All
@@ -56,8 +82,8 @@ class GalleryShell : Component
 
         var navItems = new[]
         {
-            NavItem("Home", tag: "home") with { IconElement = FontIcon("\uE80F") },
-            NavItem("Design", tag: "design") with
+            NavItem("Home", tag: GalleryRoutes.HomeTag) with { IconElement = FontIcon("\uE80F") },
+            NavItem("Design", tag: GalleryRoutes.CategorySlug("Design")) with
             {
                 IconElement = FontIcon("\uE790"),
                 Children = ControlRegistry.All
@@ -85,18 +111,18 @@ class GalleryShell : Component
                     .Margin(36, 0, 0, 36)
             );
         }
-        else if (selectedTag == "home")
+        else if (selectedTag == GalleryRoutes.HomeTag)
         {
             content = Component<HomePage, Action<string>>(setSelectedTag);
         }
-        else if (selectedTag == "settings")
+        else if (selectedTag == GalleryRoutes.SettingsTag)
         {
             content = Component<SettingsPage>();
         }
         else if (categoryTags.Contains(selectedTag))
         {
             var categoryName = ControlRegistry.Categories
-                .First(c => c.ToLowerInvariant().Replace(" ", "-") == selectedTag);
+                .First(c => GalleryRoutes.CategorySlug(c) == selectedTag);
             var controls = ControlRegistry.All
                 .Where(c => c.Category == categoryName)
                 .ToArray();
@@ -131,11 +157,14 @@ class GalleryShell : Component
                             box.QueryIcon = new SymbolIcon(Symbol.Find);
                         })
                 ),
-                RightHeader =
+                RightHeader = HStack(4,
+                    Component<CopyDeepLinkButton, string>(
+                        GalleryRoutes.UriForCurrentView(selectedTag, searchQuery)),
                     Button(Icon(isDark ? "\uE706" : "\uE708"), () => setIsDark(!isDark))
                         .Width(40).Height(36)
                         .ToolTip(isDark ? "Switch to Light" : "Switch to Dark")
-                        .AutomationName(isDark ? "Switch to Light theme" : "Switch to Dark theme"),
+                        .AutomationName(isDark ? "Switch to Light theme" : "Switch to Dark theme")
+                ),
                 IsPaneToggleButtonVisible = true,
                 OnPaneToggleRequested = () => setIsPaneOpen(!isPaneOpen),
                 IsBackButtonVisible = true,
@@ -173,7 +202,7 @@ class GalleryShell : Component
                 {
                     setSearchQuery("");
                     setPrevTag(selectedTag);
-                    setSelectedTag("settings");
+                    setSelectedTag(GalleryRoutes.SettingsTag);
                 },
                 OnPaneOpenChanged = setIsPaneOpen,
             })
@@ -188,4 +217,12 @@ class GalleryShell : Component
             .RequestedTheme(isDark ? ElementTheme.Dark : ElementTheme.Light)
             .Backdrop(BackdropKind.Mica);
     }
+
+    /// <summary>
+    /// Search text a route implies. Only a <c>/search?q=</c> link carries one; every
+    /// other route clears the box so the deep-linked page is actually visible instead
+    /// of hidden behind stale search results.
+    /// </summary>
+    static string SearchTextFor(GalleryRoute? route) =>
+        route is { Kind: GalleryRouteKind.Search } ? route.Query ?? "" : "";
 }

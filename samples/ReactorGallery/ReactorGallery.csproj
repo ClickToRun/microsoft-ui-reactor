@@ -1,4 +1,24 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The gallery builds in two flavours from ONE project:
+
+      dotnet build samples/ReactorGallery -p:Platform=x64                          → unpackaged (default)
+      dotnet build samples/ReactorGallery -p:Platform=x64 -p:GalleryPackaged=true  → MSIX
+
+    Both exist because deep linking is the one feature whose plumbing genuinely
+    differs between them: the packaged build declares `reactor-gallery://` in
+    Package.appxmanifest and lets Windows own the registration, while the unpackaged
+    build has no manifest and registers itself under HKCU at startup (see
+    DeepLink/GalleryProtocol.cs). Same sources, same binaries — the branch is a
+    runtime check, never a #if.
+
+    The default is deliberately unpackaged so `dotnet build Reactor.slnx`, CI, and
+    the normal inner loop are completely unaffected by the MSIX machinery below.
+  -->
+  <PropertyGroup>
+    <GalleryPackaged Condition="'$(GalleryPackaged)' == ''">false</GalleryPackaged>
+  </PropertyGroup>
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
@@ -6,13 +26,50 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UseWinUI>true</UseWinUI>
-    <WindowsPackageType>None</WindowsPackageType>
     <RootNamespace>WinUIGalleryReactor</RootNamespace>
     <AssemblyName>ReactorGallery</AssemblyName>
     <!-- Override the default WinUI.ico (from samples/Directory.Build.props) with the
          WinUI Gallery logo, sourced from microsoft/WinUI-Gallery. -->
     <ApplicationIcon>Assets\GalleryIcon.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <!-- ── Unpackaged (default) ────────────────────────────────────────────── -->
+  <PropertyGroup Condition="'$(GalleryPackaged)' != 'true'">
+    <WindowsPackageType>None</WindowsPackageType>
+  </PropertyGroup>
+
+  <!-- ── Packaged (MSIX), opt in with -p:GalleryPackaged=true ────────────── -->
+  <PropertyGroup Condition="'$(GalleryPackaged)' == 'true'">
+    <WindowsPackageType>MSIX</WindowsPackageType>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <!--
+      Build produces the app + manifest; producing the .msix itself is a separate,
+      much slower step. Opt in with -p:GenerateAppxPackageOnBuild=true, or publish.
+    -->
+    <GenerateAppxPackageOnBuild Condition="'$(GenerateAppxPackageOnBuild)' == ''">False</GenerateAppxPackageOnBuild>
+    <AppxBundle>Never</AppxBundle>
+    <AppxAutoIncrementPackageRevision>False</AppxAutoIncrementPackageRevision>
+    <AppxSymbolPackageEnabled>False</AppxSymbolPackageEnabled>
+    <GenerateAppInstallerFile>False</GenerateAppInstallerFile>
+    <GenerateTestArtifacts>False</GenerateTestArtifacts>
+    <HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
+    <!--
+      Signing is off by default so a fresh clone builds without a developer cert. For
+      a deployable signed MSIX pass
+        -p:AppxPackageSigningEnabled=true -p:PackageCertificateKeyFile=<path.pfx>
+      and set Package.appxmanifest's <Identity Publisher="..."> to the cert subject.
+    -->
+    <AppxPackageSigningEnabled Condition="'$(AppxPackageSigningEnabled)' == ''">False</AppxPackageSigningEnabled>
+    <AppxPackageSigningTimestampDigestAlgorithm>SHA256</AppxPackageSigningTimestampDigestAlgorithm>
+    <!--
+      MSIX tooling resolves the manifest and app assets against $(Platform), and
+      VS / design-time evaluation can arrive here with an empty or AnyCPU platform,
+      which isn't in <Platforms>. Normalise before any packaging target runs.
+    -->
+    <Platform Condition="'$(Platform)' == '' or '$(Platform)' == 'AnyCPU'">x64</Platform>
+    <Configurations>Debug;Release</Configurations>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Reactor\Reactor.csproj" />
     <ProjectReference Include="..\..\src\Reactor.Advanced\Reactor.Advanced.csproj" />
@@ -20,5 +77,12 @@
   <ItemGroup>
     <Content Include="Assets\ControlImages\**" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\GalleryIcon.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(GalleryPackaged)' == 'true'">
+    <AppxManifest Include="Package.appxmanifest">
+      <SubType>Designer</SubType>
+    </AppxManifest>
+    <Content Include="Images\*.png" />
   </ItemGroup>
 </Project>

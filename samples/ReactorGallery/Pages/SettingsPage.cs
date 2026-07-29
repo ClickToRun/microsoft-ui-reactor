@@ -18,6 +18,8 @@ class SettingsPage : Component
                     .Bold()
                     .Foreground(Theme.PrimaryText),
 
+                Component<DeepLinkSettingsCard>(),
+
                 // About section card
                 Border(
                     VStack(12,
@@ -128,5 +130,80 @@ class SettingsPage : Component
 
             ).Margin(36, 24, 36, 48)
         );
+    }
+}
+
+/// <summary>
+/// Surfaces the <c>reactor-gallery://</c> scheme and — for the unpackaged build —
+/// lets the user take back the HKCU registration the app made on startup.
+/// </summary>
+/// <remarks>
+/// Split out as its own component so the (stateful) toggle doesn't force the rest of
+/// the settings page to re-render, and so the packaged build can collapse the whole
+/// control surface into a single informational line.
+/// </remarks>
+class DeepLinkSettingsCard : Component
+{
+    public override Element Render()
+    {
+        var (isRegistered, setIsRegistered) = UseState(GalleryProtocol.IsRegistered);
+
+        var exampleUri = GalleryRoutes.UriForTag("button");
+
+        Element registration = GalleryProtocol.IsManagedByPackage
+            // MSIX declares the scheme in Package.appxmanifest, so it is installed and
+            // removed with the package. Offering a toggle here would be a lie — the app
+            // cannot revoke a manifest-declared protocol.
+            ? TextBlock("Registered by the app package (MSIX). Installed and removed with the app.")
+                .Foreground(Theme.SecondaryText)
+                .FontSize(13)
+                .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+            : VStack(8,
+                ToggleSwitch(isRegistered, on =>
+                {
+                    // Re-read the real state rather than trusting the requested value:
+                    // if the registry write fails, the switch must snap back.
+                    if (on) GalleryProtocol.Register();
+                    else GalleryProtocol.Unregister();
+                    setIsRegistered(GalleryProtocol.IsRegistered);
+                }, "Handling links", "Not handling links")
+                    .Header("Handle reactor-gallery:// links"),
+
+                TextBlock(isRegistered
+                    ? "Registered for the current user (HKCU). An unpackaged app has no package manifest to declare the scheme, so the gallery registers itself on every launch."
+                    : "Not registered — reactor-gallery:// links won't open this app until you turn this back on or restart the gallery.")
+                    .Foreground(Theme.SecondaryText)
+                    .FontSize(12)
+                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+            );
+
+        return Border(
+            VStack(12,
+                TextBlock("Deep links")
+                    .Foreground(Theme.PrimaryText)
+                    .SemiBold(),
+
+                Border(VStack())
+                    .Height(1)
+                    .Background(Theme.DividerStroke),
+
+                TextBlock("Any page in the gallery has a shareable link. Use the link button in the title bar to copy the link for the page you're on.")
+                    .Foreground(Theme.SecondaryText)
+                    .FontSize(13)
+                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap),
+
+                (TextBlock(exampleUri) with { IsTextSelectionEnabled = true })
+                    .Set(tb => tb.FontFamily = new FontFamily("Cascadia Code, Consolas, monospace"))
+                    .Foreground(Theme.PrimaryText)
+                    .FontSize(12),
+
+                registration
+            )
+        )
+        .Padding(20)
+        .Background(Theme.CardBackground)
+        .WithBorder(Theme.CardStroke)
+        .CornerRadius(8)
+        .MaxWidth(600);
     }
 }

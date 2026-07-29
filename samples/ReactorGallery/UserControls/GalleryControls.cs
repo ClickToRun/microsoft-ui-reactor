@@ -71,6 +71,57 @@ internal sealed class CopyToClipboardButton : Component<string>
 }
 
 /// <summary>
+/// Title-bar button that copies a <c>reactor-gallery://</c> deep link to the
+/// clipboard. <c>Props</c> is the URI for whatever the shell is currently showing,
+/// so the button never has to know about routing itself.
+/// </summary>
+internal sealed class CopyDeepLinkButton : Component<string>
+{
+    public override Element Render()
+    {
+        var uri = Props;
+        var (copied, setCopied) = UseState(false, threadSafe: true);
+        // Same transient-label bookkeeping as CopyToClipboardButton: a per-click
+        // generation token so rapid clicks can't reset the glyph early, and a mounted
+        // flag so the delayed reset can't touch a torn-down RenderContext.
+        var generation = UseRef(0);
+        var isMounted = UseRef(true);
+        UseEffect(() =>
+        {
+            isMounted.Current = true;
+            return () => isMounted.Current = false;
+        });
+
+        return Button(Icon(copied ? "\uE73E" : "\uE71B"))
+            .Click(() =>
+            {
+                try
+                {
+                    var dp = new DataPackage();
+                    dp.SetText(uri);
+                    Clipboard.SetContent(dp);
+                    var myGen = ++generation.Current;
+                    setCopied(true);
+                    _ = Task.Delay(1500).ContinueWith(_ =>
+                    {
+                        if (!isMounted.Current) return;
+                        if (generation.Current == myGen) setCopied(false);
+                    });
+                }
+                catch (System.Runtime.InteropServices.COMException)
+                {
+                    // Clipboard.SetContent can throw RPC_E_CALL_REJECTED while another
+                    // app holds the clipboard marshaller — same transient the source-code
+                    // copy button swallows.
+                }
+            })
+            .Width(40).Height(36)
+            .ToolTip(copied ? "Link copied" : $"Copy link to this page\n{uri}")
+            .AutomationName("Copy link to this page");
+    }
+}
+
+/// <summary>
 /// The collapsible "Source code" panel body: a rounded, theme-aware editor
 /// surface with C# syntax highlighting (matching the WinUI Gallery / ColorCode
 /// coloring rules), a line-number gutter, and an overlay copy button. Rendered
