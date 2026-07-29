@@ -552,8 +552,8 @@ public static partial class ElementExtensions
     // ── Theme / Style ───────────────────────────────────────────────
 
     /// <summary>
-    /// Apply a named WinUI Style to the element's control at mount/update time.
-    /// Style is on FrameworkElement — works on any element.
+    /// Apply a named WinUI Style to the element's control. Style is on
+    /// FrameworkElement — works on any element.
     /// Usage: Text("Hello").ApplyStyle("BodyTextBlockStyle")
     /// <para>
     /// <b>Applied at mount only.</b> This routes through <c>OnMount</c>, and the

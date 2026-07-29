@@ -15,8 +15,10 @@ public static partial class ElementExtensions
     // ── §17.1 Button style fluents ─────────────────────────────────────
 
     /// <summary>Applies the WinUI <c>AccentButtonStyle</c> — the accent-color
-    /// primary-button look. Theme-aware (re-resolves on light/dark/contrast
-    /// switches via the underlying static-resource lookup).
+    /// primary-button look. The Style is resolved from
+    /// <c>Application.Current.Resources</c> once; its colors still follow
+    /// light/dark/contrast switches because the Style's own setters use
+    /// <c>{ThemeResource}</c> values, which WinUI re-resolves on theme change.
     /// <para>
     /// <b>Applied at mount only.</b> Like <see cref="ApplyStyle{T}(T, string)"/>
     /// this runs through <c>OnMount</c>, which the reconciler gates on first
@@ -42,7 +44,8 @@ public static partial class ElementExtensions
         el.ApplyStyle("AccentButtonStyle");
 
     /// <summary>Applies the WinUI <c>SubtleButtonStyle</c> — chromeless
-    /// transparent-background button look. Theme-aware.</summary>
+    /// transparent-background button look. Theme-aware.
+    /// Applied at mount only — see <see cref="ApplyStyle{T}(T, string)"/>.</summary>
     public static ButtonElement SubtleButton(this ButtonElement el) =>
         el.ApplyStyle("SubtleButtonStyle");
 
@@ -62,7 +65,8 @@ public static partial class ElementExtensions
 
     /// <summary>Applies the WinUI <c>TextBlockButtonStyle</c> — chromeless
     /// inline-link rendering. Use for the "Learn more" pattern inside body
-    /// text. Theme-aware.</summary>
+    /// text. Theme-aware.
+    /// Applied at mount only — see <see cref="ApplyStyle{T}(T, string)"/>.</summary>
     public static HyperlinkButtonElement TextLink(this HyperlinkButtonElement el) =>
         el.ApplyStyle("TextBlockButtonStyle");
 
