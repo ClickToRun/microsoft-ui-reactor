@@ -240,10 +240,44 @@ step. The chain *is* the modifier.
 
 When you need a modifier that writes to a new slot (e.g., a custom
 attached property a custom container reads), the pattern is the same
-two helpers `Grid` and `Flex` use: define an attached-data record,
-expose an extension that calls `el.SetAttached(...)`, and have the
-parent panel read it via `GetAttached<TAttached>()` in its mount /
-update code.
+two helpers `Grid` and `Flex` use: define an attached-data record, have
+a modifier store it on the element, and have the parent panel read it
+back in its mount / update code.
+
+`SetAttached(...)` and `GetAttached<TAttached>()` are the internal
+shorthands the built-in modifiers use for those two steps, so that exact
+spelling is first-party only. From outside the framework assembly, go
+through the public `Attached` slot directly — it is a `Type`-keyed
+`IReadOnlyDictionary<Type, object>` with an `init` setter, so a modifier
+writes it with a `with` expression and the parent reads its own record
+back out by type:
+
+```csharp
+public record BadgeAttached(string Label);
+
+public static T Badge<T>(this T el, string label) where T : Element
+{
+    // Copy any existing entries first — replacing the dictionary wholesale
+    // would drop another provider's attached record on the same element.
+    var attached = new Dictionary<Type, object>();
+    if (el.Attached is { } existing)
+    {
+        foreach (var kv in existing) attached[kv.Key] = kv.Value;
+    }
+    attached[typeof(BadgeAttached)] = new BadgeAttached(label);
+    return el with { Attached = attached };
+}
+```
+
+The parent panel reads it back keyed by its own record type:
+
+```csharp
+if (child.Attached?.TryGetValue(typeof(BadgeAttached), out var data) == true
+    && data is BadgeAttached badge)
+{
+    ApplyBadge(realizedChild, badge);
+}
+```
 
 ### Reading the merged modifier in a custom panel
 
