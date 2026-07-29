@@ -32,22 +32,28 @@ class ItemsViewPage : Component
                     ItemsView(
                         products,
                         p => p.Name,
-                        (p, i) => Border(
-                            VStack(4,
-                                TextBlock(p.Name).Bold(),
-                                TextBlock(p.Category).ApplyStyle("CaptionTextBlockStyle").Foreground(Theme.SecondaryText),
-                                TextBlock($"${p.Price:F2}").Foreground(Theme.SystemSuccess)
-                            ).Padding(12)
-                        ).Background(Theme.SubtleFill).CornerRadius(ThemeResource.CornerRadius("ControlCornerRadius").TopLeft).Margin(4)
+                        (p, i) => ItemContainer(
+                            Border(
+                                VStack(4,
+                                    TextBlock(p.Name).Bold(),
+                                    TextBlock(p.Category).ApplyStyle("CaptionTextBlockStyle").Foreground(Theme.SecondaryText),
+                                    TextBlock($"${p.Price:F2}").Foreground(Theme.SystemSuccess)
+                                ).Padding(12)
+                            ).Background(Theme.SubtleFill).CornerRadius(ThemeResource.CornerRadius("ControlCornerRadius").TopLeft).Margin(4)
+                        )
                     ).Height(300),
                     """
+                    // The view builder MUST return an ItemContainer root —
+                    // ItemsView's selection / focus / animation infrastructure requires it.
                     ItemsView(
                         products,
                         p => p.Name,
-                        (p, i) => Border(VStack(
-                            TextBlock(p.Name).Bold(),
-                            TextBlock($"${p.Price:F2}")
-                        ))
+                        (p, i) => ItemContainer(
+                            Border(VStack(
+                                TextBlock(p.Name).Bold(),
+                                TextBlock($"${p.Price:F2}")
+                            ))
+                        )
                     )
                     """),
 
@@ -55,16 +61,19 @@ class ItemsViewPage : Component
                     ItemsView(
                         products,
                         p => p.Name,
-                        (p, i) => HStack(8,
-                            TextBlock($"{i + 1}.").Width(20).Foreground(Theme.SecondaryText),
-                            TextBlock(p.Name).Flex(grow: 1),
-                            TextBlock($"${p.Price:F2}").Foreground(Theme.AccentText)
-                        ).Padding(8)
+                        (p, i) => ItemContainer(
+                            HStack(8,
+                                TextBlock($"{i + 1}.").Width(20).Foreground(Theme.SecondaryText),
+                                TextBlock(p.Name).Flex(grow: 1),
+                                TextBlock($"${p.Price:F2}").Foreground(Theme.AccentText)
+                            ).Padding(8)
+                        )
                     ).Height(250),
                     """
                     ItemsView(
                         products, p => p.Name,
-                        (p, i) => HStack(8, TextBlock(p.Name).Flex(grow: 1), TextBlock(price))
+                        (p, i) => ItemContainer(
+                            HStack(8, TextBlock(p.Name).Flex(grow: 1), TextBlock(price)))
                     )
                     """)
             ).Margin(36, 24, 36, 36)

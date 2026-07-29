@@ -43,6 +43,7 @@ class NavigationViewPage : Component
                         SelectedTag = selectedTag,
                         OnSelectedTagChanged = tag => { if (tag != null) setSelectedTag(tag); },
                         PaneTitle = "Nav Demo",
+                        PaneDisplayMode = modes[paneMode],
                         IsSettingsVisible = false,
                     }).Height(300),
                     @"NavigationView(items, content: TextBlock(""Selected: ...""))
@@ -50,8 +51,10 @@ with {
     SelectedTag = tag,
     OnSelectedTagChanged = t => setTag(t),
     PaneTitle = ""Nav Demo"",
+    PaneDisplayMode = modes[paneMode],   // driven by the Options combo below
 }",
                     options: OptionPanel(
+                        TextBlock("Pane display mode"),
                         ComboBox(modeNames, paneMode, i => setPaneMode(i))
                     )),
 

@@ -32,8 +32,10 @@ RadioButtons(options, groupIndex, i => setGroupIndex(i))
                     RadioButton("Choice B", individualChoice == "B", v => { if (v) setIndividualChoice("B"); }, "choices"),
                     TextBlock($"Chosen: {individualChoice}").Foreground(Theme.SecondaryText)),
                 sourceCode: @"
-RadioButton(""Choice A"", individualChoice == ""A"", () => setIndividualChoice(""A""), ""choices"")
-RadioButton(""Choice B"", individualChoice == ""B"", () => setIndividualChoice(""B""), ""choices"")
+// RadioButton's third parameter is Action<bool> — it fires for both the check
+// and the uncheck, so guard on the value before committing the choice.
+RadioButton(""Choice A"", individualChoice == ""A"", v => { if (v) setIndividualChoice(""A""); }, ""choices"")
+RadioButton(""Choice B"", individualChoice == ""B"", v => { if (v) setIndividualChoice(""B""); }, ""choices"")
 ")
         ).Margin(36, 24, 36, 36));
     }

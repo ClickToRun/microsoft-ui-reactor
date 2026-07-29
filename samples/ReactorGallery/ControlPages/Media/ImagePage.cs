@@ -9,6 +9,10 @@ namespace WinUIGalleryReactor.ControlPages.Media;
 
 class ImagePage : Component
 {
+    // Ships with the app: samples/ReactorGallery/Assets/SampleImages (copied to the
+    // output folder by the csproj, which is what ms-appx:/// resolves against).
+    const string SampleImage = "ms-appx:///Assets/SampleImages/LandscapeSample.png";
+
     public override Element Render()
     {
         var (width, setWidth) = UseState(300.0);
@@ -19,22 +23,24 @@ class ImagePage : Component
                     "A control that displays an image from a file or URI."),
 
                 SampleCard("Image from URI",
-                    Image("ms-appx:///Assets/Square150x150Logo.scale-200.png")
+                    Image(SampleImage)
                         .Width(width).Height(width),
-                    @"Image(""ms-appx:///Assets/Square150x150Logo.scale-200.png"")
-    .Width(300).Height(300)",
+                    @"Image(""ms-appx:///Assets/SampleImages/LandscapeSample.png"")
+    .Width(300).Height(300)
+// ms-appx:/// resolves against the app folder — the asset must be copied
+// to the output directory (a <Content Include=...> item in the csproj).",
                     options: OptionPanel(
                         Slider(width, 50, 500, v => setWidth(v))
                     )),
 
                 SampleCard("Image with Border",
                     Border(
-                        Image("ms-appx:///Assets/Square150x150Logo.scale-200.png")
+                        Image(SampleImage)
                             .Width(200).Height(200)
                     ).CornerRadius(ThemeResource.CornerRadius("OverlayCornerRadius").TopLeft)
                      .WithBorder(Theme.CardStroke),
                     @"Border(
-    Image(""ms-appx:///Assets/image.png"")
+    Image(""ms-appx:///Assets/SampleImages/LandscapeSample.png"")
         .Width(200).Height(200)
 ).CornerRadius(12)
  .WithBorder(Theme.CardStroke)")

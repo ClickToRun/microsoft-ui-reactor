@@ -285,14 +285,14 @@ public sealed class SearchIndexGeneratorTests
     }
 
     // ── sampleOverride escape hatch replaces a control whose only card is a
-    //    placeholder (map-control's sole SampleCard used <your-key>). ──
+    //    placeholder (map-control's sole SampleCard abbreviates the no-token branch). ──
 
     [Fact]
     public void SampleOverride_ReplacesRejectedPlaceholderCard()
     {
         var mc = Find(Parse(Generate().Json), "map-control");
         Assert.Equal("Interactive map", mc.Samples[0].Header);
-        Assert.Contains("MapControl(zoomLevel", mc.Samples[0].Code);
+        Assert.Contains("MapControl(mapServiceToken", mc.Samples[0].Code);
         Assert.DoesNotContain("<your", mc.Samples[0].Code);
     }
 
