@@ -106,6 +106,14 @@ public class FlyoutPlacementGuardTests
 
     private const string HelperFileName = "FlyoutPlacement.cs";
 
+    /// <summary>
+    /// Files allowed to write a <c>Placement</c> member that is provably NOT a WinUI
+    /// <c>FlyoutBase.Placement</c> dependency property. Empty today — the scan is
+    /// syntactic, so a future non-flyout <c>Placement</c> setter is expected to land here
+    /// as a deliberate, reviewed edit rather than silently widening the matcher.
+    /// </summary>
+    private static readonly string[] NonFlyoutPlacementWriteFiles = [];
+
     [Fact]
     public void No_Flyout_Placement_Write_Bypasses_FlyoutPlacement()
     {
@@ -113,6 +121,7 @@ public class FlyoutPlacementGuardTests
 
         var bypasses = writes
             .Where(w => !string.Equals(Path.GetFileName(w.File), HelperFileName, StringComparison.Ordinal))
+            .Where(w => !NonFlyoutPlacementWriteFiles.Contains(Path.GetFileName(w.File), StringComparer.Ordinal))
             .Select(w => $"{Path.GetFileName(w.File)}({w.Line}): {w.Text}")
             .OrderBy(s => s, StringComparer.Ordinal)
             .ToList();
@@ -120,8 +129,11 @@ public class FlyoutPlacementGuardTests
         Assert.True(
             bypasses.Count == 0,
             "These sites write FlyoutBase.Placement directly instead of routing through " +
-            $"FlyoutPlacement.Apply, which lets FlyoutPlacementMode.Auto reach WinUI's validator " +
-            $"and terminate the process when the flyout is shown: [{string.Join("; ", bypasses)}]");
+            "FlyoutPlacement.Apply, which lets FlyoutPlacementMode.Auto reach WinUI's validator " +
+            "and terminate the process when the flyout is shown: " +
+            $"[{string.Join("; ", bypasses)}]. Route the write through FlyoutPlacement.Apply, or " +
+            "— if this is genuinely not a WinUI FlyoutBase.Placement write — add the file to " +
+            $"{nameof(NonFlyoutPlacementWriteFiles)} with a comment explaining why.");
     }
 
     [Fact]
@@ -152,8 +164,10 @@ public class FlyoutPlacementGuardTests
     [Fact]
     public void Scanner_Flags_A_Synthetic_Bypass()
     {
-        // Anti-vacuity, part 3: prove the matcher recognizes both write shapes the fix
-        // removed — a member assignment and a flyout object initializer.
+        // Anti-vacuity, part 3: prove the matcher recognizes every write shape that can
+        // reach FlyoutBase.Placement — a member assignment, a flyout object initializer,
+        // and the SetValue/SetCurrentValue DP escape hatches — while ignoring the
+        // look-alikes (element-record initializers, a differently-named placement DP).
         const string source = """
             class Sample
             {
@@ -161,8 +175,12 @@ public class FlyoutPlacementGuardTests
                 {
                     existing.Placement = Placement;
                     var f = new WinUI.Flyout { Content = null, Placement = Placement };
+                    existing.SetValue(WinPrim.FlyoutBase.PlacementProperty, Placement);
+                    existing.SetCurrentValue(FlyoutBase.PlacementProperty, Placement);
                     var e = new SomeElement { Placement = Placement };
                     var t = new TeachingTip { PreferredPlacement = Placement };
+                    existing.SetValue(TeachingTip.PreferredPlacementProperty, Placement);
+                    var read = existing.Placement;
                 }
             }
             """;
@@ -171,9 +189,11 @@ public class FlyoutPlacementGuardTests
             .Select(w => w.Text)
             .ToList();
 
-        Assert.Equal(2, hits.Count);
+        Assert.Equal(4, hits.Count);
         Assert.Contains(hits, h => h.StartsWith("existing.Placement", StringComparison.Ordinal));
         Assert.Contains(hits, h => h.Contains("new WinUI.Flyout", StringComparison.Ordinal));
+        Assert.Contains(hits, h => h.Contains("SetValue(WinPrim.FlyoutBase.PlacementProperty", StringComparison.Ordinal));
+        Assert.Contains(hits, h => h.Contains("SetCurrentValue(FlyoutBase.PlacementProperty", StringComparison.Ordinal));
     }
 
     // ── scanning helpers ────────────────────────────────────────────
@@ -211,32 +231,72 @@ public class FlyoutPlacementGuardTests
     /// <item><c>new ...Flyout { Placement = ... }</c> — object initializers on a WinUI
     /// flyout type. Element records are named <c>...Element</c> and the DSL builds them
     /// with target-typed <c>new(...)</c>, so neither is matched.</item>
+    /// <item><c>SetValue(FlyoutBase.PlacementProperty, ...)</c> and
+    /// <c>SetCurrentValue(...)</c> — the DP escape hatches that bypass the CLR property.</item>
     /// </list>
+    /// The match is syntactic (no semantic model, so the scan needs no compilation), which
+    /// is why <see cref="NonFlyoutPlacementWriteFiles"/> exists as the deliberate escape
+    /// valve for a future non-flyout <c>Placement</c> setter.
     /// </summary>
     private static IEnumerable<PlacementWrite> FindPlacementWrites(string file, string source)
     {
         var tree = CSharpSyntaxTree.ParseText(source);
         var root = tree.GetCompilationUnitRoot();
 
-        foreach (var assignment in root.DescendantNodes().OfType<AssignmentExpressionSyntax>())
+        foreach (var node in root.DescendantNodes())
         {
-            if (!assignment.IsKind(SyntaxKind.SimpleAssignmentExpression)) continue;
-
-            bool isPlacementWrite = assignment.Left switch
+            switch (node)
             {
-                // receiver.Placement = ...
-                MemberAccessExpressionSyntax { Name.Identifier.Text: "Placement" } => true,
-                // { Placement = ... } inside new SomethingFlyout { ... }
-                IdentifierNameSyntax { Identifier.Text: "Placement" } =>
-                    IsFlyoutObjectInitializer(assignment),
-                _ => false,
-            };
-            if (!isPlacementWrite) continue;
+                case AssignmentExpressionSyntax assignment
+                    when assignment.IsKind(SyntaxKind.SimpleAssignmentExpression)
+                      && IsPlacementAssignment(assignment):
+                    yield return Write(file, assignment, Flatten(assignment));
+                    break;
 
-            var line = assignment.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
-            yield return new PlacementWrite(file, line, Flatten(assignment));
+                case InvocationExpressionSyntax invocation when IsPlacementDpWrite(invocation):
+                    yield return Write(file, invocation, Flatten(invocation.ToString()));
+                    break;
+            }
         }
     }
+
+    private static bool IsPlacementAssignment(AssignmentExpressionSyntax assignment) =>
+        assignment.Left switch
+        {
+            // receiver.Placement = ...
+            MemberAccessExpressionSyntax { Name.Identifier.Text: "Placement" } => true,
+            // { Placement = ... } inside new SomethingFlyout { ... }
+            IdentifierNameSyntax { Identifier.Text: "Placement" } => IsFlyoutObjectInitializer(assignment),
+            _ => false,
+        };
+
+    /// <summary>
+    /// Matches <c>x.SetValue(&lt;anything&gt;FlyoutBase.PlacementProperty, v)</c> and the
+    /// <c>SetCurrentValue</c> sibling, regardless of how <c>FlyoutBase</c> is qualified.
+    /// </summary>
+    private static bool IsPlacementDpWrite(InvocationExpressionSyntax invocation)
+    {
+        if (invocation.Expression is not MemberAccessExpressionSyntax
+            { Name.Identifier.Text: "SetValue" or "SetCurrentValue" }) return false;
+        if (invocation.ArgumentList.Arguments.Count < 2) return false;
+
+        var dp = invocation.ArgumentList.Arguments[0].Expression;
+        return dp is MemberAccessExpressionSyntax
+        {
+            Name.Identifier.Text: "PlacementProperty",
+            Expression: var owner,
+        } && LeafName(owner) == "FlyoutBase";
+    }
+
+    private static string LeafName(ExpressionSyntax expression) => expression switch
+    {
+        MemberAccessExpressionSyntax member => member.Name.Identifier.Text,
+        SimpleNameSyntax simple => simple.Identifier.Text,
+        _ => expression.ToString(),
+    };
+
+    private static PlacementWrite Write(string file, SyntaxNode node, string text)
+        => new(file, node.GetLocation().GetLineSpan().StartLinePosition.Line + 1, text);
 
     private static bool IsFlyoutObjectInitializer(AssignmentExpressionSyntax assignment)
     {
@@ -253,10 +313,12 @@ public class FlyoutPlacementGuardTests
     }
 
     private static string Flatten(AssignmentExpressionSyntax assignment)
-    {
-        var text = assignment.Parent is InitializerExpressionSyntax { Parent: ObjectCreationExpressionSyntax creation }
+        => Flatten(assignment.Parent is InitializerExpressionSyntax { Parent: ObjectCreationExpressionSyntax creation }
             ? creation.ToString()
-            : assignment.ToString();
+            : assignment.ToString());
+
+    private static string Flatten(string text)
+    {
         text = string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
         return text.Length <= 120 ? text : text[..120] + "…";
     }

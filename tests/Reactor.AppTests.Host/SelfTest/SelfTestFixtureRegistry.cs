@@ -231,6 +231,10 @@ internal static class SelfTestFixtureRegistry
         "FlyoutPlacement_Flyout_ExplicitPlacement_ReachesTheControl",
         "FlyoutPlacement_Flyout_PlacementUpdate_NeverWritesAuto",
         "FlyoutPlacement_ContentFlyout_DefaultPlacement_Opens",
+        "FlyoutPlacement_MenuFlyout_ContextFlyout_DefaultPlacement",
+        "FlyoutPlacement_ButtonFlyoutSlots_DefaultPlacement",
+        "FlyoutPlacement_CommandBarFlyout_DefaultPlacement_NotAuto",
+        "FlyoutPlacement_Flyout_TargetTypeChange_FreshFlyoutNotAuto",
         // Issue #480 — InlineUIContainer rich-text inline (Route A + Route B + unmount)
         "InlineUI_RouteA_ReactorChild",
         "InlineUI_RouteB_NativeFactory",
@@ -1821,6 +1825,10 @@ internal static class SelfTestFixtureRegistry
         "FlyoutPlacement_Flyout_ExplicitPlacement_ReachesTheControl" => new FlyoutPlacementFixtures.Flyout_ExplicitPlacement_ReachesTheControl(harness),
         "FlyoutPlacement_Flyout_PlacementUpdate_NeverWritesAuto" => new FlyoutPlacementFixtures.Flyout_PlacementUpdate_NeverWritesAuto(harness),
         "FlyoutPlacement_ContentFlyout_DefaultPlacement_Opens" => new FlyoutPlacementFixtures.ContentFlyout_DefaultPlacement_Opens(harness),
+        "FlyoutPlacement_MenuFlyout_ContextFlyout_DefaultPlacement" => new FlyoutPlacementFixtures.MenuFlyout_ContextFlyout_DefaultPlacement(harness),
+        "FlyoutPlacement_ButtonFlyoutSlots_DefaultPlacement" => new FlyoutPlacementFixtures.ButtonFlyoutSlots_DefaultPlacement(harness),
+        "FlyoutPlacement_CommandBarFlyout_DefaultPlacement_NotAuto" => new FlyoutPlacementFixtures.CommandBarFlyout_DefaultPlacement_NotAuto(harness),
+        "FlyoutPlacement_Flyout_TargetTypeChange_FreshFlyoutNotAuto" => new FlyoutPlacementFixtures.Flyout_TargetTypeChange_FreshFlyoutNotAuto(harness),
         // Issue #480 — InlineUIContainer rich-text inline.
         "InlineUI_RouteA_ReactorChild" => new InlineUIContainerFixtures.InlineUI_RouteA_ReactorChild(harness),
         "InlineUI_RouteB_NativeFactory" => new InlineUIContainerFixtures.InlineUI_RouteB_NativeFactory(harness),

@@ -91,6 +91,22 @@ Conventions for contributors:
 
 ### Fixed
 
+- **`Flyout(...)` no longer terminates the process when opened at its default
+  placement.** Reactor's flyout elements default `Placement` to
+  `FlyoutPlacementMode.Auto`, and that value was written straight onto the WinUI
+  `FlyoutBase.Placement` dependency property. WinUI's show-time validator
+  (`FlyoutBase::ValidateAndSetParameters`) only accepts placements `0..12`, so
+  `Auto` (13) failed with `E_INVALIDARG` and the resulting stowed
+  `ArgumentException` killed the app the first time the flyout was shown —
+  reproducible from the gallery's Dialogs and Flyouts → Flyout page. `Auto` now
+  means "Reactor has no opinion — let the platform decide" and is expressed by
+  leaving the dependency property at WinUI's own default (`Top`) instead of
+  writing `Auto` to it. Applies to `Flyout(...)`, `ContentFlyout(...)` /
+  `.WithFlyout(...)` / `.WithContextFlyout(...)`, `MenuItems(...)` and
+  `CommandBarFlyout(...)`. Explicit placements are unaffected; a flyout whose
+  placement changes from an explicit value back to `Auto` keeps the last
+  explicit value rather than resetting.
+
 - **`NavigationView` pane state no longer desyncs when the control moves its own
   pane (issue #916).** `IsPaneOpen` could be written but had no change
   notification, so a light dismiss or an adaptive display-mode change on resize

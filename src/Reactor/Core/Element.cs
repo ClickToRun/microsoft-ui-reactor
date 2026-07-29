@@ -5273,9 +5273,13 @@ public record FlyoutElement(
     public bool IsOpen { get; init; }
     /// <summary>
     /// Preferred position of the flyout relative to its target. Defaults to
-    /// <see cref="FlyoutPlacementMode.Auto"/>, which means "no opinion — let WinUI decide";
-    /// Reactor deliberately leaves <c>FlyoutBase.Placement</c> untouched in that case
-    /// because WinUI's own show-time validator rejects <c>Auto</c>.
+    /// <see cref="FlyoutPlacementMode.Auto"/>, which means "no opinion — let WinUI decide":
+    /// Reactor leaves <c>FlyoutBase.Placement</c> at the control's own default
+    /// (<see cref="FlyoutPlacementMode.Top"/>) instead of writing <c>Auto</c>, because
+    /// WinUI's show-time validator rejects <c>Auto</c> and terminates the process.
+    /// Since nothing is written, changing an already-mounted flyout from an explicit
+    /// placement back to <see cref="FlyoutPlacementMode.Auto"/> keeps the last explicit
+    /// value rather than resetting it.
     /// </summary>
     public FlyoutPlacementMode Placement { get; init; } = FlyoutPlacementMode.Auto;
     public Action? OnOpened { get; init; }
@@ -5298,9 +5302,13 @@ public record ContentFlyoutElement(Element Content) : Element
 {
     /// <summary>
     /// Preferred position of the flyout relative to its target. Defaults to
-    /// <see cref="FlyoutPlacementMode.Auto"/>, which means "no opinion — let WinUI decide";
-    /// Reactor deliberately leaves <c>FlyoutBase.Placement</c> untouched in that case
-    /// because WinUI's own show-time validator rejects <c>Auto</c>.
+    /// <see cref="FlyoutPlacementMode.Auto"/>, which means "no opinion — let WinUI decide":
+    /// Reactor leaves <c>FlyoutBase.Placement</c> at the control's own default
+    /// (<see cref="FlyoutPlacementMode.Top"/>) instead of writing <c>Auto</c>, because
+    /// WinUI's show-time validator rejects <c>Auto</c> and terminates the process.
+    /// Since nothing is written, changing an already-mounted flyout from an explicit
+    /// placement back to <see cref="FlyoutPlacementMode.Auto"/> keeps the last explicit
+    /// value rather than resetting it.
     /// </summary>
     public FlyoutPlacementMode Placement { get; init; } = FlyoutPlacementMode.Auto;
 }
@@ -5313,9 +5321,13 @@ public record MenuFlyoutContentElement(MenuFlyoutItemBase[] Items) : Element
 {
     /// <summary>
     /// Preferred position of the flyout relative to its target. Defaults to
-    /// <see cref="FlyoutPlacementMode.Auto"/>, which means "no opinion — let WinUI decide";
-    /// Reactor deliberately leaves <c>FlyoutBase.Placement</c> untouched in that case
-    /// because WinUI's own show-time validator rejects <c>Auto</c>.
+    /// <see cref="FlyoutPlacementMode.Auto"/>, which means "no opinion — let WinUI decide":
+    /// Reactor leaves <c>FlyoutBase.Placement</c> at the control's own default
+    /// (<see cref="FlyoutPlacementMode.Top"/>) instead of writing <c>Auto</c>, because
+    /// WinUI's show-time validator rejects <c>Auto</c> and terminates the process.
+    /// Since nothing is written, changing an already-mounted flyout from an explicit
+    /// placement back to <see cref="FlyoutPlacementMode.Auto"/> keeps the last explicit
+    /// value rather than resetting it.
     /// </summary>
     public FlyoutPlacementMode Placement { get; init; } = FlyoutPlacementMode.Auto;
 }
@@ -6701,9 +6713,13 @@ public record CommandBarFlyoutElement(
     public bool IsOpen { get; init; }
     /// <summary>
     /// Preferred position of the flyout relative to its target. Defaults to
-    /// <see cref="FlyoutPlacementMode.Auto"/>, which means "no opinion — let WinUI decide";
-    /// Reactor deliberately leaves <c>FlyoutBase.Placement</c> untouched in that case
-    /// because WinUI's own show-time validator rejects <c>Auto</c>.
+    /// <see cref="FlyoutPlacementMode.Auto"/>, which means "no opinion — let WinUI decide":
+    /// Reactor leaves <c>FlyoutBase.Placement</c> at the control's own default instead of
+    /// writing <c>Auto</c>, matching the other flyout elements (WinUI's show-time
+    /// validator rejects <c>Auto</c>). Since nothing is written, changing an
+    /// already-mounted flyout from an explicit placement back to
+    /// <see cref="FlyoutPlacementMode.Auto"/> keeps the last explicit value rather than
+    /// resetting it.
     /// </summary>
     public FlyoutPlacementMode Placement { get; init; } = FlyoutPlacementMode.Auto;
     internal Action<WinUI.CommandBarFlyout>[] Setters { get; init; } = [];

@@ -23,6 +23,16 @@ public static class FlyoutPlacementFixtures
     private static WinUI.Flyout? FlyoutOn(Harness h, string buttonLabel)
         => h.FindButton(buttonLabel)?.Flyout as WinUI.Flyout;
 
+    /// <summary>
+    /// Closes a flyout and waits for the close to land. Returning while a light-dismiss
+    /// overlay is still up would leak it into the next in-process fixture.
+    /// </summary>
+    private static async Task HideAndSettle(WinPrim.FlyoutBase? flyout)
+    {
+        flyout?.Hide();
+        await Harness.WaitFor(() => flyout?.IsOpen != true);
+    }
+
     // ────────────────────────────────────────────────────────────────────
     //  Flyout(...) left at the default placement must open, not fail-fast.
     // ────────────────────────────────────────────────────────────────────
@@ -45,8 +55,7 @@ public static class FlyoutPlacementFixtures
             await Harness.WaitFor(() => flyout?.IsOpen == true);
             H.Check("FlyoutPlacement_Default_Opened", flyout?.IsOpen == true);
 
-            flyout?.Hide();
-            await Harness.Render();
+            await HideAndSettle(flyout);
         }
     }
 
@@ -73,8 +82,7 @@ public static class FlyoutPlacementFixtures
             await Harness.WaitFor(() => flyout?.IsOpen == true);
             H.Check("FlyoutPlacement_Explicit_Opened", flyout?.IsOpen == true);
 
-            flyout?.Hide();
-            await Harness.Render();
+            await HideAndSettle(flyout);
         }
     }
 
@@ -97,6 +105,9 @@ public static class FlyoutPlacementFixtures
                 };
                 return VStack(
                     Button("AdvancePlacement", () => setStep(step + 1)),
+                    // Render witness: proves each click actually produced a new render,
+                    // so the step-2 "value did not change" assertion is not trivially true.
+                    TextBlock($"PlacementStep={step}"),
                     Flyout(Button("UpdatePlacementTarget"), TextBlock("update body"))
                         with { Placement = placement });
             });
@@ -116,7 +127,8 @@ public static class FlyoutPlacementFixtures
             // Left → Auto: documented no-reset semantic — the last real value stays,
             // and crucially Auto is never written back onto the DP.
             H.ClickButton("AdvancePlacement");
-            await Harness.Render();
+            await Harness.WaitFor(() => H.FindText("PlacementStep=2") is not null);
+            H.Check("FlyoutPlacement_Update_Step2Rendered", H.FindText("PlacementStep=2") is not null);
             H.Check("FlyoutPlacement_Update_AutoDoesNotOverwrite",
                 flyout?.Placement == WinPrim.FlyoutPlacementMode.Left);
 
@@ -124,8 +136,7 @@ public static class FlyoutPlacementFixtures
             await Harness.WaitFor(() => flyout?.IsOpen == true);
             H.Check("FlyoutPlacement_Update_OpensAfterUpdate", flyout?.IsOpen == true);
 
-            flyout?.Hide();
-            await Harness.Render();
+            await HideAndSettle(flyout);
         }
     }
 
@@ -138,22 +149,266 @@ public static class FlyoutPlacementFixtures
         public override async Task RunAsync()
         {
             var host = H.CreateHost();
-            host.Mount(_ => VStack(
-                Button("ContentFlyoutTarget", () => { })
-                    .WithFlyout(ContentFlyout(TextBlock("content flyout body")))));
+            host.Mount(ctx =>
+            {
+                var (pinned, setPinned) = ctx.UseState(false);
+                return VStack(
+                    Button("PinContentFlyout", () => setPinned(true)),
+                    Button("ContentFlyoutTarget", () => { })
+                        .WithFlyout(ContentFlyout(
+                            TextBlock("content flyout body"),
+                            pinned ? WinPrim.FlyoutPlacementMode.Bottom : WinPrim.FlyoutPlacementMode.Auto)),
+                    // Differential sibling: same CreateFlyoutFromElement arm, explicit
+                    // placement. Without it, deleting the Apply call entirely would still
+                    // satisfy the "not Auto" check above (an untouched DP reads Top).
+                    Button("ContentFlyoutPinnedTarget", () => { })
+                        .WithFlyout(ContentFlyout(
+                            TextBlock("pinned content body"),
+                            WinPrim.FlyoutPlacementMode.LeftEdgeAlignedBottom)));
+            });
             await Harness.Render();
 
             var flyout = FlyoutOn(H, "ContentFlyoutTarget");
             H.Check("FlyoutPlacement_ContentFlyout_FlyoutAttached", flyout is not null);
             H.Check("FlyoutPlacement_ContentFlyout_DpIsNotAuto",
                 flyout is not null && flyout.Placement != WinPrim.FlyoutPlacementMode.Auto);
+            H.Check("FlyoutPlacement_ContentFlyout_CreateAppliesExplicit",
+                FlyoutOn(H, "ContentFlyoutPinnedTarget")?.Placement
+                    == WinPrim.FlyoutPlacementMode.LeftEdgeAlignedBottom);
 
             H.ClickButton("ContentFlyoutTarget");
             await Harness.WaitFor(() => flyout?.IsOpen == true);
             H.Check("FlyoutPlacement_ContentFlyout_Opened", flyout?.IsOpen == true);
+            await HideAndSettle(flyout);
 
-            flyout?.Hide();
+            // UpdateFlyoutInPlace's ContentFlyout arm — an explicit placement must land
+            // on the flyout object that is already attached to the button.
+            H.ClickButton("PinContentFlyout");
+            await Harness.WaitFor(() => flyout?.Placement == WinPrim.FlyoutPlacementMode.Bottom);
+            H.Check("FlyoutPlacement_ContentFlyout_UpdateAppliesExplicit",
+                flyout?.Placement == WinPrim.FlyoutPlacementMode.Bottom);
+            H.Check("FlyoutPlacement_ContentFlyout_UpdateReusedFlyout",
+                ReferenceEquals(flyout, FlyoutOn(H, "ContentFlyoutTarget")));
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  MenuFlyout — the arms whose pre-existing `!= Auto` guards were folded
+    //  into the shared choke point (CreateFlyoutFromElement + UpdateFlyoutInPlace).
+    //  Driven through .WithContextFlyout(), which is its own reconciler path.
+    // ────────────────────────────────────────────────────────────────────
+    internal class MenuFlyout_ContextFlyout_DefaultPlacement(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (pinned, setPinned) = ctx.UseState(false);
+                return VStack(
+                    Button("PinMenuPlacement", () => setPinned(true)),
+                    Border(TextBlock("context menu target"))
+                        .WithContextFlyout(pinned
+                            ? MenuItems(WinPrim.FlyoutPlacementMode.Right, MenuItem("Copy"), MenuItem("Paste"))
+                            : MenuItems(MenuItem("Copy"))),
+                    // Differential sibling: same create arm, explicit placement, so the
+                    // "not Auto" check above cannot be satisfied by deleting the write.
+                    Border(TextBlock("pinned menu target"))
+                        .WithContextFlyout(MenuItems(WinPrim.FlyoutPlacementMode.Full, MenuItem("Pinned"))));
+            });
             await Harness.Render();
+
+            var border = H.FindControl<Microsoft.UI.Xaml.Controls.Border>(
+                b => b.Child is Microsoft.UI.Xaml.Controls.TextBlock tb && tb.Text == "context menu target");
+            var menu = border?.ContextFlyout as WinUI.MenuFlyout;
+            H.Check("FlyoutPlacement_MenuFlyout_ContextFlyoutAttached", menu is not null);
+            H.Check("FlyoutPlacement_MenuFlyout_DpIsNotAuto",
+                menu is not null && menu.Placement != WinPrim.FlyoutPlacementMode.Auto);
+
+            var pinnedBorder = H.FindControl<Microsoft.UI.Xaml.Controls.Border>(
+                b => b.Child is Microsoft.UI.Xaml.Controls.TextBlock tb && tb.Text == "pinned menu target");
+            H.Check("FlyoutPlacement_MenuFlyout_CreateAppliesExplicit",
+                (pinnedBorder?.ContextFlyout as WinUI.MenuFlyout)?.Placement
+                    == WinPrim.FlyoutPlacementMode.Full);
+
+            // UpdateFlyoutInPlace's MenuFlyout arm — explicit placement still lands.
+            H.ClickButton("PinMenuPlacement");
+            await Harness.WaitFor(() => menu?.Placement == WinPrim.FlyoutPlacementMode.Right);
+            H.Check("FlyoutPlacement_MenuFlyout_UpdateAppliesExplicit",
+                menu?.Placement == WinPrim.FlyoutPlacementMode.Right);
+            H.Check("FlyoutPlacement_MenuFlyout_UpdateReusedFlyout",
+                ReferenceEquals(menu, border?.ContextFlyout));
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Button flyout slots — DropDownButton (MenuFlyout) and SplitButton
+    //  (Flyout) both resolve through Reconciler.CreateFlyoutFromElement.
+    // ────────────────────────────────────────────────────────────────────
+    internal class ButtonFlyoutSlots_DefaultPlacement(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(_ => VStack(
+                DropDownButton("DropDownSlot", MenuItems(MenuItem("One"), MenuItem("Two"))),
+                SplitButton("SplitSlot", () => { }, ContentFlyout(TextBlock("split body"))),
+                // Differential siblings: same create arms, explicit placements — so the
+                // "not Auto" checks cannot be satisfied by deleting the write outright.
+                DropDownButton("DropDownPinnedSlot",
+                    MenuItems(WinPrim.FlyoutPlacementMode.BottomEdgeAlignedRight, MenuItem("Pinned"))),
+                SplitButton("SplitPinnedSlot", () => { },
+                    ContentFlyout(TextBlock("split pinned body"), WinPrim.FlyoutPlacementMode.Right))));
+            await Harness.Render();
+
+            var ddb = H.FindControl<WinUI.DropDownButton>(b => b.Content is string s && s == "DropDownSlot");
+            var ddbFlyout = ddb?.Flyout as WinUI.MenuFlyout;
+            H.Check("FlyoutPlacement_DropDownButton_MenuFlyoutAttached", ddbFlyout is not null);
+            H.Check("FlyoutPlacement_DropDownButton_DpIsNotAuto",
+                ddbFlyout is not null && ddbFlyout.Placement != WinPrim.FlyoutPlacementMode.Auto);
+            H.Check("FlyoutPlacement_DropDownButton_CreateAppliesExplicit",
+                (H.FindControl<WinUI.DropDownButton>(b => b.Content is string s && s == "DropDownPinnedSlot")
+                    ?.Flyout as WinUI.MenuFlyout)?.Placement
+                        == WinPrim.FlyoutPlacementMode.BottomEdgeAlignedRight);
+
+            var split = H.FindControl<WinUI.SplitButton>(b => b.Content is string s && s == "SplitSlot");
+            var splitFlyout = split?.Flyout as WinUI.Flyout;
+            H.Check("FlyoutPlacement_SplitButton_FlyoutAttached", splitFlyout is not null);
+            H.Check("FlyoutPlacement_SplitButton_DpIsNotAuto",
+                splitFlyout is not null && splitFlyout.Placement != WinPrim.FlyoutPlacementMode.Auto);
+            H.Check("FlyoutPlacement_SplitButton_CreateAppliesExplicit",
+                (H.FindControl<WinUI.SplitButton>(b => b.Content is string s && s == "SplitPinnedSlot")
+                    ?.Flyout as WinUI.Flyout)?.Placement == WinPrim.FlyoutPlacementMode.Right);
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  CommandBarFlyout — mount + the update branch that re-creates the flyout
+    //  because the target's element type changed (so no attached flyout exists).
+    //  CommandBarFlyout tolerates Auto today, so this pins consistency, not a crash.
+    // ────────────────────────────────────────────────────────────────────
+    internal class CommandBarFlyout_DefaultPlacement_NotAuto(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (swapped, setSwapped) = ctx.UseState(false);
+                return VStack(
+                    Button("SwapCbfTarget", () => setSwapped(true)),
+                    CommandBarFlyout(
+                        swapped
+                            ? Border(TextBlock("CbfBorderTarget"))
+                            : (Element)Button("CbfButtonTarget", () => { }),
+                        primaryCommands: [AppBarButton("Bold")]),
+                    // Differential sibling: same mount + re-create arms, explicit placement.
+                    CommandBarFlyout(
+                        swapped
+                            ? Border(TextBlock("CbfPinnedBorderTarget"))
+                            : (Element)Button("CbfPinnedButtonTarget", () => { }),
+                        primaryCommands: [AppBarButton("Italic")])
+                        with { Placement = WinPrim.FlyoutPlacementMode.BottomEdgeAlignedLeft });
+            });
+            await Harness.Render();
+
+            var cbfButton = H.FindButton("CbfButtonTarget");
+            H.Check("FlyoutPlacement_CommandBarFlyout_TargetMounted", cbfButton is not null);
+            // CommandBarFlyout attaches via FlyoutBase.SetAttachedFlyout, not Button.Flyout.
+            var mounted = cbfButton is null
+                ? null
+                : WinPrim.FlyoutBase.GetAttachedFlyout(cbfButton) as WinUI.CommandBarFlyout;
+            H.Check("FlyoutPlacement_CommandBarFlyout_MountAttached", mounted is not null);
+            H.Check("FlyoutPlacement_CommandBarFlyout_MountDpIsNotAuto",
+                mounted is not null && mounted.Placement != WinPrim.FlyoutPlacementMode.Auto);
+
+            var pinnedButton = H.FindButton("CbfPinnedButtonTarget");
+            H.Check("FlyoutPlacement_CommandBarFlyout_MountAppliesExplicit",
+                pinnedButton is not null
+                && (WinPrim.FlyoutBase.GetAttachedFlyout(pinnedButton) as WinUI.CommandBarFlyout)?.Placement
+                    == WinPrim.FlyoutPlacementMode.BottomEdgeAlignedLeft);
+
+            // Target type change → UpdateCommandBarFlyout's "no existing flyout" branch.
+            H.ClickButton("SwapCbfTarget");
+            await Harness.WaitFor(() => AttachedCommandBarFlyout(H, "CbfBorderTarget") is not null);
+            var recreated = AttachedCommandBarFlyout(H, "CbfBorderTarget");
+            H.Check("FlyoutPlacement_CommandBarFlyout_RecreatedAttached", recreated is not null);
+            H.Check("FlyoutPlacement_CommandBarFlyout_RecreatedDpIsNotAuto",
+                recreated is not null && recreated.Placement != WinPrim.FlyoutPlacementMode.Auto);
+            H.Check("FlyoutPlacement_CommandBarFlyout_RecreatedAppliesExplicit",
+                AttachedCommandBarFlyout(H, "CbfPinnedBorderTarget")?.Placement
+                    == WinPrim.FlyoutPlacementMode.BottomEdgeAlignedLeft);
+        }
+
+        private static WinUI.CommandBarFlyout? AttachedCommandBarFlyout(Harness h, string markerText)
+        {
+            var border = h.FindControl<Microsoft.UI.Xaml.Controls.Border>(
+                b => b.Child is Microsoft.UI.Xaml.Controls.TextBlock tb && tb.Text == markerText);
+            return border is null
+                ? null
+                : WinPrim.FlyoutBase.GetAttachedFlyout(border) as WinUI.CommandBarFlyout;
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Flyout(...) whose Target element type changes — UpdateFlyoutElement's
+    //  "create fresh" branch, which builds a brand-new WinUI.Flyout.
+    // ────────────────────────────────────────────────────────────────────
+    internal class Flyout_TargetTypeChange_FreshFlyoutNotAuto(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (swapped, setSwapped) = ctx.UseState(false);
+                return VStack(
+                    Button("SwapFlyoutTarget", () => setSwapped(true)),
+                    Flyout(
+                        swapped
+                            ? Border(TextBlock("FreshBorderTarget"))
+                            : (Element)Button("FreshButtonTarget", () => { }),
+                        TextBlock("fresh body")),
+                    // Differential sibling: same fresh-create branch, explicit placement.
+                    Flyout(
+                        swapped
+                            ? Border(TextBlock("FreshPinnedBorderTarget"))
+                            : (Element)Button("FreshPinnedButtonTarget", () => { }),
+                        TextBlock("fresh pinned body"))
+                        with { Placement = WinPrim.FlyoutPlacementMode.TopEdgeAlignedRight });
+            });
+            await Harness.Render();
+
+            H.Check("FlyoutPlacement_Fresh_MountedOnButton",
+                FlyoutOn(H, "FreshButtonTarget") is not null);
+
+            H.ClickButton("SwapFlyoutTarget");
+            await Harness.WaitFor(() => AttachedFlyout(H, "FreshBorderTarget") is not null);
+
+            var fresh = AttachedFlyout(H, "FreshBorderTarget");
+            H.Check("FlyoutPlacement_Fresh_FlyoutAttached", fresh is not null);
+            H.Check("FlyoutPlacement_Fresh_DpIsNotAuto",
+                fresh is not null && fresh.Placement != WinPrim.FlyoutPlacementMode.Auto);
+            H.Check("FlyoutPlacement_Fresh_AppliesExplicit",
+                AttachedFlyout(H, "FreshPinnedBorderTarget")?.Placement
+                    == WinPrim.FlyoutPlacementMode.TopEdgeAlignedRight);
+
+            var target = FreshTarget(H, "FreshBorderTarget");
+            if (target is not null) WinPrim.FlyoutBase.ShowAttachedFlyout(target);
+            await Harness.WaitFor(() => fresh?.IsOpen == true);
+            H.Check("FlyoutPlacement_Fresh_Opened", fresh?.IsOpen == true);
+
+            await HideAndSettle(fresh);
+        }
+
+        private static Microsoft.UI.Xaml.Controls.Border? FreshTarget(Harness h, string markerText)
+            => h.FindControl<Microsoft.UI.Xaml.Controls.Border>(
+                b => b.Child is Microsoft.UI.Xaml.Controls.TextBlock tb && tb.Text == markerText);
+
+        private static WinUI.Flyout? AttachedFlyout(Harness h, string markerText)
+        {
+            var target = FreshTarget(h, markerText);
+            return target is null ? null : WinPrim.FlyoutBase.GetAttachedFlyout(target) as WinUI.Flyout;
         }
     }
 }
