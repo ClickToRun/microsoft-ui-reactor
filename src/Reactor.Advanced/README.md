@@ -1,12 +1,12 @@
 # Microsoft.UI.Reactor.Advanced
 
-**Optional Reactor components with heavier native and graphics dependencies — starting with a Win2D canvas family for immediate-mode drawing inside a Reactor element tree.**
+**Optional Reactor components with heavier native and graphics dependencies — a Win2D canvas family for immediate-mode drawing, the D3-derived charting subsystem, the docking / dock-layout subsystem, a CommonMark markdown renderer, and a virtualized data grid, all inside a Reactor element tree.**
 
 ## About
 
-`Microsoft.UI.Reactor.Advanced` extends [`Microsoft.UI.Reactor`](https://www.nuget.org/packages/Microsoft.UI.Reactor) with components that pull in larger native or graphics stacks. Its first surface is a Win2D canvas family (manual, animated, and virtual) that lets you draw with `CanvasDrawingSession` directly from a declarative Reactor component.
+`Microsoft.UI.Reactor.Advanced` extends [`Microsoft.UI.Reactor`](https://www.nuget.org/packages/Microsoft.UI.Reactor) with components that pull in larger native or graphics stacks: a Win2D canvas family (manual, animated, and virtual) that lets you draw with `CanvasDrawingSession` directly from a declarative Reactor component; the `Microsoft.UI.Reactor.Charting` subsystem — a C# port of the D3 primitives plus ready-made chart components and chart accessibility; the `Microsoft.UI.Reactor.Docking` subsystem — a Visual-Studio-style docking host with floating windows, tear-off tabs, splitters, and layout persistence; the `Microsoft.UI.Reactor.Markdown` subsystem — a CommonMark renderer (C# md4c port) that turns markdown into a Reactor element tree; and a virtualized, editable **data grid** (`Microsoft.UI.Reactor.Controls` `DataGrid`) with typed columns, sorting/filtering, paging, and column resize/reorder.
 
-This package is intentionally separate from the core framework so that apps which don't need Win2D keep their trim/AOT closure and native payload isolated.
+This package is intentionally separate from the core framework so that apps which don't need Win2D, charting, docking, markdown, or the data grid keep their trim/AOT closure and native payload isolated. The relocated types keep their existing namespaces (`Microsoft.UI.Reactor.Charting` / `.Docking` / `.Markdown`, and the data-grid records in `Microsoft.UI.Reactor.Controls`), so moving to this package is a package reference with no source change — except the DSL *entry points* that lived in the shared core `Factories` partial: the `Markdown(...)` factory and the data grid's `DataGrid(...)` / `Column(...)` / `AutoColumns(...)` factories move into `Microsoft.UI.Reactor.Advanced.Factories` (add `using static Microsoft.UI.Reactor.Advanced.Factories;`).
 
 ## How to Use
 
@@ -54,6 +54,10 @@ When `radius` changes, the new `redrawKey` tells Reactor to invalidate the canva
 - **`Win2DVirtualCanvas`** — virtualized canvas (`CanvasVirtualControl`) for very large drawing surfaces.
 - **Async resource creation** — overloads accept an `onCreateResources` callback tracked by Win2D for loading bitmaps and other device resources.
 - **Isolated native payload** — keeps Win2D out of the core framework's trim/AOT closure.
+- **Charting (`Microsoft.UI.Reactor.Charting`)** — a C# port of the D3 primitives (scales, shapes, layouts, color/format/interpolate) plus high-level `Charts` components and chart accessibility. Import with `using static Microsoft.UI.Reactor.Charting.Charts;`.
+- **Docking (`Microsoft.UI.Reactor.Docking`)** — a Visual-Studio-style docking host: dockable tool windows and documents, floating windows, tear-off tabs, splitters, keyboard navigation, and JSON layout persistence. Register the native renderer with `DockingNativeInterop.Register(reconciler)`.
+- **Markdown (`Microsoft.UI.Reactor.Markdown`)** — a CommonMark renderer (C# port of the md4c parser) that turns a markdown string into a Reactor element tree. The `Markdown(...)` factory ships in `Microsoft.UI.Reactor.Advanced.Factories`, so add `using static Microsoft.UI.Reactor.Advanced.Factories;`.
+- **Data grid (`Microsoft.UI.Reactor.Controls` `DataGrid`)** — a virtualized, editable data grid with typed columns, sorting/filtering, paging, and column resize/reorder. The `DataGrid(...)` / `Column(...)` / `AutoColumns(...)` factories ship in `Microsoft.UI.Reactor.Advanced.Factories`, so add `using static Microsoft.UI.Reactor.Advanced.Factories;`; the element/column records keep their `Microsoft.UI.Reactor.Controls` namespace.
 
 ## Main Types
 

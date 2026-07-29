@@ -48,7 +48,7 @@ the host's lifecycle visible to the window that owns the ViewModel.
 - A fake business scenario. The model is intentionally generic (`Order`).
 - The full Reactor `DataGrid` factory. The "OrdersDataGrid" component renders
   rows with simple `HStack`/`TextBlock` primitives so the interop story stays
-  visible. Real apps can use `Microsoft.UI.Reactor.Factories.DataGrid<T>(...)`
+  visible. Real apps can use `Microsoft.UI.Reactor.Advanced.Factories.DataGrid<T>(...)`
   with a `FieldDescriptor` set when row virtualization or column-header
   features are required.
 - Right-to-left layout, full localization, or a packaged-app manifest.

@@ -19,7 +19,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("# Main Heading\n\nThis is a paragraph with **bold text** and *italic text*.\n\n## Sub Heading\n\nAnother paragraph here.")
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("# Main Heading\n\nThis is a paragraph with **bold text** and *italic text*.\n\n## Sub Heading\n\nAnother paragraph here.")
                 )
             );
 
@@ -47,7 +47,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("Here is a [link](https://example.com) and `inline code`.\n\n```csharp\nvar x = 42;\nConsole.WriteLine(x);\n```\n\nEnd of document.")
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("Here is a [link](https://example.com) and `inline code`.\n\n```csharp\nvar x = 42;\nConsole.WriteLine(x);\n```\n\nEnd of document.")
                 )
             );
 
@@ -77,7 +77,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("# H1\n\n## H2\n\n### H3\n\n#### H4\n\n##### H5\n\n###### H6")
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("# H1\n\n## H2\n\n### H3\n\n#### H4\n\n##### H5\n\n###### H6")
                 )
             );
 
@@ -129,7 +129,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("**bold** *italic* ~~strikethrough~~ `code` ***bold italic***")
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("**bold** *italic* ~~strikethrough~~ `code` ***bold italic***")
                 )
             );
 
@@ -179,7 +179,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("[Safe Link](https://example.com) and [Mailto](mailto:test@example.com)\n\n[Blocked](javascript:alert(1))")
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("[Safe Link](https://example.com) and [Mailto](mailto:test@example.com)\n\n[Blocked](javascript:alert(1))")
                 )
             );
 
@@ -215,7 +215,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("> This is a quote\n>\n> With two paragraphs\n\n>> Nested quote")
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("> This is a quote\n>\n> With two paragraphs\n\n>> Nested quote")
                 )
             );
 
@@ -244,7 +244,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("- Alpha\n- Beta\n- Gamma")
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("- Alpha\n- Beta\n- Gamma")
                 )
             );
 
@@ -291,7 +291,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("3. Third\n4. Fourth\n5. Fifth")
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("3. Third\n4. Fourth\n5. Fifth")
                 )
             );
 
@@ -320,7 +320,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("- [x] Done task\n- [ ] Pending task\n- [X] Also done")
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("- [x] Done task\n- [ ] Pending task\n- [X] Also done")
                 )
             );
 
@@ -352,7 +352,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("| Left | Center | Right |\n|:---|:---:|---:|\n| a | b | c |\n| d | e | f |")
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("| Left | Center | Right |\n|:---|:---:|---:|\n| a | b | c |\n| d | e | f |")
                 )
             );
 
@@ -412,7 +412,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("Above\n\n---\n\nBelow")
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("Above\n\n---\n\nBelow")
                 )
             );
 
@@ -438,7 +438,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("<div>Custom HTML</div>\n\nNormal paragraph")
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("<div>Custom HTML</div>\n\nNormal paragraph")
                 )
             );
 
@@ -464,7 +464,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("```python\ndef hello():\n    print('world')\n```")
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("```python\ndef hello():\n    print('world')\n```")
                 )
             );
 
@@ -505,7 +505,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("- Parent\n  - Child A\n  - Child B\n- Another parent")
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("- Parent\n  - Child A\n  - Child B\n- Another parent")
                 )
             );
 
@@ -532,7 +532,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("![Alt text](https://example.com/img.png)\n\nParagraph after image")
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("![Alt text](https://example.com/img.png)\n\nParagraph after image")
                 )
             );
 
@@ -560,7 +560,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("Line one  \nLine two (hard break)\n\nSoft one\nSoft two (same paragraph)")
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("Line one  \nLine two (hard break)\n\nSoft one\nSoft two (same paragraph)")
                 )
             );
 
@@ -596,7 +596,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("&amp; &lt; &gt; &#65; &#x42;")
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("&amp; &lt; &gt; &#65; &#x42;")
                 )
             );
 
@@ -633,7 +633,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("""
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("""
                     # Title
 
                     A paragraph with **bold**, *italic*, and `code`.
@@ -722,7 +722,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("# Custom Heading\n\nCustom paragraph\n\n```\ncode\n```\n\n---", new MarkdownOptions
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("# Custom Heading\n\nCustom paragraph\n\n```\ncode\n```\n\n---", new MarkdownOptions
                     {
                         Heading = (level, defaultEl) =>
                         {
@@ -778,7 +778,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("- A\n- B\n\n1. X\n2. Y", new MarkdownOptions
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("- A\n- B\n\n1. X\n2. Y", new MarkdownOptions
                     {
                         UnorderedList = items =>
                         {
@@ -819,7 +819,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("> A quote\n\n<div>raw html</div>", new MarkdownOptions
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("> A quote\n\n<div>raw html</div>", new MarkdownOptions
                     {
                         BlockQuote = defaultEl =>
                         {
@@ -857,7 +857,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("| A | B |\n|---|---|\n| 1 | 2 |\n\n![alt](https://example.com/pic.png)", new MarkdownOptions
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("| A | B |\n|---|---|\n| 1 | 2 |\n\n![alt](https://example.com/pic.png)", new MarkdownOptions
                     {
                         Table = (rows, aligns) =>
                         {
@@ -904,7 +904,7 @@ internal static class MarkdownFixtures
                 var (md, setMd) = ctx.UseState("# Initial");
                 setState = () => setMd("# Updated\n\n**New content** with `code`");
                 renderCount++;
-                return ScrollView(Factories.Markdown(md));
+                return ScrollView(Microsoft.UI.Reactor.Advanced.Factories.Markdown(md));
             });
 
             await Harness.Render();
@@ -933,8 +933,8 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 VStack(
-                    Factories.Markdown(""),
-                    Factories.Markdown("   \n\n   "),
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown(""),
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("   \n\n   "),
                     TextBlock("Sentinel")
                 )
             );
@@ -961,7 +961,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown("Text with <b>inline html</b> inside.")
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown("Text with <b>inline html</b> inside.")
                 )
             );
 
@@ -997,7 +997,7 @@ internal static class MarkdownFixtures
             var host = H.CreateHost();
             host.Mount(ctx =>
                 ScrollView(
-                    Factories.Markdown(
+                    Microsoft.UI.Reactor.Advanced.Factories.Markdown(
                         "**Καλημέρα** — «κόσμε»\n\n" +
                         "Straße\u00A0mit\u00A0non-breaking spaces and *éclair*.\n\n" +
                         "[リンク](https://example.com/παθ) around full-width punctuation：ok")

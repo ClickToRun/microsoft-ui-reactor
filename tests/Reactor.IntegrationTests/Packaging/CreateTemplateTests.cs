@@ -277,6 +277,17 @@ public sealed class TemplatePackageTestFixture : IDisposable
             RepoRoot,
             CommandEnvironment,
             timeoutMs: 300_000);
+        // Track B (spec-062): Microsoft.UI.Reactor.Devtools now depends on
+        // Microsoft.UI.Reactor.Advanced (its docking devtools use Advanced internals),
+        // so the scaffolded app pulls Advanced transitively via its Debug ItemGroup.
+        // Pack it here too so the post-scaffold `dotnet build` resolves the matching
+        // smoke version from the local feed instead of falling back to NuGet.org
+        // (which caused an NU1605 downgrade of Microsoft.UI.Reactor).
+        RunHelpers.RunDotnet(
+            $"pack \"{Path.Combine(RepoRoot, "src", "Reactor.Advanced", "Reactor.Advanced.csproj")}\" --no-restore --configuration Release -o \"{PackageSourceDir}\" -p:Version={PackageVersion}",
+            RepoRoot,
+            CommandEnvironment,
+            timeoutMs: 300_000);
         RunHelpers.RunDotnet(
             $"pack \"{Path.Combine(RepoRoot, "tools", "Templates", "Microsoft.UI.Reactor.Templates.csproj")}\" --no-restore --configuration Release -o \"{PackageSourceDir}\" -p:Version={PackageVersion} -p:MicrosoftUIReactorVersion={PackageVersion} -p:Platform=AnyCPU",
             RepoRoot,
@@ -285,6 +296,7 @@ public sealed class TemplatePackageTestFixture : IDisposable
 
         _ = FindPackage(PackageSourceDir, "Microsoft.UI.Reactor", PackageVersion);
         _ = FindPackage(PackageSourceDir, "Microsoft.UI.Reactor.Devtools", PackageVersion);
+        _ = FindPackage(PackageSourceDir, "Microsoft.UI.Reactor.Advanced", PackageVersion);
         var templatePackage = FindPackage(PackageSourceDir, "Microsoft.UI.Reactor.ProjectTemplates", PackageVersion);
 
         RunHelpers.RunDotnet(

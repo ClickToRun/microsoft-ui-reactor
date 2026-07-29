@@ -206,8 +206,9 @@ internal static class DockTabGroupRenderer
                 if (pane is not null)
                     onTabDragCompleted(pane, idx, wasOutside);
             },
-            Setters = BuildSetters(group, documents, onTabImmediateTearOff),
         };
+        foreach (var setter in BuildSetters(group, documents, onTabImmediateTearOff))
+            element = element.Set(setter);
         return element;
     }
 

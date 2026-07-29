@@ -2,8 +2,16 @@ using System.Diagnostics.CodeAnalysis;
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Reactor.Data;
 using Microsoft.UI.Reactor.Controls;
+using static Microsoft.UI.Reactor.Factories;
 
-namespace Microsoft.UI.Reactor;
+// Spec 062 §7 Track B (B3): relocated from the core Factories partial into
+// Advanced's Factories mirror when the data grid moved to Reactor.Advanced. A
+// partial class can't span assemblies, so the DataGrid DSL entry points live in
+// Microsoft.UI.Reactor.Advanced.Factories — a data-grid app adds
+// `using static Microsoft.UI.Reactor.Advanced.Factories;`. The DataGridElement
+// record keeps its Microsoft.UI.Reactor.Controls namespace, and the factory
+// returns the base ComponentElement, so no derived record is named across the boundary.
+namespace Microsoft.UI.Reactor.Advanced;
 
 public static partial class Factories
 {

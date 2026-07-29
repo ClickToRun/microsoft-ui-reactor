@@ -10,6 +10,7 @@ using Microsoft.UI.Reactor.Layout;
 using Microsoft.UI.Reactor.Controls.Validation;
 using Microsoft.UI.Xaml;
 using static Microsoft.UI.Reactor.Factories;
+using static Microsoft.UI.Reactor.Advanced.Factories;
 using static Microsoft.UI.Reactor.Core.Theme;
 using static Microsoft.UI.Reactor.Controls.Validation.FormFieldDsl;
 

@@ -23,7 +23,7 @@ public class MarkdownUnifiedRichTextTests
         var opts = extra is null
             ? Unified
             : extra with { UnifiedRichText = true };
-        return Assert.IsType<RichTextBlockElement>(Factories.Markdown(md, opts));
+        return Assert.IsType<RichTextBlockElement>(Microsoft.UI.Reactor.Advanced.Factories.Markdown(md, opts));
     }
 
     [Fact]
@@ -131,7 +131,7 @@ public class MarkdownUnifiedRichTextTests
     [Fact]
     public void UnifiedFalse_DefaultBehavior_StillReturnsVStack()
     {
-        var result = Factories.Markdown("Para A.\n\nPara B.");
+        var result = Microsoft.UI.Reactor.Advanced.Factories.Markdown("Para A.\n\nPara B.");
         var stack = Assert.IsType<StackElement>(result);
         Assert.Equal(2, stack.Children.Length);
         Assert.IsType<RichTextBlockElement>(stack.Children[0]);
