@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -168,11 +169,14 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
         var isReactorSet = false;
         var reactorSetChecked = false;
 
-        foreach (var assignment in assignments)
-        {
-            if (assignment.Kind() != SyntaxKind.SimpleAssignmentExpression)
-                continue;
+        // Explicit filter (CodeQL cs/linq/missed-where): only simple assignments are
+        // candidates here. '+=' on an event is REACTOR_EVENT_001's job, and a numeric
+        // compound assignment has no modifier equivalent.
+        var simpleAssignments = assignments
+            .Where(assignment => assignment.IsKind(SyntaxKind.SimpleAssignmentExpression));
 
+        foreach (var assignment in simpleAssignments)
+        {
             var leftAccess = SetLambdaHelpers.GetAssignedMemberAccess(assignment, lambdaParam.Identifier.Text);
             if (leftAccess is null)
                 continue;
@@ -247,15 +251,8 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
             var controlType = context.SemanticModel
                 .GetTypeInfo(leftAccess.Expression, context.CancellationToken).Type;
 
-            var applies = false;
-            foreach (var allowed in gate)
-            {
-                if (SetLambdaHelpers.InheritsFrom(controlType, allowed, "Microsoft.UI.Xaml.Controls"))
-                {
-                    applies = true;
-                    break;
-                }
-            }
+            var applies = gate.Any(allowed =>
+                SetLambdaHelpers.InheritsFrom(controlType, allowed, "Microsoft.UI.Xaml.Controls"));
             if (!applies)
                 return;
         }
@@ -269,15 +266,8 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
             if (elementType is null)
                 return;
 
-            var declared = false;
-            foreach (var candidate in elementTypes)
-            {
-                if (string.Equals(elementType.Name, candidate, System.StringComparison.Ordinal))
-                {
-                    declared = true;
-                    break;
-                }
-            }
+            var declared = elementTypes.Any(candidate =>
+                string.Equals(elementType.Name, candidate, System.StringComparison.Ordinal));
             if (!declared)
                 return;
         }

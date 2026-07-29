@@ -104,6 +104,13 @@ namespace Microsoft.UI.Reactor
         public static GridElement Set(this GridElement el, Action<Grid> configure) => el;
         public static StackElement Set(this StackElement el, Action<StackPanel> configure) => el;
         public static BorderElement Set(this BorderElement el, Action<Border> configure) => el;
+
+        // Modifier stubs so the code-fix tests' FixedCode compiles.
+        public static T IsEnabled<T>(this T el, bool enabled = true) => el;
+        public static T Padding<T>(this T el, double uniform) => el;
+        public static T Padding<T>(this T el, double l, double t, double r, double b) => el;
+        public static T Background<T>(this T el, Microsoft.UI.Xaml.Media.Brush brush) => el;
+        public static T HorizontalContentAlignment<T>(this T el, Microsoft.UI.Xaml.HorizontalAlignment a) => el;
     }
 }
 ";
@@ -329,6 +336,75 @@ class C
         await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {
             TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // ---- code fix ----
+    //
+    // PoolResetSetCodeFix declares both REACTOR_POOL_001 and REACTOR_MOD_002 as fixable.
+    // These prove the MOD_002 half actually rewrites, which was previously wired but never
+    // exercised — the fix looked up the shared ModifierTable, so a mistake there would have
+    // surfaced only in a consumer's IDE.
+
+    [Fact]
+    public async Task CodeFix_Rewrites_Ungated_Property()
+    {
+        var before = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => {|REACTOR_MOD_002:b.Set(c => c.IsEnabled = false)|};
+}";
+        var after = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => b.IsEnabled(false);
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Translates_Thickness_For_Gated_Padding()
+    {
+        // Padding is Thickness-typed but the modifier takes doubles, so the fix has to
+        // unpack the constructor arguments rather than pass the RHS through. Receiver is a
+        // Button (a Control), so the gate admits it.
+        var before = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => {|REACTOR_MOD_002:b.Set(c => c.Padding = new Thickness(8))|};
+}";
+        var after = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => b.Padding(8);
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Does_Not_Offer_Rewrite_For_Multi_Statement_Block()
+    {
+        // The analyzer reports every modifier-backed write in a block, but a multi-statement
+        // body has no mechanical rewrite — the other statements must stay in .Set while only
+        // one moves. The fix must leave the code untouched rather than guess, so FixedCode
+        // is identical to TestCode.
+        var source = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => {|REACTOR_MOD_002:{|REACTOR_MOD_002:b.Set(c => { c.IsEnabled = false; c.Padding = new Thickness(4); })|}|};
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Threading;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -103,12 +104,17 @@ internal static class SetLambdaHelpers
                 return ImmutableArray.Create(a);
             case BlockSyntax block:
             {
+                // OfType/Select rather than a foreach with an inner `is` test: makes the
+                // filter explicit (CodeQL cs/linq/missed-where) without the double type-test
+                // a Where(...) + cast would need, since the pattern here also binds.
+                var assignments = block.Statements
+                    .OfType<ExpressionStatementSyntax>()
+                    .Select(statement => statement.Expression)
+                    .OfType<AssignmentExpressionSyntax>();
+
                 var builder = ImmutableArray.CreateBuilder<AssignmentExpressionSyntax>();
-                foreach (var statement in block.Statements)
-                {
-                    if (statement is ExpressionStatementSyntax { Expression: AssignmentExpressionSyntax ba })
-                        builder.Add(ba);
-                }
+                foreach (var assignment in assignments)
+                    builder.Add(assignment);
                 return builder.ToImmutable();
             }
             default:

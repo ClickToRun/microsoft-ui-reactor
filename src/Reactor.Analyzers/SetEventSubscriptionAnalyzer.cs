@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -121,12 +122,15 @@ public sealed class SetEventSubscriptionAnalyzer : DiagnosticAnalyzer
         var isReactorSet = false;
         var reactorSetChecked = false;
 
-        foreach (var assignment in assignments)
-        {
-            var kind = assignment.Kind();
-            if (kind != SyntaxKind.AddAssignmentExpression && kind != SyntaxKind.SubtractAssignmentExpression)
-                continue;
+        // Explicit filter (CodeQL cs/linq/missed-where): only '+=' / '-=' are event-wiring
+        // candidates. The remaining `continue`s below are genuine per-item guards that need
+        // the semantic model, not sequence filters.
+        var compoundAssignments = assignments.Where(assignment =>
+            assignment.IsKind(SyntaxKind.AddAssignmentExpression)
+            || assignment.IsKind(SyntaxKind.SubtractAssignmentExpression));
 
+        foreach (var assignment in compoundAssignments)
+        {
             var leftAccess = SetLambdaHelpers.GetAssignedMemberAccess(assignment, lambdaParam.Identifier.Text);
             if (leftAccess is null)
                 continue;
