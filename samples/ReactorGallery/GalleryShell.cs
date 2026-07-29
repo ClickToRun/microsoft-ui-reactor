@@ -159,11 +159,12 @@ class GalleryShell : Component
                 OnSelectedTagChanged = tag =>
                 {
                     setSearchQuery("");
-                    if (tag != null)
-                    {
-                        setPrevTag(selectedTag);
-                        setSelectedTag(tag);
-                    }
+                    // The framework's SelectionChanged trampoline reports a settings
+                    // selection as a null tag, so both arms are handled declaratively
+                    // here. Subscribing to nv.SelectionChanged from .Set instead would
+                    // re-subscribe on every reconcile (REACTOR_EVENT_001).
+                    setPrevTag(selectedTag);
+                    setSelectedTag(tag ?? "settings");
                 },
                 IsBackEnabled = false,
                 IsSettingsVisible = true,
@@ -172,15 +173,6 @@ class GalleryShell : Component
             {
                 nv.IsPaneToggleButtonVisible = false;
                 nv.IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed;
-                nv.SelectionChanged += (s, args) =>
-                {
-                    if (args.IsSettingsSelected)
-                    {
-                        setSearchQuery("");
-                        setPrevTag(selectedTag);
-                        setSelectedTag("settings");
-                    }
-                };
             })
             .Grid(row: 1)
         );

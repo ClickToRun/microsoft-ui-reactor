@@ -62,6 +62,23 @@ namespace Microsoft.UI.Reactor
 }
 ";
 
+    [Fact]
+    public async Task Does_Not_Fire_For_Multi_Statement_Block_Without_Event()
+    {
+        // The widened detection must not regress the near-miss guards: a multi-statement
+        // block of plain assignments (including numeric compound assignment) is not an
+        // event subscription.
+        var source = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => b.Set(c => { c.Opacity = 0.5; c.Opacity += 0.1; });
+}";
+        await new CSharpAnalyzerTest<SetEventSubscriptionAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
     // ---- detection ----
 
     [Fact]
@@ -198,14 +215,30 @@ class C
     }
 
     [Fact]
-    public async Task No_Diagnostic_For_Multi_Statement_Block_Lambda()
+    public async Task Fires_For_Multi_Statement_Block_Lambda()
     {
+        // Behavior change (was No_Diagnostic_For_Multi_Statement_Block_Lambda).
+        //
+        // Detection previously routed through TryGetLambdaAssignment, which returns null
+        // for multi-statement blocks. That helper exists to keep the CODE FIX safe — a
+        // multi-statement body has no mechanical rewrite — but reusing it for detection
+        // also suppressed the WARNING, so a '+=' was invisible whenever it shared a block
+        // with any other statement.
+        //
+        // That is precisely the shape the bug takes in practice. When the analyzer was
+        // first run across this repo's samples it found one site; widening detection to
+        // every assignment in the body immediately surfaced five more, two of them in the
+        // framework itself (UseFocus's autoFocus overloads wiring Loaded from .Set).
+        //
+        // The fix still declines to rewrite these — see
+        // CodeFix_Does_Not_Offer_Rewrite_For_Multi_Statement_Block — so the only change is
+        // that a real double-subscribe is now reported instead of silently accepted.
         var source = Stubs + @"
 class C
 {
     static void OnClick(object s, EventArgs e) { }
     static void Log() { }
-    ButtonElement M(ButtonElement b) => b.Set(c => { Log(); c.Click += OnClick; });
+    ButtonElement M(ButtonElement b) => {|REACTOR_EVENT_001:b.Set(c => { Log(); c.Click += OnClick; })|};
 }";
         await new CSharpAnalyzerTest<SetEventSubscriptionAnalyzer, DefaultVerifier>
         {
@@ -230,6 +263,28 @@ class C
     }
 
     // ---- code fix ----
+
+    [Fact]
+    public async Task CodeFix_Does_Not_Offer_Rewrite_For_Multi_Statement_Block()
+    {
+        // The diagnostic fires on multi-statement bodies (see
+        // Fires_For_Multi_Statement_Block_Lambda), but there is no mechanical rewrite:
+        // the other statements must stay in .Set while only the subscription moves. The
+        // fix must therefore leave the code untouched rather than guess — FixedCode is
+        // identical to TestCode.
+        var source = Stubs + @"
+class C
+{
+    static void OnClick(object s, EventArgs e) { }
+    static void Log() { }
+    ButtonElement M(ButtonElement b) => {|REACTOR_EVENT_001:b.Set(c => { Log(); c.Click += OnClick; })|};
+}";
+        await new CSharpCodeFixTest<SetEventSubscriptionAnalyzer, SetEventSubscriptionCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 
     [Fact]
     public async Task CodeFix_Rewrites_To_OnMountAdd_For_Static_Handler_Without_Modifier()

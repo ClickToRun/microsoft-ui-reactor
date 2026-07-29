@@ -104,40 +104,64 @@ public sealed class SetEventSubscriptionAnalyzer : DiagnosticAnalyzer
             return;
 
         var lambdaExpr = invocation.ArgumentList.Arguments[0].Expression;
-        var assignment = SetLambdaHelpers.TryGetLambdaAssignment(lambdaExpr);
-        if (assignment is null)
-            return;
-        var kind = assignment.Kind();
-        if (kind != SyntaxKind.AddAssignmentExpression && kind != SyntaxKind.SubtractAssignmentExpression)
+
+        // Detection must consider EVERY assignment in the body, not just a lone one.
+        // A '+=' sharing a block with other statements is still a double-subscribe;
+        // using the single-assignment (code-fix-shaped) helper here previously hid
+        // exactly that shape. The code fix independently re-checks for a single
+        // assignment, so multi-statement bodies are reported but not auto-rewritten.
+        var assignments = SetLambdaHelpers.GetLambdaAssignments(lambdaExpr);
+        if (assignments.IsDefaultOrEmpty)
             return;
 
         var lambdaParam = SetLambdaHelpers.GetSingleLambdaParameter(lambdaExpr);
         if (lambdaParam is null)
             return;
-        var leftAccess = SetLambdaHelpers.GetAssignedMemberAccess(assignment, lambdaParam.Identifier.Text);
-        if (leftAccess is null)
-            return;
 
-        // Guard against an unrelated user-defined '.Set' helper with the same shape: the
-        // declarative-modifier and OnMount/OnUnmount rewrites only compile for Reactor elements.
-        if (!SetLambdaHelpers.IsReactorSetInvocation(invocation, context.SemanticModel, context.CancellationToken))
-            return;
+        var isReactorSet = false;
+        var reactorSetChecked = false;
 
-        // MANDATORY: the assigned member must be an event symbol. Without this the rule
-        // false-fires on numeric compound assignment (c.Opacity += 0.1) and on '+=' to a
-        // non-event delegate field.
-        if (context.SemanticModel.GetSymbolInfo(leftAccess, context.CancellationToken).Symbol is not IEventSymbol)
-            return;
+        foreach (var assignment in assignments)
+        {
+            var kind = assignment.Kind();
+            if (kind != SyntaxKind.AddAssignmentExpression && kind != SyntaxKind.SubtractAssignmentExpression)
+                continue;
 
-        // Restrict to receivers deriving from FrameworkElement (the native control).
-        var receiverType = context.SemanticModel
-            .GetTypeInfo(leftAccess.Expression, context.CancellationToken).Type;
-        if (!SetLambdaHelpers.InheritsFrom(receiverType, "FrameworkElement", "Microsoft.UI.Xaml"))
-            return;
+            var leftAccess = SetLambdaHelpers.GetAssignedMemberAccess(assignment, lambdaParam.Identifier.Text);
+            if (leftAccess is null)
+                continue;
 
-        context.ReportDiagnostic(Diagnostic.Create(
-            Rule,
-            invocation.GetLocation(),
-            leftAccess.Name.Identifier.Text));
+            // MANDATORY: the assigned member must be an event symbol. Without this the rule
+            // false-fires on numeric compound assignment (c.Opacity += 0.1) and on '+=' to a
+            // non-event delegate field.
+            if (context.SemanticModel.GetSymbolInfo(leftAccess, context.CancellationToken).Symbol is not IEventSymbol)
+                continue;
+
+            // Restrict to receivers deriving from FrameworkElement (the native control).
+            var receiverType = context.SemanticModel
+                .GetTypeInfo(leftAccess.Expression, context.CancellationToken).Type;
+            if (!SetLambdaHelpers.InheritsFrom(receiverType, "FrameworkElement", "Microsoft.UI.Xaml"))
+                continue;
+
+            // Guard against an unrelated user-defined '.Set' helper with the same shape: the
+            // declarative-modifier and OnMount/OnUnmount rewrites only compile for Reactor
+            // elements. Resolved lazily and once — it is the most expensive check here.
+            if (!reactorSetChecked)
+            {
+                isReactorSet = SetLambdaHelpers.IsReactorSetInvocation(
+                    invocation, context.SemanticModel, context.CancellationToken);
+                reactorSetChecked = true;
+            }
+            if (!isReactorSet)
+                return;
+
+            // Location stays on the whole invocation: SetEventSubscriptionCodeFix resolves
+            // the diagnostic span back to an InvocationExpressionSyntax, so reporting on the
+            // inner assignment would silently disable the fix.
+            context.ReportDiagnostic(Diagnostic.Create(
+                Rule,
+                invocation.GetLocation(),
+                leftAccess.Name.Identifier.Text));
+        }
     }
 }

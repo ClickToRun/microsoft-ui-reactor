@@ -178,12 +178,16 @@ public static class FocusExtensions
     public static TextBoxElement Focus(this TextBoxElement el, FocusManager fm, string fieldName, bool autoFocus = false)
     {
         fm.Register(fieldName);
-        return el.Set(tb =>
-        {
-            fm.SetControl(fieldName, tb);
-            if (autoFocus)
-                tb.Loaded += (_, _) => tb.Focus(FocusState.Programmatic);
-        });
+        return el
+            .Set(tb => fm.SetControl(fieldName, tb))
+            // Loaded must be wired once, not on every reconcile: .Set setters re-run on
+            // each update, so subscribing there accumulates a handler per render
+            // (REACTOR_EVENT_001).
+            .OnMountAdd(fe =>
+            {
+                if (autoFocus && fe is Microsoft.UI.Xaml.Controls.TextBox loaded)
+                    loaded.Loaded += (_, _) => loaded.Focus(FocusState.Programmatic);
+            });
     }
 
     /// <summary>
@@ -192,12 +196,15 @@ public static class FocusExtensions
     public static NumberBoxElement Focus(this NumberBoxElement el, FocusManager fm, string fieldName, bool autoFocus = false)
     {
         fm.Register(fieldName);
-        return el.Set(nb =>
-        {
-            fm.SetControl(fieldName, nb);
-            if (autoFocus)
-                nb.Loaded += (_, _) => nb.Focus(FocusState.Programmatic);
-        });
+        return el
+            .Set(nb => fm.SetControl(fieldName, nb))
+            // See the TextBox overload above — Loaded is wired once at mount so the
+            // handler does not accumulate across reconciles (REACTOR_EVENT_001).
+            .OnMountAdd(fe =>
+            {
+                if (autoFocus && fe is Microsoft.UI.Xaml.Controls.NumberBox loaded)
+                    loaded.Loaded += (_, _) => loaded.Focus(FocusState.Programmatic);
+            });
     }
 
     /// <summary>

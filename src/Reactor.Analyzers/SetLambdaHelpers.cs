@@ -75,6 +75,48 @@ internal static class SetLambdaHelpers
     }
 
     /// <summary>
+    /// All assignment expressions in a <c>.Set(...)</c> lambda body — the expression body
+    /// (<c>fe =&gt; fe.X = v</c>) or every top-level assignment statement in a block body,
+    /// regardless of statement count.
+    /// <para>
+    /// Prefer this over <see cref="TryGetLambdaAssignment"/> for pure <em>detection</em>.
+    /// The single-assignment helper deliberately bails on multi-statement blocks because a
+    /// code fix cannot mechanically rewrite them — but a diagnostic still should fire.
+    /// Reusing the code-fix-shaped helper for detection created a false negative that hid
+    /// real double-subscribe bugs inside bodies like
+    /// <c>.Set(ib =&gt; { ib.IsOpen = true; ib.Closed += h; })</c>, where the offending
+    /// <c>+=</c> is merely sharing a block with another statement.
+    /// </para>
+    /// </summary>
+    internal static ImmutableArray<AssignmentExpressionSyntax> GetLambdaAssignments(ExpressionSyntax lambdaExpr)
+    {
+        SyntaxNode? exprOrBlock = lambdaExpr switch
+        {
+            SimpleLambdaExpressionSyntax simple => (SyntaxNode?)simple.ExpressionBody ?? simple.Block,
+            ParenthesizedLambdaExpressionSyntax paren => (SyntaxNode?)paren.ExpressionBody ?? paren.Block,
+            _ => null,
+        };
+
+        switch (exprOrBlock)
+        {
+            case AssignmentExpressionSyntax a:
+                return ImmutableArray.Create(a);
+            case BlockSyntax block:
+            {
+                var builder = ImmutableArray.CreateBuilder<AssignmentExpressionSyntax>();
+                foreach (var statement in block.Statements)
+                {
+                    if (statement is ExpressionStatementSyntax { Expression: AssignmentExpressionSyntax ba })
+                        builder.Add(ba);
+                }
+                return builder.ToImmutable();
+            }
+            default:
+                return ImmutableArray<AssignmentExpressionSyntax>.Empty;
+        }
+    }
+
+    /// <summary>
     /// Extract the single assignment expression from a lambda passed to <c>.Set(...)</c>.
     /// Supports both expression-body lambdas (<c>fe =&gt; fe.X = v</c>) and block-body
     /// lambdas with a single assignment statement (<c>fe =&gt; { fe.X = v; }</c>).
