@@ -305,15 +305,29 @@ dismissal drives the declared value down to `false`, and the later
 `false → true` transition is a real edge that re-opens the control.
 
 The alternative — re-asserting the declared value against the live
-control on every render — is deliberately **not** what Reactor does. It
+control on every render — is deliberately **not** what these four do. It
 would make a control the user cannot dismiss: `InfoBarElement.IsOpen`,
 `SplitViewElement.IsPaneOpen` and `NavigationViewElement.IsPaneOpen` all
 default to `true`, so any of them written without a change callback would
 snap back open on the next unrelated re-render.
 
-When you wrap a control of your own with a self-mutating property, keep
-it on `.OneWay(get, set)` and surface the control's change event as a
-callback on the element record so callers have the sync channel.
+Re-asserting is safe only when the element cannot silently claim
+authority it was never given. Two built-ins do re-assert, and both clear
+that bar: `Expander.IsExpanded` is an `Optional<bool>` whose *unset*
+value means "the control owns this", so the element only wins when the
+author explicitly declared it; `Popup.IsOpen` defaults to `false`, which
+is also the value a light-dismissed popup rests at, so the re-assert is a
+no-op in the direction that would otherwise fight the user.
+
+So, when wrapping a control of your own with a self-mutating property:
+
+- **Default to edge-triggered** — `.OneWay(get, set)` plus the control's
+  change event surfaced as a callback on the element record, so callers
+  have a sync channel. This is always safe.
+- **Only re-assert against the live control** if authority is opt-in
+  (an `Optional<T>` prop, unset by default) or the element's default
+  equals the value the control rests at after the user acts. A plain
+  `bool` defaulting to the "showing" state fails both tests.
 
 ### Reference properties
 

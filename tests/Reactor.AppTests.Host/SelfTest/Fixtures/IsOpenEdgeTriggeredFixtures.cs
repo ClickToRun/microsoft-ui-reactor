@@ -130,12 +130,22 @@ internal static class IsOpenEdgeTriggeredFixtures
     /// <summary>
     /// <see cref="WinUI.TeachingTip"/> shares <c>InfoBar</c>'s authoring shape
     /// (auto-mapped one-way <c>IsOpen</c> + a hand-coded <c>Closed</c> event),
-    /// so the same edge contract must hold for it.
+    /// so the same edge contract must hold for it. This fixture pins that
+    /// contract at the <c>IsOpen</c> property level.
     ///
-    /// <para>Scope note: this covers the post-mount edges only. A TeachingTip
-    /// whose <b>first</b> render declares <c>IsOpen: true</c> does not open —
-    /// a separate, reported mount-write-ordering defect — so this fixture
-    /// deliberately mounts closed rather than encoding that bug as expected
+    /// <para><b>Why there is no <c>OnClosed</c> oracle here</b> (the callback
+    /// half is covered by <see cref="InfoBarEdgeTriggered"/> instead): a
+    /// Reactor-mounted TeachingTip flips the <c>IsOpen</c> property but does not
+    /// actually present. WinUI raises no <c>Closed</c> event on the way back
+    /// down, so a callback count would assert the absence of a presentation bug
+    /// rather than the edge contract. An identically-parented raw
+    /// <c>WinUI.TeachingTip</c> does present and does raise <c>Closed</c>, so
+    /// this is a Reactor-side defect — reported separately, deliberately not
+    /// baked in here as an expectation either way.</para>
+    ///
+    /// <para>Scope note: post-mount edges only. A TeachingTip whose <b>first</b>
+    /// render declares <c>IsOpen: true</c> does not open (same reported defect),
+    /// so this fixture mounts closed rather than encoding that bug as expected
     /// behaviour.</para>
     /// </summary>
     internal sealed class TeachingTipEdgeTriggered(Harness h) : SelfTestFixtureBase(h)
