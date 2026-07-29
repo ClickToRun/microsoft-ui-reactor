@@ -14,8 +14,8 @@ public class WindowSpecTests
     {
         var spec = new WindowSpec();
         Assert.Equal("Reactor App", spec.Title);
-        Assert.Equal(1024, spec.Width);
-        Assert.Equal(768, spec.Height);
+        Assert.Null(spec.Width);
+        Assert.Null(spec.Height);
         Assert.Equal(WindowStartPosition.Default, spec.StartPosition);
         Assert.Equal(PresenterKind.Overlapped, spec.Presenter);
         Assert.Equal(WindowResizeMode.CanResize, spec.ResizeMode);
@@ -51,6 +51,59 @@ public class WindowSpecTests
         var spec = new WindowSpec { Width = 100, Height = -1 };
         var ex = Assert.Throws<ArgumentException>(() => spec.Validate());
         Assert.Contains("Height", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Validate_Rejects_NonFinite_Sizes()
+    {
+        Assert.Throws<ArgumentException>(() => new WindowSpec { Width = double.NaN }.Validate());
+        Assert.Throws<ArgumentException>(() => new WindowSpec { Height = double.NaN }.Validate());
+        Assert.Throws<ArgumentException>(() => new WindowSpec { Width = double.PositiveInfinity }.Validate());
+        Assert.Throws<ArgumentException>(() => new WindowSpec { Height = double.PositiveInfinity }.Validate());
+        Assert.Throws<ArgumentException>(() => new WindowSpec { Width = double.NegativeInfinity }.Validate());
+        Assert.Throws<ArgumentException>(() => new WindowSpec { Height = double.NegativeInfinity }.Validate());
+    }
+
+    // Min*/Max* land in ptMinTrackSize / ptMaxTrackSize via the same DIP→pixel
+    // cast, where +Infinity becomes int.MinValue and pins the window. `null`
+    // is the way to express "unbounded", so non-finite values are rejected.
+    [Fact]
+    public void Validate_Rejects_NonFinite_MinMax()
+    {
+        Assert.Throws<ArgumentException>(() => new WindowSpec { MinWidth = double.NaN }.Validate());
+        Assert.Throws<ArgumentException>(() => new WindowSpec { MinHeight = double.PositiveInfinity }.Validate());
+        Assert.Throws<ArgumentException>(() => new WindowSpec { MaxWidth = double.PositiveInfinity }.Validate());
+        Assert.Throws<ArgumentException>(() => new WindowSpec { MaxHeight = double.NaN }.Validate());
+
+        // Unbounded stays expressible.
+        new WindowSpec { MinWidth = 200, MaxWidth = null }.Validate();
+    }
+
+    // Spec 036 §4.1 — a null Width/Height means "let the OS choose the initial
+    // extent"; it must not be treated as an invalid (non-positive) size, and it
+    // must survive a `with` round-trip independently per axis.
+    [Fact]
+    public void Validate_Accepts_Null_Sizes()
+    {
+        new WindowSpec { Width = null, Height = null }.Validate();
+        new WindowSpec { Width = 640, Height = null }.Validate();
+        new WindowSpec { Width = null, Height = 480 }.Validate();
+    }
+
+    [Fact]
+    public void Explicit_Sizes_Are_Preserved_Per_Axis()
+    {
+        var widthOnly = new WindowSpec { Width = 640 };
+        Assert.Equal(640, widthOnly.Width);
+        Assert.Null(widthOnly.Height);
+
+        var both = widthOnly with { Height = 480 };
+        Assert.Equal(640, both.Width);
+        Assert.Equal(480, both.Height);
+
+        var cleared = both with { Width = null };
+        Assert.Null(cleared.Width);
+        Assert.Equal(480, cleared.Height);
     }
 
     [Fact]

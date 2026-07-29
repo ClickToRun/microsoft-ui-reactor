@@ -242,9 +242,6 @@ public sealed class ReactorHost : IDisposable
         // element is constructed (Charting.ChartingActivation.RequestActivation).
         // Apps without charts pay zero cost here.
 
-        // Register built-in custom element types
-        Controls.ResizeGripRegistration.Register(_reconciler);
-
         // Stop the render loop when the window closes — background threads
         // may still call setState after this, but RequestRender will bail out.
         // Mark the window's native surface gone BEFORE disposing so neither this

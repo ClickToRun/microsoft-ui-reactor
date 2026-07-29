@@ -43,6 +43,7 @@ public class CoreControlFamilyBoundaryTests
     {
         "Microsoft.UI.Reactor.Charting",
         "Microsoft.UI.Reactor.Docking",
+        "Microsoft.UI.Reactor.Markdown",
     };
 
     [Fact]
@@ -57,8 +58,51 @@ public class CoreControlFamilyBoundaryTests
 
         Assert.True(
             violations.Count == 0,
-            "Reactor Core/Hosting must not statically reference Charting/Docking types (issue #498). " +
-            "Offending references:\n  " + string.Join("\n  ", violations));
+            "Reactor Core/Hosting must not statically reference Charting/Docking/Markdown types " +
+            "(issue #498; spec 062 §7 Track B). Offending references:\n  " + string.Join("\n  ", violations));
+    }
+
+    /// <summary>
+    /// Spec 062 §7 Track B — core-shrink boundary guard. Charting, docking,
+    /// markdown, and the data grid all moved into the separate
+    /// <c>Reactor.Advanced</c> assembly. The three former get a namespace-prefix
+    /// forbid above; the data grid can't, because its types share the
+    /// <c>Microsoft.UI.Reactor.Controls</c> namespace with controls that
+    /// legitimately remain in core. So this pins the stronger invariant that makes
+    /// the whole family regression impossible: core (<c>Reactor.dll</c>) must carry
+    /// <b>zero</b> assembly reference to <c>Reactor.Advanced</c>. The dependency is
+    /// one-way (Advanced → core), so any core → Advanced reference — an
+    /// eagerly-registered data-grid <c>ResizeGrip</c> (the coupling B3 removed), a
+    /// stray chart/dock/markdown type, or a future Advanced control — would be a
+    /// build cycle; this documents and guards the invariant with a precise, early
+    /// failure. Future-proof: it needs no per-type or per-subsystem list.
+    /// </summary>
+    [Fact]
+    [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("SingleFile", "IL3000", Justification = "Test-only: reads Reactor.dll's on-disk Location to feed the metadata scanner (PEReader). IL3000 only affects single-file publish (Location is empty there); this metadata-scanning test can't run single-file and this host is not single-file-published. Behaviour-neutral.")]
+    public void Core_HasNoAssemblyReferenceToReactorAdvanced()
+    {
+        var assemblyPath = typeof(Element).Assembly.Location;
+        Assert.False(string.IsNullOrEmpty(assemblyPath), "Could not locate Reactor.dll on disk.");
+
+        using var stream = global::System.IO.File.OpenRead(assemblyPath);
+        using var pe = new PEReader(stream);
+        var reader = pe.GetMetadataReader();
+
+        // Guard against a vacuous pass (wrong / empty assembly): the real
+        // Reactor.dll references many framework assemblies.
+        Assert.True(reader.AssemblyReferences.Count > 5,
+            $"Only {reader.AssemblyReferences.Count} assembly references found — likely scanning the wrong assembly.");
+
+        var advancedRefs = reader.AssemblyReferences
+            .Select(reader.GetAssemblyReference)
+            .Select(a => reader.GetString(a.Name))
+            .Where(n => string.Equals(n, "Reactor.Advanced", StringComparison.Ordinal))
+            .ToArray();
+
+        Assert.True(advancedRefs.Length == 0,
+            "Reactor core must not reference the Reactor.Advanced assembly (spec 062 §7 — the " +
+            "charting / docking / markdown / data-grid subsystems live in Advanced, and the dependency " +
+            "is one-way Advanced → core). Found: " + string.Join(", ", advancedRefs));
     }
 
     /// <summary>

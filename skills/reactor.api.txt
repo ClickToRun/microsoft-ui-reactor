@@ -19,7 +19,6 @@ AppBarButton(Command command) → AppBarButtonData
 AppBarButton(string label, Action onClick = null, string icon = null) → AppBarButtonData
 AppBarSeparator() → AppBarSeparatorData
 AppBarToggleButton(string label, bool isChecked = false, Action<bool> onIsCheckedChanged = null, string icon = null) → AppBarToggleButtonData
-AutoColumns<T>(TypeRegistry registry = null, Func<FieldDescriptor, FieldDescriptor> overrides = null) → IReadOnlyList<FieldDescriptor>
 AutoSuggestBox(Optional<string> text = null, Action<string> onTextChanged = null, Action<string> onQuerySubmitted = null) → AutoSuggestBoxElement
 BitmapIcon(Uri source, bool showAsMonochrome = true) → BitmapIconData
 Body(string content) → TextBlockElement
@@ -38,7 +37,6 @@ Caption(string content) → TextBlockElement
 Card(Element child) → BorderElement
 CheckBox(Optional<bool?> isChecked = null, Action<bool> onIsCheckedChanged = null, string label = null) → CheckBoxElement
 ColorPicker(Optional<Color> color = null, Action<Color> onColorChanged = null) → ColorPickerElement
-Column<T>(string name, Func<T, object> accessor, bool editable = false, string displayName = null, string format = null, double? width = null, PinPosition pin = PinPosition.None) → ColumnBuilder<T>
 ComboBox(Element[] itemElements, Optional<int> selectedIndex, Action<int> onSelectedIndexChanged) → ComboBoxElement
 ComboBox(string[] items, Optional<int> selectedIndex = null, Action<int> onSelectedIndexChanged = null) → ComboBoxElement
 CommandBar(AppBarItemBase[] primaryCommands = null, AppBarItemBase[] secondaryCommands = null) → CommandBarElement
@@ -48,8 +46,6 @@ Component<T, TProps>(TProps props) → ComponentElement<TProps>
 Component<T>() → ComponentElement
 ContentDialog(string title, Element content, string primaryButtonText = "OK") → ContentDialogElement
 ContentFlyout(Element content, FlyoutPlacementMode placement = FlyoutPlacementMode.Auto) → ContentFlyoutElement
-DataGrid<T>(IDataSource<T> source, IReadOnlyList<FieldDescriptor> columns, TypeRegistry registry = null, SelectionMode selectionMode = SelectionMode.None, Action<IReadOnlySet<RowKey>> onSelectionChanged = null, Func<RowKey, T, Task> onRowChanged = null, double? rowHeight = 40, bool editable = false, EditMode editMode = EditMode.Cell, Func<CellContext<T>, Element> cellTemplate = null, Func<RowContext<T>, Element> rowTemplate = null, Func<HeaderContext, Element> headerTemplate = null, Element loadingTemplate = null, Element emptyTemplate = null, bool showSearch = false, Func<T, RowKey, Element> rowDetailTemplate = null, Func<FieldDescriptor, double, Element> placeholderCellTemplate = null) → ComponentElement<DataGridElement<T>>
-DataGrid<T>(IDataSource<T> source, TypeRegistry registry, Func<FieldDescriptor, FieldDescriptor> columnOverrides = null, SelectionMode selectionMode = SelectionMode.None, Action<IReadOnlySet<RowKey>> onSelectionChanged = null, Func<RowKey, T, Task> onRowChanged = null, double? rowHeight = 40, bool editable = false, EditMode editMode = EditMode.Cell, Element loadingTemplate = null, Element emptyTemplate = null) → ComponentElement<DataGridElement<T>>
 DatePicker(Optional<DateTimeOffset> date = null, Action<DateTimeOffset> onDateChanged = null) → DatePickerElement
 DevtoolsMenu(Func<IEnumerable<MenuFlyoutItemBase>> items = null, string glyph = "⚡", string toolTip = "Devtools", string automationId = null) → Element
 DropDownButton(string label, Element flyout = null) → DropDownButtonElement
@@ -116,8 +112,6 @@ ListView<T>(IReadOnlyList<T> items, Func<T, int, Element> viewBuilder) → Templ
 ListView<T>(IReadOnlyList<T> items, Func<T, string> keySelector, Func<T, int, Element> viewBuilder) → TemplatedListViewElement<T>
 LocaleProvider(string locale, Element child, IStringResourceProvider resourceProvider = null, string defaultLocale = "en-US", bool pseudoLocalize = false) → ComponentElement<LocaleProviderElement>
 MapControl(string mapServiceToken = null, double zoomLevel = 1) → MapControlElement
-Markdown(string markdown) → Element
-Markdown(string markdown, MarkdownOptions options) → Element
 MediaPlayerElement(string source = null) → MediaPlayerElementElement
 Memo(Func<RenderContext, Element> render, object[] dependencies) → MemoElement
 Memo<TKey>(TKey key, Func<Element> factory) → KeyedMemoElement
@@ -289,33 +283,12 @@ ContentDialogElement.IsPrimaryButtonEnabled(bool enabled = true) → ContentDial
 ContentDialogElement.IsSecondaryButtonEnabled(bool enabled = true) → ContentDialogElement
 ContentDialogElement.Opened(Action handler) → ContentDialogElement
 ContentDialogElement.Set(Action<ContentDialog> configure) → ContentDialogElement
-DataGridElement<T>.SelectionChanged<T>(Action<IReadOnlySet<RowKey>> handler) → DataGridElement<T>
 DatePickerElement.DateChanged(Action<DateTimeOffset> handler) → DatePickerElement
 DatePickerElement.DayFormat(string format) → DatePickerElement
 DatePickerElement.MonthFormat(string format) → DatePickerElement
 DatePickerElement.Orientation(Orientation orientation) → DatePickerElement
 DatePickerElement.Set(Action<DatePicker> configure) → DatePickerElement
 DatePickerElement.YearFormat(string format) → DatePickerElement
-DockManager.ActiveContentChanged(Action<DockActiveContentChangedEventArgs> handler) → DockManager
-DockManager.ContentDocked(Action<DockContentDockedEventArgs> handler) → DockManager
-DockManager.ContentDocking(Action<DockContentDockingEventArgs> handler) → DockManager
-DockManager.ContentFloated(Action<DockContentFloatedEventArgs> handler) → DockManager
-DockManager.ContentFloating(Action<DockContentFloatingEventArgs> handler) → DockManager
-DockManager.DocumentClosed(Action<DockDocumentClosedEventArgs> handler) → DockManager
-DockManager.DocumentClosing(Action<DockDocumentClosingEventArgs> handler) → DockManager
-DockManager.DropTargetConfirmed(Action<DockTarget> handler) → DockManager
-DockManager.DropTargetHovered(Action<DockTarget?> handler) → DockManager
-DockManager.DropTargetsDismissed(Action handler) → DockManager
-DockManager.FloatingWindowClosed(Action<DockFloatingWindowClosedEventArgs> handler) → DockManager
-DockManager.FloatingWindowCreated(Action<DockFloatingWindowCreatedEventArgs> handler) → DockManager
-DockManager.LayoutChanged(Action<DockLayoutChangedEventArgs> handler) → DockManager
-DockManager.LayoutChanging(Action<DockLayoutChangingEventArgs> handler) → DockManager
-DockManager.LiveLayoutChanged(Action<DockNode> handler) → DockManager
-DockManager.SplitterDragCompleted(Action handler) → DockManager
-DockManager.ToolWindowClosed(Action<DockToolWindowClosedEventArgs> handler) → DockManager
-DockManager.ToolWindowClosing(Action<DockToolWindowClosingEventArgs> handler) → DockManager
-DockManager.ToolWindowHidden(Action<DockToolWindowHiddenEventArgs> handler) → DockManager
-DockManager.ToolWindowHiding(Action<DockToolWindowHidingEventArgs> handler) → DockManager
 DropDownButtonElement.AccentButton() → DropDownButtonElement
 DropDownButtonElement.Set(Action<DropDownButton> configure) → DropDownButtonElement
 DropDownButtonElement.SubtleButton() → DropDownButtonElement
@@ -402,18 +375,38 @@ MediaPlayerElementElement.MediaOpened(Action handler) → MediaPlayerElementElem
 MediaPlayerElementElement.Set(Action<MediaPlayerElement> configure) → MediaPlayerElementElement
 MenuBarElement.Set(Action<MenuBar> configure) → MenuBarElement
 MenuFlyoutElement.Set(Action<MenuFlyout> configure) → MenuFlyoutElement
+NavigationViewElement.AlwaysShowHeader(bool alwaysShow = true) → NavigationViewElement
 NavigationViewElement.AutoSuggestBox(AutoSuggestBoxElement box) → NavigationViewElement
+NavigationViewElement.BackButtonVisible(NavigationViewBackButtonVisible visible) → NavigationViewElement
+NavigationViewElement.BackButtonVisible(bool visible) → NavigationViewElement
 NavigationViewElement.BackRequested(Action handler) → NavigationViewElement
 NavigationViewElement.CompactModeThresholdWidth(double width) → NavigationViewElement
+NavigationViewElement.CompactPaneLength(double length) → NavigationViewElement
+NavigationViewElement.ContentOverlay(Element overlay) → NavigationViewElement
+NavigationViewElement.DisplayModeChanged(Action<NavigationViewDisplayMode> handler) → NavigationViewElement
 NavigationViewElement.ExpandedModeThresholdWidth(double width) → NavigationViewElement
+NavigationViewElement.FooterMenuItems(NavigationViewItemData[] items) → NavigationViewElement
+NavigationViewElement.IsPaneOpen(bool isPaneOpen, Action<bool> onPaneOpenChanged) → NavigationViewElement
+NavigationViewElement.ItemCollapsed(Action<string> handler) → NavigationViewElement
+NavigationViewElement.ItemExpanding(Action<string> handler) → NavigationViewElement
+NavigationViewElement.ItemInvoked(Action<string> handler) → NavigationViewElement
 NavigationViewElement.OpenPaneLength(double length) → NavigationViewElement
+NavigationViewElement.OverflowLabelMode(NavigationViewOverflowLabelMode mode) → NavigationViewElement
 NavigationViewElement.PaneCustomContent(Element content) → NavigationViewElement
 NavigationViewElement.PaneDisplayMode(NavigationViewPaneDisplayMode mode) → NavigationViewElement
 NavigationViewElement.PaneFooter(Element footer) → NavigationViewElement
+NavigationViewElement.PaneHeader(Element header) → NavigationViewElement
+NavigationViewElement.PaneOpenChanged(Action<bool> handler) → NavigationViewElement
 NavigationViewElement.PaneTitle(string title) → NavigationViewElement
+NavigationViewElement.PaneToggleButtonVisible(bool visible) → NavigationViewElement
+NavigationViewElement.PaneVisible(bool visible = true) → NavigationViewElement
 NavigationViewElement.SelectedTagChanged(Action<string> handler) → NavigationViewElement
+NavigationViewElement.SelectionFollowsFocus(bool follows = true) → NavigationViewElement
 NavigationViewElement.Set(Action<NavigationView> configure) → NavigationViewElement
-NavigationViewElement.WithNavigation<TRoute>(NavigationHandle<TRoute> nav, Func<TRoute, string> routeToTag, Func<string, TRoute> tagToRoute) → NavigationViewElement
+NavigationViewElement.SettingsSelected(Action handler) → NavigationViewElement
+NavigationViewElement.ShoulderNavigation(NavigationViewShoulderNavigationEnabled mode) → NavigationViewElement
+NavigationViewElement.TitleBarAutoPadding(bool enabled = true) → NavigationViewElement
+NavigationViewElement.WithNavigation<TRoute>(NavigationHandle<TRoute> nav, Func<TRoute, string> routeToTag, Func<string, TRoute> tagToRoute, Func<TRoute> settingsRoute = null) → NavigationViewElement
 NumberBoxElement.AcceptsExpression(bool accepts = true) → NumberBoxElement
 NumberBoxElement.Description(string description) → NumberBoxElement
 NumberBoxElement.Focus(FocusManager fm, string fieldName, bool autoFocus = false) → NumberBoxElement
@@ -549,6 +542,7 @@ SplitButtonElement.AccentButton() → SplitButtonElement
 SplitButtonElement.Click(Action handler) → SplitButtonElement
 SplitButtonElement.Set(Action<SplitButton> configure) → SplitButtonElement
 SplitButtonElement.SubtleButton() → SplitButtonElement
+SplitViewElement.IsPaneOpen(bool isPaneOpen, Action<bool> onPaneOpenChanged) → SplitViewElement
 SplitViewElement.LightDismissOverlayMode(LightDismissOverlayMode mode) → SplitViewElement
 SplitViewElement.PaneBackground(Brush brush) → SplitViewElement
 SplitViewElement.PaneBackground(ThemeRef theme) → SplitViewElement
@@ -616,6 +610,7 @@ T.Immediate<T>() → T
 T.InteractionStates<T>(Func<InteractionStatesBuilder, InteractionStatesBuilder> configure, Curve curve = null) → T
 T.IsDragRegion<T>(bool? isDragRegion = true) → T
 T.IsEnabled<T>(bool enabled = true) → T
+T.IsHitTestVisible<T>(bool isHitTestVisible = true) → T
 T.IsTabStop<T>(bool isTabStop = true) → T
 T.IsVisible<T>(bool isVisible) → T
 T.ItemContainerTransitions<T>(Transition[] transitions) → T
@@ -742,6 +737,7 @@ TabViewElement.AllowDropTabs(bool allow = true) → TabViewElement
 TabViewElement.CanDragTabs(bool canDrag = true) → TabViewElement
 TabViewElement.CanReorderTabs(bool canReorder = true) → TabViewElement
 TabViewElement.CloseButtonOverlayMode(TabViewCloseButtonOverlayMode mode) → TabViewElement
+TabViewElement.FillContentArea(bool fill = true) → TabViewElement
 TabViewElement.IsAddTabButtonVisible(bool visible = true) → TabViewElement
 TabViewElement.SelectedIndexChanged(Action<int> handler) → TabViewElement
 TabViewElement.Set(Action<TabView> configure) → TabViewElement
@@ -813,6 +809,7 @@ TitleBarElement.BackButtonEnabled(bool enabled) → TitleBarElement
 TitleBarElement.BackButtonVisible(bool visible) → TitleBarElement
 TitleBarElement.BackRequested(Action handler) → TitleBarElement
 TitleBarElement.Content(Element content) → TitleBarElement
+TitleBarElement.HeightOption(WindowTitleBarHeight height) → TitleBarElement
 TitleBarElement.Icon(IconData icon) → TitleBarElement
 TitleBarElement.Icon(string imageUri) → TitleBarElement
 TitleBarElement.PaneToggleButtonVisible(bool visible) → TitleBarElement
@@ -820,6 +817,7 @@ TitleBarElement.PaneToggleRequested(Action handler) → TitleBarElement
 TitleBarElement.RightHeader(Element rightHeader) → TitleBarElement
 TitleBarElement.Set(Action<TitleBar> configure) → TitleBarElement
 TitleBarElement.Subtitle(string subtitle) → TitleBarElement
+TitleBarElement.Tall(bool tall = true) → TitleBarElement
 TitleBarElement.WithNavigation<TRoute>(NavigationHandle<TRoute> nav) → TitleBarElement
 ToggleButtonElement.CheckedState(bool? state) → ToggleButtonElement
 ToggleButtonElement.CheckedStateChanged(Action<bool?> handler) → ToggleButtonElement
@@ -864,7 +862,6 @@ ReactorBinding<TElement>.ReferenceList<TTarget>(Func<TElement, IReadOnlyList<Ele
 # Call from Render() / function-component body. Same order every render —
 # never inside if/for. Use the result conditionally, not the call.
 
-RenderContext.UseActivePaneKey() → object
 RenderContext.UseAnnounce() → AnnounceHandle
 RenderContext.UseBreakpoint(Window window, double minWidth) → bool
 RenderContext.UseBreakpoint(double minWidth) → bool
@@ -883,10 +880,6 @@ RenderContext.UseDataSource<T>(IDataSource<T> source, DataRequest request, Infin
 RenderContext.UseDataSource<T>(IDataSource<T> source, DataRequest request, QueryCache cache, InfiniteResourceOptions options = null, IHookDispatcher dispatcher = null) → InfiniteResource<T>
 RenderContext.UseDevtools() → bool
 RenderContext.UseDisplays() → IReadOnlyList<DisplayInfo>
-RenderContext.UseDockHost() → DockHostModel
-RenderContext.UseDockLayout() → DockLayoutSnapshot
-RenderContext.UseDockPanePersisted<T>(string key, T initialValue) → ValueTuple<T, Action<T>>
-RenderContext.UseDockState() → DockPaneState
 RenderContext.UseDpi() → UInt32
 RenderContext.UseEffect(Action effect, object[] dependencies) → void
 RenderContext.UseEffect(Func<Action> effectWithCleanup, object[] dependencies) → void
@@ -909,7 +902,6 @@ RenderContext.UseInfiniteResource<TItem, TCursor>(Func<TCursor, CancellationToke
 RenderContext.UseInfiniteResource<TItem, TCursor>(Func<TCursor, CancellationToken, Task<Page<TItem, TCursor>>> fetchPage, object[] deps, InfiniteResourceOptions options = null, IHookDispatcher dispatcher = null, Func<int, TCursor> cursorFromPageIndex = null) → InfiniteResource<TItem>
 RenderContext.UseIntl() → IntlAccessor
 RenderContext.UseIsActive() → bool
-RenderContext.UseIsActivePane() → bool
 RenderContext.UseIsCovered() → bool
 RenderContext.UseIsDarkTheme() → bool
 RenderContext.UseMemo<T, T1, T2, T3>(Func<T> factory, T1 d1, T2 d2, T3 d3) → T
@@ -928,7 +920,6 @@ RenderContext.UseObservable<T>(T source) → T
 RenderContext.UseObservableProperty<T, TProp>(T source, Func<T, TProp> selector, string propertyName) → TProp
 RenderContext.UseObservableTree<T>(T source) → T
 RenderContext.UseOpenWindow(WindowKey key, WindowSpec spec, Func<Component> factory) → ReactorWindow
-RenderContext.UsePane() → DockPaneInfo
 RenderContext.UsePersisted<T>(string key, T initialValue) → ValueTuple<T, Action<T>>
 RenderContext.UsePersisted<T>(string key, T initialValue, PersistedScope scope) → ValueTuple<T, Action<T>>
 RenderContext.UseReducedMotion() → bool
@@ -995,17 +986,8 @@ Theme.TertiaryText                     → TextFillColorTertiaryBrush
 AnimateProperty { Opacity, Offset, Scale, Rotation, CenterPoint, All }
 Edge { Left, Top, Right, Bottom }
 AspectRatioBasis { Window, Client }
-ChartAxisType { X, Y }
-DashStyle { Solid, Dash4_2, Dash2_2, Dash6_2_2_2, Dash8_4, Dash1_1 }
-MarkerShape { Circle, Square, Triangle, Diamond, Plus, Cross, Star, Hexagon }
-ChartType { Line, Bar, Area }
-LinkOrientation { Horizontal, Vertical }
-SankeyNodeAlign { Left, Right, Center, Justify }
-TreemapTiling { Squarify, Slice, Dice, SliceDice }
-EditMode { Cell, Row }
 EditorTier { Standard, Compact, Full }
 SearchState { Idle, Loading, Results, Empty, Error }
-SelectionMode { None, Single, Multiple }
 Severity { Info, Warning, Error }
 ShowWhen { Always, WhenTouched, WhenDirty, AfterFirstSubmit, Never }
 VisualizerStyle { Inline, Summary, InfoBar, Custom }
@@ -1022,15 +1004,6 @@ DataSourceCapabilities { None, ServerSort, ServerFilter, ServerSearch, ServerCou
 FilterOperator { Equals, NotEquals, Contains, StartsWith, EndsWith, GreaterThan, GreaterThanOrEqual, LessThan, LessThanOrEqual, Between, In, IsNull, IsNotNull }
 PinPosition { None, Left, Right }
 SortDirection { Ascending, Descending }
-DockOperationKind { Mount, DragStart, DragHover, DragConfirm, DragCancel, DragTearOut, SplitterResize, SplitterTrace, LayoutChange, Note }
-DockFloatingCloseReason { ContentClosed, MigratedToHost, MigratedToFloat }
-DockGroupRole { General, DocumentArea, ToolWindowStrip }
-DockPaneState { Docked, Floating, AutoHidden, AutoHiddenExpanded, Hidden }
-DockSide { Left, Top, Right, Bottom }
-DockSides { None, Left, Top, Right, Bottom, All }
-DockTarget { Center, SplitLeft, SplitTop, SplitRight, SplitBottom, DockLeft, DockTop, DockRight, DockBottom }
-TabChrome { Win11, Flat, TitleBar }
-TabPosition { Top, Bottom }
 DevtoolsSubverb { Run, List, Screenshot, Tree, App }
 McpTransport { Http, Stdio }
 DragOperations { None, Copy, Move, Link, All }
@@ -1047,11 +1020,6 @@ FlexWrap { NoWrap, Wrap, WrapReverse }
 DateStyle { Default, Short, Long, Full }
 ListFormatType { Conjunction, Disjunction }
 NumberStyle { Default, Currency, Percent }
-MarkdownAlign { Default, Left, Center, Right }
-MarkdownBlockType { Doc, Quote, Ul, Ol, Li, Hr, H, Code, Html, P, Table, Thead, Tbody, Tr, Th, Td }
-MarkdownParserFlags { None, DialectCommonMark, CollapseWhitespace, PermissiveAtxHeaders, PermissiveUrlAutolinks, PermissiveEmailAutolinks, NoIndentedCodeBlocks, NoHtmlBlocks, NoHtmlSpans, NoHtml, Tables, Strikethrough, PermissiveWwwAutolinks, PermissiveAutolinks, TaskLists, DialectGitHub, LatexMathSpans, WikiLinks, Underline, HardSoftBreaks }
-MarkdownSpanType { Em, Strong, A, Img, Code, Del, LatexMath, LatexMathDisplay, WikiLink, U }
-MarkdownTextType { Normal, NullChar, Br, SoftBr, Entity, Code, Html, LatexMath }
 NavigationCacheMode { Disabled, Enabled, Required }
 NavigationMode { Push, Pop, Replace, Reset, Forward }
 SlideDirection { FromRight, FromLeft, FromBottom, FromTop }
@@ -1067,6 +1035,7 @@ WindowSizeToContent { Manual, Width, Height, WidthAndHeight }
 WindowStartPosition { Default, CenterOnPrimary, CenterOnOwner, Manual, CenterOnCurrent }
 WindowState { Normal, Minimized, Maximized, FullScreen, CompactOverlay }
 WindowStyle { Default, None, ToolWindow }
+WindowTitleBarHeight { Standard, Tall, Collapsed }
 
 ## Public types (ctors / properties / methods / events)
 # Every public type not already covered above. Members alphabetized within
@@ -1235,28 +1204,6 @@ Set<T>(string key, T value) → void
 Trim(int targetCount) → int
 TryGet<T>(string key, ref T value) → bool
 
-### class ArcGenerator
-new()
-Centroid(double startAngle, double endAngle, double innerRadius = 0, double outerRadius = 100) → ValueTuple<double, double>
-Centroid(double startAngle, double endAngle, double? innerRadius = null, double? outerRadius = null) → ValueTuple<double, double>
-Generate(double startAngle, double endAngle, double padAngle = 0, double? innerRadius = null, double? outerRadius = null) → string
-Generate<T>(PieArc<T> arc) → string
-SetCornerRadius(double r) → ArcGenerator
-SetDigits(int? digits) → ArcGenerator
-SetInnerRadius(double r) → ArcGenerator
-SetOuterRadius(double r) → ArcGenerator
-
-### class AreaGenerator<T>
-new(Func<T, int, double> x0, Func<T, int, double> y0, Func<T, int, double> y1)
-Generate(IReadOnlyList<T> data) → string
-SetDefined(Func<T, int, bool> defined) → AreaGenerator<T>
-SetDigits(int? digits) → AreaGenerator<T>
-SetX(Func<T, int, double> x) → AreaGenerator<T>
-SetX0(Func<T, int, double> x0) → AreaGenerator<T>
-SetX1(Func<T, int, double> x1) → AreaGenerator<T>
-SetY0(Func<T, int, double> y0) → AreaGenerator<T>
-SetY1(Func<T, int, double> y1) → AreaGenerator<T>
-
 ### record ArrayTypeMetadata
 new()
 Func<Task<object>> CreateElement { get; init; }
@@ -1377,39 +1324,6 @@ GetHashCode() → int
 Of(BackdropKind kind) → BackdropChoice
 Of(Func<SystemBackdrop> factory) → BackdropChoice
 ToString() → string
-
-### class BandScale<TDomain>
-new()
-TDomain[] Domain { get; set; }
-double Align { get; set; }
-double Bandwidth { get; }
-double Padding { get; set; }
-double PaddingInner { get; set; }
-double PaddingOuter { get; set; }
-double Step { get; }
-double[] Range { get; set; }
-Copy() → BandScale<TDomain>
-Map(TDomain x) → double
-SetAlign(double a) → BandScale<TDomain>
-SetDomain(TDomain[] domain) → BandScale<TDomain>
-SetPadding(double p) → BandScale<TDomain>
-SetPaddingInner(double p) → BandScale<TDomain>
-SetPaddingOuter(double p) → BandScale<TDomain>
-SetRange(double[] range) → BandScale<TDomain>
-SetRound(bool round) → BandScale<TDomain>
-
-### class Bin<T>
-List<T> Items { get; init; }
-double X0 { get; init; }
-double X1 { get; init; }
-int Count { get; }
-
-### class BinGenerator<T>
-new(Func<T, double> value)
-Generate(IReadOnlyList<T> data) → Bin<T>[]
-SetThresholdCount(int count) → BinGenerator<T>
-SetThresholds(Func<double[], int, double[]> thresholds) → BinGenerator<T>
-SetValue(Func<T, double> value) → BinGenerator<T>
 
 ### record BitmapIconData
 new(Uri Source, bool ShowAsMonochrome = true)
@@ -1574,132 +1488,6 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
-### record CellContext<T>
-new(T Row, RowKey Key, FieldDescriptor Column, object Value, bool IsEditing, Action<object> SetValue)
-Action<object> SetValue { get; init; }
-FieldDescriptor Column { get; init; }
-RowKey Key { get; init; }
-T Row { get; init; }
-bool IsEditing { get; init; }
-object Value { get; init; }
-Deconstruct(ref T Row, ref RowKey Key, ref FieldDescriptor Column, ref object Value, ref bool IsEditing, ref Action<object> SetValue) → void
-Equals(CellContext<T> other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record ChartAxisDescriptor
-new(ChartAxisType AxisType, string Label, double Min, double Max, string Units = null)
-ChartAxisType AxisType { get; init; }
-double Max { get; init; }
-double Min { get; init; }
-string Label { get; init; }
-string Units { get; init; }
-Deconstruct(ref ChartAxisType AxisType, ref string Label, ref double Min, ref double Max, ref string Units) → void
-Equals(ChartAxisDescriptor other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### class ChartElement<T>
-new()
-AlternateView(Element view) → ChartElement<T>
-AnnounceEveryFrame() → ChartElement<T>
-AxisLabel(ChartAxisType axis, string label) → ChartElement<T>
-ChartBackground(Color background) → ChartElement<T>
-ChartBackground(D3Color background) → ChartElement<T>
-ChartBackground(string background) → ChartElement<T>
-ColorOnly() → ChartElement<T>
-DataLabel(Func<T, int, string> labeller) → ChartElement<T>
-Description(string description) → ChartElement<T>
-DisableKeyboard() → ChartElement<T>
-Fill(string color) → ChartElement<T>
-FillOpacity(double opacity) → ChartElement<T>
-FocusColor(Color color) → ChartElement<T>
-Height(double height) → ChartElement<T>
-Interactive() → ChartElement<T>
-Margin(double left, double top, double right, double bottom) → ChartElement<T>
-OnBrushChanged(Action<ChartRange> handler) → ChartElement<T>
-OnPointInvoke(Action<T, int> handler) → ChartElement<T>
-OnReady(Action<ChartHandle<T>> callback) → ChartElement<T>
-Palette(ChartPalette palette) → ChartElement<T>
-RawColors(D3Color[] colors) → ChartElement<T>
-SeriesColors(D3Color[] colors) → ChartElement<T>
-SeriesDashes(DashStyle[] dashes) → ChartElement<T>
-SeriesName(string name) → ChartElement<T>
-SeriesNames(string[] names) → ChartElement<T>
-SeriesShapes(MarkerShape[] shapes) → ChartElement<T>
-ShowAxes(bool show) → ChartElement<T>
-ShowGrid(bool show) → ChartElement<T>
-Stroke(string color) → ChartElement<T>
-StrokeWidth(double width) → ChartElement<T>
-TightHitTest() → ChartElement<T>
-Title(string title) → ChartElement<T>
-ToElement() → Element
-Units(string xUnits = null, string yUnits = null) → ChartElement<T>
-Width(double width) → ChartElement<T>
-XTickLabelView(Func<double, Element> render, Func<double, string> name = null, bool interactive = false) → ChartElement<T>
-YTickLabelView(Func<double, Element> render, Func<double, string> name = null, bool interactive = false) → ChartElement<T>
-
-### class ChartHandle<T>
-Canvas Canvas { get; }
-
-### class ChartPalette
-IReadOnlyList<D3Color> Colors { get; }
-int Count { get; }
-ContrastRatio(D3Color a, D3Color b) → double
-DeltaE(D3Color a, D3Color b) → double
-FromColors(D3Color[] colors) → ChartPalette
-FromRaw(D3Color[] colors) → ChartPalette
-GetDash(int seriesIndex) → DashStyle
-GetDashArray(DashStyle dash) → double[]
-GetMarker(int seriesIndex) → MarkerShape
-Harden(D3Color[] input, HardenOptions options = null) → HardenResult
-RelativeLuminance(D3Color c) → double
-
-### record ChartPointDescriptor
-new(string XLabel, double YValue, string FormattedLabel = null)
-double YValue { get; init; }
-string FormattedLabel { get; init; }
-string XLabel { get; init; }
-Deconstruct(ref string XLabel, ref double YValue, ref string FormattedLabel) → void
-Equals(ChartPointDescriptor other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record ChartRange
-new(double Start, double End)
-double End { get; init; }
-double Start { get; init; }
-Deconstruct(ref double Start, ref double End) → void
-Equals(ChartRange other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record ChartSeriesDescriptor
-new(string Name, IReadOnlyList<ChartPointDescriptor> Points)
-IReadOnlyList<ChartPointDescriptor> Points { get; init; }
-string Name { get; init; }
-Deconstruct(ref string Name, ref IReadOnlyList<ChartPointDescriptor> Points) → void
-Equals(ChartSeriesDescriptor other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record ChartViewport
-new(double XMin, double XMax, double YMin, double YMax)
-double XMax { get; init; }
-double XMin { get; init; }
-double YMax { get; init; }
-double YMin { get; init; }
-Deconstruct(ref double XMin, ref double XMax, ref double YMin, ref double YMax) → void
-Equals(ChartViewport other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
 ### record CheckBoxElement
 new(Optional<bool?> IsChecked = null, Action<bool> OnIsCheckedChanged = null, string Label = null)
 Action<bool> OnIsCheckedChanged { get; init; }
@@ -1720,54 +1508,6 @@ Equals(ChildrenStrategy<TElement, TControl> other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
-
-### struct ChordArc
-ChordEnd Source { get; init; }
-ChordEnd Target { get; init; }
-Equals(ChordArc other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### struct ChordData
-ChordArc[] Chords { get; init; }
-ChordGroup[] Groups { get; init; }
-Equals(ChordData other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### struct ChordEnd
-double EndAngle { get; init; }
-double StartAngle { get; init; }
-double Value { get; init; }
-int Index { get; init; }
-Equals(ChordEnd other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### struct ChordGroup
-double EndAngle { get; init; }
-double StartAngle { get; init; }
-double Value { get; init; }
-int Index { get; init; }
-Equals(ChordGroup other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### class ChordLayout
-new()
-Generate(double[][] matrix) → ChordData
-SetPadAngle(double angle) → ChordLayout
-
-### class ClusterLayout<T>
-new()
-Hierarchy(T root, Func<T, IEnumerable<T>> childrenAccessor) → TreeNode<T>
-Layout(TreeNode<T> root) → TreeNode<T>
-Separation(Func<TreeNode<T>, TreeNode<T>, double> separation) → ClusterLayout<T>
-Size(double width, double height) → ClusterLayout<T>
 
 ### record ColorPickerElement
 new(Optional<Color> Color = null, Action<Color> OnColorChanged = null)
@@ -1792,16 +1532,6 @@ Equals(Element other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
-
-### class ColumnBuilder<T>
-Build() → FieldDescriptor
-CellRenderer(Func<object, Element> renderer) → ColumnBuilder<T>
-NotFilterable() → ColumnBuilder<T>
-NotSortable() → ColumnBuilder<T>
-Validate(IValidator[] validators) → ColumnBuilder<T>
-ValidateAsync(IAsyncValidator[] validators) → ColumnBuilder<T>
-Width(double? width = null, double? min = null, double? max = null, double? flex = null) → ColumnBuilder<T>
-WithEditor(Func<object, Action<object>, Element> editor) → ColumnBuilder<T>
 
 ### class ColumnPinAttribute
 new(PinPosition position)
@@ -1987,16 +1717,6 @@ ToString() → string
 new(T defaultValue, string name = null)
 T DefaultValue { get; }
 
-### class ContourGenerator
-new(int width, int height)
-Generate(double[] values) → ContourMultiPolygon[]
-SetThresholdCount(int count) → ContourGenerator
-SetThresholds(double[] thresholds) → ContourGenerator
-
-### class ContourMultiPolygon
-List<List<ValueTuple<double, double>>> Coordinates { get; init; }
-double Value { get; init; }
-
 ### class ControlDescriptor<TElement, TControl>
 new()
 AfterChildrenMountCallback<TElement, TControl> AfterChildrenMount { get; init; }
@@ -2031,149 +1751,6 @@ GetHashCode() → int
 Linear(int durationMs) → Curve
 Spring(float dampingRatio = 0.8, float period = 0.05) → Curve
 ToString() → string
-
-### struct D3Color
-new(Byte r, Byte g, Byte b, double opacity = 1)
-Byte B { get; }
-Byte G { get; }
-Byte R { get; }
-double Opacity { get; }
-Brighter(double k = 1) → D3Color
-Darker(double k = 1) → D3Color
-Parse(string format) → D3Color
-ToHex() → string
-ToRgb() → string
-ToString() → string
-
-### class DataGridComponent<T>
-new()
-Render() → Element
-
-### record DataGridElement<T>
-Action<IReadOnlySet<RowKey>> OnSelectionChanged { get; init; }
-EditMode EditMode { get; init; }
-Element EmptyTemplate { get; init; }
-Element LoadingTemplate { get; init; }
-Func<CellContext<T>, Element> CellTemplate { get; init; }
-Func<FieldDescriptor, FieldDescriptor> ColumnOverrides { get; init; }
-Func<FieldDescriptor, double, Element> PlaceholderCellTemplate { get; init; }
-Func<HeaderContext, Element> HeaderTemplate { get; init; }
-Func<RowContext<T>, Element> RowTemplate { get; init; }
-Func<RowKey, T, Task> OnRowChanged { get; init; }
-Func<T, RowKey, Element> RowDetailTemplate { get; init; }
-IDataSource<T> Source { get; init; }
-IReadOnlyList<FieldDescriptor> Columns { get; init; }
-SelectionMode SelectionMode { get; init; }
-TypeRegistry Registry { get; init; }
-bool AllowColumnReorder { get; init; }
-bool AllowColumnResize { get; init; }
-bool Editable { get; init; }
-bool ShowHeaders { get; init; }
-bool ShowSearch { get; init; }
-double EstimatedRowHeight { get; init; }
-double? RowHeight { get; init; }
-Equals(DataGridElement<T> other) → bool
-Equals(Element other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### class DataGridState<T>
-new(IDataSource<T> source, IReadOnlyList<FieldDescriptor> columns, SelectionMode selectionMode, int blockSize = 0)
-Action<RowKey, T, T> CommitDispatcher { get; set; }
-DataPageCache<T> PageCache { get; }
-IReadOnlyList<FieldDescriptor> AllColumns { get; }
-IReadOnlyList<FieldDescriptor> Columns { get; }
-IReadOnlyList<FilterDescriptor> Filters { get; }
-IReadOnlyList<SortDescriptor> Sorts { get; }
-IReadOnlyList<T> LoadedItems { get; }
-IReadOnlySet<RowKey> ExpandedRows { get; }
-IReadOnlySet<RowKey> SelectedKeys { get; }
-IReadOnlySet<string> HiddenColumns { get; }
-InfiniteResource<T> HookResource { get; }
-RowKey? AnchorKey { get; }
-RowKey? EditingRowKey { get; }
-RowKey? FocusedKey { get; }
-SelectionMode SelectionMode { get; }
-ValidationContext EditValidation { get; }
-bool HasPendingCommits { get; }
-bool HasValidationErrors { get; }
-bool IsEditing { get; }
-bool IsLoading { get; }
-bool IsRowEditing { get; }
-int EditingVersion { get; }
-int FocusedColIndex { get; }
-int FocusedRowIndex { get; }
-int ItemCount { get; }
-int MaxClientFallbackPageSize { get; set; }
-int SelectionVersion { get; }
-int? TotalCount { get; }
-object EditingValue { get; }
-string EditingColumnName { get; }
-string SearchQuery { get; }
-string[] RowKeyCache { get; }
-BeginAsyncCommit(RowKey key, T originalItem) → void
-BeginEdit() → bool
-BeginEdit(int rowIndex, int colIndex) → bool
-BeginRowEdit(int rowIndex) → bool
-CancelEdit() → void
-CancelRowEdit() → void
-ClearAllFilters() → void
-ClearFilter(string field) → void
-ClearSelection() → void
-CollapseAllRows() → void
-CollapseRow(RowKey key) → void
-CommitAndMoveNext() → ValueTuple<RowKey, T>?
-CommitEdit() → ValueTuple<RowKey, T>?
-CommitRowEdit() → ValueTuple<RowKey, T>?
-CompleteAsyncCommit(RowKey key) → void
-DismissCommitError(RowKey key) → void
-EnsureRangeLoaded(int firstRow, int lastRow) → void
-ExpandRow(RowKey key) → void
-FailAsyncCommit(RowKey key, string errorMessage) → void
-FocusEnd() → void
-FocusHome() → void
-FocusNextCell() → bool
-FocusPrevCell() → bool
-GetAllValidationMessages() → IReadOnlyList<ValidationMessage>
-GetColumnWidth(string columnName) → double
-GetCommitError(RowKey key) → string
-GetFilter(string field) → FilterDescriptor
-GetItemAt(int index) → T
-GetPinnedColumnGroups() → ValueTuple<IReadOnlyList<FieldDescriptor>, IReadOnlyList<FieldDescriptor>, IReadOnlyList<FieldDescriptor>>
-GetRowEditValue(string columnName) → object
-GetRowIndex(RowKey key) → int
-GetRowKeyAt(int index) → string
-GetSortDirection(string field) → SortDirection?
-GetValidationMessages(string fieldName) → IReadOnlyList<ValidationMessage>
-HandleRowClick(RowKey key, bool ctrlKey = false, bool shiftKey = false, IReadOnlyList<RowKey> visibleOrder = null) → void
-HideColumn(string columnName) → void
-IsColumnInRowEdit(RowKey rowKey, string columnName) → bool
-IsColumnVisible(string columnName) → bool
-IsCommitting(RowKey key) → bool
-IsExpanded(RowKey key) → bool
-IsItemLoaded(int index) → bool
-IsSelected(RowKey key) → bool
-LoadDataAsync(CancellationToken cancellationToken = null) → Task
-MoveFocus(int rowDelta, int colDelta) → void
-PinColumn(string columnName, PinPosition position) → void
-ReorderColumn(int fromIndex, int toIndex) → void
-ResizeColumn(string columnName, double newWidth) → void
-SelectAll(IReadOnlyList<RowKey> allKeys) → void
-SelectRange(RowKey from, RowKey to, IReadOnlyList<RowKey> visibleOrder) → void
-SetFilter(FilterDescriptor filter) → void
-SetFocus(int rowIndex, int colIndex) → void
-SetHookResource(InfiniteResource<T> resource) → void
-SetSearchQuery(string query) → void
-SetSelectionMode(SelectionMode mode) → void
-ShowColumn(string columnName) → void
-ToggleColumnVisibility(string columnName) → void
-ToggleRowExpansion(RowKey key) → void
-ToggleSort(string field, bool additive = false) → void
-UpdateEditingValue(object value) → void
-UpdateRowEditValue(string columnName, object value) → void
-ValidateFieldAsync(string fieldName, object value, CancellationToken cancellationToken = null) → Task
-event Action StateChanged
 
 ### record DataPage<T>
 new(IReadOnlyList<T> Items, string ContinuationToken = null, int? TotalCount = null)
@@ -2259,25 +1836,6 @@ Resolve(string path) → DeepLinkResult<TRoute>
 TRoute[] Routes { get; init; }
 bool Matched { get; init; }
 
-### class Delaunay
-ValueTuple<double, double>[] Points { get; }
-int[] Halfedges { get; }
-int[] Hull { get; }
-int[] Triangles { get; }
-Find(double x, double y) → int
-From(IReadOnlyList<ValueTuple<double, double>> points) → Delaunay
-Neighbors(int index) → IEnumerable<int>
-Voronoi(double xmin = 0, double ymin = 0, double xmax = 960, double ymax = 500) → Voronoi
-
-### class DensityContourGenerator
-new()
-Generate(IReadOnlyList<ValueTuple<double, double>> points) → ContourMultiPolygon[]
-SetBandwidth(double bandwidth) → DensityContourGenerator
-SetCellSize(int size) → DensityContourGenerator
-SetSize(int width, int height) → DensityContourGenerator
-SetThresholdCount(int count) → DensityContourGenerator
-SetThresholds(double[] thresholds) → DensityContourGenerator
-
 ### class DescriptorHandler<TElement, TControl>
 new(ControlDescriptor<TElement, TControl> descriptor)
 ChildrenStrategy<TElement, TControl> Children { get; }
@@ -2331,395 +1889,6 @@ UInt32 Dpi { get; init; }
 bool IsPrimary { get; init; }
 string Id { get; init; }
 Equals(DisplayInfo other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### class DockActiveContentChangedEventArgs
-new()
-DockableContent ActiveContent { get; init; }
-DockableContent PreviousContent { get; init; }
-
-### class DockCancelEventArgs
-bool Cancel { get; set; }
-
-### class DockContentDockedEventArgs
-DockTarget Target { get; init; }
-DockableContent Content { get; init; }
-
-### class DockContentDockingEventArgs
-DockTarget Target { get; init; }
-DockableContent Content { get; init; }
-
-### class DockContentFloatedEventArgs
-DockableContent Content { get; init; }
-
-### class DockContentFloatingEventArgs
-DockableContent Content { get; init; }
-
-### struct DockDisplay
-new(double X, double Y, double Width, double Height)
-double Bottom { get; }
-double Height { get; init; }
-double Right { get; }
-double Width { get; init; }
-double X { get; init; }
-double Y { get; init; }
-Deconstruct(ref double X, ref double Y, ref double Width, ref double Height) → void
-Equals(DockDisplay other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### class DockDocumentClosedEventArgs
-DockableContent Document { get; init; }
-
-### class DockDocumentClosingEventArgs
-DockableContent Document { get; init; }
-
-### struct DockFloatingBounds
-new(double X, double Y, double Width, double Height)
-double Height { get; init; }
-double Width { get; init; }
-double X { get; init; }
-double Y { get; init; }
-Deconstruct(ref double X, ref double Y, ref double Width, ref double Height) → void
-Equals(DockFloatingBounds other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### class DockFloatingWindowClosedEventArgs
-DockFloatingCloseReason Reason { get; init; }
-DockableContent Content { get; init; }
-
-### class DockFloatingWindowCreatedEventArgs
-new()
-DockableContent DraggedSource { get; init; }
-
-### class DockHostModel
-new()
-DockNode Root { get; }
-DockableContent ActiveContent { get; }
-IDockLayoutStrategy LayoutStrategy { get; }
-IReadOnlyList<FloatingDockWindow> Floating { get; }
-IReadOnlyList<ToolWindow> BottomSide { get; }
-IReadOnlyList<ToolWindow> LeftSide { get; }
-IReadOnlyList<ToolWindow> RightSide { get; }
-IReadOnlyList<ToolWindow> TopSide { get; }
-Activate(DockableContent content) → void
-AllContent() → IEnumerable<DockableContent>
-Close(DockableContent content) → void
-Descendants() → IEnumerable<DockableContent>
-Dock(DockableContent content, DockTabGroup targetGroup, DockTarget target = DockTarget.Center) → void
-Dock(DockableContent content, DockTarget target) → void
-Float(DockableContent content) → void
-Hide(ToolWindow toolWindow) → void
-PinToSide(ToolWindow toolWindow, DockSide side) → void
-Show(DockableContent content) → void
-
-### class DockHostRecord
-DockManager Manager { get; }
-string Id { get; init; }
-
-### class DockLayoutChangedEventArgs
-new()
-
-### class DockLayoutChangingEventArgs
-new()
-
-### class DockLayoutLoadResult
-new()
-DockNode Root { get; init; }
-IReadOnlyList<FloatingDockWindow> Floating { get; init; }
-IReadOnlyList<ToolWindow> BottomSide { get; init; }
-IReadOnlyList<ToolWindow> LeftSide { get; init; }
-IReadOnlyList<ToolWindow> RightSide { get; init; }
-IReadOnlyList<ToolWindow> TopSide { get; init; }
-bool IsFallback { get; init; }
-bool Success { get; init; }
-int Schema { get; init; }
-string ActiveKey { get; init; }
-string FailureReason { get; init; }
-Fallback(string reason) → DockLayoutLoadResult
-
-### class DockLayoutMigrationRegistry
-new()
-new(bool includeBuiltins)
-Add(IDockLayoutMigration migration) → DockLayoutMigrationRegistry
-DetectSchema(JsonNode root) → int
-TryUpgrade(JsonNode root, int fromVersion, int toVersion, ref JsonNode migrated, ref string failureReason) → bool
-
-### record DockLayoutSnapshot
-new(DockNode Root, IReadOnlyList<ToolWindow> LeftSide, IReadOnlyList<ToolWindow> TopSide, IReadOnlyList<ToolWindow> RightSide, IReadOnlyList<ToolWindow> BottomSide, IReadOnlyList<FloatingDockWindow> Floating, DockableContent ActiveContent)
-DockNode Root { get; init; }
-DockableContent ActiveContent { get; init; }
-IReadOnlyList<FloatingDockWindow> Floating { get; init; }
-IReadOnlyList<ToolWindow> BottomSide { get; init; }
-IReadOnlyList<ToolWindow> LeftSide { get; init; }
-IReadOnlyList<ToolWindow> RightSide { get; init; }
-IReadOnlyList<ToolWindow> TopSide { get; init; }
-Deconstruct(ref DockNode Root, ref IReadOnlyList<ToolWindow> LeftSide, ref IReadOnlyList<ToolWindow> TopSide, ref IReadOnlyList<ToolWindow> RightSide, ref IReadOnlyList<ToolWindow> BottomSide, ref IReadOnlyList<FloatingDockWindow> Floating, ref DockableContent ActiveContent) → void
-Equals(DockLayoutSnapshot other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockManager
-new()
-Action OnDropTargetsDismissed { get; init; }
-Action OnSplitterDragCompleted { get; init; }
-Action<DockActiveContentChangedEventArgs> OnActiveContentChanged { get; init; }
-Action<DockContentDockedEventArgs> OnContentDocked { get; init; }
-Action<DockContentDockingEventArgs> OnContentDocking { get; init; }
-Action<DockContentFloatedEventArgs> OnContentFloated { get; init; }
-Action<DockContentFloatingEventArgs> OnContentFloating { get; init; }
-Action<DockDocumentClosedEventArgs> OnDocumentClosed { get; init; }
-Action<DockDocumentClosingEventArgs> OnDocumentClosing { get; init; }
-Action<DockFloatingWindowClosedEventArgs> OnFloatingWindowClosed { get; init; }
-Action<DockFloatingWindowCreatedEventArgs> OnFloatingWindowCreated { get; init; }
-Action<DockLayoutChangedEventArgs> OnLayoutChanged { get; init; }
-Action<DockLayoutChangingEventArgs> OnLayoutChanging { get; init; }
-Action<DockNode> OnLiveLayoutChanged { get; init; }
-Action<DockTarget> OnDropTargetConfirmed { get; init; }
-Action<DockTarget?> OnDropTargetHovered { get; init; }
-Action<DockToolWindowClosedEventArgs> OnToolWindowClosed { get; init; }
-Action<DockToolWindowClosingEventArgs> OnToolWindowClosing { get; init; }
-Action<DockToolWindowHiddenEventArgs> OnToolWindowHidden { get; init; }
-Action<DockToolWindowHidingEventArgs> OnToolWindowHiding { get; init; }
-Dictionary<string, double[]> SplitRatios { get; init; }
-DockNode Layout { get; init; }
-DockOperationLog OperationLog { get; init; }
-DockableContent ActiveDocument { get; init; }
-IDockAdapter Adapter { get; init; }
-IDockLayoutStrategy LayoutStrategy { get; init; }
-IReadOnlyList<DockableContent> BottomSide { get; init; }
-IReadOnlyList<DockableContent> LeftSide { get; init; }
-IReadOnlyList<DockableContent> RightSide { get; init; }
-IReadOnlyList<DockableContent> TopSide { get; init; }
-bool ShowDropTargets { get; init; }
-int LayoutSchemaVersion { get; init; }
-string PersistenceId { get; init; }
-Equals(DockManager other) → bool
-Equals(Element other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockNode
-Equals(DockNode other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockOperation
-new()
-DateTime TimestampUtc { get; init; }
-DockNode Layout { get; init; }
-DockOperationKind Kind { get; init; }
-DockTarget? Target { get; init; }
-IReadOnlyDictionary<string, double[]> Ratios { get; init; }
-string Description { get; init; }
-string LayoutJson { get; init; }
-string PaneKey { get; init; }
-Equals(DockOperation other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### class DockOperationLog
-new()
-DockOperation Current { get; }
-IReadOnlyList<DockOperation> Operations { get; }
-bool EmitToDebug { get; set; }
-int Count { get; }
-int Cursor { get; }
-Append(DockOperation op) → void
-Record(DockOperationKind kind, string description, DockNode layout = null, IDictionary<string, double[]> ratios = null, string paneKey = null, DockTarget? target = null) → DockOperation
-Reset() → void
-Rewind() → DockOperation
-SeekTo(int index) → DockOperation
-StepForward() → DockOperation
-TruncateAfterCursor() → void
-
-### struct DockPaneInfo
-new(object Key, string Title, DockableContent Content)
-DockableContent Content { get; init; }
-object Key { get; init; }
-string Title { get; init; }
-Deconstruct(ref object Key, ref string Title, ref DockableContent Content) → void
-Equals(DockPaneInfo other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockRoutingFallback
-new(string Description)
-string Description { get; init; }
-Deconstruct(ref string Description) → void
-Equals(DockRoutingFallback other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockSnapshot
-new()
-DockSnapshotNode Root { get; init; }
-IReadOnlyList<DockSnapshotPane> BottomSide { get; init; }
-IReadOnlyList<DockSnapshotPane> LeftSide { get; init; }
-IReadOnlyList<DockSnapshotPane> RightSide { get; init; }
-IReadOnlyList<DockSnapshotPane> TopSide { get; init; }
-string ActiveKey { get; init; }
-string HostId { get; init; }
-Equals(DockSnapshot other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockSnapshotLeaf
-new(DockSnapshotPane Pane)
-DockSnapshotPane Pane { get; init; }
-string Kind { get; }
-Deconstruct(ref DockSnapshotPane Pane) → void
-Equals(DockSnapshotLeaf other) → bool
-Equals(DockSnapshotNode other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockSnapshotNode
-string Kind { get; }
-Equals(DockSnapshotNode other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockSnapshotPane
-new(string Key, string Title, string Role, bool CanClose, bool CanFloat, bool CanMove)
-bool CanClose { get; init; }
-bool CanFloat { get; init; }
-bool CanMove { get; init; }
-string Key { get; init; }
-string Role { get; init; }
-string Title { get; init; }
-Deconstruct(ref string Key, ref string Title, ref string Role, ref bool CanClose, ref bool CanFloat, ref bool CanMove) → void
-Equals(DockSnapshotPane other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockSnapshotSplit
-new(string Orientation, IReadOnlyList<DockSnapshotNode> Children)
-IReadOnlyList<DockSnapshotNode> Children { get; init; }
-string Kind { get; }
-string Orientation { get; init; }
-Deconstruct(ref string Orientation, ref IReadOnlyList<DockSnapshotNode> Children) → void
-Equals(DockSnapshotNode other) → bool
-Equals(DockSnapshotSplit other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockSnapshotTabGroup
-new(int SelectedIndex, IReadOnlyList<DockSnapshotPane> Documents)
-IReadOnlyList<DockSnapshotPane> Documents { get; init; }
-int SelectedIndex { get; init; }
-string Kind { get; }
-Deconstruct(ref int SelectedIndex, ref IReadOnlyList<DockSnapshotPane> Documents) → void
-Equals(DockSnapshotNode other) → bool
-Equals(DockSnapshotTabGroup other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockSplit
-new(Orientation Orientation, IReadOnlyList<DockNode> Children, double? Width = null, double? Height = null, double? MinWidth = null, double? MinHeight = null, double? MaxWidth = null, double? MaxHeight = null)
-IReadOnlyList<DockNode> Children { get; init; }
-Orientation Orientation { get; init; }
-double? Height { get; init; }
-double? MaxHeight { get; init; }
-double? MaxWidth { get; init; }
-double? MinHeight { get; init; }
-double? MinWidth { get; init; }
-double? Width { get; init; }
-Deconstruct(ref Orientation Orientation, ref IReadOnlyList<DockNode> Children, ref double? Width, ref double? Height, ref double? MinWidth, ref double? MinHeight, ref double? MaxWidth, ref double? MaxHeight) → void
-Equals(DockNode other) → bool
-Equals(DockSplit other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockTabGroup
-new(IReadOnlyList<DockableContent> Documents, TabPosition TabPosition = TabPosition.Top, bool CompactTabs = false, bool ShowWhenEmpty = false, int SelectedIndex = -1, double? Width = null, double? Height = null, TabChrome TabChrome = TabChrome.Win11, DockGroupRole Role = DockGroupRole.General)
-DockGroupRole Role { get; init; }
-IReadOnlyList<DockableContent> Documents { get; init; }
-TabChrome TabChrome { get; init; }
-TabPosition TabPosition { get; init; }
-bool CompactTabs { get; init; }
-bool ShowWhenEmpty { get; init; }
-double? Height { get; init; }
-double? Width { get; init; }
-int SelectedIndex { get; init; }
-Deconstruct(ref IReadOnlyList<DockableContent> Documents, ref TabPosition TabPosition, ref bool CompactTabs, ref bool ShowWhenEmpty, ref int SelectedIndex, ref double? Width, ref double? Height, ref TabChrome TabChrome, ref DockGroupRole Role) → void
-Equals(DockNode other) → bool
-Equals(DockTabGroup other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record DockTabGroupContext
-new(DockableContent DraggedSource)
-DockableContent DraggedSource { get; init; }
-Deconstruct(ref DockableContent DraggedSource) → void
-Equals(DockTabGroupContext other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### class DockToolWindowClosedEventArgs
-DockableContent ToolWindow { get; init; }
-
-### class DockToolWindowClosingEventArgs
-DockableContent ToolWindow { get; init; }
-
-### class DockToolWindowHiddenEventArgs
-DockableContent ToolWindow { get; init; }
-
-### class DockToolWindowHidingEventArgs
-DockableContent ToolWindow { get; init; }
-
-### record DockableContent
-new(string Title, Element Content = null, object Key = null, bool CanClose = false, bool CanPin = false, double? Width = null, double? Height = null, string PersistenceState = null)
-Element Content { get; init; }
-bool CanClose { get; init; }
-bool CanFloat { get; init; }
-bool CanMove { get; init; }
-bool CanPin { get; init; }
-double? Height { get; init; }
-double? Width { get; init; }
-object Key { get; init; }
-string PersistenceState { get; init; }
-string Title { get; init; }
-Equals(DockNode other) → bool
-Equals(DockableContent other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record Document
-new()
-bool CanDockAsToolWindow { get; init; }
-Equals(DockableContent other) → bool
-Equals(Document other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### record Document<TState>
-new()
-TState State { get; init; }
-Equals(Document other) → bool
-Equals(Document<TState> other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
@@ -2993,6 +2162,7 @@ VisualModifiers Visual { get; init; }
 XYFocusKeyboardNavigationMode? XYFocusKeyboardNavigation { get; init; }
 bool? IsDragRegion { get; init; }
 bool? IsEnabled { get; init; }
+bool? IsHitTestVisible { get; init; }
 bool? IsTabStop { get; init; }
 bool? IsVisible { get; init; }
 double? FontSize { get; init; }
@@ -3265,18 +2435,6 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
-### record FloatingDockWindow
-IReadOnlyList<DockableContent> Contents { get; init; }
-double Height { get; init; }
-double Width { get; init; }
-double X { get; init; }
-double Y { get; init; }
-object Id { get; init; }
-Equals(FloatingDockWindow other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
 ### record FlyoutElement
 new(Element Target, Element FlyoutContent)
 Action OnClosed { get; init; }
@@ -3355,86 +2513,6 @@ Equals(IconData other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
-
-### class ForceGraphElement
-new()
-AlternateView(Element view) → ForceGraphElement
-Charge(double strength) → ForceGraphElement
-Description(string description) → ForceGraphElement
-Distance(double distance) → ForceGraphElement
-Height(double height) → ForceGraphElement
-Iterations(int count) → ForceGraphElement
-LinkColor(string color) → ForceGraphElement
-NodeColor(string color) → ForceGraphElement
-OnReady(Action<ForceGraphHandle> callback) → ForceGraphElement
-Title(string title) → ForceGraphElement
-ToElement() → Element
-Width(double width) → ForceGraphElement
-
-### class ForceGraphHandle
-Canvas Canvas { get; }
-Ellipse[] NodeEllipses { get; }
-ForceSimulation Simulation { get; }
-Line[] LinkLines { get; }
-TextBlock[] NodeLabels { get; }
-SyncPositions() → void
-
-### struct ForceLink
-new(int Source, int Target, double Strength = 1, double Distance = 50)
-double Distance { get; set; }
-double Strength { get; set; }
-int Source { get; set; }
-int Target { get; set; }
-Deconstruct(ref int Source, ref int Target, ref double Strength, ref double Distance) → void
-Equals(ForceLink other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### class ForceNode
-new()
-double Radius { get; set; }
-double Vx { get; set; }
-double Vy { get; set; }
-double X { get; set; }
-double Y { get; set; }
-double? Fx { get; set; }
-double? Fy { get; set; }
-int Index { get; }
-object Data { get; set; }
-string Label { get; set; }
-
-### class ForceSimulation
-new()
-IReadOnlyList<ForceLink> Links { get; }
-IReadOnlyList<ForceNode> Nodes { get; }
-double Alpha { get; set; }
-double AlphaMin { get; set; }
-double AlphaTarget { get; set; }
-AlphaDecay(double decay) → ForceSimulation
-Center(double x, double y) → ForceSimulation
-CenterStrength(double strength) → ForceSimulation
-ChargeStrength(double strength) → ForceSimulation
-CollisionRadius(double radius) → ForceSimulation
-InitializePositions() → ForceSimulation
-LinkDistance(double distance) → ForceSimulation
-LinkStrength(double strength) → ForceSimulation
-Run(int iterations = 300) → ForceSimulation
-SetLinks(IEnumerable<ForceLink> links) → ForceSimulation
-SetNodes(IEnumerable<ForceNode> nodes) → ForceSimulation
-Tick() → void
-VelocityDecay(double decay) → ForceSimulation
-
-### class ForcedColorsTheme
-new()
-Color Background { get; init; }
-Color Foreground { get; init; }
-Color GrayText { get; init; }
-Color Highlight { get; init; }
-Color HighlightText { get; init; }
-Color Hotlight { get; init; }
-Color[] SeriesColors { get; init; }
-FromSystem() → ForcedColorsTheme
 
 ### record FormFieldElement
 new(Element Content, string Label = null, bool Required = false, string Description = null)
@@ -3567,43 +2645,6 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
-### record HardenDiff
-new(int Index, D3Color Original, D3Color Adjusted, string Reason)
-D3Color Adjusted { get; init; }
-D3Color Original { get; init; }
-int Index { get; init; }
-string Reason { get; init; }
-Deconstruct(ref int Index, ref D3Color Original, ref D3Color Adjusted, ref string Reason) → void
-Equals(HardenDiff other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### class HardenOptions
-new()
-D3Color? Background { get; init; }
-double MinBackgroundContrast { get; init; }
-double MinColorblindDeltaE { get; init; }
-double MinPairwiseContrast { get; init; }
-int MaxPasses { get; init; }
-
-### class HardenResult
-ChartPalette Palette { get; init; }
-IReadOnlyList<HardenDiff> Diffs { get; init; }
-bool PassedWithoutChanges { get; init; }
-
-### record HeaderContext
-new(FieldDescriptor Column, SortDirection? CurrentSort, Action ToggleSort, Action<double> Resize)
-Action ToggleSort { get; init; }
-Action<double> Resize { get; init; }
-FieldDescriptor Column { get; init; }
-SortDirection? CurrentSort { get; init; }
-Deconstruct(ref FieldDescriptor Column, ref SortDirection? CurrentSort, ref Action ToggleSort, ref Action<double> Resize) → void
-Equals(HeaderContext other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
 ### class HookOrderException
 new(string message)
 
@@ -3623,11 +2664,6 @@ ToString() → string
 ### interface IAsyncValidator
 ValidateAsync(object value, string field, CancellationToken cancellationToken = null) → Task<ValidationMessage>
 
-### interface ICurve
-LineEnd() → void
-LineStart() → void
-Point(double x, double y) → void
-
 ### interface IDataSource<T>
 DataSourceCapabilities Capabilities { get; }
 GetPageAsync(DataRequest request, CancellationToken cancellationToken = null) → Task<DataPage<T>>
@@ -3637,22 +2673,6 @@ GetRowKey(T item) → RowKey
 Mount(MountContext ctx, TElement element) → UIElement
 Unmount(UnmountContext ctx, TElement element, UIElement control) → V1UnmountDisposition
 Update(UpdateContext ctx, TElement oldEl, TElement newEl, UIElement control) → UIElement
-
-### interface IDockAdapter
-GetFloatingWindowTitleBar(DockableContent draggedSource) → Element
-OnContentCreated(DockableContent content) → Element
-OnGroupCreated(DockTabGroupContext group) → void
-
-### interface IDockLayoutMigration
-int FromVersion { get; }
-int ToVersion { get; }
-Migrate(JsonNode root) → JsonNode
-
-### interface IDockLayoutStrategy
-AfterInsertDocument(DockHostModel model, Document document) → void
-AfterInsertToolWindow(DockHostModel model, ToolWindow toolWindow) → void
-BeforeInsertDocument(DockHostModel model, Document document) → bool
-BeforeInsertToolWindow(DockHostModel model, ToolWindow toolWindow) → bool
 
 ### interface IElementHandler<TElement, TControl>
 ChildrenStrategy<TElement, TControl> Children { get; }
@@ -3701,9 +2721,6 @@ string Key { get; }
 
 ### interface IStringResourceProvider
 GetString(string locale, string ns, string key) → string
-
-### interface ISymbolType
-Draw(PathBuilder path, double size) → void
 
 ### interface IValidator
 Validate(object value, string field) → ValidationMessage
@@ -4216,16 +3233,6 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
-### class LineGenerator<T>
-new(Func<T, int, double> x, Func<T, int, double> y)
-int? Digits { get; }
-Generate(IReadOnlyList<T> data) → string
-SetCurve(CurveFactory curve) → LineGenerator<T>
-SetDefined(Func<T, int, bool> defined) → LineGenerator<T>
-SetDigits(int? digits) → LineGenerator<T>
-SetX(Func<T, int, double> x) → LineGenerator<T>
-SetY(Func<T, int, double> y) → LineGenerator<T>
-
 ### record LinearCurve
 new(TimeSpan Duration)
 TimeSpan Duration { get; init; }
@@ -4235,30 +3242,6 @@ Equals(LinearCurve other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
-
-### class LinearScale
-new()
-new(double[] domain, double[] range)
-bool Clamped { get; set; }
-double? Unknown { get; set; }
-double[] Domain { get; set; }
-double[] Range { get; set; }
-Copy() → LinearScale
-Invert(double y) → double
-Map(double x) → double
-Nice(int count = 10) → LinearScale
-SetClamp(bool clamp) → LinearScale
-SetDomain(double[] domain) → LinearScale
-SetRange(double[] range) → LinearScale
-SetUnknown(double? unknown) → LinearScale
-Ticks(int count = 10) → double[]
-
-### class LinkGenerator<T>
-new(Func<T, ValueTuple<double, double>> source, Func<T, ValueTuple<double, double>> target, LinkOrientation orientation = LinkOrientation.Vertical)
-Generate(T datum) → string
-SetDigits(int? digits) → LinkGenerator<T>
-SetSource(Func<T, ValueTuple<double, double>> source) → LinkGenerator<T>
-SetTarget(Func<T, ValueTuple<double, double>> target) → LinkGenerator<T>
 
 ### record ListBoxElement
 new(string[] Items)
@@ -4354,23 +3337,6 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
-### class LogScale
-new()
-new(double[] domain, double[] range)
-bool Clamped { get; set; }
-double Base { get; set; }
-double[] Domain { get; set; }
-double[] Range { get; set; }
-Copy() → LogScale
-Invert(double y) → double
-Map(double x) → double
-Nice() → LogScale
-SetBase(double b) → LogScale
-SetClamp(bool clamp) → LogScale
-SetDomain(double[] domain) → LogScale
-SetRange(double[] range) → LogScale
-Ticks(int count = 10) → double[]
-
 ### struct LongPressGesture
 new(Point Position, TimeSpan Duration, GesturePhase Phase)
 GesturePhase Phase { get; init; }
@@ -4400,35 +3366,6 @@ double ZoomLevel { get; init; }
 string MapServiceToken { get; init; }
 Equals(Element other) → bool
 Equals(MapControlElement other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### struct MarkdownAttribute
-new(string text, MarkdownTextType[] substrTypes, int[] substrOffsets)
-Simple(string text) → MarkdownAttribute
-
-### record MarkdownOptions
-new()
-Func<Element, Element> BlockQuote { get; init; }
-Func<Element, Element> ListItem { get; init; }
-Func<Element, Element> Paragraph { get; init; }
-Func<Element> ThematicBreak { get; init; }
-Func<Element[], Element> UnorderedList { get; init; }
-Func<Element[], MarkdownAlign[], Element> Table { get; init; }
-Func<Element[], Uri, Element> LinkBuilder { get; init; }
-Func<int, Element, Element> Heading { get; init; }
-Func<int, Element[], Element> OrderedList { get; init; }
-Func<string, Element> HtmlBlock { get; init; }
-Func<string, Uri, Element> Image { get; init; }
-Func<string, string, Element> CodeBlock { get; init; }
-MarkdownParserFlags ParserFlags { get; init; }
-ThemeRef? TableHeaderBackground { get; init; }
-Thickness TableCellPadding { get; init; }
-bool UnifiedRichText { get; init; }
-int MaxInputBytes { get; init; }
-string CodeFontFamily { get; init; }
-Equals(MarkdownOptions other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
@@ -4749,18 +3686,36 @@ ToString() → string
 ### record NavigationViewElement
 new(NavigationViewItemData[] MenuItems, Element Content = null)
 Action OnBackRequested { get; init; }
+Action OnSettingsSelected { get; init; }
+Action<NavigationViewDisplayMode> OnDisplayModeChanged { get; init; }
+Action<bool> OnPaneOpenChanged { get; init; }
+Action<string> OnItemCollapsed { get; init; }
+Action<string> OnItemExpanding { get; init; }
+Action<string> OnItemInvoked { get; init; }
 Action<string> OnSelectedTagChanged { get; init; }
 AutoSuggestBoxElement AutoSuggestBox { get; init; }
 Element Content { get; init; }
+Element ContentOverlay { get; init; }
 Element Header { get; init; }
 Element PaneCustomContent { get; init; }
 Element PaneFooter { get; init; }
+Element PaneHeader { get; init; }
+NavigationViewBackButtonVisible IsBackButtonVisible { get; init; }
+NavigationViewItemData[] FooterMenuItems { get; init; }
 NavigationViewItemData[] MenuItems { get; init; }
+NavigationViewOverflowLabelMode OverflowLabelMode { get; init; }
 NavigationViewPaneDisplayMode PaneDisplayMode { get; init; }
+NavigationViewSelectionFollowsFocus SelectionFollowsFocus { get; init; }
+NavigationViewShoulderNavigationEnabled ShoulderNavigationEnabled { get; init; }
+bool AlwaysShowHeader { get; init; }
 bool IsBackEnabled { get; init; }
 bool IsPaneOpen { get; init; }
+bool IsPaneToggleButtonVisible { get; init; }
+bool IsPaneVisible { get; init; }
 bool IsSettingsVisible { get; init; }
+bool IsTitleBarAutoPaddingEnabled { get; init; }
 double CompactModeThresholdWidth { get; init; }
+double CompactPaneLength { get; init; }
 double ExpandedModeThresholdWidth { get; init; }
 double OpenPaneLength { get; init; }
 string PaneTitle { get; init; }
@@ -4855,38 +3810,6 @@ GetValueOrDefault(T fallback) → T
 Of(T value) → Optional<T>
 ToString() → string
 
-### class OrdinalScale<TDomain>
-new()
-new(IEnumerable<TDomain> domain, double[] range)
-TDomain[] Domain { get; set; }
-bool AllowImplicitGrowth { get; set; }
-double Unknown { get; set; }
-double[] Range { get; set; }
-Copy() → OrdinalScale<TDomain>
-Map(TDomain x) → double
-SetDomain(TDomain[] domain) → OrdinalScale<TDomain>
-SetRange(double[] range) → OrdinalScale<TDomain>
-SetUnknown(double unknown) → OrdinalScale<TDomain>
-
-### class PackLayout<T>
-new()
-Layout(T root, Func<T, IEnumerable<T>> children, Func<T, double> value) → PackNode<T>
-SetPadding(double padding) → PackLayout<T>
-Size(double radius) → PackLayout<T>
-
-### class PackNode<T>
-List<PackNode<T>> Children { get; }
-PackNode<T> Parent { get; init; }
-PackNode<T> TopAncestor { get; }
-T Data { get; init; }
-double R { get; }
-double Value { get; }
-double X { get; }
-double Y { get; }
-int Depth { get; init; }
-Descendants() → IEnumerable<PackNode<T>>
-Leaves() → IEnumerable<PackNode<T>>
-
 ### class PackagedSettingsStore
 new()
 IsAvailable() → bool
@@ -4962,32 +3885,6 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
-### class PartitionLayout<T>
-new()
-Layout(PartitionNode<T> root) → PartitionNode<T>
-Layout(T root, Func<T, IEnumerable<T>> children, Func<T, double> value) → PartitionNode<T>
-SetPadding(double p) → PartitionLayout<T>
-SetRound(bool round) → PartitionLayout<T>
-Size(double x1, double y1) → PartitionLayout<T>
-
-### class PartitionNode<T>
-List<PartitionNode<T>> Children { get; }
-PartitionNode<T> Parent { get; init; }
-PartitionNode<T> TopAncestor { get; }
-T Data { get; init; }
-double Height { get; }
-double Value { get; }
-double Width { get; }
-double X0 { get; }
-double X1 { get; }
-double Y0 { get; }
-double Y1 { get; }
-int Depth { get; init; }
-Ancestors() → IEnumerable<PartitionNode<T>>
-Descendants() → IEnumerable<PartitionNode<T>>
-Leaves() → IEnumerable<PartitionNode<T>>
-ToPolar(double totalWidth, double totalHeight, double maxRadius) → ValueTuple<double, double, double, double>
-
 ### record PasswordBoxElement
 new(Optional<string> Password = null, Action<string> OnPasswordChanged = null, string PlaceholderText = null)
 Action<string> OnPasswordChanged { get; init; }
@@ -5002,20 +3899,6 @@ Equals(Element other) → bool
 Equals(PasswordBoxElement other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
-ToString() → string
-
-### class PathBuilder
-new(int? digits = null)
-Arc(double x, double y, double r, double a0, double a1, bool ccw = false) → PathBuilder
-ArcTo(double x1, double y1, double x2, double y2, double r) → PathBuilder
-BezierCurveTo(double x1, double y1, double x2, double y2, double x, double y) → PathBuilder
-ClosePath() → PathBuilder
-Create() → PathBuilder
-CreateRound(int digits = 3) → PathBuilder
-LineTo(double x, double y) → PathBuilder
-MoveTo(double x, double y) → PathBuilder
-QuadraticCurveTo(double x1, double y1, double x, double y) → PathBuilder
-Rect(double x, double y, double w, double h) → PathBuilder
 ToString() → string
 
 ### record PathElement
@@ -5086,73 +3969,6 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
-### struct PieArc<T>
-new(T Data, double Value, int Index, double StartAngle, double EndAngle, double PadAngle)
-T Data { get; init; }
-double EndAngle { get; init; }
-double PadAngle { get; init; }
-double StartAngle { get; init; }
-double Value { get; init; }
-int Index { get; init; }
-Deconstruct(ref T Data, ref double Value, ref int Index, ref double StartAngle, ref double EndAngle, ref double PadAngle) → void
-Equals(PieArc<T> other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### class PieChartElement<T>
-new()
-AlternateView(Element view) → PieChartElement<T>
-ChartBackground(Color background) → PieChartElement<T>
-ChartBackground(D3Color background) → PieChartElement<T>
-ChartBackground(string background) → PieChartElement<T>
-ColorOnly() → PieChartElement<T>
-DataLabel(Func<T, int, string> labeller) → PieChartElement<T>
-Description(string description) → PieChartElement<T>
-Height(double height) → PieChartElement<T>
-InnerRadius(double radius) → PieChartElement<T>
-LabelRadiusOffset(double offset) → PieChartElement<T>
-LabelView(Func<T, PieSliceLayout, Element> render, Func<T, string> name = null, bool interactive = false) → PieChartElement<T>
-OnReady(Action<PieChartHandle<T>> callback) → PieChartElement<T>
-PadAngle(double angle) → PieChartElement<T>
-Palette(ChartPalette palette) → PieChartElement<T>
-SeriesNames(string[] names) → PieChartElement<T>
-SetColors(D3Color[] colors) → PieChartElement<T>
-Title(string title) → PieChartElement<T>
-ToElement() → Element
-Width(double width) → PieChartElement<T>
-
-### class PieChartHandle<T>
-Canvas Canvas { get; }
-
-### class PieGenerator<T>
-new(Func<T, int, double> value)
-Generate(IReadOnlyList<T> data) → PieArc<T>[]
-SetEndAngle(double angle) → PieGenerator<T>
-SetPadAngle(double angle) → PieGenerator<T>
-SetSort(Comparison<T> sort) → PieGenerator<T>
-SetSortValues(Comparison<double> sortValues) → PieGenerator<T>
-SetStartAngle(double angle) → PieGenerator<T>
-SetValue(Func<T, int, double> value) → PieGenerator<T>
-
-### struct PieSliceLayout
-new(int Index, double Value, double Fraction, double CentroidX, double CentroidY, double StartAngle, double EndAngle, double InnerRadius, double OuterRadius, D3Color Color)
-D3Color Color { get; init; }
-double CentroidX { get; init; }
-double CentroidY { get; init; }
-double EndAngle { get; init; }
-double Fraction { get; init; }
-double InnerRadius { get; init; }
-double OuterRadius { get; init; }
-double StartAngle { get; init; }
-double Value { get; init; }
-int Index { get; init; }
-Deconstruct(ref int Index, ref double Value, ref double Fraction, ref double CentroidX, ref double CentroidY, ref double StartAngle, ref double EndAngle, ref double InnerRadius, ref double OuterRadius, ref D3Color Color) → void
-Equals(PieSliceLayout other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
 ### struct PinchGesture
 new(double Scale, double ScaleDelta, Point Center, GesturePhase Phase, bool IsInertial)
 GesturePhase Phase { get; init; }
@@ -5218,20 +4034,6 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
-### class PointScale<TDomain>
-new()
-TDomain[] Domain { get; set; }
-double Align { get; set; }
-double Padding { get; set; }
-double Step { get; }
-double[] Range { get; set; }
-Copy() → PointScale<TDomain>
-Map(TDomain x) → double
-SetAlign(double a) → PointScale<TDomain>
-SetDomain(TDomain[] domain) → PointScale<TDomain>
-SetPadding(double p) → PointScale<TDomain>
-SetRange(double[] range) → PointScale<TDomain>
-
 ### class PoolPolicy<TControl>
 new()
 Action<TControl> Reset { get; init; }
@@ -5252,24 +4054,6 @@ Equals(PopupElement other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
-
-### class PowScale
-new()
-new(double exponent)
-bool Clamped { get; set; }
-double Exponent { get; set; }
-double[] Domain { get; set; }
-double[] Range { get; set; }
-Copy() → PowScale
-Invert(double y) → double
-Map(double x) → double
-Nice(int count = 10) → PowScale
-SetClamp(bool clamp) → PowScale
-SetDomain(double[] domain) → PowScale
-SetExponent(double exp) → PowScale
-SetRange(double[] range) → PowScale
-Sqrt() → PowScale
-Ticks(int count = 10) → double[]
 
 ### record PreMountedItems<TElement, TControl>
 new(Func<TElement, IItemViewSource> GetSource, Func<TControl, IList<object>> GetCollection)
@@ -5365,28 +4149,6 @@ int Order { get; }
 ### class PropertyReadOnlyAttribute
 new()
 
-### class QuantileScale
-new()
-double[] Domain { get; set; }
-double[] Range { get; set; }
-Copy() → QuantileScale
-InvertExtent(double y) → ValueTuple<double, double>
-Map(double x) → double
-Quantiles() → double[]
-SetDomain(double[] domain) → QuantileScale
-SetRange(double[] range) → QuantileScale
-
-### class QuantizeScale
-new()
-double[] Domain { get; set; }
-double[] Range { get; set; }
-Copy() → QuantizeScale
-InvertExtent(double y) → ValueTuple<double, double>
-Map(double x) → double
-SetDomain(double x0, double x1) → QuantizeScale
-SetRange(double[] range) → QuantizeScale
-Thresholds() → double[]
-
 ### class QueryCache
 new()
 Action<Action> DispatcherPost { get; set; }
@@ -5403,33 +4165,6 @@ Subscribe(string key) → int
 TryGet<T>(string key, ref CacheEntry<T> entry) → bool
 Unsubscribe(string key) → int
 event Action<string> EntryChanged
-
-### class RadialAreaGenerator<T>
-new(Func<T, int, double> angle, Func<T, int, double> innerRadius, Func<T, int, double> outerRadius)
-Generate(IReadOnlyList<T> data) → string
-SetAngle(Func<T, int, double> angle) → RadialAreaGenerator<T>
-SetDefined(Func<T, int, bool> defined) → RadialAreaGenerator<T>
-SetDigits(int? digits) → RadialAreaGenerator<T>
-SetEndAngle(Func<T, int, double> angle) → RadialAreaGenerator<T>
-SetInnerRadius(Func<T, int, double> r) → RadialAreaGenerator<T>
-SetOuterRadius(Func<T, int, double> r) → RadialAreaGenerator<T>
-SetStartAngle(Func<T, int, double> angle) → RadialAreaGenerator<T>
-
-### class RadialLineGenerator<T>
-new(Func<T, int, double> angle, Func<T, int, double> radius)
-Generate(IReadOnlyList<T> data) → string
-SetAngle(Func<T, int, double> angle) → RadialLineGenerator<T>
-SetCurve(CurveFactory curve) → RadialLineGenerator<T>
-SetDefined(Func<T, int, bool> defined) → RadialLineGenerator<T>
-SetDigits(int? digits) → RadialLineGenerator<T>
-SetRadius(Func<T, int, double> radius) → RadialLineGenerator<T>
-
-### class RadialLinkGenerator<T>
-new(Func<T, ValueTuple<double, double>> source, Func<T, ValueTuple<double, double>> target)
-Generate(T datum) → string
-SetDigits(int? digits) → RadialLinkGenerator<T>
-SetSource(Func<T, ValueTuple<double, double>> source) → RadialLinkGenerator<T>
-SetTarget(Func<T, ValueTuple<double, double>> target) → RadialLinkGenerator<T>
 
 ### record RadioButtonElement
 new(string Label, Optional<bool> IsChecked = null, Action<bool> OnIsCheckedChanged = null, string GroupName = null)
@@ -5524,17 +4259,17 @@ ReferenceList<TTarget>(Func<TElement, IReadOnlyList<ElementRef<TTarget>>> get, A
 WriteSuppressed(Action mutate) → void
 
 ### record ReactorDevtoolsBootRequest
-new(DevtoolsCliOptions Options, string Title, double Width, double Height, bool FullScreen, Type HostRoot, Func<Component> HostRootFactory, Func<RenderContext, Element> RootRenderFunc, Action<ReactorHost> Configure)
+new(DevtoolsCliOptions Options, string Title, double? Width, double? Height, bool FullScreen, Type HostRoot, Func<Component> HostRootFactory, Func<RenderContext, Element> RootRenderFunc, Action<ReactorHost> Configure)
 Action<ReactorHost> Configure { get; init; }
 DevtoolsCliOptions Options { get; init; }
 Func<Component> HostRootFactory { get; init; }
 Func<RenderContext, Element> RootRenderFunc { get; init; }
 Type HostRoot { get; init; }
 bool FullScreen { get; init; }
-double Height { get; init; }
-double Width { get; init; }
+double? Height { get; init; }
+double? Width { get; init; }
 string Title { get; init; }
-Deconstruct(ref DevtoolsCliOptions Options, ref string Title, ref double Width, ref double Height, ref bool FullScreen, ref Type HostRoot, ref Func<Component> HostRootFactory, ref Func<RenderContext, Element> RootRenderFunc, ref Action<ReactorHost> Configure) → void
+Deconstruct(ref DevtoolsCliOptions Options, ref string Title, ref double? Width, ref double? Height, ref bool FullScreen, ref Type HostRoot, ref Func<Component> HostRootFactory, ref Func<RenderContext, Element> RootRenderFunc, ref Action<ReactorHost> Configure) → void
 Equals(ReactorDevtoolsBootRequest other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
@@ -5862,12 +4597,6 @@ ToString() → string
 new(string defaultLocale = "en-US", string stringsBasePath = null)
 GetString(string locale, string ns, string key) → string
 
-### class RibbonGenerator
-new()
-Generate(ChordArc chord) → string
-SetDigits(int? digits) → RibbonGenerator
-SetRadius(double r) → RibbonGenerator
-
 ### record RichEditBoxElement
 new(Optional<string> Text = null)
 Action<string> OnTextChanged { get; init; }
@@ -6043,20 +4772,6 @@ GetWildcard() → string
 Query<T>(string name, T defaultValue = null) → T
 QueryString(string name) → string
 
-### record RowContext<T>
-new(T Row, RowKey Key, int RowIndex, bool IsSelected, bool IsEditing, IReadOnlyList<Element> Cells)
-IReadOnlyList<Element> Cells { get; init; }
-RowKey Key { get; init; }
-T Row { get; init; }
-bool IsEditing { get; init; }
-bool IsSelected { get; init; }
-int RowIndex { get; init; }
-Deconstruct(ref T Row, ref RowKey Key, ref int RowIndex, ref bool IsSelected, ref bool IsEditing, ref IReadOnlyList<Element> Cells) → void
-Equals(RowContext<T> other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
 ### struct RowKey
 new(string Value)
 string Value { get; init; }
@@ -6065,44 +4780,6 @@ Equals(RowKey other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
-
-### class SankeyGraph
-new()
-List<SankeyLink> Links { get; set; }
-List<SankeyNode> Nodes { get; set; }
-
-### class SankeyLayout
-new()
-Layout(SankeyGraph graph) → SankeyGraph
-LinkPath(SankeyLink link, int? digits = 3) → string
-SetAlign(SankeyNodeAlign align) → SankeyLayout
-SetIterations(int iterations) → SankeyLayout
-SetNodePadding(double padding) → SankeyLayout
-SetNodeWidth(double width) → SankeyLayout
-Size(double x1, double y1) → SankeyLayout
-
-### class SankeyLink
-SankeyNode Source { get; }
-SankeyNode Target { get; }
-double Value { get; set; }
-double Width { get; }
-double Y0 { get; }
-double Y1 { get; }
-string SourceId { get; init; }
-string TargetId { get; init; }
-
-### class SankeyNode
-List<SankeyLink> SourceLinks { get; }
-List<SankeyLink> TargetLinks { get; }
-double Value { get; }
-double X0 { get; }
-double X1 { get; }
-double Y0 { get; }
-double Y1 { get; }
-int Depth { get; }
-int Height { get; }
-string Id { get; init; }
-string Label { get; set; }
 
 ### record ScaleTransition
 new(float From)
@@ -6399,26 +5076,6 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
-### class StackGenerator<T>
-new()
-Generate(IReadOnlyList<T> data) → StackSeries[]
-SetKeys(string[] keys) → StackGenerator<T>
-SetValue(Func<T, string, double> value) → StackGenerator<T>
-
-### struct StackPoint
-new(double Y0, double Y1)
-double Y0 { get; set; }
-double Y1 { get; set; }
-Deconstruct(ref double Y0, ref double Y1) → void
-Equals(StackPoint other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
-### class StackSeries
-StackPoint[] Points { get; set; }
-string Key { get; init; }
-
 ### record StaggerConfig
 new(TimeSpan Delay, Curve Curve = null)
 Curve Curve { get; init; }
@@ -6428,14 +5085,6 @@ Equals(StaggerConfig other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
-
-### class Stratify<T>
-new()
-Build(IEnumerable<T> data) → TreeNode<T>
-BuildPartition(IEnumerable<T> data, Func<T, double> value) → PartitionNode<T>
-BuildTreemap(IEnumerable<T> data, Func<T, double> value) → TreemapNode<T>
-SetId(Func<T, string> id) → Stratify<T>
-SetParentId(Func<T, string> parentId) → Stratify<T>
 
 ### record SuppressTransition
 new()
@@ -6472,15 +5121,6 @@ Equals(SwipeItemData other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
-
-### class SymbolGenerator<T>
-new(Func<T, int, ISymbolType> type, Func<T, int, double> size)
-Generate(T datum, int index = 0) → string
-SetDigits(int? digits) → SymbolGenerator<T>
-SetSize(Func<T, int, double> size) → SymbolGenerator<T>
-SetSize(double size) → SymbolGenerator<T>
-SetType(Func<T, int, ISymbolType> type) → SymbolGenerator<T>
-SetType(ISymbolType type) → SymbolGenerator<T>
 
 ### record SymbolIconData
 new(string Symbol)
@@ -6522,6 +5162,7 @@ TabViewWidthMode TabWidthMode { get; init; }
 bool AllowDropTabs { get; init; }
 bool CanDragTabs { get; init; }
 bool CanReorderTabs { get; init; }
+bool FillContentArea { get; init; }
 bool IsAddTabButtonVisible { get; init; }
 Deconstruct(ref TabViewItemData[] Tabs) → void
 Equals(Element other) → bool
@@ -6842,16 +5483,6 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
-### class ThresholdScale
-new()
-double[] Domain { get; set; }
-double[] Range { get; set; }
-Copy() → ThresholdScale
-InvertExtent(double y) → ValueTuple<double, double>
-Map(double x) → double
-SetDomain(double[] domain) → ThresholdScale
-SetRange(double[] range) → ThresholdScale
-
 ### record ThumbnailToolbarButton
 new(string Id, WindowIcon Icon, string Tooltip, Action OnClick, bool IsEnabled = true, bool IsVisible = true, bool DismissOnClick = false)
 Action OnClick { get; init; }
@@ -6888,6 +5519,7 @@ Action OnPaneToggleRequested { get; init; }
 Element Content { get; init; }
 Element RightHeader { get; init; }
 IconData Icon { get; init; }
+WindowTitleBarHeight? HeightOption { get; init; }
 bool AutoRefreshDragRegions { get; init; }
 bool IsBackButtonEnabled { get; init; }
 bool IsBackButtonVisible { get; init; }
@@ -6959,18 +5591,6 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
-### record ToolWindow
-new()
-DockSides AllowedSides { get; init; }
-bool CanAutoHide { get; init; }
-bool CanDockAsDocument { get; init; }
-bool CanHide { get; init; }
-Equals(DockableContent other) → bool
-Equals(ToolWindow other) → bool
-Equals(object obj) → bool
-GetHashCode() → int
-ToString() → string
-
 ### record Transition
 Enter(Transition enter) → Transition
 Equals(Transition other) → bool
@@ -6998,22 +5618,6 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
-### class TreeChartElement<T>
-new()
-AlternateView(Element view) → TreeChartElement<T>
-Description(string description) → TreeChartElement<T>
-Height(double height) → TreeChartElement<T>
-LinkColor(string color) → TreeChartElement<T>
-NodeColor(string color) → TreeChartElement<T>
-NodeRadius(double radius) → TreeChartElement<T>
-OnReady(Action<TreeChartHandle> callback) → TreeChartElement<T>
-Title(string title) → TreeChartElement<T>
-ToElement() → Element
-Width(double width) → TreeChartElement<T>
-
-### class TreeChartHandle
-Canvas Canvas { get; }
-
 ### record TreeChildren<TElement, TControl>
 new(Func<TElement, IReadOnlyList<TreeViewNodeData>> GetNodes)
 Func<TElement, IReadOnlyList<TreeViewNodeData>> GetNodes { get; init; }
@@ -7023,24 +5627,6 @@ Equals(TreeChildren<TElement, TControl> other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
-
-### class TreeLayout<T>
-new()
-Hierarchy(T root, Func<T, IEnumerable<T>> childrenAccessor) → TreeNode<T>
-Layout(TreeNode<T> root) → TreeNode<T>
-Separation(double sep) → TreeLayout<T>
-Size(double width, double height) → TreeLayout<T>
-
-### class TreeNode<T>
-new(T data)
-List<TreeNode<T>> Children { get; }
-T Data { get; }
-TreeNode<T> Parent { get; }
-TreeNode<T> TopAncestor { get; }
-double X { get; }
-double Y { get; }
-int Depth { get; }
-Descendants() → IEnumerable<TreeNode<T>>
 
 ### record TreeViewElement
 new(TreeViewNodeData[] Nodes)
@@ -7068,32 +5654,6 @@ Equals(TreeViewNodeData other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
-
-### class TreemapLayout<T>
-new()
-Hierarchy(T root, Func<T, IEnumerable<T>> children, Func<T, double> value) → TreemapNode<T>
-Layout(TreemapNode<T> root) → TreemapNode<T>
-SetPadding(double p) → TreemapLayout<T>
-SetPaddingInner(double p) → TreemapLayout<T>
-SetPaddingOuter(double p) → TreemapLayout<T>
-SetTiling(TreemapTiling tiling) → TreemapLayout<T>
-Size(double x1, double y1) → TreemapLayout<T>
-
-### class TreemapNode<T>
-List<TreemapNode<T>> Children { get; }
-T Data { get; init; }
-TreemapNode<T> Parent { get; init; }
-TreemapNode<T> TopAncestor { get; }
-double Height { get; }
-double Value { get; }
-double Width { get; }
-double X0 { get; }
-double X1 { get; }
-double Y0 { get; }
-double Y1 { get; }
-int Depth { get; init; }
-Descendants() → IEnumerable<TreemapNode<T>>
-Leaves() → IEnumerable<TreemapNode<T>>
 
 ### record TypeMetadata
 new()
@@ -7258,11 +5818,6 @@ GetHashCode() → int
 Merge(VisualModifiers other) → VisualModifiers
 ToString() → string
 
-### class Voronoi
-ValueTuple<double, double>[] Circumcenters { get; }
-CellPolygon(int index) → ValueTuple<double, double>[]
-Contains(int index, double x, double y) → bool
-
 ### record WebView2Element
 new(Uri Source = null)
 Action OnCoreWebView2Initialized { get; init; }
@@ -7334,6 +5889,7 @@ WindowSizeToContent SizeToContent { get; init; }
 WindowStartPosition PersistenceFallback { get; init; }
 WindowStartPosition StartPosition { get; init; }
 WindowStyle Style { get; init; }
+WindowTitleBarHeight? TitleBarHeight { get; init; }
 bool ActivateOnOpen { get; init; }
 bool IgnorePointerInput { get; init; }
 bool IsMaximizable { get; init; }
@@ -7344,14 +5900,14 @@ bool PersistPlacement { get; init; }
 bool ShowInSwitcher { get; init; }
 bool ShowInTaskbar { get; init; }
 bool? ExtendsContentIntoTitleBar { get; init; }
-double Height { get; init; }
 double Opacity { get; init; }
-double Width { get; init; }
 double? AspectRatio { get; init; }
+double? Height { get; init; }
 double? MaxHeight { get; init; }
 double? MaxWidth { get; init; }
 double? MinHeight { get; init; }
 double? MinWidth { get; init; }
+double? Width { get; init; }
 string PersistenceId { get; init; }
 string Title { get; init; }
 Equals(WindowSpec other) → bool

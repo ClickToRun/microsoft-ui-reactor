@@ -365,6 +365,8 @@ internal static class SelfTestFixtureRegistry
         "ControlUpdate2_RichEditBox",
         "ControlUpdate2_AutoSuggestBox",
         "WrapElementSlot_TabStripHeaderMountUpdateRemove",
+        "TabViewFill_ToggleFillContentArea",
+        "TabViewFill_ExplicitAlignmentWins",
         // Modifier and event handler tests
         "ModifierEvent_EventHandlers",
         "ModifierEvent_Brushes",
@@ -981,6 +983,12 @@ internal static class SelfTestFixtureRegistry
         "SelectionEvt_Pivot",
         "SelectionEvt_NavigationView",
 
+        // NavigationView pane-state round-trip (issue #916)
+        "NavPane_OpenChangedFires",
+        "NavPane_ControlledResync",
+        "NavPane_CancelledClose",
+        "NavPane_HandlerTransitions",
+
         // Value-change / toggle event wiring (Tier 2 gap closure)
         "ValueEvt_CheckBox",
         "ValueEvt_RadioButton",
@@ -1050,6 +1058,10 @@ internal static class SelfTestFixtureRegistry
         "RBC_PopupUpdateInPlace",
         "RBC_TabViewGrowAndShrink",
         "RBC_NavViewContentNullSwap",
+        "RBC_NavViewChromeVisibility",
+        "RBC_NavViewSurfaceProps",
+        "RBC_NavViewFooterAndEvents",
+        "RBC_NavViewEventFiring",
         "RBC_SwipeControlItemsSwap",
         "RBC_TreeViewHandlerWiring",
         "RBC_TreeViewHandlerWiringFastPath",
@@ -1105,6 +1117,7 @@ internal static class SelfTestFixtureRegistry
         "WindowModel_NoActivateRoundTrip",
         "WindowModel_IgnorePointerInputRoundTrip",
         "WindowModel_OpacityIgnorePointerInvariants",
+        "WindowModel_DefaultSizeDefersToOs",
         // Spec 054 Phase 1 — window position/z-order/display read-back.
         "Position_ReadBack",
         "PositionChanged_FiresOnMove",
@@ -1165,6 +1178,15 @@ internal static class SelfTestFixtureRegistry
         "TitleBar_OwnedTree",
         "TitleBar_ExitPrep",
         "TitleBar_NoElement_NullStaysFalse",
+        // Issue #917 — declarative caption height (spec + element).
+        "TitleBarHeight_ElementTall",
+        "TitleBarHeight_SpecPrecedence",
+        "TitleBarHeight_ExplicitHeightWins",
+        "TitleBarHeight_NotExtended",
+        "TitleBarHeight_UpdateResets",
+        "TitleBarHeight_SpecUpdateResizesControl",
+        "TitleBarHeight_RemoveExplicitHeight",
+        "TitleBarHeight_UnmountWithdraws",
         "BackdropTransparent_Apply",
         "FilePicker_InitializesWithWindow",
         "FilePicker_ThrowsOffUiThread",
@@ -1898,6 +1920,8 @@ internal static class SelfTestFixtureRegistry
         "ControlUpdate2_RichEditBox" => new ControlUpdateFixtures2.RichEditBoxUpdate(harness),
         "ControlUpdate2_AutoSuggestBox" => new ControlUpdateFixtures2.AutoSuggestBoxUpdate(harness),
         "WrapElementSlot_TabStripHeaderMountUpdateRemove" => new WrapElementSlotFixtures.TabStripHeaderMountUpdateRemove(harness),
+        "TabViewFill_ToggleFillContentArea" => new TabViewFillContentAreaFixtures.ToggleFillContentArea(harness),
+        "TabViewFill_ExplicitAlignmentWins" => new TabViewFillContentAreaFixtures.ExplicitAlignmentWins(harness),
         // Modifier and event handler tests
         "ModifierEvent_EventHandlers" => new ModifierEventFixtures.EventHandlerModifiers(harness),
         "ModifierEvent_Brushes" => new ModifierEventFixtures.BrushModifiers(harness),
@@ -2521,6 +2545,12 @@ internal static class SelfTestFixtureRegistry
         "SelectionEvt_Pivot" => new SelectionEventFixtures.PivotSelectionFires(harness),
         "SelectionEvt_NavigationView" => new SelectionEventFixtures.NavigationViewSelectionFires(harness),
 
+        // NavigationView pane-state round-trip (issue #916)
+        "NavPane_OpenChangedFires" => new NavigationViewPaneFixtures.PaneOpenChangedFires(harness),
+        "NavPane_ControlledResync" => new NavigationViewPaneFixtures.ControlledPaneResyncsAfterControlDrivenClose(harness),
+        "NavPane_CancelledClose" => new NavigationViewPaneFixtures.CancelledCloseKeepsCallbackInSyncWithControl(harness),
+        "NavPane_HandlerTransitions" => new NavigationViewPaneFixtures.HandlerTransitionsAcrossRenders(harness),
+
         // Value-change / toggle event wiring
         "ValueEvt_CheckBox" => new ValueChangeEventFixtures.CheckBoxToggleFires(harness),
         "ValueEvt_RadioButton" => new ValueChangeEventFixtures.RadioButtonToggleFires(harness),
@@ -2588,6 +2618,10 @@ internal static class SelfTestFixtureRegistry
         "RBC_PopupUpdateInPlace" => new ReconcilerBigCoverageFixtures.PopupUpdateInPlace(harness),
         "RBC_TabViewGrowAndShrink" => new ReconcilerBigCoverageFixtures.TabViewGrowAndShrink(harness),
         "RBC_NavViewContentNullSwap" => new ReconcilerBigCoverageFixtures.NavViewContentNullSwap(harness),
+        "RBC_NavViewChromeVisibility" => new ReconcilerBigCoverageFixtures.NavViewChromeVisibility(harness),
+        "RBC_NavViewSurfaceProps" => new ReconcilerBigCoverageFixtures.NavViewSurfaceProps(harness),
+        "RBC_NavViewFooterAndEvents" => new ReconcilerBigCoverageFixtures.NavViewFooterAndEvents(harness),
+        "RBC_NavViewEventFiring" => new ReconcilerBigCoverageFixtures.NavViewEventFiring(harness),
         "RBC_SwipeControlItemsSwap" => new ReconcilerBigCoverageFixtures.SwipeControlItemsSwap(harness),
         "RBC_TreeViewHandlerWiring" => new ReconcilerBigCoverageFixtures.TreeViewHandlerWiring(harness),
         "RBC_TreeViewHandlerWiringFastPath" => new ReconcilerBigCoverageFixtures.TreeViewHandlerWiringFastPath(harness),
@@ -2642,6 +2676,7 @@ internal static class SelfTestFixtureRegistry
         "WindowModel_NoActivateRoundTrip" => new WindowModelFixtures.WindowNoActivateRoundTrip(harness),
         "WindowModel_IgnorePointerInputRoundTrip" => new WindowModelFixtures.WindowIgnorePointerInputRoundTrip(harness),
         "WindowModel_OpacityIgnorePointerInvariants" => new WindowModelFixtures.WindowOpacityIgnorePointerInvariants(harness),
+        "WindowModel_DefaultSizeDefersToOs" => new WindowModelFixtures.WindowDefaultSizeDefersToOs(harness),
         // Spec 054 Phase 1 — window position/z-order/display read-back.
         "Position_ReadBack" => new Phase1WindowingFixtures.PositionReadBack(harness),
         "PositionChanged_FiresOnMove" => new Phase1WindowingFixtures.PositionChangedFiresOnMove(harness),
@@ -2706,6 +2741,14 @@ internal static class SelfTestFixtureRegistry
         "TitleBar_OwnedTree" => new Phase7WindowingFixtures.TitleBarOwnedTreeFlipsRecursively(harness),
         "TitleBar_ExitPrep" => new Phase7WindowingFixtures.TitleBarExitPrepFlipsOpenWindows(harness),
         "TitleBar_NoElement_NullStaysFalse" => new Phase7WindowingFixtures.TitleBarNoElementNullStaysFalse(harness),
+        "TitleBarHeight_ElementTall" => new TitleBarHeightFixtures.TitleBarHeightElementTall(harness),
+        "TitleBarHeight_SpecPrecedence" => new TitleBarHeightFixtures.TitleBarHeightSpecPrecedence(harness),
+        "TitleBarHeight_ExplicitHeightWins" => new TitleBarHeightFixtures.TitleBarHeightExplicitHeightWins(harness),
+        "TitleBarHeight_NotExtended" => new TitleBarHeightFixtures.TitleBarHeightNotExtendedDoesNotThrow(harness),
+        "TitleBarHeight_UpdateResets" => new TitleBarHeightFixtures.TitleBarHeightUpdateResets(harness),
+        "TitleBarHeight_SpecUpdateResizesControl" => new TitleBarHeightFixtures.TitleBarHeightSpecUpdateResizesControl(harness),
+        "TitleBarHeight_RemoveExplicitHeight" => new TitleBarHeightFixtures.TitleBarHeightRemoveExplicitHeight(harness),
+        "TitleBarHeight_UnmountWithdraws" => new TitleBarHeightFixtures.TitleBarHeightUnmountWithdraws(harness),
         "BackdropTransparent_Apply" => new Phase7WindowingFixtures.BackdropTransparentApply(harness),
         "FilePicker_InitializesWithWindow" => new Phase7WindowingFixtures.FilePickerInitializesWithWindow(harness),
         "FilePicker_ThrowsOffUiThread" => new Phase7WindowingFixtures.FilePickerThrowsOffUiThread(harness),

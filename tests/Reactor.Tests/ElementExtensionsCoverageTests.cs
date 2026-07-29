@@ -223,6 +223,15 @@ public class ElementExtensionsCoverageTests
     }
 
     [Fact]
+    public void IsHitTestVisible_Sets_Modifier()
+    {
+        var el = Button("Y").IsHitTestVisible(false);
+        Assert.False(el.Modifiers!.IsHitTestVisible);
+        var hitTestable = Button("Y").IsHitTestVisible();
+        Assert.True(hitTestable.Modifiers!.IsHitTestVisible);
+    }
+
+    [Fact]
     [Obsolete("Tests the deprecated Disabled shim")]
     public void Disabled_Shim_Inverts_To_IsEnabled()
     {
@@ -468,6 +477,16 @@ public class ElementExtensionsCoverageTests
     {
         var el = TabView([]).IsAddTabButtonVisible(false);
         Assert.False(el.IsAddTabButtonVisible);
+    }
+
+    [Fact]
+    public void TabView_FillContentArea_DefaultsOffAndOptsIn()
+    {
+        // Default must stay off so WinUI's DefaultTabViewStyle (VerticalAlignment="Top")
+        // is preserved for existing apps — issue #914.
+        Assert.False(TabView([]).FillContentArea);
+        Assert.True(TabView([]).FillContentArea().FillContentArea);
+        Assert.False(TabView([]).FillContentArea().FillContentArea(false).FillContentArea);
     }
 
     [Fact]

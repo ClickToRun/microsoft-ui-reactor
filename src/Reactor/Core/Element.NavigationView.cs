@@ -8,24 +8,71 @@ using V1 = Microsoft.UI.Reactor.Core.V1Protocol;
 
 namespace Microsoft.UI.Reactor.Core;
 
-// Spec 058 §15 (P5.23) — NavigationView's bespoke surface: 5 NamedSlots, the MenuItems +
-// SelectedTag menu reconciler (.Imperative), and the SelectionChanged/BackRequested events.
-// IsPaneOpen/PaneDisplayMode/IsBackEnabled/IsSettingsVisible/PaneTitle auto-map (in Element.cs).
-// All reproduced verbatim from the deleted NavigationViewDescriptor.
+// Spec 058 §15 (P5.23) — NavigationView's bespoke surface: 7 NamedSlots, the MenuItems +
+// FooterMenuItems + SelectedTag menu reconciler (.Imperative), the IsPaneOpen DP observation
+// behind OnPaneOpenChanged (issue #916), and all 6 wired events.
+// Every event is hand-coded on purpose: a control holds exactly one event-payload box
+// (Reconciler.GetOrCreateControlEventPayload keys ReactorState.ControlEventState by payload
+// type), so mixing the generator's private per-element payload with V1.NavigationViewEventPayload
+// would make each pass evict the other's box and re-subscribe on every reconcile.
 public partial record NavigationViewElement
 {
     private static readonly TypedEventHandler<WinUI.NavigationView, WinUI.NavigationViewSelectionChangedEventArgs>
         __SelectionChangedTrampoline = (s, args) =>
         {
-            var tag = args.IsSettingsSelected
-                ? null
-                : (args.SelectedItem as WinUI.NavigationViewItem)?.Tag as string;
-            (Reconciler.GetElementTag(s) as NavigationViewElement)?.OnSelectedTagChanged?.Invoke(tag);
+            if (Reconciler.GetElementTag(s) is not NavigationViewElement el) return;
+            if (args.IsSettingsSelected)
+            {
+                // OnSelectedTagChanged has always reported null here; keep that so adding
+                // OnSettingsSelected isn't a silent breaking change for existing callers.
+                el.OnSelectedTagChanged?.Invoke(null);
+                el.OnSettingsSelected?.Invoke();
+                return;
+            }
+            el.OnSelectedTagChanged?.Invoke((args.SelectedItem as WinUI.NavigationViewItem)?.Tag as string);
         };
 
     private static readonly TypedEventHandler<WinUI.NavigationView, WinUI.NavigationViewBackRequestedEventArgs>
         __BackRequestedTrampoline = (s, _) =>
             (Reconciler.GetElementTag(s) as NavigationViewElement)?.OnBackRequested?.Invoke();
+
+    // Issue #916 — the pane can open/close without the app asking (light dismiss, adaptive
+    // display-mode changes). Without a notification a controlled IsPaneOpen drifts out of sync
+    // and the next toggle writes a value the control already holds. We observe the IsPaneOpen
+    // DP rather than the PaneOpening/PaneClosing pair, because the DP is precisely what the
+    // reconciler diffs against: the reported bool can never disagree with the control (a
+    // cancelled PaneClosing still leaves the DP at the requested value, so an event-sourced
+    // callback would hand the app a value the next diff then treats as a no-op write). It also
+    // beats PaneOpened/PaneClosed, which only arrive once the pane transition finishes.
+    //
+    // A programmatic write echoes the app's own value straight back (a no-op setState). Like
+    // every trampoline here, the echo of a write performed during Update runs before the new
+    // element is tagged, so it dispatches through the previous render's callback.
+    private static readonly DependencyPropertyChangedCallback __IsPaneOpenObserver = (d, _) =>
+    {
+        if (d is not WinUI.NavigationView control) return;
+        (Reconciler.GetElementTag(control) as NavigationViewElement)?
+            .OnPaneOpenChanged?.Invoke(control.IsPaneOpen);
+    };
+
+    private static readonly TypedEventHandler<WinUI.NavigationView, WinUI.NavigationViewItemInvokedEventArgs>
+        __ItemInvokedTrampoline = (s, args) =>
+            (Reconciler.GetElementTag(s) as NavigationViewElement)?.OnItemInvoked?.Invoke(
+                args.IsSettingsInvoked ? SettingsTag : args.InvokedItemContainer?.Tag as string);
+
+    private static readonly TypedEventHandler<WinUI.NavigationView, WinUI.NavigationViewDisplayModeChangedEventArgs>
+        __DisplayModeChangedTrampoline = (s, args) =>
+            (Reconciler.GetElementTag(s) as NavigationViewElement)?.OnDisplayModeChanged?.Invoke(args.DisplayMode);
+
+    private static readonly TypedEventHandler<WinUI.NavigationView, WinUI.NavigationViewItemExpandingEventArgs>
+        __ExpandingTrampoline = (s, args) =>
+            (Reconciler.GetElementTag(s) as NavigationViewElement)?.OnItemExpanding?.Invoke(
+                args.ExpandingItemContainer?.Tag as string);
+
+    private static readonly TypedEventHandler<WinUI.NavigationView, WinUI.NavigationViewItemCollapsedEventArgs>
+        __CollapsedTrampoline = (s, args) =>
+            (Reconciler.GetElementTag(s) as NavigationViewElement)?.OnItemCollapsed?.Invoke(
+                args.CollapsedItemContainer?.Tag as string);
 
     private static partial Desc.ControlDescriptor<NavigationViewElement, WinUI.NavigationView> Customize(
         Desc.ControlDescriptor<NavigationViewElement, WinUI.NavigationView> d)
@@ -51,6 +98,13 @@ public partial record NavigationViewElement
                 GetCurrentChild = static c => c.AutoSuggestBox,
             },
             new V1.NamedSlot<NavigationViewElement, WinUI.NavigationView>(
+                Name: "PaneHeader",
+                GetChild: static e => e.PaneHeader,
+                SetChild: static (c, ui) => c.PaneHeader = ui)
+            {
+                GetCurrentChild = static c => c.PaneHeader,
+            },
+            new V1.NamedSlot<NavigationViewElement, WinUI.NavigationView>(
                 Name: "PaneFooter",
                 GetChild: static e => e.PaneFooter,
                 SetChild: static (c, ui) => c.PaneFooter = ui)
@@ -63,6 +117,13 @@ public partial record NavigationViewElement
                 SetChild: static (c, ui) => c.PaneCustomContent = ui)
             {
                 GetCurrentChild = static c => c.PaneCustomContent as UIElement,
+            },
+            new V1.NamedSlot<NavigationViewElement, WinUI.NavigationView>(
+                Name: "ContentOverlay",
+                GetChild: static e => e.ContentOverlay,
+                SetChild: static (c, ui) => c.ContentOverlay = ui)
+            {
+                GetCurrentChild = static c => c.ContentOverlay,
             },
             new V1.NamedSlot<NavigationViewElement, WinUI.NavigationView>(
                 Name: "Content",
@@ -78,6 +139,10 @@ public partial record NavigationViewElement
                 set:         static (c, v) => c.OpenPaneLength = v,
                 shouldWrite: static e => !double.IsNaN(e.OpenPaneLength))
             .OneWayConditional(
+                get:         static e => e.CompactPaneLength,
+                set:         static (c, v) => c.CompactPaneLength = v,
+                shouldWrite: static e => !double.IsNaN(e.CompactPaneLength))
+            .OneWayConditional(
                 get:         static e => e.CompactModeThresholdWidth,
                 set:         static (c, v) => c.CompactModeThresholdWidth = v,
                 shouldWrite: static e => !double.IsNaN(e.CompactModeThresholdWidth))
@@ -91,7 +156,7 @@ public partial record NavigationViewElement
             .HandCodedEvent<V1.NavigationViewEventPayload,
                 TypedEventHandler<WinUI.NavigationView, WinUI.NavigationViewSelectionChangedEventArgs>>(
                 subscribe:        static (c, h) => c.SelectionChanged += h,
-                callbackPresent:  static e => e.OnSelectedTagChanged,
+                callbackPresent:  static e => e.OnSelectedTagChanged ?? (Delegate?)e.OnSettingsSelected,
                 trampoline:       __SelectionChangedTrampoline,
                 slotIsNull:       static p => p.SelectionChangedTrampoline is null,
                 setSlot:          static (p, h) => p.SelectionChangedTrampoline = h)
@@ -101,31 +166,82 @@ public partial record NavigationViewElement
                 callbackPresent:  static e => e.OnBackRequested,
                 trampoline:       __BackRequestedTrampoline,
                 slotIsNull:       static p => p.BackRequestedTrampoline is null,
-                setSlot:          static (p, h) => p.BackRequestedTrampoline = h);
+                setSlot:          static (p, h) => p.BackRequestedTrampoline = h)
+            .HandCodedEvent<V1.NavigationViewEventPayload,
+                TypedEventHandler<WinUI.NavigationView, WinUI.NavigationViewItemInvokedEventArgs>>(
+                subscribe:        static (c, h) => c.ItemInvoked += h,
+                callbackPresent:  static e => e.OnItemInvoked,
+                trampoline:       __ItemInvokedTrampoline,
+                slotIsNull:       static p => p.ItemInvokedTrampoline is null,
+                setSlot:          static (p, h) => p.ItemInvokedTrampoline = h)
+            .HandCodedEvent<V1.NavigationViewEventPayload,
+                TypedEventHandler<WinUI.NavigationView, WinUI.NavigationViewDisplayModeChangedEventArgs>>(
+                subscribe:        static (c, h) => c.DisplayModeChanged += h,
+                callbackPresent:  static e => e.OnDisplayModeChanged,
+                trampoline:       __DisplayModeChangedTrampoline,
+                slotIsNull:       static p => p.DisplayModeChangedTrampoline is null,
+                setSlot:          static (p, h) => p.DisplayModeChangedTrampoline = h)
+            .HandCodedEvent<V1.NavigationViewEventPayload,
+                TypedEventHandler<WinUI.NavigationView, WinUI.NavigationViewItemExpandingEventArgs>>(
+                subscribe:        static (c, h) => c.Expanding += h,
+                callbackPresent:  static e => e.OnItemExpanding,
+                trampoline:       __ExpandingTrampoline,
+                slotIsNull:       static p => p.ExpandingTrampoline is null,
+                setSlot:          static (p, h) => p.ExpandingTrampoline = h)
+            .HandCodedEvent<V1.NavigationViewEventPayload,
+                TypedEventHandler<WinUI.NavigationView, WinUI.NavigationViewItemCollapsedEventArgs>>(
+                subscribe:        static (c, h) => c.Collapsed += h,
+                callbackPresent:  static e => e.OnItemCollapsed,
+                trampoline:       __CollapsedTrampoline,
+                slotIsNull:       static p => p.CollapsedTrampoline is null,
+                setSlot:          static (p, h) => p.CollapsedTrampoline = h)
+            .Immediate<V1.NavigationViewEventPayload>(
+                callbackGate:      static e => e.OnPaneOpenChanged,
+                observeProperty:   WinUI.NavigationView.IsPaneOpenProperty,
+                observeCallback:   __IsPaneOpenObserver,
+                observeSlotIsNull: static p => p.IsPaneOpenObserver is null,
+                setObserveSlot:    static (p, cb) => p.IsPaneOpenObserver = cb,
+                loadedHook:        null);
     }
 
     private static void ApplyMenuAndSelection(WinUI.NavigationView control, NavigationViewElement? oldElement, NavigationViewElement element)
     {
         if (oldElement is null)
         {
-            control.MenuItems.Clear();
-            foreach (var item in element.MenuItems)
-            {
-                control.MenuItems.Add(item.IsHeader
-                    ? new WinUI.NavigationViewItemHeader { Content = item.Content }
-                    : CreateNavItem(item));
-            }
+            SeedMenuItems(control.MenuItems, element.MenuItems);
+            SeedMenuItems(control.FooterMenuItems, element.FooterMenuItems);
         }
-        else if (!ReferenceEquals(oldElement.MenuItems, element.MenuItems))
+        else
         {
-            ReconcileMenuItems(control.MenuItems, oldElement.MenuItems, element.MenuItems);
+            if (!ReferenceEquals(oldElement.MenuItems, element.MenuItems))
+                ReconcileMenuItems(control.MenuItems, oldElement.MenuItems, element.MenuItems);
+            if (!ReferenceEquals(oldElement.FooterMenuItems, element.FooterMenuItems))
+                ReconcileMenuItems(control.FooterMenuItems, oldElement.FooterMenuItems, element.FooterMenuItems);
         }
 
         if (oldElement is null
             || oldElement.SelectedTag != element.SelectedTag
-            || !ReferenceEquals(oldElement.MenuItems, element.MenuItems))
+            || !ReferenceEquals(oldElement.MenuItems, element.MenuItems)
+            || !ReferenceEquals(oldElement.FooterMenuItems, element.FooterMenuItems))
         {
-            control.SelectedItem = FindItemByTag(control.MenuItems, element.SelectedTag);
+            // Author items are searched first so an item explicitly tagged with the
+            // sentinel value still wins — the sentinel only means "the built-in settings
+            // item" when no author item claims it, so it can never shadow real content.
+            control.SelectedItem =
+                FindItemByTag(control.MenuItems, element.SelectedTag)
+                ?? FindItemByTag(control.FooterMenuItems, element.SelectedTag)
+                ?? (element.SelectedTag == SettingsTag ? control.SettingsItem : null);
+        }
+    }
+
+    private static void SeedMenuItems(IList<object> live, NavigationViewItemData[] data)
+    {
+        live.Clear();
+        foreach (var item in data)
+        {
+            live.Add(item.IsHeader
+                ? new WinUI.NavigationViewItemHeader { Content = item.Content }
+                : CreateNavItem(item));
         }
     }
 

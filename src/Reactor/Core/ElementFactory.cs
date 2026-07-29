@@ -311,7 +311,9 @@ public sealed partial class ElementFactory<T> : IElementFactory
     /// When set, RefreshRealizedItems is skipped if the predicate returns true.
     /// Used by DataGrid to suppress reconciliation during active scrolling.
     /// </summary>
+#pragma warning disable CS0649 // Assigned via InternalsVisibleTo by Reactor.Advanced's DataGridComponent (spec 062 §7 B3 — the data grid moved out of core), never inside this assembly.
     internal Func<bool>? ShouldSkipRefresh;
+#pragma warning restore CS0649
 
     internal void RefreshRealizedItems(Microsoft.UI.Xaml.Controls.ItemsRepeater repeater)
     {

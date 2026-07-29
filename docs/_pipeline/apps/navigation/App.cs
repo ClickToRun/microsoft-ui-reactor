@@ -406,6 +406,119 @@ class SelectedTagChangedDemo : Component
 }
 // </snippet:nav-selected-tag-changed>
 
+// <snippet:nav-pane-open-changed>
+class PaneOpenChangedDemo : Component
+{
+    public override Element Render()
+    {
+        var (isPaneOpen, setIsPaneOpen) = UseState(true);
+
+        return (NavigationView(
+            [
+                NavItem("Home", icon: "Home", tag: "Home"),
+                NavItem("Settings", icon: "Setting", tag: "Settings")
+            ],
+            content: VStack(12,
+                Heading("Pane state"),
+                TextBlock(isPaneOpen ? "Pane is open" : "Pane is closed").Opacity(0.6),
+                Button(isPaneOpen ? "Close pane" : "Open pane",
+                    () => setIsPaneOpen(!isPaneOpen))
+            ).Padding(24)
+        ) with
+        {
+            IsPaneOpen = isPaneOpen,
+        })
+        // Light dismiss and adaptive display-mode changes move the pane without
+        // asking the app — push the new state back so the toggle stays truthful.
+        .PaneOpenChanged(setIsPaneOpen)
+        .Height(320);
+    }
+}
+// </snippet:nav-pane-open-changed>
+
+// <snippet:nav-pane-controlled>
+class ControlledPaneDemo : Component
+{
+    public override Element Render()
+    {
+        var (isPaneOpen, setIsPaneOpen) = UseState(true);
+
+        return NavigationView(
+            [
+                NavItem("Home", icon: "Home", tag: "Home"),
+                NavItem("Settings", icon: "Setting", tag: "Settings")
+            ],
+            content: Button(isPaneOpen ? "Close pane" : "Open pane",
+                () => setIsPaneOpen(!isPaneOpen)).Padding(24)
+        )
+        // One call sets the pane state and wires the change handler, so the two
+        // cannot drift apart.
+        .IsPaneOpen(isPaneOpen, setIsPaneOpen)
+        .Height(320);
+    }
+}
+// </snippet:nav-pane-controlled>
+
+// <snippet:nav-item-events>
+class NavItemEventsDemo : Component
+{
+    public override Element Render()
+    {
+        var (log, setLog) = UseState("(nothing yet)");
+
+        return NavigationView(
+            [
+                NavItem("Library", icon: "Library", tag: "Library") with
+                {
+                    Children = [NavItem("Albums", tag: "Albums")]
+                },
+                NavItem("Home", icon: "Home", tag: "Home")
+            ],
+            content: TextBlock(log).Padding(24)
+        )
+        // Fires for every activation, including re-picking the current item —
+        // SelectedTagChanged stays quiet in that case. The settings item reports
+        // NavigationViewElement.SettingsTag.
+        .ItemInvoked(tag => setLog($"invoked {tag}"))
+        // Hierarchical items report their own expand/collapse.
+        .ItemExpanding(tag => setLog($"expanding {tag}"))
+        .ItemCollapsed(tag => setLog($"collapsed {tag}"))
+        // Raised when the adaptive layout switches between Minimal/Compact/Expanded.
+        .DisplayModeChanged(mode => setLog($"display mode {mode}"))
+        .Height(320);
+    }
+}
+// </snippet:nav-item-events>
+
+// <snippet:nav-footer-and-settings>
+class NavFooterSettingsDemo : Component
+{
+    public override Element Render()
+    {
+        var (selected, setSelected) = UseState("Home");
+
+        return (NavigationView(
+            [NavItem("Home", icon: "Home", tag: "Home")],
+            content: TextBlock($"Selected: {selected}").Padding(24)
+        ) with
+        {
+            // Pinned to the bottom of the pane, reconciled exactly like MenuItems.
+            FooterMenuItems = [NavItem("About", icon: "Help", tag: "About")],
+            SelectedTag = selected,
+            // The sentinel selects the built-in settings item, which has no tag
+            // of its own.
+            OnSettingsSelected = () => setSelected(NavigationViewElement.SettingsTag),
+            PaneHeader = TextBlock("My app").Bold(),
+        })
+        .SelectedTagChanged(tag => setSelected(tag ?? "Home"))
+        .CompactPaneLength(52)
+        .BackButtonVisible(false)
+        .Height(320);
+    }
+}
+// </snippet:nav-footer-and-settings>
+
+
 // <snippet:frame-events>
 class FrameEventsDemo : Component
 {
@@ -445,7 +558,11 @@ class NavigationApp : Component
                 Component<PageCachingDemo>(),
                 Component<TabNavDemo>(),
                 Component<FrameEventsDemo>(),
-                Component<SelectedTagChangedDemo>()
+                Component<SelectedTagChangedDemo>(),
+                Component<PaneOpenChangedDemo>(),
+                Component<ControlledPaneDemo>(),
+                Component<NavItemEventsDemo>(),
+                Component<NavFooterSettingsDemo>()
             ).Padding(24)
         );
     }

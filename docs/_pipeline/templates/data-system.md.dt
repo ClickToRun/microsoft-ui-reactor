@@ -86,9 +86,18 @@ The `ColumnBuilder<T>` supports chaining:
 | `.Build()` | Finalize the `FieldDescriptor` |
 
 `Column<T>(...)` and `AutoColumns<T>(...)` are static methods on
-`Microsoft.UI.Reactor.Factories` — already imported by the standard
-`using static Microsoft.UI.Reactor.Factories;` that the rest of Reactor
-relies on. No second using statement.
+`Microsoft.UI.Reactor.Advanced.Factories` — the DataGrid ships in the
+optional `Microsoft.UI.Reactor.Advanced` package (spec 062 §7). Add the
+package reference and a second `using static`:
+
+```xml
+<PackageReference Include="Microsoft.UI.Reactor.Advanced" />
+```
+
+```csharp
+using static Microsoft.UI.Reactor.Factories;          // core DSL
+using static Microsoft.UI.Reactor.Advanced.Factories; // DataGrid, Column, AutoColumns
+```
 
 ## Auto-Generated Columns
 

@@ -902,6 +902,7 @@ public abstract record Element
             (TabViewElement ta, TabViewElement tb) =>
                 ta.SelectedIndex == tb.SelectedIndex
                 && ta.IsAddTabButtonVisible == tb.IsAddTabButtonVisible
+                && ta.FillContentArea == tb.FillContentArea
                 && SettersEqual(ta.Setters, tb.Setters),
 
             (TreeViewElement ta, TreeViewElement tb) =>
@@ -1191,6 +1192,7 @@ public abstract record Element
             && a.HeadingLevel == b.HeadingLevel
             && a.IsDragRegion == b.IsDragRegion
             && a.IsTabStop == b.IsTabStop
+            && a.IsHitTestVisible == b.IsHitTestVisible
             && a.TabIndex == b.TabIndex
             && a.AccessKey == b.AccessKey
             && ReferenceEquals(a.XYFocusUpRef, b.XYFocusUpRef)
@@ -2013,6 +2015,7 @@ public record ElementModifiers
     // ── Accessibility — Tier 1 (inline, commonly needed for WCAG AA) ─
     public Microsoft.UI.Xaml.Automation.Peers.AutomationHeadingLevel? HeadingLevel { get; init; }
     public bool? IsTabStop { get; init; }
+    public bool? IsHitTestVisible { get; init; }
     public int? TabIndex { get; init; }
     public string? AccessKey { get; init; }
     public Microsoft.UI.Xaml.Input.XYFocusKeyboardNavigationMode? XYFocusKeyboardNavigation { get; init; }
@@ -2100,6 +2103,7 @@ public record ElementModifiers
             HeadingLevel = other.HeadingLevel ?? HeadingLevel,
             IsDragRegion = other.IsDragRegion ?? IsDragRegion,
             IsTabStop = other.IsTabStop ?? IsTabStop,
+            IsHitTestVisible = other.IsHitTestVisible ?? IsHitTestVisible,
             TabIndex = other.TabIndex ?? TabIndex,
             AccessKey = other.AccessKey ?? AccessKey,
             XYFocusKeyboardNavigation = other.XYFocusKeyboardNavigation ?? XYFocusKeyboardNavigation,
@@ -4570,20 +4574,32 @@ public record NavigationHostElement(
     public int CacheSize { get; init; } = 10;
 }
 
-// Spec 058 §15 (P5.23) — IsPaneOpen/PaneDisplayMode/IsBackEnabled/IsSettingsVisible/PaneTitle
-// auto-map. The 5 NamedSlots (Header/AutoSuggestBox/PaneFooter/PaneCustomContent/Content), the
-// MenuItems+SelectedTag menu reconciler (.Imperative), the 3 NaN-sentinel pane widths, and the
-// SelectionChanged/BackRequested events are bespoke — in Element.NavigationView.cs. BackRequested
-// is Excluded (auto-surfaces). Replaces NavigationViewDescriptor.
-[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.NavigationView), Exclude = new[] { "BackRequested" })]
+// Spec 058 §15 (P5.23) — IsPaneOpen/PaneDisplayMode/IsBackEnabled/IsBackButtonVisible/
+// IsPaneToggleButtonVisible/IsPaneVisible/IsSettingsVisible/AlwaysShowHeader/
+// IsTitleBarAutoPaddingEnabled/SelectionFollowsFocus/OverflowLabelMode/
+// ShoulderNavigationEnabled/PaneTitle auto-map. The 7 NamedSlots (Header/AutoSuggestBox/
+// PaneHeader/PaneFooter/PaneCustomContent/ContentOverlay/Content), the
+// MenuItems+FooterMenuItems+SelectedTag menu reconciler (.Imperative), the 4 NaN-sentinel pane
+// metrics, the IsPaneOpen DP observation behind OnPaneOpenChanged (issue #916, so IsPaneOpen can
+// be used as controlled state), and the SelectionChanged/BackRequested/ItemInvoked/
+// DisplayModeChanged/Expanding/Collapsed events are bespoke — in Element.NavigationView.cs.
+// Every event is Excluded or named off-convention so the generator leaves it alone: all
+// NavigationView events must share the single V1.NavigationViewEventPayload, because a control
+// holds exactly one event-payload box (Reconciler.GetOrCreateControlEventPayload). Replaces
+// NavigationViewDescriptor.
+[global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.NavigationView), Exclude = new[] { "BackRequested", "ItemInvoked", "DisplayModeChanged" })]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("MenuItems")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("FooterMenuItems")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("SelectedTag")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("Header")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("AutoSuggestBox")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("PaneHeader")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("PaneFooter")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("PaneCustomContent")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("ContentOverlay")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("Content")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("OpenPaneLength")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("CompactPaneLength")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("CompactModeThresholdWidth")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("ExpandedModeThresholdWidth")]
 public partial record NavigationViewElement(
@@ -4591,29 +4607,128 @@ public partial record NavigationViewElement(
     Element? Content = null
 ) : Element
 {
+    /// <summary>
+    /// Well-known <see cref="SelectedTag"/> value that selects NavigationView's built-in
+    /// settings item — the only menu entry NavigationView creates itself, so it has no
+    /// <see cref="NavigationViewItemData"/> and cannot be addressed by an author-chosen tag.
+    /// Also the tag reported to <see cref="OnItemInvoked"/> when settings is invoked.
+    /// An author item carrying this tag still wins: selection searches
+    /// <see cref="MenuItems"/> and <see cref="FooterMenuItems"/> before falling back to
+    /// the settings item, so the sentinel can never shadow real content.
+    /// <para>Reserved, so do not use it as an ordinary item tag. Selection would work, but
+    /// <c>WithNavigation</c> skips it when mapping a tag back to a route — it routes the
+    /// sentinel through its own <c>settingsRoute</c> parameter instead — so such an item
+    /// would select without navigating.</para>
+    /// </summary>
+    public const string SettingsTag = "__reactor.navigationview.settings__";
+
     public string? SelectedTag { get; init; }
     public Action<string?>? OnSelectedTagChanged { get; init; }
+    /// <summary>
+    /// Raised when NavigationView's built-in settings item becomes selected — by the user,
+    /// or by setting <see cref="SelectedTag"/> to <see cref="SettingsTag"/>. Distinguishes the
+    /// settings item from "nothing selected" — <see cref="OnSelectedTagChanged"/> reports
+    /// <c>null</c> for both.
+    /// </summary>
+    public Action? OnSettingsSelected { get; init; }
+    /// <summary>
+    /// Raised when a menu item is invoked (clicked / activated), including re-invoking the
+    /// already-selected item, which <see cref="OnSelectedTagChanged"/> does not report.
+    /// Carries the item's tag, or <see cref="SettingsTag"/> for the settings item.
+    /// </summary>
+    public Action<string?>? OnItemInvoked { get; init; }
     public bool IsPaneOpen { get; init; } = true;
+    /// <summary>
+    /// Fires whenever the realized control's <c>IsPaneOpen</c> changes — including changes the
+    /// app never requested (light dismiss, adaptive display-mode changes on resize) and the
+    /// echo of a programmatic <see cref="IsPaneOpen"/> write. Feed the value back into the
+    /// state that drives <see cref="IsPaneOpen"/> to keep controlled pane state in sync
+    /// (issue #916). Same shape as <c>SplitViewElement.OnPaneOpenChanged</c>.
+    /// </summary>
+    public Action<bool>? OnPaneOpenChanged { get; init; }
     public NavigationViewPaneDisplayMode PaneDisplayMode { get; init; } = NavigationViewPaneDisplayMode.Auto;
+    /// <summary>Raised when NavigationView switches between Minimal/Compact/Expanded in response to its width.</summary>
+    public Action<NavigationViewDisplayMode>? OnDisplayModeChanged { get; init; }
     public bool IsBackEnabled { get; init; }
+    /// <summary>
+    /// Visibility of NavigationView's built-in back button. Mirrors
+    /// <c>NavigationView.IsBackButtonVisible</c>. Set to
+    /// <see cref="NavigationViewBackButtonVisible.Collapsed"/> when a
+    /// <see cref="TitleBarElement"/> owns the back button instead.
+    /// </summary>
+    public NavigationViewBackButtonVisible IsBackButtonVisible { get; init; } = NavigationViewBackButtonVisible.Auto;
+    /// <summary>
+    /// Whether NavigationView's built-in pane-toggle ("hamburger") button is shown.
+    /// Mirrors <c>NavigationView.IsPaneToggleButtonVisible</c>. Set to <c>false</c>
+    /// when a <see cref="TitleBarElement"/> owns the pane-toggle button instead.
+    /// </summary>
+    public bool IsPaneToggleButtonVisible { get; init; } = true;
+    /// <summary>Whether the pane is shown at all. <c>false</c> hides the whole pane, leaving only the content area.</summary>
+    public bool IsPaneVisible { get; init; } = true;
     public Action? OnBackRequested { get; init; }
     public Element? Header { get; init; }
+    /// <summary>Whether <see cref="Header"/> stays visible in Minimal/Compact display modes.</summary>
+    public bool AlwaysShowHeader { get; init; } = true;
+    /// <summary>Whether NavigationView reserves top padding for the window's title bar.</summary>
+    public bool IsTitleBarAutoPaddingEnabled { get; init; } = true;
+    /// <summary>Whether moving keyboard focus between menu items also changes the selection.</summary>
+    public NavigationViewSelectionFollowsFocus SelectionFollowsFocus { get; init; } = NavigationViewSelectionFollowsFocus.Disabled;
+    /// <summary>Whether the Top pane's overflow button shows a "More" label or only the chevron.</summary>
+    public NavigationViewOverflowLabelMode OverflowLabelMode { get; init; } = NavigationViewOverflowLabelMode.MoreLabel;
+    /// <summary>Whether gamepad shoulder buttons cycle the selection.</summary>
+    public NavigationViewShoulderNavigationEnabled ShoulderNavigationEnabled { get; init; } = NavigationViewShoulderNavigationEnabled.Never;
     public bool IsSettingsVisible { get; init; } = true;
     public string? PaneTitle { get; init; }
     /// <summary>AutoSuggestBox rendered at the top of the pane. Mirrors <c>NavigationView.AutoSuggestBox</c>.</summary>
     public AutoSuggestBoxElement? AutoSuggestBox { get; init; }
+    /// <summary>Element rendered at the top of the pane, above the menu items and below the pane title.</summary>
+    public Element? PaneHeader { get; init; }
     /// <summary>Element rendered at the bottom of the pane, below all menu items.</summary>
     public Element? PaneFooter { get; init; }
     /// <summary>Custom element rendered between the AutoSuggestBox and the menu items.</summary>
     public Element? PaneCustomContent { get; init; }
-    /// <summary>Width of the pane when expanded. <c>NaN</c> uses the WinUI default (320).</summary>
+    /// <summary>Element overlaid on top of <see cref="Content"/>, e.g. a persistent player or status bar.</summary>
+    public Element? ContentOverlay { get; init; }
+    /// <summary>Menu items pinned to the bottom of the pane, below <see cref="PaneFooter"/>'s divider. Share the <see cref="SelectedTag"/> namespace with <see cref="MenuItems"/>.</summary>
+    public NavigationViewItemData[] FooterMenuItems { get; init; } = [];
+    /// <summary>Raised when a hierarchical menu item is expanded. Carries the item's tag.</summary>
+    public Action<string?>? OnItemExpanding { get; init; }
+    /// <summary>Raised when a hierarchical menu item is collapsed. Carries the item's tag.</summary>
+    public Action<string?>? OnItemCollapsed { get; init; }
+    /// <summary>
+    /// Width of the pane when expanded. <c>NaN</c> (the default) means Reactor never writes
+    /// this property, leaving the WinUI default of 320. Sticky: changing an explicit value
+    /// back to <c>NaN</c> skips the write rather than restoring 320.
+    /// </summary>
     public double OpenPaneLength { get; init; } = double.NaN;
-    /// <summary>Window width below which the pane collapses to compact mode. <c>NaN</c> uses the WinUI default (640).</summary>
+    /// <summary>
+    /// Width of the pane when compact. <c>NaN</c> (the default) means Reactor never writes
+    /// this property, leaving the WinUI default of 48. Sticky: changing an explicit value
+    /// back to <c>NaN</c> skips the write rather than restoring 48.
+    /// </summary>
+    public double CompactPaneLength { get; init; } = double.NaN;
+    /// <summary>
+    /// Window width below which the pane collapses to compact mode. <c>NaN</c> (the default)
+    /// means Reactor never writes this property, leaving the WinUI default of 640. Sticky:
+    /// changing an explicit value back to <c>NaN</c> skips the write rather than restoring 640.
+    /// </summary>
     public double CompactModeThresholdWidth { get; init; } = double.NaN;
-    /// <summary>Window width at which the pane auto-expands. <c>NaN</c> uses the WinUI default (1008).</summary>
+    /// <summary>
+    /// Window width at which the pane auto-expands. <c>NaN</c> (the default) means Reactor
+    /// never writes this property, leaving the WinUI default of 1008. Sticky: changing an
+    /// explicit value back to <c>NaN</c> skips the write rather than restoring 1008.
+    /// </summary>
     public double ExpandedModeThresholdWidth { get; init; } = double.NaN;
     internal Action<WinUI.NavigationView>[] Setters { get; init; } = [];
-    internal override bool HasCallbacks => OnSelectedTagChanged is not null || OnBackRequested is not null;
+    internal override bool HasCallbacks =>
+        OnSelectedTagChanged is not null
+        || OnBackRequested is not null
+        || OnSettingsSelected is not null
+        || OnItemInvoked is not null
+        || OnPaneOpenChanged is not null
+        || OnDisplayModeChanged is not null
+        || OnItemExpanding is not null
+        || OnItemCollapsed is not null;
 }
 
 // Spec 058 §15 (P5.23) — Title/Subtitle/IsBackButtonVisible/IsBackButtonEnabled/
@@ -4642,6 +4757,21 @@ public partial record TitleBarElement(
     /// interactive controls are still auto-excluded from the drag region). See spec 059.
     /// </summary>
     public bool AutoRefreshDragRegions { get; init; }
+    /// <summary>
+    /// System caption height for the hosting window. <c>Tall</c> is the standard
+    /// layout when the title bar hosts navigation chrome (back button / pane
+    /// toggle) and is the direct analogue of the XAML NavigationView template's
+    /// <c>AppWindow.TitleBar.PreferredHeightOption = Tall</c> plus its
+    /// <c>&lt;RowDefinition Height="48" /&gt;</c>. (issue #917)
+    /// </summary>
+    /// <remarks>
+    /// Sets <b>both</b> halves: the native caption height and the control's own
+    /// height (the WinUI <c>TitleBar</c> control does not follow the caption, so
+    /// setting only one leaves the caption and the title bar disagreeing). An
+    /// explicit <c>.Height(...)</c> on this element still wins over the implied
+    /// 48 DIP. <see cref="WindowSpec.TitleBarHeight"/>, when set, wins over this.
+    /// </remarks>
+    public WindowTitleBarHeight? HeightOption { get; init; }
     public Element? Content { get; init; }
     public Element? RightHeader { get; init; }
     /// <summary>
@@ -4689,8 +4819,8 @@ public partial record TitleBarElement(
                 get: static e => e.Icon,
                 set: static (c, v) => c.IconSource = global::Microsoft.UI.Reactor.Core.V1Protocol.IconResolver.ResolveIconSource(v))
             .Imperative(
-                mount: static (c, _) => RegisterWindowTitleBar(c),
-                update: static (_, _, _) => { })
+                mount: static (c, e) => RegisterWindowTitleBar(c, e),
+                update: static (c, _, e) => ApplyTitleBarHeightOption(c, e))
             .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.TitleBarEventPayload,
                 global::Windows.Foundation.TypedEventHandler<WinUI.TitleBar, object>>(
                 subscribe:        static (c, h) => c.BackRequested += h,
@@ -4710,7 +4840,7 @@ public partial record TitleBarElement(
     // Issue #511 / PR #455 regression: ExtendsContentIntoTitleBar must flip BEFORE the WinUI
     // TitleBar's own Loaded handler runs UpdatePaddingsForCaptionButtons(); apply synchronously
     // in the Imperative mount (mirrors the legacy MountTitleBar path).
-    private static void RegisterWindowTitleBar(WinUI.TitleBar titleBar)
+    private static void RegisterWindowTitleBar(WinUI.TitleBar titleBar, TitleBarElement element)
     {
         if (global::Microsoft.UI.Reactor.ReactorApp.ActiveHostInternal is { } host)
         {
@@ -4728,7 +4858,69 @@ public partial record TitleBarElement(
                 host.Window.ExtendsContentIntoTitleBar = true;
             host.Window.SetTitleBar(titleBar);
         }
+
+        ApplyTitleBarHeightOption(titleBar, element);
     }
+
+    /// <summary>
+    /// Applies <see cref="HeightOption"/>. (issue #917)
+    /// <para>
+    /// Two halves, because the platform splits them: the window's system caption
+    /// (via <c>AppWindow.TitleBar.PreferredHeightOption</c>) and the WinUI
+    /// <c>TitleBar</c> control's own height, which does <b>not</b> track the
+    /// caption — a tall caption over a 32 DIP control leaves the two visibly
+    /// disagreeing. Both are owned by the <c>ReactorWindow</c>, which resolves
+    /// spec-over-element precedence so the control is sized to the caption
+    /// Reactor actually applied and not to a declaration the spec overrode.
+    /// Runs after the <c>ExtendsContentIntoTitleBar</c> flip above because the
+    /// native caption setter throws <c>ERROR_INVALID_STATE</c> on a
+    /// non-extended window.
+    /// </para>
+    /// <para>
+    /// An explicit <c>.Height(...)</c> on the element wins: the window is told
+    /// to leave the control alone and <c>ApplyModifiers</c>, which runs after
+    /// this entry, writes the author's value.
+    /// </para>
+    /// </summary>
+    private static void ApplyTitleBarHeightOption(WinUI.TitleBar titleBar, TitleBarElement element)
+    {
+        var explicitHeight = element.Modifiers?.Height is not null;
+        var window = global::Microsoft.UI.Reactor.ReactorApp.ActiveHostInternal?.OwningWindow;
+        if (window is not null)
+        {
+            window.SetElementTitleBarHeight(element.HeightOption, titleBar, explicitHeight);
+            return;
+        }
+
+        // Hosted without an owning ReactorWindow (bare ReactorHost): there is no
+        // caption to size against, so honour the element's own declaration.
+        if (!explicitHeight)
+            titleBar.Height = element.HeightOption == WindowTitleBarHeight.Tall
+                ? TallTitleBarControlHeight
+                : double.NaN;
+    }
+
+    /// <summary>
+    /// Re-applies the caption-derived control height after the reconciler has
+    /// run inline modifiers, so removing an explicit <c>.Height(...)</c> from a
+    /// still-tall <c>TitleBar(...)</c> falls back to the implied tall height
+    /// rather than to auto. No-ops when the author owns the height. (issue #917)
+    /// </summary>
+    internal static void SyncControlHeightAfterModifiers(WinUI.TitleBar titleBar, TitleBarElement element)
+    {
+        if (element.Modifiers?.Height is not null) return;
+        var window = global::Microsoft.UI.Reactor.ReactorApp.ActiveHostInternal?.OwningWindow;
+        if (window is not null) window.SyncTitleBarControlHeight();
+        else if (element.HeightOption == WindowTitleBarHeight.Tall)
+            titleBar.Height = TallTitleBarControlHeight;
+    }
+
+    /// <summary>
+    /// Control height paired with <see cref="WindowTitleBarHeight.Tall"/> — the
+    /// same 48 DIP the XAML NavigationView template hard-codes as
+    /// <c>&lt;RowDefinition Height="48" /&gt;</c>.
+    /// </summary>
+    internal const double TallTitleBarControlHeight = 48;
 }
 
 // Spec 058 §15 (P5.25) — IsAddTabButtonVisible/TabWidthMode/CloseButtonOverlayMode/CanDragTabs/
@@ -4765,6 +4957,22 @@ public partial record TabViewElement(
     public Element? TabStripHeader { get; init; }
     /// <summary>Element rendered at the trailing edge of the tab strip.</summary>
     public Element? TabStripFooter { get; init; }
+    /// <summary>
+    /// Opt in to having the tab content area fill the space the TabView is given
+    /// by its parent (issue #914).
+    /// </summary>
+    /// <remarks>
+    /// WinUI's <c>DefaultTabViewStyle</c> ships
+    /// <c>&lt;Setter Property="VerticalAlignment" Value="Top" /&gt;</c>, so a TabView is
+    /// arranged at its <em>desired</em> height and the <c>*</c> content row in its template
+    /// never receives any leftover space — tab content is sized to content and the rest of
+    /// the tab body stays unpainted. Setting this to <c>true</c> writes
+    /// <see cref="Microsoft.UI.Xaml.VerticalAlignment.Stretch"/> on the control, which is
+    /// what the XAML TabView templates do by hand. An explicit <c>.VAlign(…)</c> on this
+    /// element always wins over the opt-in.
+    /// <para>Defaults to <c>false</c> so the WinUI style default is preserved.</para>
+    /// </remarks>
+    public bool FillContentArea { get; init; }
     /// <summary>
     /// Fires when the user starts dragging a tab. <c>tabIndex</c> is the index
     /// of the dragged tab in <see cref="Tabs"/>. Used by spec 045 §2.4 docking

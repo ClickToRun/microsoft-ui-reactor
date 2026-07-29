@@ -33,5 +33,6 @@
   <ItemGroup>
     <ProjectReference Include="..\StressPerf.Shared\StressPerf.Shared.csproj" />
     <ProjectReference Include="..\..\..\src\Reactor\Reactor.csproj" />
+    <ProjectReference Include="..\..\..\src\Reactor.Advanced\Reactor.Advanced.csproj" />
   </ItemGroup>
 </Project>

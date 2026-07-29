@@ -21,8 +21,8 @@ internal record ReactorAppOptions(
     Func<RenderContext, Element>? RootRenderFunc = null,
     Action<ReactorHost>? Configure = null,
     string WindowTitle = "Reactor App",
-    double WindowWidth = 1024,
-    double WindowHeight = 768,
+    double? WindowWidth = null,
+    double? WindowHeight = null,
     bool FullScreen = false,
     Action<ReactorAppContext>? Startup = null,
     WindowSpec? InitialWindowSpec = null);
@@ -227,7 +227,7 @@ public static partial class ReactorApp
     /// XAML loader for this process. Required when a third-party control library
     /// is referenced from a Reactor app that has no XAML files of its own (and
     /// therefore no compiler-generated provider that would auto-chain to the
-    /// library). Call before <see cref="Run{TRoot}(string, double, double, bool, Action{ReactorHost}?)"/>.
+    /// library). Call before <see cref="Run{TRoot}(string, double?, double?, bool, Action{ReactorHost}?)"/>.
     /// Idempotent (same instance is added at most once) and thread-safe.
     /// See https://github.com/microsoft/microsoft-ui-reactor/issues/142.
     /// </summary>
@@ -334,15 +334,18 @@ public static partial class ReactorApp
     private static readonly nint DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4;
 
     /// <summary>
-    /// Launches the app. Enable the <c>Reactor.DevtoolsSupport</c> runtime host
+    /// Launches the app. <paramref name="width"/> / <paramref name="height"/> are
+    /// DIPs; leave them <c>null</c> (the default) to let the OS pick the initial
+    /// window size, exactly as a plain XAML <c>Window</c> does. Enable the
+    /// <c>Reactor.DevtoolsSupport</c> runtime host
     /// configuration switch in DEBUG builds to allow the <c>mur devtools</c> /
     /// <c>--devtools</c> surface: component switching via VS Code, MCP agent tools,
     /// and component listing.
     /// </summary>
     public static void Run<TRoot>(
         string title = "Reactor App",
-        double width = 1024,
-        double height = 768,
+        double? width = null,
+        double? height = null,
         bool fullScreen = false,
         Action<ReactorHost>? configure = null)
         where TRoot : Component, new()
@@ -372,13 +375,15 @@ public static partial class ReactorApp
 
     /// <summary>
     /// Launches the app with a render function instead of a Component subclass.
+    /// <paramref name="width"/> / <paramref name="height"/> are DIPs; leave them
+    /// <c>null</c> to let the OS pick the initial window size.
     /// See the generic overload for devtools activation semantics.
     /// </summary>
     public static void Run(
         string title,
         Func<RenderContext, Element> rootRender,
-        double width = 1024,
-        double height = 768,
+        double? width = null,
+        double? height = null,
         bool fullScreen = false,
         Action<ReactorHost>? configure = null)
     {
@@ -441,7 +446,7 @@ public static partial class ReactorApp
     /// Use it for pre-mount setup that needs the live <see cref="ReactorHost"/>
     /// (logger wiring, custom reconciler registrations, host-level event
     /// hooks). Mirror of the <c>configure</c> parameter on the legacy
-    /// <see cref="Run{TRoot}(string, double, double, bool, Action{ReactorHost}?)"/>
+    /// <see cref="Run{TRoot}(string, double?, double?, bool, Action{ReactorHost}?)"/>
     /// entry — secondary windows now have the same escape hatch as the
     /// primary.
     /// </param>
@@ -754,7 +759,8 @@ public static partial class ReactorApp
     /// <summary>
     /// Emit one stderr <c>[reactor]</c> info-line per process the first time
     /// any <c>Run</c> overload is invoked, describing the DIP-vs-pixel size
-    /// behavior change. (spec 036 §12.1) The Phase-2 layer adds the actual
+    /// behavior change (spec 036 §12.1) and the dropped 1024×768 size default
+    /// (spec 036 §12.2a). The Phase-2 layer adds the actual
     /// DIP→pixel conversion; the message is wired now so the diagnostic
     /// surface lands in the same release.
     /// </summary>
@@ -762,8 +768,10 @@ public static partial class ReactorApp
     {
         if (Interlocked.CompareExchange(ref _dipBehaviorChangeNoticeEmitted, 1, 0) != 0) return;
         Console.Error.WriteLine(
-            "[reactor] WindowSpec.Width / Height and ReactorApp.Run<T>(width, height) are now DIPs. " +
-            "On a 100% display this is unchanged; on 200% the window is twice as large in physical pixels. (spec 036 §12.1)");
+            "[reactor] WindowSpec.Width / Height and ReactorApp.Run<T>(width, height) are now DIPs, " +
+            "and both are optional. On a 100% display an explicit size is unchanged; on 200% the window " +
+            "is twice as large in physical pixels. Omitting width/height now lets the OS choose the " +
+            "initial size — pass width: 1024, height: 768 to keep the old default extent. (spec 036 §12.1 / §12.2a)");
     }
 
     /// <summary>
@@ -772,17 +780,17 @@ public static partial class ReactorApp
     /// With <c>--vscode</c>, starts the capture server for the VS Code preview panel. Devtools
     /// dispatch requires the build-time <c>Reactor.DevtoolsSupport</c> switch.
     /// </summary>
-    private static bool TryRunDevtools(string title, double width, double height, bool fullScreen, Action<ReactorHost>? configure, Type? hostRoot = null, Func<Component>? hostRootFactory = null, Func<RenderContext, Element>? rootRenderFunc = null)
+    private static bool TryRunDevtools(string title, double? width, double? height, bool fullScreen, Action<ReactorHost>? configure, Type? hostRoot = null, Func<Component>? hostRootFactory = null, Func<RenderContext, Element>? rootRenderFunc = null)
     {
         return TryRunDevtoolsCore(Environment.GetCommandLineArgs(), title, width, height, fullScreen, configure, hostRoot, hostRootFactory, rootRenderFunc, exitOnUnavailable: true);
     }
 
-    internal static bool TryRunDevtoolsForTest(string[] args, string title, double width, double height, Action<ReactorHost>? configure = null, Type? hostRoot = null)
+    internal static bool TryRunDevtoolsForTest(string[] args, string title, double? width, double? height, Action<ReactorHost>? configure = null, Type? hostRoot = null)
     {
         return TryRunDevtoolsCore(args, title, width, height, fullScreen: false, configure, hostRoot, hostRootFactory: null, rootRenderFunc: null, exitOnUnavailable: false);
     }
 
-    private static bool TryRunDevtoolsCore(string[] args, string title, double width, double height, bool fullScreen, Action<ReactorHost>? configure, Type? hostRoot = null, Func<Component>? hostRootFactory = null, Func<RenderContext, Element>? rootRenderFunc = null, bool exitOnUnavailable = false)
+    private static bool TryRunDevtoolsCore(string[] args, string title, double? width, double? height, bool fullScreen, Action<ReactorHost>? configure, Type? hostRoot = null, Func<Component>? hostRootFactory = null, Func<RenderContext, Element>? rootRenderFunc = null, bool exitOnUnavailable = false)
     {
         var options = DevtoolsCliParser.Parse(args);
 

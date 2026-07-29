@@ -442,7 +442,7 @@ the in-repo one-way `ProjectReference` to `Reactor.csproj` becomes a package dep
 pack, so the direction is **Advanced → core**, never the reverse. An app opts in with a
 single `PackageReference` to `Microsoft.UI.Reactor.Advanced`; NuGet then transitively
 resolves core. Core still carries the heavy leaves — charting/D3, docking, markdown, and the
-data grid — which dominate the ~3.5 MB `Reactor.dll`.
+data grid — which dominate the ~3.2 MB `Reactor.dll`.
 
 **Plan: move charting, docking, markdown, and the data grid into
 `Reactor.Advanced`.** This follows the colleague-endorsed "one advanced assembly, not
@@ -503,7 +503,7 @@ heavy leaves shrinks **core**, so the win is asymmetric:
 
 - **Core-only consumers win.** The common app that never touches
   charting/docking/markdown/data-grid — and, per #163, the 3P wrapper author who references
-  only core to define a custom element — gets a ~1.6 MB-smaller download and a **narrower**
+  only core to define a custom element — gets a **~0.9 MB (≈28%) smaller** core `Reactor.dll` — measured ~3.2 MB → ~2.3 MB (Release) — and a **narrower**
   core surface in IntelliSense, the API index, and the frozen §6.1 ABI. That last point is a
   direct Track A synergy: fewer controls in core is a smaller surface to keep stable.
 - **Advanced consumers see no reduction.** They opted into the heavy stuff and get core +

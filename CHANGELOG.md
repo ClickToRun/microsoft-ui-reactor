@@ -28,13 +28,87 @@ Conventions for contributors:
 
 ### Added
 
+- **`TabView.FillContentArea` — opt-in full-height tab body (issue #914).**
+  WinUI's `DefaultTabViewStyle` sets `VerticalAlignment="Top"` on the `TabView`
+  control itself, so the `*` content row in its template never receives leftover
+  space and tab content collapses to its natural height instead of filling the
+  tab body. Reactor keeps the WinUI default; set
+  `TabView([...]) with { FillContentArea = true }` or call `.FillContentArea()`
+  to stretch the control so its content area fills the available space. An
+  explicit `.VAlign(...)` on the `TabView` element still wins. Apps working
+  around this with `UseWindowSize()` + `.MinHeight(...)` (including the Windows
+  App SDK `reactor-tabview` template) can drop that workaround.
+
+- **`NavigationView` pane-open change notification (issue #916).**
+  `NavigationViewElement.OnPaneOpenChanged` plus the `.PaneOpenChanged(handler)`
+  and paired `.IsPaneOpen(value, handler)` fluents report every `IsPaneOpen`
+  change on the realized control, so pane state can be driven from component
+  state. `SplitViewElement` gains the matching `.IsPaneOpen(value, handler)`
+  overload. `ControlDescriptor.Immediate` now accepts a `null` `loadedHook` for
+  DP observations that have no template part to walk.
+
+- **Declarative title-bar height (issue #917).** `WindowSpec.TitleBarHeight` and
+  `TitleBar(...).Tall()` / `.HeightOption(WindowTitleBarHeight)` ask for the tall
+  (48 DIP) caption used whenever the title bar hosts navigation chrome. Sets both
+  the system caption (`AppWindow.TitleBar.PreferredHeightOption`) and the WinUI
+  title-bar control's own height — the control does not follow the caption, so
+  raising one alone leaves them disagreeing. Applied after Reactor's own
+  content-extension flip, so there is no ordering hazard and the native setter
+  cannot throw `ERROR_INVALID_STATE`. An explicit `.Height(...)` wins over the
+  implied 48, and an explicit `WindowSpec.TitleBarHeight` wins over the element's
+  declaration.
+
+- **`NavigationView` declarative surface completed (issue #915).** The element
+  now covers the control without escape hatches: `IsBackButtonVisible`,
+  `IsPaneToggleButtonVisible`, `IsPaneVisible`, `AlwaysShowHeader`,
+  `IsTitleBarAutoPaddingEnabled`, `SelectionFollowsFocus`, `OverflowLabelMode`,
+  `ShoulderNavigationEnabled` and `CompactPaneLength`; the `PaneHeader` and
+  `ContentOverlay` slots; a `FooterMenuItems` list reconciled like `MenuItems`;
+  and the `OnSettingsSelected`, `OnItemInvoked`, `OnDisplayModeChanged`,
+  `OnItemExpanding` and `OnItemCollapsed` callbacks with matching
+  `.SettingsSelected()` / `.ItemInvoked()` / `.DisplayModeChanged()` /
+  `.ItemExpanding()` / `.ItemCollapsed()` fluents. A new
+  `NavigationViewElement.SettingsTag` sentinel lets `SelectedTag` select the
+  built-in settings item, and `.WithNavigation()` now routes it.
+
 ### Changed
+
+- **`WithNavigation` gained an optional `settingsRoute` argument (binary-breaking,
+  issue #915).** Call sites can now pass a fourth argument —
+  `.WithNavigation(nav, routeToTag, tagToRoute, settingsRoute)` — to route the
+  built-in settings item; passing nothing keeps the previous behaviour.
+  Source-compatible: existing three-argument call sites compile unchanged. But
+  optional arguments are baked in at the call site, so binaries compiled against
+  `v0.1.0-preview.9`–`.12` still resolve the previous three-argument form and
+  would need a recompile rather than a drop-in DLL swap. No back-compat overload
+  was added: the project is pre-1.0 and explicitly reserves the right to change
+  the public surface between releases, and a permanent duplicate overload is a
+  worse public shape than one optional argument.
 
 ### Deprecated
 
 ### Removed
 
 ### Fixed
+
+- **`NavigationView` pane state no longer desyncs when the control moves its own
+  pane (issue #916).** `IsPaneOpen` could be written but had no change
+  notification, so a light dismiss or an adaptive display-mode change on resize
+  left the app's state stale — the next toggle wrote a value the control already
+  held and the pane appeared to need two clicks. Wire `.IsPaneOpen(value,
+  handler)` (or `.PaneOpenChanged(handler)`) to keep the two in sync.
+
+- **Window updates no longer drop a `TitleBar(...)` element's content-extension
+  inference (issue #917).** `ReactorWindow.Update` wrote
+  `ExtendsContentIntoTitleBar = false` whenever the spec left it unset, silently
+  undoing the inference behind a still-mounted title-bar control; an unset spec
+  value now preserves it.
+
+- **`NavigationView` no longer needs `.Set()` for its chrome (issue #915).**
+  `IsBackButtonVisible` and `IsPaneToggleButtonVisible` had no declarative
+  mapping, so hiding the back button or the hamburger — the usual setup when a
+  `TitleBar` already owns that chrome — forced an imperative
+  `.Set(nv => ...)` escape hatch that the reconciler could not diff.
 
 ### Security
 

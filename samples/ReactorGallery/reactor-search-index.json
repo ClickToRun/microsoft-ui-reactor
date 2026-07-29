@@ -563,11 +563,12 @@
         "ItemsView"
       ],
       "apiNamespace": "Microsoft.UI.Reactor",
-      "nugetPackage": "Microsoft.UI.Reactor",
+      "nugetPackage": "Microsoft.UI.Reactor.Advanced",
       "usings": [
         "Microsoft.UI.Reactor.Data",
         "Microsoft.UI.Reactor.Data.Providers",
-        "Microsoft.UI.Reactor.Controls"
+        "Microsoft.UI.Reactor.Controls",
+        "Microsoft.UI.Reactor.Advanced.Factories"
       ],
       "galleryRoute": "data-grid",
       "samples": [
@@ -622,7 +623,7 @@
         "SplitView"
       ],
       "apiNamespace": "Microsoft.UI.Reactor",
-      "nugetPackage": "Microsoft.UI.Reactor",
+      "nugetPackage": "Microsoft.UI.Reactor.Advanced",
       "usings": [
         "Microsoft.UI.Reactor.Docking"
       ],
@@ -1196,7 +1197,7 @@
         "RichTextBlock"
       ],
       "apiNamespace": "Microsoft.UI.Reactor",
-      "nugetPackage": "Microsoft.UI.Reactor",
+      "nugetPackage": "Microsoft.UI.Reactor.Advanced",
       "galleryRoute": "markdown",
       "samples": [
         {
