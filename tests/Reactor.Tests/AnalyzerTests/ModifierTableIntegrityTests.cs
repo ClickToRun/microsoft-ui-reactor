@@ -185,6 +185,31 @@ public class ModifierTableIntegrityTests
             "not an equivalent replacement.");
     }
 
+    [Fact]
+    public void Every_Type_Specific_Modifier_Matching_A_Settable_WinUI_Property_Is_Classified()
+    {
+        // The generic test above cannot see a modifier that only exists in the type-specific
+        // shape — including this table's own RichTextBlockElement font overloads. A property
+        // whose ONLY modifier is type-specific would slip past unclassified, which is the
+        // exact gap that let `.FontSize` on a RichTextBlock go unsuggested. Same forced
+        // choice between "map it" and "exclude it with a reason", other declaration shape.
+        var candidates = ReadTypeSpecificModifiers().Keys
+            .Where(IsSettableWinUiProperty)
+            .Where(name => !ModifierTable.Properties.ContainsKey(name))
+            .Where(name => !ModifierTable.DeliberatelyExcluded.ContainsKey(name))
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            candidates.Count == 0,
+            "These type-specific modifiers match a settable WinUI property but are neither " +
+            "mapped in ModifierTable.Properties nor listed in ModifierTable.DeliberatelyExcluded: " +
+            $"[{string.Join(", ", candidates)}]. " +
+            "Either add a mapping with the declaring element types (so REACTOR_MOD_002 " +
+            "suggests the modifier for '.Set(x => x.PROP = ...)' on those receivers), or add " +
+            "an exclusion explaining why the modifier is not an equivalent replacement.");
+    }
+
     /// <summary>
     /// True when one of the WinUI base types Reactor's modifiers target declares a public
     /// settable instance property with this name — i.e. a name a <c>.Set</c> lambda could
@@ -209,6 +234,173 @@ public class ModifierTableIntegrityTests
             name,
             BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
         return prop is not null && prop.CanWrite;
+    }
+
+    // ── Drift against the runtime authority ──────────────────────────────────
+
+    [Fact]
+    public void Every_ControlGate_Matches_The_Types_ApplyModifiers_Writes_To()
+    {
+        // ControlGate hand-copies allow-lists that Reconciler.ApplyModifiers encodes
+        // independently, and the two failure directions are both silent: a gate that is too
+        // WIDE makes the analyzer suggest a modifier the reconciler never writes (the rewrite
+        // compiles and does nothing — the ValueList/CellComponent regression), while one that
+        // is too NARROW just drops diagnostics. Nothing else notices either, so pin the copy
+        // to its source.
+        var actualGates = ReadApplyModifierControlGates();
+        var problems = new List<string>();
+
+        foreach (var (prop, info) in ModifierTable.Properties)
+        {
+            if (info.ControlGate is not { } declared)
+                continue;
+
+            if (!actualGates.TryGetValue(prop, out var actual))
+            {
+                problems.Add(
+                    $"{prop}: ModifierTable declares a control gate [{string.Join("|", declared)}], " +
+                    "but ApplyModifiers has no 'fe is <Type>' test guarded by 'm." + prop + "'");
+                continue;
+            }
+
+            if (!actual.SetEquals(declared))
+            {
+                problems.Add(
+                    $"{prop}: ModifierTable says [{string.Join("|", declared.OrderBy(t => t, StringComparer.Ordinal))}] " +
+                    $"but ApplyModifiers writes to [{string.Join("|", actual.OrderBy(t => t, StringComparer.Ordinal))}]");
+            }
+        }
+
+        Assert.True(
+            problems.Count == 0,
+            "ModifierTable.ControlGate has drifted from Reconciler.ApplyModifiers, which is the " +
+            "runtime authority for which controls a modifier is actually written to:\n  " +
+            string.Join("\n  ", problems));
+    }
+
+    /// <summary>
+    /// Modifier property name → the WinUI type names <c>ApplyModifiers</c> actually writes it
+    /// to, read out of <c>Reconciler.cs</c>.
+    /// </summary>
+    /// <remarks>
+    /// Parsed with Roslyn rather than matched with a regex: the gate lives in a type-test
+    /// pattern nested inside the <c>if (m.PROP…)</c> that guards it, and tying the two
+    /// together textually would be guesswork about brace depth. Walking the syntax tree makes
+    /// the containment relationship exact, so this test fails on real drift instead of on
+    /// reformatting.
+    /// </remarks>
+    private static Dictionary<string, HashSet<string>> ReadApplyModifierControlGates()
+    {
+        var root = RepoRootFinder.FindRepoRoot();
+        Assert.NotNull(root);
+        var file = Path.Join(root!, "src", "Reactor", "Core", "Reconciler.cs");
+        Assert.True(File.Exists(file), $"Reconciler.cs not found at {file}");
+
+        var tree = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(File.ReadAllText(file));
+        var methods = tree.GetRoot()
+            .DescendantNodes()
+            .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.MethodDeclarationSyntax>()
+            .Where(m => m.Identifier.Text == "ApplyModifiers")
+            .ToList();
+
+        Assert.True(methods.Count > 0, "No ApplyModifiers method found in Reconciler.cs");
+
+        var gates = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+
+        foreach (var method in methods)
+        {
+            // Padding and BorderThickness are computed into a local first (to overlay the
+            // BiDi-aware inline variants), so the guard reads `resolvedPadding`, not
+            // `m.Padding`. Map those locals back to the modifier they were seeded from.
+            var localToProperty = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var declarator in method.DescendantNodes()
+                .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.VariableDeclaratorSyntax>())
+            {
+                if (declarator.Initializer is null)
+                    continue;
+                var seed = ModifierPropertyNames(declarator.Initializer.Value).FirstOrDefault();
+                if (seed is not null)
+                    localToProperty[declarator.Identifier.Text] = seed;
+            }
+
+            foreach (var ifStatement in method.DescendantNodes()
+                .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.IfStatementSyntax>())
+            {
+                // Which modifier does this branch guard? `m.Background is not null`,
+                // `resolvedPadding.HasValue`, `oldM?.FontSize.HasValue == true`, …
+                var guarded = ModifierPropertyNames(ifStatement.Condition)
+                    .Concat(ifStatement.Condition
+                        .DescendantNodesAndSelf()
+                        .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax>()
+                        .Select(id => localToProperty.TryGetValue(id.Identifier.Text, out var mapped) ? mapped : null)
+                        .Where(name => name is not null)!)
+                    .FirstOrDefault();
+
+                if (guarded is null)
+                    continue;
+
+                // Type tests on the FrameworkElement inside this branch (and its else clauses)
+                // are the gate: `fe is WinUI.Control padCtrl`.
+                foreach (var pattern in ifStatement.DescendantNodes()
+                    .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.IsPatternExpressionSyntax>())
+                {
+                    if (pattern.Expression is not Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax { Identifier.Text: "fe" })
+                        continue;
+                    if (pattern.Pattern is not Microsoft.CodeAnalysis.CSharp.Syntax.DeclarationPatternSyntax declaration)
+                        continue;
+
+                    var typeName = declaration.Type switch
+                    {
+                        Microsoft.CodeAnalysis.CSharp.Syntax.QualifiedNameSyntax qualified => qualified.Right.Identifier.Text,
+                        Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax simple => simple.Identifier.Text,
+                        _ => null,
+                    };
+                    if (typeName is null)
+                        continue;
+
+                    if (!gates.TryGetValue(guarded, out var set))
+                        gates[guarded] = set = new HashSet<string>(StringComparer.Ordinal);
+                    set.Add(typeName);
+                }
+            }
+        }
+
+        return gates;
+    }
+
+    /// <summary>
+    /// Modifier property names read off the new or old modifier bag inside
+    /// <paramref name="node"/>, in source order — both <c>m.Foo</c> / <c>oldM.Foo</c> and the
+    /// conditional <c>oldM?.Foo</c> form.
+    /// </summary>
+    private static IEnumerable<string> ModifierPropertyNames(Microsoft.CodeAnalysis.SyntaxNode node)
+    {
+        foreach (var descendant in node.DescendantNodesAndSelf())
+        {
+            switch (descendant)
+            {
+                case Microsoft.CodeAnalysis.CSharp.Syntax.MemberAccessExpressionSyntax access
+                    when access.Expression is Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax bag
+                        && (bag.Identifier.Text == "m" || bag.Identifier.Text == "oldM"):
+                    yield return access.Name.Identifier.Text;
+                    break;
+
+                // `oldM?.Padding` — the name hangs off a member binding, and the receiver is
+                // on the enclosing conditional access.
+                case Microsoft.CodeAnalysis.CSharp.Syntax.ConditionalAccessExpressionSyntax conditional
+                    when conditional.Expression is Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax bag
+                        && (bag.Identifier.Text == "m" || bag.Identifier.Text == "oldM"):
+                {
+                    var binding = conditional.WhenNotNull
+                        .DescendantNodesAndSelf()
+                        .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.MemberBindingExpressionSyntax>()
+                        .FirstOrDefault();
+                    if (binding is not null)
+                        yield return binding.Name.Identifier.Text;
+                    break;
+                }
+            }
+        }
     }
 
     // ── Source-scanning helpers ──────────────────────────────────────────────

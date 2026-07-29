@@ -186,7 +186,7 @@ public static class FocusExtensions
             .OnMountAdd(fe =>
             {
                 if (autoFocus && fe is Microsoft.UI.Xaml.Controls.TextBox loaded)
-                    loaded.Loaded += (_, _) => loaded.Focus(FocusState.Programmatic);
+                    FocusWhenLoaded(loaded);
             });
     }
 
@@ -203,8 +203,38 @@ public static class FocusExtensions
             .OnMountAdd(fe =>
             {
                 if (autoFocus && fe is Microsoft.UI.Xaml.Controls.NumberBox loaded)
-                    loaded.Loaded += (_, _) => loaded.Focus(FocusState.Programmatic);
+                    FocusWhenLoaded(loaded);
             });
+    }
+
+    // Give the control focus as soon as it is live, wiring at most one Loaded handler and
+    // removing it again when it fires.
+    //
+    // Mounting once is not the same as subscribing once: OnMountAdd runs on every native
+    // mount, and ElementPool recycles controls without clearing Loaded handlers — so a plain
+    // `Loaded +=` here would leave a stale autofocus closure behind on each pooled reuse, and
+    // a recycled control would steal focus for a field it no longer belongs to. Already-loaded
+    // controls (the common case for a pooled control being re-parented) are focused directly,
+    // since Loaded may not fire again. Same self-unsubscribing shape as DockSideStripRenderer
+    // and DockFloatingWindow.
+    //
+    // Plain comment rather than <summary>: the docs reference generator emits a page for every
+    // XML-documented member of a public static class, private or not.
+    private static void FocusWhenLoaded(Microsoft.UI.Xaml.Controls.Control control)
+    {
+        if (control.IsLoaded)
+        {
+            control.Focus(FocusState.Programmatic);
+            return;
+        }
+
+        Microsoft.UI.Xaml.RoutedEventHandler? handler = null;
+        handler = (_, _) =>
+        {
+            if (handler is not null) control.Loaded -= handler;
+            control.Focus(FocusState.Programmatic);
+        };
+        control.Loaded += handler;
     }
 
     /// <summary>

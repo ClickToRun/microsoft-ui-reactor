@@ -201,7 +201,32 @@ internal static class SetLambdaHelpers
     private static bool IsConvertibleAssignment(AssignmentExpressionSyntax assignment, string paramName)
         // '+=' / '-=' are event subscriptions (REACTOR_EVENT_001's job) and have no modifier form.
         => assignment.IsKind(SyntaxKind.SimpleAssignmentExpression)
-            && GetAssignedMemberAccess(assignment, paramName) is not null;
+            && GetAssignedMemberAccess(assignment, paramName) is not null
+            && !ReferencesIdentifier(assignment.Right, paramName);
+
+    /// <summary>
+    /// True when <paramref name="expression"/> mentions <paramref name="identifier"/> anywhere.
+    /// </summary>
+    /// <remarks>
+    /// The right-hand side is copied verbatim into the modifier call, but the lambda parameter
+    /// does not survive the rewrite — the lambda is deleted. So
+    /// <c>b.Set(c =&gt; c.IsEnabled = c.Opacity &gt; 0)</c> would become
+    /// <c>b.IsEnabled(c.Opacity &gt; 0)</c>, which does not compile. Purely syntactic on
+    /// purpose: a shadowing declaration that happens to reuse the name only costs a declined
+    /// fix, whereas missing a real reference emits broken code.
+    /// </remarks>
+    private static bool ReferencesIdentifier(SyntaxNode expression, string identifier)
+    {
+        foreach (var node in expression.DescendantNodesAndSelf())
+        {
+            if (node is IdentifierNameSyntax name
+                && string.Equals(name.Identifier.Text, identifier, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /// <summary>
     /// Extract the single assignment expression from a lambda passed to <c>.Set(...)</c>.

@@ -48,6 +48,14 @@ public sealed class ModifierInfo
     /// A name-keyed rewrite would emit a call that does not compile on any other receiver,
     /// so the element type is checked before the fix is offered.
     /// </para>
+    /// <para>
+    /// When <see cref="ControlGate"/> is also set the two are <b>OR'd</b>, not AND'd: they
+    /// describe two independent routes to a sound rewrite — the generic modifier reaching this
+    /// receiver at runtime, or a type-specific overload existing for this element type. Fonts
+    /// need both, because <c>ApplyModifiers</c> only writes the generic path to
+    /// <c>Control</c>/<c>TextBlock</c> while <c>RichTextBlockElement</c> carries its own
+    /// overloads.
+    /// </para>
     /// </summary>
     public string[]? ElementTypes { get; }
 }
@@ -91,6 +99,8 @@ public static class ModifierTable
     private static readonly string[] ControlBorder = { "Control", "Border" };
     private static readonly string[] PanelControlBorder = { "Panel", "Control", "Border" };
     private static readonly string[] ControlOrTextBlock = { "Control", "TextBlock" };
+    private static readonly string[] RichTextBlockOnly = { "RichTextBlockElement" };
+    private static readonly string[] TextOrRichTextBlock = { "TextBlockElement", "RichTextBlockElement" };
 
     /// <summary>
     /// Property name → modifier mapping. Keyed by the WinUI property name as written inside
@@ -132,15 +142,17 @@ public static class ModifierTable
             { "BorderBrush",     new ModifierInfo("BorderBrush",     controlGate: ControlBorder) },
             { "Background",      new ModifierInfo("Background",      controlGate: PanelControlBorder) },
 
-            // Fonts have BOTH a generic modifier and type-specific overloads. Gating on the
-            // generic path (Control|TextBlock) is the conservative choice: a RichTextBlock
-            // receiver is skipped rather than suggested, which costs a missed diagnostic but
-            // never produces a silent no-op. See the RichTextBlockElement.FontSize overload —
-            // without it, `.FontSize(n)` there binds the generic and writes nothing.
-            { "FontFamily", new ModifierInfo("FontFamily", controlGate: ControlOrTextBlock) },
-            { "FontSize",   new ModifierInfo("FontSize",   controlGate: ControlOrTextBlock) },
-            { "FontWeight", new ModifierInfo("FontWeight", controlGate: ControlOrTextBlock) },
-            { "Foreground", new ModifierInfo("Foreground", controlGate: ControlOrTextBlock) },
+            // Fonts have BOTH a generic modifier and type-specific overloads, and the two
+            // cover different receivers — so the gates are OR'd (see ModifierInfo.ElementTypes).
+            // The generic path only reaches Control|TextBlock in ApplyModifiers; RichTextBlock
+            // is neither, yet exposes the same DPs, so `.FontSize(n)` there would bind the
+            // generic modifier and write nothing. The RichTextBlockElement overloads are what
+            // make the suggestion sound on that receiver — FontSize's was added alongside this
+            // table for exactly that reason.
+            { "FontFamily", new ModifierInfo("FontFamily", controlGate: ControlOrTextBlock, elementTypes: TextOrRichTextBlock) },
+            { "FontSize",   new ModifierInfo("FontSize",   controlGate: ControlOrTextBlock, elementTypes: TextOrRichTextBlock) },
+            { "FontWeight", new ModifierInfo("FontWeight", controlGate: ControlOrTextBlock, elementTypes: RichTextBlockOnly) },
+            { "Foreground", new ModifierInfo("Foreground", controlGate: ControlOrTextBlock, elementTypes: RichTextBlockOnly) },
 
             // ── Type-specific modifiers (REACTOR_MOD_002, Info) ──────────────────────
             // No generic overload exists, so the rewrite only compiles on these element
@@ -182,6 +194,32 @@ public static class ModifierTable
                 }) },
             { "SelectionMode", new ModifierInfo("SelectionMode",
                 elementTypes: new[] { "ListViewElement", "GridViewElement" }) },
+
+            // Rich-text typography. Surfaced by the type-specific staleness test — each has a
+            // modifier whose parameter type is the property's own type, so the rewrite is a
+            // straight pass-through.
+            { "FontStretch", new ModifierInfo("FontStretch",
+                elementTypes: new[] { "RichTextBlockElement", "RichTextParagraph", "RichTextRun", "RichTextHyperlink" }) },
+            { "TextDecorations", new ModifierInfo("TextDecorations",
+                elementTypes: new[] { "TextBlockElement", "RichTextBlockElement", "RichTextParagraph", "RichTextRun", "RichTextHyperlink" }) },
+            { "Language", new ModifierInfo("Language",
+                elementTypes: new[] { "RichTextParagraph", "RichTextRun", "RichTextHyperlink" }) },
+            { "HorizontalTextAlignment", new ModifierInfo("HorizontalTextAlignment",
+                elementTypes: new[] { "RichTextBlockElement", "RichTextParagraph" }) },
+            { "LineStackingStrategy", new ModifierInfo("LineStackingStrategy",
+                elementTypes: new[] { "RichTextBlockElement", "RichTextParagraph" }) },
+            { "SelectionHighlightColor", new ModifierInfo("SelectionHighlightColor",
+                elementTypes: new[] { "RichTextBlockElement", "RichEditBoxElement" }) },
+            { "IsColorFontEnabled", new ModifierInfo("IsColorFontEnabled",
+                elementTypes: new[] { "RichTextBlockElement" }) },
+            { "OpticalMarginAlignment", new ModifierInfo("OpticalMarginAlignment",
+                elementTypes: new[] { "RichTextBlockElement" }) },
+            { "TextLineBounds", new ModifierInfo("TextLineBounds",
+                elementTypes: new[] { "RichTextBlockElement" }) },
+            { "TextReadingOrder", new ModifierInfo("TextReadingOrder",
+                elementTypes: new[] { "RichTextBlockElement" }) },
+            { "ContentTransitions", new ModifierInfo("ContentTransitions",
+                elementTypes: new[] { "ExpanderElement" }) },
         };
 
     /// <summary>
@@ -200,6 +238,7 @@ public static class ModifierTable
             ["SelectedValue"] = "Owned by REACTOR_CTRL_001, as above.",
             ["Style"] = "The .ApplyStyle(name)/.AccentButton() modifiers are OnMount-based, so they are not equivalent to a .Set that re-applies every update.",
             ["Name"] = "No modifier exists. 154 .Set sites, all in selftest/E2E fixtures — adding a .Name(string) modifier is tracked separately.",
+            ["BackgroundTransition"] = "The modifier takes a TimeSpan? duration and builds the BrushTransition itself; the property's value is a BrushTransition, so the rewrite would not type-check.",
             ["Content"] = "The .Content(Element) modifiers take a Reactor Element, not the native content object a .Set assigns.",
             ["Header"] = "Header modifiers take a string; a .Set may assign an arbitrary object.",
             ["Orientation"] = "Modifiers exist only for Slider/DatePicker; StackElement (the common .Set receiver) has none.",

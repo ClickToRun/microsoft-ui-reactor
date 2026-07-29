@@ -152,13 +152,18 @@ public class PoolResetSetConsistencyTests
     {
         _ = modifierName; // not consumed here; pinned by Every_TrappedProperty_Has_A_Matching_Modifier
         var stubs = BuildStubs();
+        // A concrete value, not `default!`: the analyzer deliberately skips null/default
+        // right-hand sides (ApplyModifiers treats a null modifier value as "no modifier
+        // supplied", so the rewrite would not perform the write), and it now sees through
+        // casts and the null-forgiving operator to recognise them. BuildStubs declares every
+        // property as `object?`, so one literal serves every row.
         var source = stubs + $@"
 class C
 {{
     void M()
     {{
         var el = new FakeElement();
-        {{|REACTOR_POOL_001:el.Set(fe => fe.{propName} = default!)|}};
+        {{|REACTOR_POOL_001:el.Set(fe => fe.{propName} = ""v"")|}};
     }}
 }}";
 

@@ -288,45 +288,103 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
         // not reliably write null the way `.Set(x => x.Background = null)` does. Suggesting
         // the rewrite here would change behaviour — the precise failure this analyzer exists
         // to prevent. Real site: samples/ReactorGallery/ControlPages/Media/ParallaxViewPage.cs.
-        if (assignment.Right.IsKind(SyntaxKind.NullLiteralExpression)
-            || assignment.Right.IsKind(SyntaxKind.DefaultLiteralExpression)
-            || assignment.Right is DefaultExpressionSyntax)
-        {
+        if (IsNullOrDefault(assignment.Right))
             return null;
-        }
 
         // Receiver gates. Both are checked against the semantic model rather than inferred:
         // for `.Set(x => …)` the lambda parameter's type IS the runtime WinUI control type
         // (the overload is Action<WinUI.Grid> and friends), and the `.Set` receiver's type
         // is the concrete Reactor element type.
-        if (info.ControlGate is { } gate)
-        {
-            // ApplyModifiers writes this modifier only to certain control types; on anything
-            // else it compiles and silently does nothing, so staying on .Set is correct.
-            var controlType = context.SemanticModel
-                .GetTypeInfo(leftAccess.Expression, context.CancellationToken).Type;
-
-            var applies = gate.Any(allowed =>
-                SetLambdaHelpers.InheritsFrom(controlType, allowed, "Microsoft.UI.Xaml.Controls"));
-            if (!applies)
-                return null;
-        }
-
-        if (info.ElementTypes is { } elementTypes)
-        {
-            // No generic overload exists, so the rewrite only compiles when the receiver
-            // element type declares one.
-            var elementType = context.SemanticModel
-                .GetTypeInfo(memberAccess.Expression, context.CancellationToken).Type;
-            if (elementType is null)
-                return null;
-
-            var declared = elementTypes.Any(candidate =>
-                string.Equals(elementType.Name, candidate, System.StringComparison.Ordinal));
-            if (!declared)
-                return null;
-        }
+        //
+        // The two gates are OR'd when both are present: they are independent routes to a
+        // sound rewrite — the generic modifier reaching this control at runtime, or a
+        // type-specific overload existing for this element type. Fonts need both.
+        var gated = info.ControlGate is not null || info.ElementTypes is not null;
+        if (gated && !PassesControlGate(context, info, leftAccess) && !PassesElementGate(context, info, memberAccess))
+            return null;
 
         return (propName, info);
+    }
+
+    /// <summary>
+    /// True when <c>ApplyModifiers</c> would actually write the generic modifier to this
+    /// runtime control type. False when no control gate is declared — the caller OR-combines
+    /// this with <see cref="PassesElementGate"/>, so "not applicable" must not count as a pass.
+    /// </summary>
+    private static bool PassesControlGate(
+        SyntaxNodeAnalysisContext context,
+        ModifierInfo info,
+        MemberAccessExpressionSyntax leftAccess)
+    {
+        if (info.ControlGate is not { } gate)
+            return false;
+
+        // ApplyModifiers writes this modifier only to certain control types; on anything
+        // else it compiles and silently does nothing, so staying on .Set is correct.
+        var controlType = context.SemanticModel
+            .GetTypeInfo(leftAccess.Expression, context.CancellationToken).Type;
+
+        return gate.Any(allowed =>
+            SetLambdaHelpers.InheritsFrom(controlType, allowed, "Microsoft.UI.Xaml.Controls"));
+    }
+
+    /// <summary>
+    /// True when the receiver element type declares a type-specific overload of the modifier.
+    /// False when no element types are declared, for the same reason as
+    /// <see cref="PassesControlGate"/>.
+    /// </summary>
+    private static bool PassesElementGate(
+        SyntaxNodeAnalysisContext context,
+        ModifierInfo info,
+        MemberAccessExpressionSyntax memberAccess)
+    {
+        if (info.ElementTypes is not { } elementTypes)
+            return false;
+
+        // No generic overload exists (or it does not reach this control), so the rewrite
+        // only compiles when the receiver element type declares one.
+        var elementType = context.SemanticModel
+            .GetTypeInfo(memberAccess.Expression, context.CancellationToken).Type;
+        if (elementType is null)
+            return false;
+
+        return elementTypes.Any(candidate =>
+            string.Equals(elementType.Name, candidate, System.StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// True for a right-hand side that assigns null, seeing through the wrappers that do not
+    /// change that: parentheses, casts, and the null-forgiving operator.
+    /// </summary>
+    /// <remarks>
+    /// A bare-literal test is not enough. <c>(Brush)null!</c>, <c>(Brush?)null</c> and
+    /// <c>((Brush)null)</c> all assign null while none of them is a
+    /// <see cref="SyntaxKind.NullLiteralExpression"/> at the top. Letting one through would
+    /// suggest <c>.Background((Brush)null!)</c>, and <c>ApplyModifiers</c> skips a null modifier
+    /// value — so the explicit null write silently stops happening, which is exactly the
+    /// class of silent behaviour change this gate exists to prevent.
+    /// </remarks>
+    private static bool IsNullOrDefault(ExpressionSyntax expression)
+    {
+        while (true)
+        {
+            switch (expression)
+            {
+                case ParenthesizedExpressionSyntax parenthesized:
+                    expression = parenthesized.Expression;
+                    continue;
+                case CastExpressionSyntax cast:
+                    expression = cast.Expression;
+                    continue;
+                case PostfixUnaryExpressionSyntax suppression
+                    when suppression.IsKind(SyntaxKind.SuppressNullableWarningExpression):
+                    expression = suppression.Operand;
+                    continue;
+                default:
+                    return expression.IsKind(SyntaxKind.NullLiteralExpression)
+                        || expression.IsKind(SyntaxKind.DefaultLiteralExpression)
+                        || expression is DefaultExpressionSyntax;
+            }
+        }
     }
 }

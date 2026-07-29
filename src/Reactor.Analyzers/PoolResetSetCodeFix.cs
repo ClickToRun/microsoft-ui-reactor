@@ -87,6 +87,9 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
             var steps = TryBuildChain(assignments, reported);
             if (steps is null) continue; // Mixed or untranslatable body — leave the diagnostic unfixed.
 
+            if (ReceiverAlreadyApplies(memberAccess.Expression, steps))
+                continue; // Rewriting would invert precedence — see the method's remarks.
+
             var carriedTrivia = TryBuildCarriedTrivia(args[0].Expression, assignments);
             if (carriedTrivia is null) continue; // A comment with nowhere safe to go.
 
@@ -281,6 +284,48 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
         }
 
         return steps.Count == 0 ? null : steps;
+    }
+
+    /// <summary>
+    /// True when the receiver chain already calls one of the modifiers we are about to append,
+    /// which makes the rewrite a behaviour change rather than a refactor.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Setters and modifiers run in different phases, and modifiers run <em>second</em>:
+    /// <c>ApplySetters</c> is called from inside the mount/update dispatch
+    /// (<c>DescriptorHandler</c> and friends), while <c>ApplyModifiers</c> is called after that
+    /// dispatch returns (<c>Reconciler.Mount.cs</c>, <c>Reconciler.Update.cs</c>). So a modifier
+    /// beats a <c>.Set</c> write of the same property regardless of their order in the chain:
+    /// </para>
+    /// <code>
+    /// b.IsEnabled(true).Set(c =&gt; c.IsEnabled = false)   // renders true — the modifier wins
+    /// b.IsEnabled(true).IsEnabled(false)                 // renders false — last call wins
+    /// </code>
+    /// <para>
+    /// Only a modifier appearing <em>before</em> the <c>.Set</c> is affected, and that is
+    /// exactly what the receiver expression contains, so walking it is sufficient. Any part of
+    /// the chain we cannot see (a local, a helper's return value) is left alone — this is a
+    /// syntactic guard for the visible case, not a whole-program analysis.
+    /// </para>
+    /// </remarks>
+    private static bool ReceiverAlreadyApplies(
+        ExpressionSyntax receiver,
+        List<(string Modifier, ArgumentListSyntax Arguments)> steps)
+    {
+        for (var node = receiver; node is InvocationExpressionSyntax call;)
+        {
+            if (call.Expression is not MemberAccessExpressionSyntax access)
+                break;
+
+            var called = access.Name.Identifier.Text;
+            if (steps.Exists(step => string.Equals(step.Modifier, called, StringComparison.Ordinal)))
+                return true;
+
+            node = access.Expression;
+        }
+
+        return false;
     }
 
     /// <summary>

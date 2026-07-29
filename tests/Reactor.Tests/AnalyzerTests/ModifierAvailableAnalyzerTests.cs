@@ -109,6 +109,8 @@ namespace Microsoft.UI.Reactor
         public static T IsEnabled<T>(this T el, bool enabled = true) => el;
         public static T Padding<T>(this T el, double uniform) => el;
         public static T Padding<T>(this T el, double l, double t, double r, double b) => el;
+        public static T CornerRadius<T>(this T el, double radius) => el;
+        public static T BorderThickness<T>(this T el, double thickness) => el;
         public static T Background<T>(this T el, Microsoft.UI.Xaml.Media.Brush brush) => el;
         public static T HorizontalContentAlignment<T>(this T el, Microsoft.UI.Xaml.HorizontalAlignment a) => el;
     }
@@ -518,6 +520,213 @@ class C
         {
             TestCode = before,
             FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_For_FontSize_On_RichTextBlock_Via_The_Type_Specific_Overload()
+    {
+        // RichTextBlock is neither Control nor TextBlock, so ApplyModifiers never writes the
+        // GENERIC .FontSize(n) to it — but RichTextBlockElement declares its own overload, and
+        // that route is sound. The two gates are OR'd precisely so this case is reachable.
+        var source = FontStubs + @"
+class C
+{
+    RichTextBlockElement M(RichTextBlockElement r) => {|REACTOR_MOD_002:r.Set(x => x.FontSize = 14)|};
+}";
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_FontSize_On_A_Receiver_With_Neither_Route()
+    {
+        // ContentPresenter is the shape the OR must still reject: not Control, not TextBlock,
+        // and ContentPresenterElement declares no type-specific overload — so BOTH routes fail
+        // and the generic modifier would silently write nothing. Without this the OR could be
+        // "always pass" and the FontSize test above would not prove anything.
+        var source = FontStubs + @"
+class C
+{
+    ContentPresenterElement M(ContentPresenterElement p) => p.Set(x => x.FontSize = 14);
+}";
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    /// <summary>
+    /// Stubs for the font gates: a RichTextBlock and a ContentPresenter, both deriving from
+    /// FrameworkElement (as in real WinUI) so neither satisfies the Control|TextBlock gate,
+    /// with a type-specific overload declared only for RichTextBlockElement.
+    /// </summary>
+    private const string FontStubs = @"
+using System;
+using Microsoft.UI.Reactor;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+
+namespace Microsoft.UI.Xaml
+{
+    public class UIElement { }
+    public class FrameworkElement : UIElement { }
+}
+
+namespace Microsoft.UI.Xaml.Controls
+{
+    using Microsoft.UI.Xaml;
+    public class Control : FrameworkElement { public double FontSize { get; set; } }
+    public class TextBlock : FrameworkElement { public double FontSize { get; set; } }
+    // Neither of these is a Control or a TextBlock, but both expose the FontSize DP.
+    public class RichTextBlock : FrameworkElement { public double FontSize { get; set; } }
+    public class ContentPresenter : FrameworkElement { public double FontSize { get; set; } }
+}
+
+namespace Microsoft.UI.Reactor
+{
+    using System;
+    using Microsoft.UI.Xaml.Controls;
+
+    public record RichTextBlockElement;
+    public record ContentPresenterElement;
+
+    public static class FontExt
+    {
+        public static RichTextBlockElement Set(this RichTextBlockElement el, Action<RichTextBlock> configure) => el;
+        public static ContentPresenterElement Set(this ContentPresenterElement el, Action<ContentPresenter> configure) => el;
+
+        public static T FontSize<T>(this T el, double size) => el;
+        // The type-specific overload that makes the suggestion sound on a RichTextBlock.
+        public static RichTextBlockElement FontSize(this RichTextBlockElement el, double size) => el;
+    }
+}
+";
+
+    [Fact]
+    public async Task CodeFix_Declines_When_The_Value_References_The_Lambda_Parameter()
+    {
+        // The RHS is copied verbatim into the modifier call, but the lambda parameter does not
+        // survive the rewrite — the lambda is deleted. Converting this would emit
+        // `b.IsEnabled(c.Opacity > 0)`, where `c` is unbound: CS0103.
+        var source = Stubs.Replace(
+            "public class UIElement { public bool IsHitTestVisible { get; set; } }",
+            "public class UIElement { public bool IsHitTestVisible { get; set; } public double Opacity { get; set; } }") + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => {|REACTOR_MOD_002:b.Set(c => c.IsEnabled = c.Opacity > 0)|};
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Declines_When_The_Receiver_Already_Applies_The_Same_Modifier()
+    {
+        // Setters and modifiers run in different phases and modifiers run SECOND: ApplySetters
+        // is called from inside the mount/update dispatch, ApplyModifiers after it returns. So
+        // `.IsEnabled(true).Set(c => c.IsEnabled = false)` renders true — the modifier wins —
+        // while the naive rewrite `.IsEnabled(true).IsEnabled(false)` renders false, because
+        // the modifier merge is last-wins. Converting would silently invert the result.
+        var source = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => {|REACTOR_MOD_002:b.IsEnabled(true).Set(c => c.IsEnabled = false)|};
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Still_Offers_The_Rewrite_For_An_Unrelated_Preceding_Modifier()
+    {
+        // The precedence guard must be scoped to the SAME modifier. A different one in the
+        // receiver chain does not interact, so the fix should still be offered — otherwise the
+        // guard would suppress most real call sites, which are already fluent chains.
+        var before = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => {|REACTOR_MOD_002:b.Padding(8).Set(c => c.IsEnabled = false)|};
+}";
+        var after = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => b.Padding(8).IsEnabled(false);
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Theory]
+    [InlineData("(Microsoft.UI.Xaml.Media.Brush)null")]
+    [InlineData("((Microsoft.UI.Xaml.Media.Brush)null)")]
+    [InlineData("(Microsoft.UI.Xaml.Media.Brush)null!")]
+    [InlineData("default(Microsoft.UI.Xaml.Media.Brush)")]
+    public async Task No_Diagnostic_For_A_Wrapped_Null_Assignment(string nullExpression)
+    {
+        // ApplyModifiers skips a null modifier value, so `.Background(null)` does not perform
+        // the write that `.Set(x => x.Background = null)` does. A bare-literal test misses the
+        // cast / parenthesised / null-forgiving spellings, each of which still assigns null.
+        var source = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => b.Set(c => c.Background = " + nullExpression + @");
+}";
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Rewrites_CornerRadius_And_BorderThickness_Struct_Values()
+    {
+        // The struct-unpacking branch of TryBuildModifierArguments handles four property names
+        // but Margin/Padding were the only ones covered. CornerRadius takes the OTHER struct
+        // type, so it exercises the `structName` selection that Padding cannot.
+        var before = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => {|REACTOR_MOD_002:{|REACTOR_MOD_002:b.Set(c => { c.CornerRadius = new CornerRadius(6); c.BorderThickness = new Thickness(2); })|}|};
+}";
+        var after = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => b.CornerRadius(6).BorderThickness(2);
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Declines_A_CornerRadius_Value_It_Cannot_Unpack()
+    {
+        // Only the 1-arg and 4-arg constructor forms map onto modifier overloads. A variable
+        // (or any other shape) has no safe translation, so the diagnostic stands unfixed
+        // rather than the fix guessing at a conversion.
+        var source = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b, CornerRadius radius) => {|REACTOR_MOD_002:b.Set(c => c.CornerRadius = radius)|};
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 

@@ -15,6 +15,13 @@
 ; REACTOR_THEME_003, REACTOR_ITEMS_001, REACTOR_CTRL_001 -- are deliberately
 ; left at their default warning severity, because those indicate real bugs.
 ;
+; The REACTOR_HOOKS_* rules are correctness rules too -- a hook called outside
+; Render, or inside a nested lambda, breaks the call-order contract that hook
+; state depends on. They are NOT downgraded globally for that reason. All 112
+; existing violations live in the 22 files listed at the bottom of this file, so
+; the downgrade is scoped to exactly those: a hook bug in any other sample, or
+; in a new one, still fails the build.
+;
 ; Each entry below is debt to burn down, not an accepted permanent exemption.
 ; Remove a line once its rule is clean across samples.
 ;
@@ -41,12 +48,18 @@ dotnet_diagnostic.REACTOR_A11Y_001.severity = suggestion
 dotnet_diagnostic.REACTOR_A11Y_002.severity = suggestion
 dotnet_diagnostic.REACTOR_A11Y_003.severity = suggestion
 dotnet_diagnostic.REACTOR_A11Y_004.severity = suggestion
+dotnet_diagnostic.REACTOR_DSL_001.severity = suggestion
+dotnet_diagnostic.REACTOR_GRID_001.severity = suggestion
+dotnet_diagnostic.REACTOR_NAV_001.severity = suggestion
+
+; Hook-rule debt, scoped to the files that already carry it. Deliberately a file
+; list and not a `**/*.cs` glob: a new violation anywhere else still breaks the
+; build, which is the point of keeping these rules at warning. Delete a path once
+; its file is clean; delete the whole section once the list is empty.
+[{CommandingDemo/App.cs,TodoApp/Program.cs,ReactorHostControlDemo/MainWindow.xaml.cs,ReactorGallery/ControlPages/Navigation/BreadcrumbBarPage.cs,Reactor.TestApp/Demos/CommandingDemo.cs,Reactor.TestApp/Demos/DataGridDemo.cs,Reactor.TestApp/Demos/InputGesturesDemo.cs,Reactor.TestApp/Demos/IntegratedDataDemo.cs,Reactor.TestApp/Demos/MemoDemo.cs,Reactor.TestApp/Demos/PropertyGridDemo.cs,Reactor.TestApp/Demos/TransitionsDemo.cs,ReactorCharting.Gallery/Samples/AnimatedDonut.cs,ReactorCharting.Gallery/Samples/BarChartRace.cs,ReactorCharting.Gallery/Samples/CurveExplorer.cs,ReactorCharting.Gallery/Samples/DonutMixer.cs,apps/chat/App/ChatSampleApp.cs,apps/demo-script-tool/App/Components/StepCard.cs,apps/headtrax/HeadTrax/App.cs,apps/reactor-ide/App.cs,apps/regedit/App.cs,apps/regedit/Components/Dialogs/ExportDialog.cs,apps/widget-creator/WidgetCreatorShell.cs}]
 dotnet_diagnostic.REACTOR_HOOKS_001.severity = suggestion
 dotnet_diagnostic.REACTOR_HOOKS_004.severity = suggestion
 dotnet_diagnostic.REACTOR_HOOKS_005.severity = suggestion
 dotnet_diagnostic.REACTOR_HOOKS_011.severity = suggestion
 dotnet_diagnostic.REACTOR_HOOKS_013.severity = suggestion
-dotnet_diagnostic.REACTOR_DSL_001.severity = suggestion
-dotnet_diagnostic.REACTOR_GRID_001.severity = suggestion
-dotnet_diagnostic.REACTOR_NAV_001.severity = suggestion
 
