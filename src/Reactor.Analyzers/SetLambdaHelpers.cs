@@ -233,9 +233,11 @@ internal static class SetLambdaHelpers
     /// Supports both expression-body lambdas (<c>fe =&gt; fe.X = v</c>) and block-body
     /// lambdas with a single assignment statement (<c>fe =&gt; { fe.X = v; }</c>).
     /// Multi-statement blocks return <c>null</c>: with more than one assignment there is no
-    /// single "the" assignment to return. Callers that want to handle a whole body — such as
-    /// <c>PoolResetSetCodeFix</c>, which rewrites every statement into a modifier chain —
-    /// should use <see cref="GetLambdaAssignments"/> instead.
+    /// single "the" assignment to return. Callers that want to classify a whole body should
+    /// use <see cref="GetLambdaAssignments"/>; callers that want to <em>rewrite</em> one —
+    /// such as <c>PoolResetSetCodeFix</c>, which turns every statement into a modifier chain
+    /// — must use <see cref="GetFullyConvertibleLambdaBody"/>, which additionally proves that
+    /// no statement would be dropped by the rewrite.
     /// Returns simple assignments (<c>=</c>) and compound assignments (<c>+=</c>/<c>-=</c>);
     /// callers branch on <see cref="AssignmentExpressionSyntax.Kind"/>.
     /// </summary>

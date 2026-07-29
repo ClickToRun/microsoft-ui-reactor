@@ -174,8 +174,9 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
 
         // Detection considers every assignment in the body, not just a lone one: a
         // modifier-backed write is no less wrong for sharing a block with other statements.
-        // PoolResetSetCodeFix independently re-checks for a single assignment, so
-        // multi-statement bodies are reported but not auto-rewritten.
+        // This is deliberately wider than the fix, which converts a body only when EVERY
+        // statement is convertible (SetLambdaHelpers.GetFullyConvertibleLambdaBody) — so a
+        // mixed body is reported here and left unfixed rather than partially rewritten.
         var assignments = SetLambdaHelpers.GetLambdaAssignments(lambdaExpr);
         if (assignments.IsDefaultOrEmpty)
             return;
@@ -348,8 +349,13 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
         if (elementType is null)
             return false;
 
+        // Walk the base chain rather than comparing the exact name: element records are not
+        // sealed, and an extension declared on TextBlockElement is equally callable on a type
+        // derived from it — so exact matching would drop the diagnostic on a receiver where
+        // the rewrite compiles fine. InheritsFrom also pins the namespace, so an unrelated
+        // type that merely shares a name is still rejected.
         return elementTypes.Any(candidate =>
-            string.Equals(elementType.Name, candidate, System.StringComparison.Ordinal));
+            SetLambdaHelpers.InheritsFrom(elementType, candidate, "Microsoft.UI.Reactor"));
     }
 
     /// <summary>

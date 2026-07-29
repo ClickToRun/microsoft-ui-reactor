@@ -606,6 +606,60 @@ namespace Microsoft.UI.Reactor
 ";
 
     [Fact]
+    public async Task Fires_For_A_Type_Specific_Modifier_On_A_Derived_Element()
+    {
+        // Element records are not sealed, and an extension declared on RichTextBlockElement
+        // is equally callable on a type derived from it — so the element gate walks the base
+        // chain. Matching the exact name would drop the diagnostic on a receiver where the
+        // rewrite compiles perfectly well.
+        var source = FontStubs.Replace(
+            "public record RichTextBlockElement;",
+            "public record RichTextBlockElement;\n    public record StyledRichTextBlockElement : RichTextBlockElement;") + @"
+class C
+{
+    RichTextBlockElement M(StyledRichTextBlockElement r) => {|REACTOR_MOD_002:r.Set(x => x.FontSize = 14)|};
+}";
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_A_Same_Named_Element_Outside_The_Reactor_Namespace()
+    {
+        // The base-chain walk still pins the namespace, so an unrelated type that merely
+        // shares a name does not satisfy the gate. Without that guard, widening from exact
+        // name matching would start firing on foreign types.
+        var source = FontStubs.Replace(
+            "public record ContentPresenterElement;",
+            "public record ContentPresenterElement;") + @"
+namespace Other
+{
+    using System;
+    using Microsoft.UI.Xaml.Controls;
+
+    // Same simple name as the Reactor element, different namespace.
+    public record RichTextBlockElement;
+
+    public static class OtherExt
+    {
+        public static RichTextBlockElement Set(this RichTextBlockElement el, Action<RichTextBlock> configure) => el;
+        public static RichTextBlockElement FontSize(this RichTextBlockElement el, double size) => el;
+    }
+
+    class D
+    {
+        RichTextBlockElement M(RichTextBlockElement r) => r.Set(x => x.FontSize = 14);
+    }
+}";
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task CodeFix_Declines_When_The_Value_References_The_Lambda_Parameter()
     {
         // The RHS is copied verbatim into the modifier call, but the lambda parameter does not
