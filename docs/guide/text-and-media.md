@@ -229,6 +229,12 @@ Markdown(string source)
 Markdown(string source, MarkdownOptions options)
 ```
 
+> **Package note.** `Markdown(...)` ships in the optional
+> `Microsoft.UI.Reactor.Advanced` package (spec 062 §7). Add a
+> `<PackageReference Include="Microsoft.UI.Reactor.Advanced" />` and import
+> its factories alongside the core ones:
+> `using static Microsoft.UI.Reactor.Advanced.Factories;`.
+
 ```csharp
 class MarkdownDemo : Component
 {

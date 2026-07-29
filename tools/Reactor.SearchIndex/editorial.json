@@ -82,7 +82,8 @@
   "data-grid": {
     "keywords": ["table", "spreadsheet", "rows and columns", "sortable", "virtualized grid", "inline edit", "select"],
     "relatedControls": ["ListView", "PropertyGrid", "ItemsView"],
-    "usings": ["Microsoft.UI.Reactor.Data", "Microsoft.UI.Reactor.Data.Providers", "Microsoft.UI.Reactor.Controls"]
+    "nugetPackage": "Microsoft.UI.Reactor.Advanced",
+    "usings": ["Microsoft.UI.Reactor.Data", "Microsoft.UI.Reactor.Data.Providers", "Microsoft.UI.Reactor.Controls", "Microsoft.UI.Reactor.Advanced.Factories"]
   },
   "date-picker": {
     "keywords": ["date input", "spinner", "pick a date", "calendar picker"],
@@ -91,6 +92,7 @@
   "docking": {
     "keywords": ["dock panes", "tearable", "floating windows", "rearrange layout", "tool windows", "ide layout"],
     "relatedControls": ["TabView", "SplitView"],
+    "nugetPackage": "Microsoft.UI.Reactor.Advanced",
     "usings": ["Microsoft.UI.Reactor.Docking"]
   },
   "drop-down-button": {
@@ -179,7 +181,8 @@
   },
   "markdown": {
     "keywords": ["md", "rich text render", "commonmark", "formatted text"],
-    "relatedControls": ["RichTextBlock"]
+    "relatedControls": ["RichTextBlock"],
+    "nugetPackage": "Microsoft.UI.Reactor.Advanced"
   },
   "media-player-element": {
     "keywords": ["video", "audio", "playback", "transport controls", "player"],

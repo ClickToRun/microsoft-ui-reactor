@@ -106,14 +106,19 @@ try {
             -- dotnet test tests/Reactor.Tests --no-build -p:Platform=$Platform
     }
 
-    # 3. Instrument the built Reactor.dll (dynamic instrumentation skips referenced
-    #    assemblies, so it is instrumented statically). Exclude the ref/ facade copy.
-    $dll = Get-ChildItem -Path (Join-Path $Root 'tests/Reactor.AppTests.Host/bin') -Recurse -Filter 'Reactor.dll' -ErrorAction SilentlyContinue |
-        Where-Object { $_.FullName -notmatch 'ref[\\/]' } |
-        Select-Object -First 1
-    if (-not $dll) { throw 'Reactor.dll not found under tests/Reactor.AppTests.Host/bin' }
-    Invoke-Checked "Instrument $($dll.Name)" {
-        dotnet-coverage instrument $dll.FullName -s $SettingsFile
+    # 3. Instrument the built product DLLs (dynamic instrumentation skips referenced
+    #    assemblies, so they are instrumented statically). Exclude the ref/ facade copy.
+    #    Spec 062 Track B moved charting/docking/markdown/data-grid into
+    #    Reactor.Advanced.dll, so it must be instrumented alongside core — otherwise the
+    #    selftest leg contributes no coverage for those subsystems.
+    foreach ($dllName in @('Reactor.dll', 'Reactor.Advanced.dll')) {
+        $dll = Get-ChildItem -Path (Join-Path $Root 'tests/Reactor.AppTests.Host/bin') -Recurse -Filter $dllName -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notmatch 'ref[\\/]' } |
+            Select-Object -First 1
+        if (-not $dll) { throw "$dllName not found under tests/Reactor.AppTests.Host/bin" }
+        Invoke-Checked "Instrument $($dll.Name)" {
+            dotnet-coverage instrument $dll.FullName -s $SettingsFile
+        }.GetNewClosure()
     }
 
     # 4. Selftest coverage.

@@ -52,6 +52,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Reactor\Reactor.csproj" />
+    <!-- Spec 062 §7 Track B (B1a): charting moved core → Reactor.Advanced.
+         The D3 / Chart* unit suites now resolve charting types (incl. the
+         InternalsVisibleTo test seams) from Advanced. -->
+    <ProjectReference Include="..\..\src\Reactor.Advanced\Reactor.Advanced.csproj" />
     <!-- Issue #433: md4c HTML renderer used by the Markdown/CommonMark tests. -->
     <ProjectReference Include="..\Reactor.Markdown.TestRenderer\Reactor.Markdown.TestRenderer.csproj" />
     <!-- Authoring attributes; referenced directly (Reactor's reference is

@@ -4,8 +4,8 @@ foreach ($cls in $x.SelectNodes('//class')) {
   $f = "$($cls.filename)"
   if (-not $f) { continue }
   $norm = $f -replace '\\','/'
-  if ($norm -notlike '*/Reactor/Docking/*') { continue }
-  $key = $norm -replace '.+/Reactor/Docking/','Docking/'
+  if ($norm -notlike '*/Reactor.Advanced/Docking/*') { continue }
+  $key = $norm -replace '.+/Reactor.Advanced/Docking/','Docking/'
   if (-not $byFile.ContainsKey($key)) {
     $byFile[$key] = [pscustomobject]@{ File=$key; LinesCov=0; LinesTot=0; BrCov=0; BrTot=0 }
   }

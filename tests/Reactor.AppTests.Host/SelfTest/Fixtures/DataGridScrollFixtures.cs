@@ -7,6 +7,7 @@ using Microsoft.UI.Reactor.AppTests.Host.SelfTest;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using static Microsoft.UI.Reactor.Factories;
+using static Microsoft.UI.Reactor.Advanced.Factories;
 using static Microsoft.UI.Reactor.Core.Theme;
 
 namespace Microsoft.UI.Reactor.AppTests.Host.SelfTest.Fixtures;

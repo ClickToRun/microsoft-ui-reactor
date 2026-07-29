@@ -1,4 +1,5 @@
 using static Microsoft.UI.Reactor.Factories;
+using static Microsoft.UI.Reactor.Advanced.Factories;
 using static Microsoft.UI.Reactor.Core.Theme;
 
 namespace ChatSample.Chat.UI;

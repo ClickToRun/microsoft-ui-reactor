@@ -15,7 +15,12 @@ description: >
 # Reactor Charts
 
 The chart surface lives in `Reactor.D3.Charts` (full guide:
-`docs/guide/charting.md`). This skill is the AI-agent quick reference —
+`docs/guide/charting.md`), shipped in the optional
+`Microsoft.UI.Reactor.Advanced` package (spec 062 §7) — consumers add a
+`<PackageReference Include="Microsoft.UI.Reactor.Advanced" />` plus
+`using static Microsoft.UI.Reactor.Charting.Charts;` (and
+`using static Microsoft.UI.Reactor.Advanced.Factories;` for the shared DSL).
+This skill is the AI-agent quick reference —
 chart-choice rules, the new `*View` extension points, and the a11y/accuracy
 rails you should keep on by default.
 
@@ -48,7 +53,7 @@ the conditions are met.)
 
 **Charts not yet exposed as top-level factories:** Sankey, Treemap, Cluster
 dendrograms, partition/sunburst, stratified hierarchies. The math primitives
-exist in `src/Reactor/Charting/D3/Layout/` (`Sankey.cs`, `Treemap.cs`,
+exist in `src/Reactor.Advanced/Charting/D3/Layout/` (`Sankey.cs`, `Treemap.cs`,
 `Cluster.cs`, `Stratify.cs`, `TreeLayout.cs`) and can be composed with
 `D3Canvas` + the d3 shape generators. If a user asks for one of these and
 isn't comfortable assembling D3 primitives directly, suggest filing a
@@ -307,14 +312,14 @@ Skip it when a `string` works:
 ## Reading list
 
 - `docs/guide/charting.md` — full user-facing chart guide.
-- `src/Reactor/Charting/Charts.cs` — `ChartElement<T>` / `PieChartElement<T>`
+- `src/Reactor.Advanced/Charting/Charts.cs` — `ChartElement<T>` / `PieChartElement<T>`
   fluent API. `*View` methods sit near the bottom of each class.
-- `src/Reactor/Charting/Charts.Tree.cs` — `TreeChart` and `ForceGraph`
+- `src/Reactor.Advanced/Charting/Charts.Tree.cs` — `TreeChart` and `ForceGraph`
   factories + their elements.
-- `src/Reactor/Charting/D3Charts.cs` — d3 primitives (`D3Pie`, `D3Axes`,
+- `src/Reactor.Advanced/Charting/D3Charts.cs` — d3 primitives (`D3Pie`, `D3Axes`,
   `D3Grid`, `D3Canvas`). `D3Axes` is where the optional `xTickLabel` /
   `yTickLabel` delegates plug in.
-- `src/Reactor/Charting/D3/Layout/` — composable layout algorithms
+- `src/Reactor.Advanced/Charting/D3/Layout/` — composable layout algorithms
   (`Sankey.cs`, `Treemap.cs`, `Cluster.cs`, `Stratify.cs`, `TreeLayout.cs`).
   No top-level factory wrapping these yet; they're the building blocks for
   one when the time comes.

@@ -220,15 +220,20 @@ only add that package to app projects that intentionally expose
 
 **Only reference `Microsoft.UI.Reactor.Advanced` when you actually use
 it.** The optional, same-version
-[`Microsoft.UI.Reactor.Advanced`](win2d-canvas.md) package hosts
-`Win2DCanvas`, `Win2DAnimatedCanvas`, and `Win2DVirtualCanvas` —
-adding it pulls `Microsoft.Graphics.Win2D` (~1 MB managed +
-~3 MB native interop dll) into your publish output and roots its
-WinRT activation chain for the AOT trimmer. Apps that do not draw
-immediate-mode pixels should leave `Microsoft.UI.Reactor.Advanced`
-off their `<PackageReference>` list so the Win2D native payload
-never ships. That split is the whole reason Advanced is a sibling
-package and not a folder inside `Reactor.dll`.
+[`Microsoft.UI.Reactor.Advanced`](win2d-canvas.md) package hosts the
+heavier optional subsystems (spec 062 §7): the Win2D canvas family
+(`Win2DCanvas`, `Win2DAnimatedCanvas`, `Win2DVirtualCanvas`), the
+**data grid** (`DataGrid` / `Column` / `AutoColumns`), the **Markdown**
+renderer (`Markdown(...)`), the **charting** subsystem (`Charts` + the D3
+primitives), and the **docking** subsystem (`DockManager`). Any consumer of
+those must add its `<PackageReference>`. Adding it also pulls
+`Microsoft.Graphics.Win2D` (~1 MB managed + ~3 MB native interop dll) into
+your publish output and roots its WinRT activation chain for the AOT
+trimmer, so apps that use none of the Advanced subsystems should leave
+`Microsoft.UI.Reactor.Advanced` off their `<PackageReference>` list — that
+keeps both the moved subsystems and the Win2D native payload out of your
+build. That split is the whole reason Advanced is a sibling package and not
+a folder inside `Reactor.dll`.
 
 **`Reactor.dll` is in your publish output as a managed assembly,
 not a tucked-away framework package.** Reactor ships as the public preview

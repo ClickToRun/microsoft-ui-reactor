@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using StressPerf.Shared;
 using static Microsoft.UI.Reactor.Factories;
+using static Microsoft.UI.Reactor.Advanced.Factories;
 
 // Parse CLI args before WinUI starts
 var cliOptions = CliOptions.Parse(args);

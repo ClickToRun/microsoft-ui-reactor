@@ -5,6 +5,7 @@ using Microsoft.UI.Reactor.Controls;
 using Microsoft.UI.Reactor.Layout;
 using HeadTrax.Schema;
 using static Microsoft.UI.Reactor.Factories;
+using static Microsoft.UI.Reactor.Advanced.Factories;
 
 namespace HeadTrax.Components;
 
