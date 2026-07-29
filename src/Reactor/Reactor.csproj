@@ -61,10 +61,21 @@
     <InternalsVisibleTo Include="Reactor.Tests" />
     <InternalsVisibleTo Include="Reactor.AppTests.Host" />
     <InternalsVisibleTo Include="Reactor.Fuzz" />
-    <!-- Issue #433: the md4c HTML renderer (MarkdownHtml) was moved out of this
-         assembly into the test-support library tests/Reactor.Markdown.TestRenderer.
-         It still needs the parser internals (Md4cParser, Md4cEntity). -->
-    <InternalsVisibleTo Include="Reactor.Markdown.TestRenderer" />
+    <!-- Spec 062 §7 Track B (B1/B2): the charting, docking, and markdown
+         subsystems moved from this assembly into Reactor.Advanced. Each reaches
+         the REST of core only through small, cleanly expressible seams:
+           • charting — the #627 decoupling seams Hosting.IChartingHostBridge,
+             ReactorHost.RegisterChartingBridge, ChartingActivation.RequestActivation,
+             Core.IScanExtension, Core.IScanContext, AccessibilityScanner.RegisterScanExtension
+             (the A11yDiagnostic/A11yContext records it exchanges are public);
+           • docking — the #627 Element.OwnPropsEqualOverride equality seam plus
+             otherwise-public core surface (reconciler.RegisterType/Reconcile,
+             the ReactorEventSource.Docking* ETW methods);
+           • markdown — the public core DSL surface only (Factories + Element),
+             so no extra internal seam beyond this IVT.
+         This IVT publishes exactly those seams to the relocated code; the
+         direction stays one-way (Advanced → core). -->
+    <InternalsVisibleTo Include="Reactor.Advanced" />
     <InternalsVisibleTo Include="Microsoft.UI.Reactor.Devtools" />
     <!-- Spec 047 — PerfBench.ControlModel benches the V1 control model
          against the Direct/Bound baselines; it references internal descriptor
@@ -76,13 +87,12 @@
     <InternalsVisibleTo Include="PerfBench.RowMemo" />
     <!-- Spec 045 §2.19: the Phase-1 WinUI.Dock XAML wrapper
          (src/Reactor.Docking.Xaml/) and its vendored WinUI.Dock
-         dependency were removed at the §2.29 review gate. The docking
-         subsystem now lives entirely in this assembly under
-         src/Reactor/Docking/. -->
+         dependency were removed at the §2.29 review gate. Spec 062 §7
+         Track B (B1) then relocated the docking subsystem out of this
+         assembly into Reactor.Advanced (src/Reactor.Advanced/Docking/). -->
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="System.Drawing.Common" />
     <PackageReference Include="MessageFormat" />
@@ -191,6 +201,15 @@
          consuming projects (build/<PackageId>.targets). The source file keeps
          the short name for the repo's own Directory.Build.props import. -->
     <None Include="build\Reactor.targets" Pack="true" PackagePath="build\Microsoft.UI.Reactor.targets" Visible="false" />
+    <!-- WinUI LoadComponent needs the compiled XBF sidecar at runtime for
+         ReactorApplication.xaml. SDK pack includes the XAML but not the XBF by
+         default, so PackageReference consumers otherwise crash in native XAML
+         when controls such as TitleBar realize. -->
+    <None Include="$(OutputPath)Reactor\Hosting\ReactorApplication.xbf"
+          Pack="true"
+          PackagePath="lib\$(TargetFramework)\Reactor\Hosting\"
+          Visible="false"
+          Condition="Exists('$(OutputPath)Reactor\Hosting\ReactorApplication.xbf')" />
     <!-- Agent kit packed into the NuGet at `agentkit/`: SKILL.md, every
          skills/*.md sub-skill, the recipes folder, and the generated
          signatures index. Mirrors the source-tree layout. Discoverable from

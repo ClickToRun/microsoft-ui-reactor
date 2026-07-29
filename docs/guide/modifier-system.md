@@ -34,6 +34,33 @@ helpers that do all the work are `Modify` and `ModifyTheme`:
 private static T Modify<T>(T el, ElementModifiers mods) where T : Element =>
     el with { Modifiers = el.Modifiers is not null ? el.Modifiers.Merge(mods) : mods };
 
+// #165/#157 — bucket-level merge entry points for pure-layout / pure-visual
+// fluent modifiers. Routing through these avoids allocating a throwaway parent
+// ElementModifiers (and the bucket sub-record its init shim builds) on every
+// chained call: `.Margin().Width().Foreground()` merges the delta straight into
+// the Layout / Visual slot instead of constructing a temporary ElementModifiers
+// per step. Semantics are identical to Modify(el, new ElementModifiers { <field> }):
+// ElementModifiers.Merge copies every non-bucket field as `other.X ?? X` (i.e.
+// unchanged) when only a bucket is supplied, and merges the bucket with the same
+// `other ?? this` precedence used here.
+private static T ModifyLayout<T>(T el, LayoutModifiers delta) where T : Element
+{
+    var mods = el.Modifiers;
+    if (mods is null)
+        return el with { Modifiers = new ElementModifiers { Layout = delta } };
+    var merged = mods.Layout is not null ? mods.Layout.Merge(delta) : delta;
+    return el with { Modifiers = mods with { Layout = merged } };
+}
+
+private static T ModifyVisual<T>(T el, VisualModifiers delta) where T : Element
+{
+    var mods = el.Modifiers;
+    if (mods is null)
+        return el with { Modifiers = new ElementModifiers { Visual = delta } };
+    var merged = mods.Visual is not null ? mods.Visual.Merge(delta) : delta;
+    return el with { Modifiers = mods with { Visual = merged } };
+}
+
 private static T ModifyA11y<T>(T el, AccessibilityModifiers a11y) where T : Element
 {
     var existing = el.Modifiers?.Accessibility;
@@ -213,10 +240,44 @@ step. The chain *is* the modifier.
 
 When you need a modifier that writes to a new slot (e.g., a custom
 attached property a custom container reads), the pattern is the same
-two helpers `Grid` and `Flex` use: define an attached-data record,
-expose an extension that calls `el.SetAttached(...)`, and have the
-parent panel read it via `GetAttached<TAttached>()` in its mount /
-update code.
+two helpers `Grid` and `Flex` use: define an attached-data record, have
+a modifier store it on the element, and have the parent panel read it
+back in its mount / update code.
+
+`SetAttached(...)` and `GetAttached<TAttached>()` are the internal
+shorthands the built-in modifiers use for those two steps, so that exact
+spelling is first-party only. From outside the framework assembly, go
+through the public `Attached` slot directly — it is a `Type`-keyed
+`IReadOnlyDictionary<Type, object>` with an `init` setter, so a modifier
+writes it with a `with` expression and the parent reads its own record
+back out by type:
+
+```csharp
+public record BadgeAttached(string Label);
+
+public static T Badge<T>(this T el, string label) where T : Element
+{
+    // Copy any existing entries first — replacing the dictionary wholesale
+    // would drop another provider's attached record on the same element.
+    var attached = new Dictionary<Type, object>();
+    if (el.Attached is { } existing)
+    {
+        foreach (var kv in existing) attached[kv.Key] = kv.Value;
+    }
+    attached[typeof(BadgeAttached)] = new BadgeAttached(label);
+    return el with { Attached = attached };
+}
+```
+
+The parent panel reads it back keyed by its own record type:
+
+```csharp
+if (child.Attached?.TryGetValue(typeof(BadgeAttached), out var data) == true
+    && data is BadgeAttached badge)
+{
+    ApplyBadge(realizedChild, badge);
+}
+```
 
 ### Reading the merged modifier in a custom panel
 
@@ -261,6 +322,33 @@ Text("hi").Padding(10).Background("#FF0000");
 private static T Modify<T>(T el, ElementModifiers mods) where T : Element =>
     el with { Modifiers = el.Modifiers is not null ? el.Modifiers.Merge(mods) : mods };
 
+// #165/#157 — bucket-level merge entry points for pure-layout / pure-visual
+// fluent modifiers. Routing through these avoids allocating a throwaway parent
+// ElementModifiers (and the bucket sub-record its init shim builds) on every
+// chained call: `.Margin().Width().Foreground()` merges the delta straight into
+// the Layout / Visual slot instead of constructing a temporary ElementModifiers
+// per step. Semantics are identical to Modify(el, new ElementModifiers { <field> }):
+// ElementModifiers.Merge copies every non-bucket field as `other.X ?? X` (i.e.
+// unchanged) when only a bucket is supplied, and merges the bucket with the same
+// `other ?? this` precedence used here.
+private static T ModifyLayout<T>(T el, LayoutModifiers delta) where T : Element
+{
+    var mods = el.Modifiers;
+    if (mods is null)
+        return el with { Modifiers = new ElementModifiers { Layout = delta } };
+    var merged = mods.Layout is not null ? mods.Layout.Merge(delta) : delta;
+    return el with { Modifiers = mods with { Layout = merged } };
+}
+
+private static T ModifyVisual<T>(T el, VisualModifiers delta) where T : Element
+{
+    var mods = el.Modifiers;
+    if (mods is null)
+        return el with { Modifiers = new ElementModifiers { Visual = delta } };
+    var merged = mods.Visual is not null ? mods.Visual.Merge(delta) : delta;
+    return el with { Modifiers = mods with { Visual = merged } };
+}
+
 private static T ModifyA11y<T>(T el, AccessibilityModifiers a11y) where T : Element
 {
     var existing = el.Modifiers?.Accessibility;
@@ -297,6 +385,33 @@ Text("hi").Margin(8).Margin(left: 16);   // last wins — margin is (16,8,8,8)? 
 ```csharp
 private static T Modify<T>(T el, ElementModifiers mods) where T : Element =>
     el with { Modifiers = el.Modifiers is not null ? el.Modifiers.Merge(mods) : mods };
+
+// #165/#157 — bucket-level merge entry points for pure-layout / pure-visual
+// fluent modifiers. Routing through these avoids allocating a throwaway parent
+// ElementModifiers (and the bucket sub-record its init shim builds) on every
+// chained call: `.Margin().Width().Foreground()` merges the delta straight into
+// the Layout / Visual slot instead of constructing a temporary ElementModifiers
+// per step. Semantics are identical to Modify(el, new ElementModifiers { <field> }):
+// ElementModifiers.Merge copies every non-bucket field as `other.X ?? X` (i.e.
+// unchanged) when only a bucket is supplied, and merges the bucket with the same
+// `other ?? this` precedence used here.
+private static T ModifyLayout<T>(T el, LayoutModifiers delta) where T : Element
+{
+    var mods = el.Modifiers;
+    if (mods is null)
+        return el with { Modifiers = new ElementModifiers { Layout = delta } };
+    var merged = mods.Layout is not null ? mods.Layout.Merge(delta) : delta;
+    return el with { Modifiers = mods with { Layout = merged } };
+}
+
+private static T ModifyVisual<T>(T el, VisualModifiers delta) where T : Element
+{
+    var mods = el.Modifiers;
+    if (mods is null)
+        return el with { Modifiers = new ElementModifiers { Visual = delta } };
+    var merged = mods.Visual is not null ? mods.Visual.Merge(delta) : delta;
+    return el with { Modifiers = mods with { Visual = merged } };
+}
 
 private static T ModifyA11y<T>(T el, AccessibilityModifiers a11y) where T : Element
 {

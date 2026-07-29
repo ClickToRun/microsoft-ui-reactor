@@ -262,11 +262,23 @@ internal static class SelfTestFixtureRegistry
         // PR #324 review fixes — heterogeneous rows, RefreshRealizedItems
         // sync, and ItemsRepeater unmount cleanup.
         "EFR_Factory_ReplacementOnRootTypeChange_DropsOldControlTracking",
+        "EFR_Factory_MultiShapeCycle_KeepsContainerSetBounded",
+        "EFR_Factory_ComponentShapeCycle_KeepsContainerSetBounded",
+        "EFR_Factory_BoundVisibilityRow_IsRetiredNotPooled",
+        "EFR_Factory_PoolEviction_UnmountsEvictedRows",
+        "EFR_Factory_PoolParking_PreservesVisibilityValueSource",
         "EFR_Factory_RefreshRealizedItems_SyncsLastElementByControl",
         "EFR_LazyStack_Unmount_CleansUpAllRecycledRowComponents",
         "EFR_Factory_KeyChangeRecycle_ResetsRowComponentState",
         "EFR_Factory_SameItemReuse_PreservesRowComponentState",
         "EFR_Factory_RefreshKeyChange_RemountsRealizedRow",
+        "EFR_Factory_RefreshKeyChange_ModifiedRootKeepsRefLive",
+        "EFR_Factory_DecoratorSubstitution_IsNotSilentlyAdopted",
+        "EFR_Factory_HostTypeKeyCycle_KeepsContainerSetBounded",
+        "EFR_Factory_RetiredContainer_DetachesNestedStateAndOwnership",
+        "EFR_Factory_PoolReuseDecoratorSubstitution_IsNotSilentlyAdopted",
+        "EFR_Adapter_ForeignControl_RemountsInsteadOfThrowing",
+        "EFR_Factory_MemoKeyCycle_KeepsContainerSetBounded",
         // Spec 042 Phase 3 — Animate(...) ambient end-to-end.
         "AAF_ListView_InsertUnderAnimate_TagsRowWithKind",
         "AAF_ListView_InsertWithoutAnimate_RowNotTagged",
@@ -353,6 +365,8 @@ internal static class SelfTestFixtureRegistry
         "ControlUpdate2_RichEditBox",
         "ControlUpdate2_AutoSuggestBox",
         "WrapElementSlot_TabStripHeaderMountUpdateRemove",
+        "TabViewFill_ToggleFillContentArea",
+        "TabViewFill_ExplicitAlignmentWins",
         // Modifier and event handler tests
         "ModifierEvent_EventHandlers",
         "ModifierEvent_Brushes",
@@ -727,9 +741,13 @@ internal static class SelfTestFixtureRegistry
         "DataGrid_EditCellColumnPlacement",
         "DataGrid_RapidSelection",
         "DataGrid_ExternalStateUpdate",
+        "DataGrid_SelectionModeReactsToPropChange",
         "DataGrid_CellTypeFlipPreservesTrailingCells",
         "DataGrid_RowEditTemplatesAndEmptyState",
         "DataGrid_KeyboardAndPrivateRenderPaths",
+        // DataGrid row-detail expansion (issue #919)
+        "DataGrid_ExpandRowKeepsRealizedRow",
+        "DataGrid_LazyStackRootTypeFlip",
         // DataGrid incremental paging
         "DataGrid_IncrementalLoadVerification",
         "DataGrid_SmallDatasetFullyLoaded",
@@ -968,6 +986,12 @@ internal static class SelfTestFixtureRegistry
         "SelectionEvt_Pivot",
         "SelectionEvt_NavigationView",
 
+        // NavigationView pane-state round-trip (issue #916)
+        "NavPane_OpenChangedFires",
+        "NavPane_ControlledResync",
+        "NavPane_CancelledClose",
+        "NavPane_HandlerTransitions",
+
         // Value-change / toggle event wiring (Tier 2 gap closure)
         "ValueEvt_CheckBox",
         "ValueEvt_RadioButton",
@@ -1037,6 +1061,10 @@ internal static class SelfTestFixtureRegistry
         "RBC_PopupUpdateInPlace",
         "RBC_TabViewGrowAndShrink",
         "RBC_NavViewContentNullSwap",
+        "RBC_NavViewChromeVisibility",
+        "RBC_NavViewSurfaceProps",
+        "RBC_NavViewFooterAndEvents",
+        "RBC_NavViewEventFiring",
         "RBC_SwipeControlItemsSwap",
         "RBC_TreeViewHandlerWiring",
         "RBC_TreeViewHandlerWiringFastPath",
@@ -1092,6 +1120,7 @@ internal static class SelfTestFixtureRegistry
         "WindowModel_NoActivateRoundTrip",
         "WindowModel_IgnorePointerInputRoundTrip",
         "WindowModel_OpacityIgnorePointerInvariants",
+        "WindowModel_DefaultSizeDefersToOs",
         // Spec 054 Phase 1 — window position/z-order/display read-back.
         "Position_ReadBack",
         "PositionChanged_FiresOnMove",
@@ -1152,6 +1181,15 @@ internal static class SelfTestFixtureRegistry
         "TitleBar_OwnedTree",
         "TitleBar_ExitPrep",
         "TitleBar_NoElement_NullStaysFalse",
+        // Issue #917 — declarative caption height (spec + element).
+        "TitleBarHeight_ElementTall",
+        "TitleBarHeight_SpecPrecedence",
+        "TitleBarHeight_ExplicitHeightWins",
+        "TitleBarHeight_NotExtended",
+        "TitleBarHeight_UpdateResets",
+        "TitleBarHeight_SpecUpdateResizesControl",
+        "TitleBarHeight_RemoveExplicitHeight",
+        "TitleBarHeight_UnmountWithdraws",
         "BackdropTransparent_Apply",
         "FilePicker_InitializesWithWindow",
         "FilePicker_ThrowsOffUiThread",
@@ -1285,6 +1323,17 @@ internal static class SelfTestFixtureRegistry
         "SplitterCov_DragWithoutFlexParent_StillFiresEvent",
         "SplitterCov_AutomationPeer_ReportsThumbAndClassName",
 
+        // Supplemental docking native-control seam coverage
+        // (DockControlSeamCoverageFixtures.cs) — overlay disabled/hit-test/
+        // reveal/peer, splitter DiagnosticSink MOVE branch, tear-off
+        // XamlRoot-null abort + seam guards.
+        "SeamCov_Overlay_SetDisabledTargets_GuardsHoverAndConfirm",
+        "SeamCov_Overlay_HitTestPipeline_ResolvesTargetsAndConfirms",
+        "SeamCov_Overlay_PointerEnterExit_TogglesGroupReveal",
+        "SeamCov_Overlay_AutomationPeer_ReportsGroup",
+        "SeamCov_Splitter_DiagnosticSink_TracesDragLifecycle",
+        "SeamCov_TearOff_MoveWithoutXamlRoot_AbortsAndGuards",
+
         // Deterministic splitter matrix — 41 cases driving the new
         // BeginSimulatedDrag / ContinueSimulatedDrag / EndSimulatedDrag
         // injection API against a real FlexPanel + N panes + (N-1) splitters.
@@ -1404,6 +1453,12 @@ internal static class SelfTestFixtureRegistry
         "Spec047ExternalProof_Marquee_PoolRent",
         "Spec047ExternalProof_Marquee_PoolResetContract",
 
+        // Spec 062 §14 — stable-ABI proof: an EXTERNAL (no-IVT) source-generated
+        // [WrapControlled(Deferred = true)] wrapper round-trips its two-way value
+        // through the suppress-counter echo channel via the PUBLIC
+        // ReactorBinding.ShouldSuppressEcho primitive.
+        "Spec062DeferredControlled_Echo",
+
         // Spec 058 §14 — source-generated wrapper parity smoke test.
         "ToggleSwitchWrapper_Parity",
         "SliderWrapper_Parity",
@@ -1503,6 +1558,27 @@ internal static class SelfTestFixtureRegistry
         "InitialOnly",
         "BrushHelperParse",
         "CrossAxisMeasureStaleness",
+        // Issue #845 — LV/GV Update clears Header/ItemContainerStyle to null
+        "Issue845_ListViewClearsHeaderAndStyle",
+        "Issue845_GridViewClearsHeaderAndStyle",
+
+        // Core reconciler / RenderContext / V1 lifecycle coverage
+        // (CoreReconcilerRenderCoverageFixtures).
+        "CoreRRC_OverlayFlyoutUpdate",
+        "CoreRRC_OverlayMenuFlyoutUpdate",
+        "CoreRRC_OverlayPopupUpdate",
+        "CoreRRC_OverlayCommandBarUpdate",
+        "CoreRRC_OverlayCommandBarFlyoutUpdate",
+        "CoreRRC_OverlayMenuBarUpdate",
+        "CoreRRC_CompositeFormFieldValidationUpdate",
+        "CoreRRC_CompositeValidationVisualizerStyles",
+        "CoreRRC_CompositeValidationRuleUpdate",
+        "CoreRRC_PreMountedFlipViewReconcile",
+        "CoreRRC_NavigationHostCacheEviction",
+        "CoreRRC_RenderContextReducers",
+        "CoreRRC_RenderContextThreadSafeState",
+        "CoreRRC_RenderContextWindowEnvHooks",
+        "CoreRRC_UntypedTreeViewReconcile",
     ];
 
     public static SelfTestFixtureBase? Create(string name, Harness harness) => name switch
@@ -1744,11 +1820,23 @@ internal static class SelfTestFixtureRegistry
         "EFR_Factory_RecycledControlIsReusedOnNextRealize" => new ElementFactoryRecyclingFixtures.Factory_RecycledControlIsReusedOnNextRealize(harness),
         "EFR_Factory_BookkeepingBoundedAcrossCycles" => new ElementFactoryRecyclingFixtures.Factory_BookkeepingBoundedAcrossCycles(harness),
         "EFR_Factory_ReplacementOnRootTypeChange_DropsOldControlTracking" => new ElementFactoryRecyclingFixtures.Factory_ReplacementOnRootTypeChange_DropsOldControlTracking(harness),
+        "EFR_Factory_MultiShapeCycle_KeepsContainerSetBounded" => new ElementFactoryRecyclingFixtures.Factory_MultiShapeCycle_KeepsContainerSetBounded(harness),
+        "EFR_Factory_ComponentShapeCycle_KeepsContainerSetBounded" => new ElementFactoryRecyclingFixtures.Factory_ComponentShapeCycle_KeepsContainerSetBounded(harness),
+        "EFR_Factory_BoundVisibilityRow_IsRetiredNotPooled" => new ElementFactoryRecyclingFixtures.Factory_BoundVisibilityRow_IsRetiredNotPooled(harness),
+        "EFR_Factory_PoolEviction_UnmountsEvictedRows" => new ElementFactoryRecyclingFixtures.Factory_PoolEviction_UnmountsEvictedRows(harness),
+        "EFR_Factory_PoolParking_PreservesVisibilityValueSource" => new ElementFactoryRecyclingFixtures.Factory_PoolParking_PreservesVisibilityValueSource(harness),
         "EFR_Factory_RefreshRealizedItems_SyncsLastElementByControl" => new ElementFactoryRecyclingFixtures.Factory_RefreshRealizedItems_SyncsLastElementByControl(harness),
         "EFR_LazyStack_Unmount_CleansUpAllRecycledRowComponents" => new ElementFactoryRecyclingFixtures.LazyStack_Unmount_CleansUpAllRecycledRowComponents(harness),
         "EFR_Factory_KeyChangeRecycle_ResetsRowComponentState" => new ElementFactoryRecyclingFixtures.Factory_KeyChangeRecycle_ResetsRowComponentState(harness),
         "EFR_Factory_SameItemReuse_PreservesRowComponentState" => new ElementFactoryRecyclingFixtures.Factory_SameItemReuse_PreservesRowComponentState(harness),
         "EFR_Factory_RefreshKeyChange_RemountsRealizedRow" => new ElementFactoryRecyclingFixtures.Factory_RefreshKeyChange_RemountsRealizedRow(harness),
+        "EFR_Factory_RefreshKeyChange_ModifiedRootKeepsRefLive" => new ElementFactoryRecyclingFixtures.Factory_RefreshKeyChange_ModifiedRootKeepsRefLive(harness),
+        "EFR_Factory_DecoratorSubstitution_IsNotSilentlyAdopted" => new ElementFactoryRecyclingFixtures.Factory_DecoratorSubstitution_IsNotSilentlyAdopted(harness),
+        "EFR_Factory_HostTypeKeyCycle_KeepsContainerSetBounded" => new ElementFactoryRecyclingFixtures.Factory_HostTypeKeyCycle_KeepsContainerSetBounded(harness),
+        "EFR_Factory_RetiredContainer_DetachesNestedStateAndOwnership" => new ElementFactoryRecyclingFixtures.Factory_RetiredContainer_DetachesNestedStateAndOwnership(harness),
+        "EFR_Factory_PoolReuseDecoratorSubstitution_IsNotSilentlyAdopted" => new ElementFactoryRecyclingFixtures.Factory_PoolReuseDecoratorSubstitution_IsNotSilentlyAdopted(harness),
+        "EFR_Adapter_ForeignControl_RemountsInsteadOfThrowing" => new ElementFactoryRecyclingFixtures.Adapter_ForeignControl_RemountsInsteadOfThrowing(harness),
+        "EFR_Factory_MemoKeyCycle_KeepsContainerSetBounded" => new ElementFactoryRecyclingFixtures.Factory_MemoKeyCycle_KeepsContainerSetBounded(harness),
         // Spec 042 Phase 3 — Animate(...) ambient end-to-end.
         "AAF_ListView_InsertUnderAnimate_TagsRowWithKind" => new AnimateAmbientFixtures.ListView_InsertUnderAnimate_TagsRowWithKind(harness),
         "AAF_ListView_InsertWithoutAnimate_RowNotTagged" => new AnimateAmbientFixtures.ListView_InsertWithoutAnimate_RowNotTagged(harness),
@@ -1835,6 +1923,8 @@ internal static class SelfTestFixtureRegistry
         "ControlUpdate2_RichEditBox" => new ControlUpdateFixtures2.RichEditBoxUpdate(harness),
         "ControlUpdate2_AutoSuggestBox" => new ControlUpdateFixtures2.AutoSuggestBoxUpdate(harness),
         "WrapElementSlot_TabStripHeaderMountUpdateRemove" => new WrapElementSlotFixtures.TabStripHeaderMountUpdateRemove(harness),
+        "TabViewFill_ToggleFillContentArea" => new TabViewFillContentAreaFixtures.ToggleFillContentArea(harness),
+        "TabViewFill_ExplicitAlignmentWins" => new TabViewFillContentAreaFixtures.ExplicitAlignmentWins(harness),
         // Modifier and event handler tests
         "ModifierEvent_EventHandlers" => new ModifierEventFixtures.EventHandlerModifiers(harness),
         "ModifierEvent_Brushes" => new ModifierEventFixtures.BrushModifiers(harness),
@@ -2200,9 +2290,13 @@ internal static class SelfTestFixtureRegistry
         "DataGrid_EditCellColumnPlacement" => new DataGridEditFixtures.EditCellColumnPlacement(harness),
         "DataGrid_RapidSelection" => new DataGridEditFixtures.RapidSelection(harness),
         "DataGrid_ExternalStateUpdate" => new DataGridEditFixtures.ExternalStateUpdate(harness),
+        "DataGrid_SelectionModeReactsToPropChange" => new DataGridEditFixtures.SelectionModeReactsToPropChange(harness),
         "DataGrid_CellTypeFlipPreservesTrailingCells" => new DataGridEditFixtures.CellTypeFlipPreservesTrailingCells(harness),
         "DataGrid_RowEditTemplatesAndEmptyState" => new DataGridEditFixtures.RowEditTemplatesAndEmptyState(harness),
         "DataGrid_KeyboardAndPrivateRenderPaths" => new DataGridEditFixtures.KeyboardAndPrivateRenderPaths(harness),
+        // DataGrid row-detail expansion (issue #919)
+        "DataGrid_ExpandRowKeepsRealizedRow" => new DataGridExpandFixtures.ExpandRowKeepsRealizedRow(harness),
+        "DataGrid_LazyStackRootTypeFlip" => new DataGridExpandFixtures.LazyStackRootTypeFlip(harness),
         // DataGrid incremental paging
         "DataGrid_IncrementalLoadVerification" => new DataGridPagingFixtures.IncrementalLoadVerification(harness),
         "DataGrid_SmallDatasetFullyLoaded" => new DataGridPagingFixtures.SmallDatasetFullyLoaded(harness),
@@ -2457,6 +2551,12 @@ internal static class SelfTestFixtureRegistry
         "SelectionEvt_Pivot" => new SelectionEventFixtures.PivotSelectionFires(harness),
         "SelectionEvt_NavigationView" => new SelectionEventFixtures.NavigationViewSelectionFires(harness),
 
+        // NavigationView pane-state round-trip (issue #916)
+        "NavPane_OpenChangedFires" => new NavigationViewPaneFixtures.PaneOpenChangedFires(harness),
+        "NavPane_ControlledResync" => new NavigationViewPaneFixtures.ControlledPaneResyncsAfterControlDrivenClose(harness),
+        "NavPane_CancelledClose" => new NavigationViewPaneFixtures.CancelledCloseKeepsCallbackInSyncWithControl(harness),
+        "NavPane_HandlerTransitions" => new NavigationViewPaneFixtures.HandlerTransitionsAcrossRenders(harness),
+
         // Value-change / toggle event wiring
         "ValueEvt_CheckBox" => new ValueChangeEventFixtures.CheckBoxToggleFires(harness),
         "ValueEvt_RadioButton" => new ValueChangeEventFixtures.RadioButtonToggleFires(harness),
@@ -2524,6 +2624,10 @@ internal static class SelfTestFixtureRegistry
         "RBC_PopupUpdateInPlace" => new ReconcilerBigCoverageFixtures.PopupUpdateInPlace(harness),
         "RBC_TabViewGrowAndShrink" => new ReconcilerBigCoverageFixtures.TabViewGrowAndShrink(harness),
         "RBC_NavViewContentNullSwap" => new ReconcilerBigCoverageFixtures.NavViewContentNullSwap(harness),
+        "RBC_NavViewChromeVisibility" => new ReconcilerBigCoverageFixtures.NavViewChromeVisibility(harness),
+        "RBC_NavViewSurfaceProps" => new ReconcilerBigCoverageFixtures.NavViewSurfaceProps(harness),
+        "RBC_NavViewFooterAndEvents" => new ReconcilerBigCoverageFixtures.NavViewFooterAndEvents(harness),
+        "RBC_NavViewEventFiring" => new ReconcilerBigCoverageFixtures.NavViewEventFiring(harness),
         "RBC_SwipeControlItemsSwap" => new ReconcilerBigCoverageFixtures.SwipeControlItemsSwap(harness),
         "RBC_TreeViewHandlerWiring" => new ReconcilerBigCoverageFixtures.TreeViewHandlerWiring(harness),
         "RBC_TreeViewHandlerWiringFastPath" => new ReconcilerBigCoverageFixtures.TreeViewHandlerWiringFastPath(harness),
@@ -2578,6 +2682,7 @@ internal static class SelfTestFixtureRegistry
         "WindowModel_NoActivateRoundTrip" => new WindowModelFixtures.WindowNoActivateRoundTrip(harness),
         "WindowModel_IgnorePointerInputRoundTrip" => new WindowModelFixtures.WindowIgnorePointerInputRoundTrip(harness),
         "WindowModel_OpacityIgnorePointerInvariants" => new WindowModelFixtures.WindowOpacityIgnorePointerInvariants(harness),
+        "WindowModel_DefaultSizeDefersToOs" => new WindowModelFixtures.WindowDefaultSizeDefersToOs(harness),
         // Spec 054 Phase 1 — window position/z-order/display read-back.
         "Position_ReadBack" => new Phase1WindowingFixtures.PositionReadBack(harness),
         "PositionChanged_FiresOnMove" => new Phase1WindowingFixtures.PositionChangedFiresOnMove(harness),
@@ -2642,6 +2747,14 @@ internal static class SelfTestFixtureRegistry
         "TitleBar_OwnedTree" => new Phase7WindowingFixtures.TitleBarOwnedTreeFlipsRecursively(harness),
         "TitleBar_ExitPrep" => new Phase7WindowingFixtures.TitleBarExitPrepFlipsOpenWindows(harness),
         "TitleBar_NoElement_NullStaysFalse" => new Phase7WindowingFixtures.TitleBarNoElementNullStaysFalse(harness),
+        "TitleBarHeight_ElementTall" => new TitleBarHeightFixtures.TitleBarHeightElementTall(harness),
+        "TitleBarHeight_SpecPrecedence" => new TitleBarHeightFixtures.TitleBarHeightSpecPrecedence(harness),
+        "TitleBarHeight_ExplicitHeightWins" => new TitleBarHeightFixtures.TitleBarHeightExplicitHeightWins(harness),
+        "TitleBarHeight_NotExtended" => new TitleBarHeightFixtures.TitleBarHeightNotExtendedDoesNotThrow(harness),
+        "TitleBarHeight_UpdateResets" => new TitleBarHeightFixtures.TitleBarHeightUpdateResets(harness),
+        "TitleBarHeight_SpecUpdateResizesControl" => new TitleBarHeightFixtures.TitleBarHeightSpecUpdateResizesControl(harness),
+        "TitleBarHeight_RemoveExplicitHeight" => new TitleBarHeightFixtures.TitleBarHeightRemoveExplicitHeight(harness),
+        "TitleBarHeight_UnmountWithdraws" => new TitleBarHeightFixtures.TitleBarHeightUnmountWithdraws(harness),
         "BackdropTransparent_Apply" => new Phase7WindowingFixtures.BackdropTransparentApply(harness),
         "FilePicker_InitializesWithWindow" => new Phase7WindowingFixtures.FilePickerInitializesWithWindow(harness),
         "FilePicker_ThrowsOffUiThread" => new Phase7WindowingFixtures.FilePickerThrowsOffUiThread(harness),
@@ -2761,6 +2874,13 @@ internal static class SelfTestFixtureRegistry
         "SplitterCov_DragWithoutFlexParent_StillFiresEvent" => new NativeDockingCoverageSplitterFixtures.Splitter_DragWithoutFlexParent_StillFiresEvent(harness),
         "SplitterCov_AutomationPeer_ReportsThumbAndClassName" => new NativeDockingCoverageSplitterFixtures.Splitter_AutomationPeer_ReportsThumbAndClassName(harness),
 
+        "SeamCov_Overlay_SetDisabledTargets_GuardsHoverAndConfirm" => new OverlaySeamCoverageFixtures.Overlay_SetDisabledTargets_GuardsHoverAndConfirm(harness),
+        "SeamCov_Overlay_HitTestPipeline_ResolvesTargetsAndConfirms" => new OverlaySeamCoverageFixtures.Overlay_HitTestPipeline_ResolvesTargetsAndConfirms(harness),
+        "SeamCov_Overlay_PointerEnterExit_TogglesGroupReveal" => new OverlaySeamCoverageFixtures.Overlay_PointerEnterExit_TogglesGroupReveal(harness),
+        "SeamCov_Overlay_AutomationPeer_ReportsGroup" => new OverlaySeamCoverageFixtures.Overlay_AutomationPeer_ReportsGroup(harness),
+        "SeamCov_Splitter_DiagnosticSink_TracesDragLifecycle" => new SplitterSeamCoverageFixtures.Splitter_DiagnosticSink_TracesDragLifecycle(harness),
+        "SeamCov_TearOff_MoveWithoutXamlRoot_AbortsAndGuards" => new TearOffSeamCoverageFixtures.TearOff_MoveWithoutXamlRoot_AbortsAndGuards(harness),
+
         "SplitterMatrix_A01_TwoPaneH_DragForward" => new SplitterMatrixFixtures.A01_TwoPaneH_DragForward_LeadingTracksCursor(harness),
         "SplitterMatrix_A02_TwoPaneH_DragBackward" => new SplitterMatrixFixtures.A02_TwoPaneH_DragBackward_LeadingTracksCursor(harness),
         "SplitterMatrix_A03_TwoPaneV_DragDown" => new SplitterMatrixFixtures.A03_TwoPaneV_DragDown_TopTracksCursor(harness),
@@ -2871,6 +2991,9 @@ internal static class SelfTestFixtureRegistry
         "Spec047ExternalProof_Marquee_PoolRent" => new Spec047ExternalProofFixtures.MarqueePoolRentReturn(harness),
         "Spec047ExternalProof_Marquee_PoolResetContract" => new Spec047ExternalProofFixtures.MarqueePoolResetContract(harness),
 
+        // Spec 062 §14 — external no-IVT generated deferred-controlled echo proof.
+        "Spec062DeferredControlled_Echo" => new Spec062DeferredControlledFixtures.Echo(harness),
+
         // Spec 058 §14 — source-generated wrapper parity smoke test.
         "ToggleSwitchWrapper_Parity" => new ToggleSwitchWrapperParityFixture.Execution(harness),
         "SliderWrapper_Parity" => new SliderWrapperParityFixture.Execution(harness),
@@ -2956,6 +3079,25 @@ internal static class SelfTestFixtureRegistry
         "InitialOnly" => new InitialOnlyFixture.Execution(harness),
         "BrushHelperParse" => new BrushHelperParseFixture.Execution(harness),
         "CrossAxisMeasureStaleness" => new CrossAxisMeasureStalenessFixture(harness),
+        "Issue845_ListViewClearsHeaderAndStyle" => new Issue845ClearHeaderItemContainerStyleFixtures.ListViewClearsHeaderAndItemContainerStyle(harness),
+        "Issue845_GridViewClearsHeaderAndStyle" => new Issue845ClearHeaderItemContainerStyleFixtures.GridViewClearsHeaderAndItemContainerStyle(harness),
+
+        // Core reconciler / RenderContext / V1 lifecycle coverage.
+        "CoreRRC_OverlayFlyoutUpdate" => new CoreReconcilerRenderCoverageFixtures.OverlayFlyoutUpdate(harness),
+        "CoreRRC_OverlayMenuFlyoutUpdate" => new CoreReconcilerRenderCoverageFixtures.OverlayMenuFlyoutUpdate(harness),
+        "CoreRRC_OverlayPopupUpdate" => new CoreReconcilerRenderCoverageFixtures.OverlayPopupUpdate(harness),
+        "CoreRRC_OverlayCommandBarUpdate" => new CoreReconcilerRenderCoverageFixtures.OverlayCommandBarUpdate(harness),
+        "CoreRRC_OverlayCommandBarFlyoutUpdate" => new CoreReconcilerRenderCoverageFixtures.OverlayCommandBarFlyoutUpdate(harness),
+        "CoreRRC_OverlayMenuBarUpdate" => new CoreReconcilerRenderCoverageFixtures.OverlayMenuBarUpdate(harness),
+        "CoreRRC_CompositeFormFieldValidationUpdate" => new CoreReconcilerRenderCoverageFixtures.CompositeFormFieldValidationUpdate(harness),
+        "CoreRRC_CompositeValidationVisualizerStyles" => new CoreReconcilerRenderCoverageFixtures.CompositeValidationVisualizerStyles(harness),
+        "CoreRRC_CompositeValidationRuleUpdate" => new CoreReconcilerRenderCoverageFixtures.CompositeValidationRuleUpdate(harness),
+        "CoreRRC_PreMountedFlipViewReconcile" => new CoreReconcilerRenderCoverageFixtures.PreMountedFlipViewReconcile(harness),
+        "CoreRRC_NavigationHostCacheEviction" => new CoreReconcilerRenderCoverageFixtures.NavigationHostCacheEviction(harness),
+        "CoreRRC_RenderContextReducers" => new CoreReconcilerRenderCoverageFixtures.RenderContextReducers(harness),
+        "CoreRRC_RenderContextThreadSafeState" => new CoreReconcilerRenderCoverageFixtures.RenderContextThreadSafeState(harness),
+        "CoreRRC_RenderContextWindowEnvHooks" => new CoreReconcilerRenderCoverageFixtures.RenderContextWindowEnvHooks(harness),
+        "CoreRRC_UntypedTreeViewReconcile" => new CoreReconcilerRenderCoverageFixtures.UntypedTreeViewReconcile(harness),
 
         _ => null,
     };

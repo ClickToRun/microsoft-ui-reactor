@@ -213,7 +213,7 @@ Same shape as Boundary A: loopback-only HTTP (`http://127.0.0.1:<port>/mcp`) wit
 
 ### 7.4 Markdown rendering
 
-**File:** `src/Reactor/Markdown/MarkdownBuilder.cs` (native renderer) + `src/Reactor/Markdown/Md4cParser.cs` (parser). The CommonMark/spec HTML renderer (`MarkdownHtml`) is test-support only and lives in `tests/Reactor.Markdown.TestRenderer/MarkdownHtml.cs`; it is not part of the shipped framework surface.
+**File:** `src/Reactor.Advanced/Markdown/MarkdownBuilder.cs` (native renderer) + `src/Reactor.Advanced/Markdown/Md4cParser.cs` (parser). The CommonMark/spec HTML renderer (`MarkdownHtml`) is test-support only and lives in `tests/Reactor.Markdown.TestRenderer/MarkdownHtml.cs`; it is not part of the shipped framework surface.
 **Activation:** consuming-app developer calls `Markdown(text)` element with attacker-influenced content.
 
 **Mitigations:**
@@ -303,7 +303,7 @@ Microsoft's internal Security Assessment policy lists six trust-boundary trigger
 - [`ThirdPartyNoticeText.txt`](../../ThirdPartyNoticeText.txt) — OSS attributions for Yoga / md4c / D3 and NuGet deps
 - [`src/Reactor/Hosting/PreviewCaptureServer.cs`](../../src/Reactor/Hosting/PreviewCaptureServer.cs) — dev preview server
 - [`src/Reactor/Hosting/Devtools/DevtoolsMcpServer.cs`](../../src/Reactor/Hosting/Devtools/DevtoolsMcpServer.cs) — devtools MCP server
-- [`src/Reactor/Markdown/MarkdownBuilder.cs`](../../src/Reactor/Markdown/MarkdownBuilder.cs) — native `Markdown()` renderer + URL allow-list (`IsSafeUri`)
+- [`src/Reactor.Advanced/Markdown/MarkdownBuilder.cs`](../../src/Reactor.Advanced/Markdown/MarkdownBuilder.cs) — native `Markdown()` renderer + URL allow-list (`IsSafeUri`)
 - [`tests/Reactor.Markdown.TestRenderer/MarkdownHtml.cs`](../../tests/Reactor.Markdown.TestRenderer/MarkdownHtml.cs) — test-only CommonMark/spec HTML renderer + URL sanitizer
 - [`tools/install-skill-kit.ps1`](../../tools/install-skill-kit.ps1) — installer with guard-rails
 - [`tests/Reactor.Tests/Markdown/SanitizeUrlTests.cs`](../../tests/Reactor.Tests/Markdown/SanitizeUrlTests.cs) — URL-sanitizer regression tests

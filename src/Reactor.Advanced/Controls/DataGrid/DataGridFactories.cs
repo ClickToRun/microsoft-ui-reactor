@@ -1,0 +1,99 @@
+using System.Diagnostics.CodeAnalysis;
+using Microsoft.UI.Reactor.Core;
+using Microsoft.UI.Reactor.Data;
+using Microsoft.UI.Reactor.Controls;
+using static Microsoft.UI.Reactor.Factories;
+
+// Spec 062 §7 Track B (B3): relocated from the core Factories partial into
+// Advanced's Factories mirror when the data grid moved to Reactor.Advanced. A
+// partial class can't span assemblies, so the DataGrid DSL entry points live in
+// Microsoft.UI.Reactor.Advanced.Factories — a data-grid app adds
+// `using static Microsoft.UI.Reactor.Advanced.Factories;`. The DataGridElement
+// record keeps its Microsoft.UI.Reactor.Controls namespace, and the factory
+// returns the base ComponentElement, so no derived record is named across the boundary.
+namespace Microsoft.UI.Reactor.Advanced;
+
+public static partial class Factories
+{
+    /// <summary>
+    /// Creates a DataGrid with explicit column definitions.
+    /// </summary>
+    public static ComponentElement<DataGridElement<T>> DataGrid<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicConstructors)] T>(
+        IDataSource<T> source,
+        IReadOnlyList<FieldDescriptor> columns,
+        TypeRegistry? registry = null,
+        SelectionMode selectionMode = SelectionMode.None,
+        Action<IReadOnlySet<RowKey>>? onSelectionChanged = null,
+        Func<RowKey, T, Task>? onRowChanged = null,
+        double? rowHeight = 40,
+        bool editable = false,
+        EditMode editMode = EditMode.Cell,
+        Func<CellContext<T>, Element>? cellTemplate = null,
+        Func<RowContext<T>, Element>? rowTemplate = null,
+        Func<HeaderContext, Element>? headerTemplate = null,
+        Element? loadingTemplate = null,
+        Element? emptyTemplate = null,
+        bool showSearch = false,
+        Func<T, RowKey, Element>? rowDetailTemplate = null,
+        Func<FieldDescriptor, double, Element>? placeholderCellTemplate = null)
+    {
+        var props = new DataGridElement<T>
+        {
+            Source = source,
+            Columns = columns,
+            Registry = registry,
+            SelectionMode = selectionMode,
+            OnSelectionChanged = onSelectionChanged,
+            OnRowChanged = onRowChanged,
+            RowHeight = rowHeight,
+            Editable = editable,
+            EditMode = editMode,
+            CellTemplate = cellTemplate,
+            RowTemplate = rowTemplate,
+            HeaderTemplate = headerTemplate,
+            LoadingTemplate = loadingTemplate,
+            EmptyTemplate = emptyTemplate,
+            ShowSearch = showSearch,
+            RowDetailTemplate = rowDetailTemplate,
+            PlaceholderCellTemplate = placeholderCellTemplate,
+        };
+
+        return Component<DataGridComponent<T>, DataGridElement<T>>(props)
+            .WithKey($"dg-{typeof(T).Name}-{source.GetHashCode()}");
+    }
+
+    /// <summary>
+    /// Creates a DataGrid with auto-generated columns from TypeRegistry + reflection.
+    /// </summary>
+    public static ComponentElement<DataGridElement<T>> DataGrid<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicConstructors)] T>(
+        IDataSource<T> source,
+        TypeRegistry registry,
+        Func<FieldDescriptor, FieldDescriptor>? columnOverrides = null,
+        SelectionMode selectionMode = SelectionMode.None,
+        Action<IReadOnlySet<RowKey>>? onSelectionChanged = null,
+        Func<RowKey, T, Task>? onRowChanged = null,
+        double? rowHeight = 40,
+        bool editable = false,
+        EditMode editMode = EditMode.Cell,
+        Element? loadingTemplate = null,
+        Element? emptyTemplate = null)
+    {
+        var props = new DataGridElement<T>
+        {
+            Source = source,
+            Registry = registry,
+            ColumnOverrides = columnOverrides,
+            SelectionMode = selectionMode,
+            OnSelectionChanged = onSelectionChanged,
+            OnRowChanged = onRowChanged,
+            RowHeight = rowHeight,
+            Editable = editable,
+            EditMode = editMode,
+            LoadingTemplate = loadingTemplate,
+            EmptyTemplate = emptyTemplate,
+        };
+
+        return Component<DataGridComponent<T>, DataGridElement<T>>(props)
+            .WithKey($"dg-{typeof(T).Name}-{source.GetHashCode()}");
+    }
+}

@@ -11,6 +11,7 @@ using Microsoft.UI.Reactor.Data.Providers;
 using Microsoft.UI.Reactor.Controls;
 using Microsoft.UI.Reactor.Layout;
 using static Microsoft.UI.Reactor.Factories;
+using static Microsoft.UI.Reactor.Advanced.Factories;
 using static Microsoft.UI.Reactor.Core.Theme;
 using WinUIColor = global::Windows.UI.Color;
 

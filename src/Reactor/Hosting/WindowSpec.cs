@@ -11,6 +11,25 @@ public enum WindowEmbedStyle
 public sealed record EmbedRequest(WindowEmbedStyle Style, int HostPid, bool InitialVisibility);
 
 /// <summary>
+/// Caption height for a window whose content extends into the title bar.
+/// Mirrors <c>Microsoft.UI.Windowing.TitleBarHeightOption</c>.
+/// </summary>
+/// <remarks>
+/// The native option only sizes the <b>system caption</b> (caption buttons, drag
+/// region, insets). The WinUI <c>TitleBar</c> control does not follow it — see
+/// <c>TitleBarElement.HeightOption</c>, which sizes both.
+/// </remarks>
+public enum WindowTitleBarHeight
+{
+    /// <summary>Standard 32 DIP caption.</summary>
+    Standard,
+    /// <summary>Tall 48 DIP caption — the layout used when the title bar hosts navigation chrome.</summary>
+    Tall,
+    /// <summary>No caption area at all.</summary>
+    Collapsed,
+}
+
+/// <summary>
 /// Immutable (init-only) declarative description of a top-level Reactor window. Hand to
 /// <see cref="ReactorApp.OpenWindow(WindowSpec, Func{Component}, Action{Microsoft.UI.Reactor.Hosting.ReactorHost})"/>
 /// to open a window; hand to <see cref="ReactorWindow.Update"/> to diff
@@ -19,9 +38,13 @@ public sealed record EmbedRequest(WindowEmbedStyle Style, int HostPid, bool Init
 /// <remarks>
 /// <para>All sizes and positions are <b>DIPs</b> (device-independent pixels) —
 /// no Win32 / no <c>SizeInt32</c> in user code. (spec 036 §4.1)</para>
-/// <para>Validation runs in the primary constructor: <c>Width</c>/<c>Height</c>
-/// must be positive, max ≥ min when both are set, and
-/// <see cref="ManualPosition"/> is required iff
+/// <para><see cref="Validate"/> enforces the cross-field invariants and is
+/// called by the hosting layer (the <see cref="ReactorWindow"/> constructor and
+/// <see cref="ReactorWindow.Update"/>) before the spec is
+/// used; tests may call it directly. It requires <c>Width</c>/<c>Height</c> to
+/// be positive <i>when set</i> (<c>null</c> defers the initial extent to
+/// the OS), max ≥ min when both are set, and
+/// <see cref="ManualPosition"/> iff
 /// <see cref="StartPosition"/> is <see cref="WindowStartPosition.Manual"/>.</para>
 /// </remarks>
 public sealed record WindowSpec
@@ -29,11 +52,20 @@ public sealed record WindowSpec
     /// <summary>Window caption text. Defaults to <c>"Reactor App"</c>.</summary>
     public string Title { get; init; } = "Reactor App";
 
-    /// <summary>Initial DIP width. Must be positive.</summary>
-    public double Width { get; init; } = 1024;
+    /// <summary>
+    /// Initial DIP width. Must be positive when set. <c>null</c> (the default)
+    /// leaves the initial width to the OS — Reactor does not override that
+    /// axis, so the window keeps the width Windows picks for a new top-level
+    /// window (the same behavior a plain XAML <c>Window</c> gets). When both
+    /// axes are <c>null</c> no <c>AppWindow.Resize</c> call is made at all.
+    /// </summary>
+    public double? Width { get; init; }
 
-    /// <summary>Initial DIP height. Must be positive.</summary>
-    public double Height { get; init; } = 768;
+    /// <summary>
+    /// Initial DIP height. Must be positive when set. <c>null</c> (the default)
+    /// leaves the initial height to the OS. See <see cref="Width"/>.
+    /// </summary>
+    public double? Height { get; init; }
 
     /// <summary>Optional minimum DIP width.</summary>
     public double? MinWidth { get; init; }
@@ -82,7 +114,8 @@ public sealed record WindowSpec
 
     /// <summary>
     /// Content-driven sizing mode. Size changes are applied after the first layout pass,
-    /// so apps may see one frame at the initial Width/Height before content settles.
+    /// so apps may see one frame at the initial Width/Height (or the OS-chosen size when
+    /// those are null) before content settles.
     /// </summary>
     public WindowSizeToContent SizeToContent { get; init; } = WindowSizeToContent.Manual;
 
@@ -137,6 +170,25 @@ public sealed record WindowSpec
     /// shape across this type change; restart after editing this field during HR.
     /// </summary>
     public bool? ExtendsContentIntoTitleBar { get; init; }
+
+    /// <summary>
+    /// System caption height. <c>null</c> (the default) leaves the platform
+    /// default alone; a mounted <c>TitleBar(...)</c> element's
+    /// <c>HeightOption</c> then applies instead, if it declares one.
+    /// </summary>
+    /// <remarks>
+    /// <para>Requires a content-extended window — the native
+    /// <c>AppWindow.TitleBar.PreferredHeightOption</c> setter throws
+    /// <c>ERROR_INVALID_STATE</c> otherwise. Reactor applies the value only once
+    /// the window is content-extended (including the deferred flip a
+    /// <c>TitleBar(...)</c> element performs at mount) and warns instead of
+    /// throwing when the window never extends.</para>
+    /// <para>This sizes the <b>system caption</b> only. A mounted WinUI
+    /// <c>TitleBar</c> control does not follow it, which is why
+    /// <c>TitleBar(...).Tall()</c> — which sizes both — is the preferred spelling
+    /// when the window renders a <c>TitleBar(...)</c> element. (issue #917)</para>
+    /// </remarks>
+    public WindowTitleBarHeight? TitleBarHeight { get; init; }
 
     /// <summary>Optional declarative backdrop. Seeds the per-host modifier.</summary>
     public BackdropChoice? Backdrop { get; init; }
@@ -218,29 +270,37 @@ public sealed record WindowSpec
     {
         // Empty - validation deferred until field setters complete in the
         // record's init phase. The Validate() method is called explicitly
-        // by the hosting layer (ReactorWindow.Apply) before use.
+        // by the hosting layer (the ReactorWindow constructor and
+        // ReactorWindow.Update) before use.
     }
 
     /// <summary>
     /// Throws <see cref="ArgumentException"/> when any cross-field invariant is
-    /// violated. Called by <see cref="ReactorWindow"/> before the spec is
+    /// violated. Called by <see cref="ReactorWindow"/> (constructor and
+    /// <see cref="ReactorWindow.Update"/>) before the spec is
     /// applied; tests may also call this directly to verify a spec.
     /// </summary>
     public void Validate()
     {
-        if (!(Width > 0))
-            throw new ArgumentException("WindowSpec.Width must be positive.", nameof(Width));
-        if (!(Height > 0))
-            throw new ArgumentException("WindowSpec.Height must be positive.", nameof(Height));
+        // Every DIP size below reaches DipToPhysicalScalar / DipToPxScalar,
+        // where a non-finite double casts to a garbage int — +Infinity on
+        // MaxWidth, for instance, lands in ptMaxTrackSize as int.MinValue and
+        // makes the window unresizable. `null` is the way to say "unset" /
+        // "unbounded", so non-finite values are rejected on every axis. The
+        // comparison is spelled out rather than written as !(x > 0).
+        if (Width is { } w && (w <= 0 || !double.IsFinite(w)))
+            throw new ArgumentException("WindowSpec.Width must be positive and finite when set.", nameof(Width));
+        if (Height is { } h && (h <= 0 || !double.IsFinite(h)))
+            throw new ArgumentException("WindowSpec.Height must be positive and finite when set.", nameof(Height));
 
-        if (MinWidth is { } minW && !(minW > 0))
-            throw new ArgumentException("WindowSpec.MinWidth must be positive when set.", nameof(MinWidth));
-        if (MinHeight is { } minH && !(minH > 0))
-            throw new ArgumentException("WindowSpec.MinHeight must be positive when set.", nameof(MinHeight));
-        if (MaxWidth is { } maxW && !(maxW > 0))
-            throw new ArgumentException("WindowSpec.MaxWidth must be positive when set.", nameof(MaxWidth));
-        if (MaxHeight is { } maxH && !(maxH > 0))
-            throw new ArgumentException("WindowSpec.MaxHeight must be positive when set.", nameof(MaxHeight));
+        if (MinWidth is { } minW && (minW <= 0 || !double.IsFinite(minW)))
+            throw new ArgumentException("WindowSpec.MinWidth must be positive and finite when set.", nameof(MinWidth));
+        if (MinHeight is { } minH && (minH <= 0 || !double.IsFinite(minH)))
+            throw new ArgumentException("WindowSpec.MinHeight must be positive and finite when set.", nameof(MinHeight));
+        if (MaxWidth is { } maxW && (maxW <= 0 || !double.IsFinite(maxW)))
+            throw new ArgumentException("WindowSpec.MaxWidth must be positive and finite when set (use null for unbounded).", nameof(MaxWidth));
+        if (MaxHeight is { } maxH && (maxH <= 0 || !double.IsFinite(maxH)))
+            throw new ArgumentException("WindowSpec.MaxHeight must be positive and finite when set (use null for unbounded).", nameof(MaxHeight));
 
         if (MinWidth is { } a && MaxWidth is { } b && a > b)
             throw new ArgumentException(

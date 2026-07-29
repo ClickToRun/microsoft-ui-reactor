@@ -180,6 +180,26 @@ public class ElementExtensionsCoverageTests
         Assert.Equal(new Thickness(4.0), bd.Modifiers!.BorderThickness);
     }
 
+    [Fact]
+    public void ContentAlignment_And_Independent_Border_Modifiers()
+    {
+        var aligned = Button("x")
+            .HorizontalContentAlignment(HorizontalAlignment.Right)
+            .VerticalContentAlignment(VerticalAlignment.Bottom)
+            .BorderBrush(Theme.CardStroke)
+            .BorderThickness(1, 2, 3, 4);
+
+        Assert.Equal(HorizontalAlignment.Right, aligned.Modifiers!.HorizontalContentAlignment);
+        Assert.Equal(VerticalAlignment.Bottom, aligned.Modifiers.VerticalContentAlignment);
+        Assert.True(aligned.ThemeBindings!.ContainsKey("BorderBrush"));
+        Assert.Equal(new Thickness(1, 2, 3, 4), aligned.Modifiers.BorderThickness);
+
+        Assert.Equal(new Thickness(6), Button("x").BorderThickness(6).Modifiers!.BorderThickness);
+        Assert.Equal(new Thickness(8, 4, 8, 4), Button("x").BorderThickness(8, 4).Modifiers!.BorderThickness);
+        Assert.Equal(new Thickness(0, 0, 0, 1), Button("x").BorderThickness(bottom: 1).Modifiers!.BorderThickness);
+        Assert.Equal(new Thickness(7), Button("x").BorderThickness(new Thickness(7)).Modifiers!.BorderThickness);
+    }
+
     // ────────────────────────────────────────────────────────────────
     //  CornerRadius / IsEnabled
     // ────────────────────────────────────────────────────────────────
@@ -200,6 +220,15 @@ public class ElementExtensionsCoverageTests
         Assert.False(el.Modifiers!.IsEnabled);
         var enabled = Button("Y").IsEnabled();
         Assert.True(enabled.Modifiers!.IsEnabled);
+    }
+
+    [Fact]
+    public void IsHitTestVisible_Sets_Modifier()
+    {
+        var el = Button("Y").IsHitTestVisible(false);
+        Assert.False(el.Modifiers!.IsHitTestVisible);
+        var hitTestable = Button("Y").IsHitTestVisible();
+        Assert.True(hitTestable.Modifiers!.IsHitTestVisible);
     }
 
     [Fact]
@@ -448,6 +477,16 @@ public class ElementExtensionsCoverageTests
     {
         var el = TabView([]).IsAddTabButtonVisible(false);
         Assert.False(el.IsAddTabButtonVisible);
+    }
+
+    [Fact]
+    public void TabView_FillContentArea_DefaultsOffAndOptsIn()
+    {
+        // Default must stay off so WinUI's DefaultTabViewStyle (VerticalAlignment="Top")
+        // is preserved for existing apps — issue #914.
+        Assert.False(TabView([]).FillContentArea);
+        Assert.True(TabView([]).FillContentArea().FillContentArea);
+        Assert.False(TabView([]).FillContentArea().FillContentArea(false).FillContentArea);
     }
 
     [Fact]

@@ -93,7 +93,7 @@ class Counter : Component
 }
 
 // Function component (inline, small reusable pieces)
-var toggle = Func(ctx =>
+var toggle = Memo(ctx =>
 {
     var (on, setOn) = ctx.UseState(false);
     return ToggleSwitch(on, setOn);
@@ -115,7 +115,7 @@ Memo(ctx => TextBlock($"Hi, {name}"), name)    // re-render when deps change
 
 `Component` skips parent-triggered re-renders by default. `Component<TProps>` skips when `Equals(oldProps, newProps)`.
 
-**App entry point.** `ReactorApp.Run<MyRoot>("Title", width: W, height: H)` against a component class (the scaffolded form). For a tiny demo without a class, the inline form: `ReactorApp.Run("Title", ctx => { var (m, setM) = ctx.UseState("hi"); return TextBlock(m); })`.
+**App entry point.** `ReactorApp.Run<MyRoot>("Title", width: W, height: H)` against a component class (the scaffolded form). `width`/`height` are optional DIPs — omit them to let the OS choose the initial window size. For a tiny demo without a class, the inline form: `ReactorApp.Run("Title", ctx => { var (m, setM) = ctx.UseState("hi"); return TextBlock(m); })`.
 
 ## Hooks
 
@@ -131,6 +131,7 @@ Memo(ctx => TextBlock($"Hi, {name}"), name)    // re-render when deps change
 | `UseCallback(action, deps)` | `Action` | Stable callback reference |
 | `UseRef<T>(initial)` | `Ref<T>` | Mutable ref across renders (access via `.Current`) |
 | `UseObservable<T>(source)` | `T` | Track `INotifyPropertyChanged` |
+| `UseExternalStore<TSnapshot>(subscribe, getSnapshot)` | `TSnapshot` | Subscribe to an external store (stable `subscribe`, cached snapshot) |
 | `UseCollection<T>(coll)` | `IReadOnlyList<T>` | Track `ObservableCollection` |
 | `UseContext<T>(ctx)` | `T` | Read tree-scoped ambient state |
 | `UsePersisted<T>(key, initial)` | `(T, Action<T>)` | State that survives unmount |

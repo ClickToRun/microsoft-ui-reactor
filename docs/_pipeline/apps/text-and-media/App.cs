@@ -1,6 +1,7 @@
 using Microsoft.UI.Reactor;
 using Microsoft.UI.Reactor.Core;
 using static Microsoft.UI.Reactor.Factories;
+using static Microsoft.UI.Reactor.Advanced.Factories;
 using Microsoft.UI.Xaml;
 
 ReactorApp.Run<TextAndMediaApp>("Text and Media", width: 720, height: 1200

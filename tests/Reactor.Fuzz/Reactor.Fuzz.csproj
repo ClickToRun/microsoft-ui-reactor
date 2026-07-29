@@ -19,11 +19,13 @@
 
   <ItemGroup>
     <PackageReference Include="SharpFuzz" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Reactor\Reactor.csproj" />
+    <!-- Spec 062 §7 Track B (B1a): charting moved core → Reactor.Advanced;
+         the smoke + PathData fuzz harnesses reference charting types. -->
+    <ProjectReference Include="..\..\src\Reactor.Advanced\Reactor.Advanced.csproj" />
     <!-- Issue #433: md4c HTML renderer driven by the fuzz harness. -->
     <ProjectReference Include="..\Reactor.Markdown.TestRenderer\Reactor.Markdown.TestRenderer.csproj" />
   </ItemGroup>

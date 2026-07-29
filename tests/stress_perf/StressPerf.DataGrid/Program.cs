@@ -1,5 +1,5 @@
 // StressPerf.DataGrid — a /perf macro workload that exercises Reactor's DataGrid
-// control (src/Reactor/Controls/DataGrid/) — the per-render array/LINQ allocation
+// control (src/Reactor.Advanced/Controls/DataGrid/) — the per-render array/LINQ allocation
 // path (#663/#669) and the per-cell/row modifier-delegate churn (#671) — that NO
 // existing WIRED /perf leg reaches.
 //
@@ -63,6 +63,7 @@ using Microsoft.UI.Xaml.Media;
 using StressPerf.DataGrid;
 using StressPerf.Shared;
 using static Microsoft.UI.Reactor.Factories;
+using static Microsoft.UI.Reactor.Advanced.Factories;
 
 // Parse CLI args before WinUI starts
 var cliOptions = CliOptions.Parse(args);

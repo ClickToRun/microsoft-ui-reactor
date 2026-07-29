@@ -11,11 +11,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\..\..\..\src\Reactor\Reactor.csproj" />
+    <ProjectReference Include="..\..\..\..\src\Reactor.Advanced\Reactor.Advanced.csproj" />
     <ProjectReference Include="..\Chat.Model\Chat.Model.csproj" />
   </ItemGroup>
 
