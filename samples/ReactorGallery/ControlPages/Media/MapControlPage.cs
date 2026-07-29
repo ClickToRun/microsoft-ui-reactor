@@ -1,6 +1,5 @@
 using Microsoft.UI.Reactor;
 using Microsoft.UI.Reactor.Core;
-using Microsoft.UI.Xaml;
 using static Microsoft.UI.Reactor.Factories;
 using static WinUIGalleryReactor.SamplePageHost;
 
