@@ -502,6 +502,93 @@ the resulting binary for your custom handler class name. If
 references it, the name is gone. That round-trip is the only
 authoritative test that Pattern A is wired correctly.
 
+## Explicit registration — the narrow escape hatch
+
+Everything above self-registers: the holder's static constructor runs
+on the only path that can produce the element, so there is nothing to
+"wire up" at startup and no `UseMyLibrary()` step. A Reactor app builds
+its element tree *before* it reconciles, so construction always
+precedes dispatch.
+
+**Two cases genuinely need an explicit call**, because no element
+construction triggers them:
+
+1. **A handler for an element you never construct** — typically an
+   *override* for a built-in. Constructing a `ButtonElement` runs the
+   *owner's* registration, never yours, and registration is
+   **first-wins**: whoever gets there first keeps the entry and later
+   calls are silently dropped. Register at startup, before the first
+   render builds a tree containing that element — the built-in claims
+   the entry on the factory call that *constructs* it, so waiting until
+   just before the first mount is already too late.
+2. **Eager global initialization** — for example merging a XAML
+   `ResourceDictionary` into `Application.Current.Resources`. That is
+   ordinary WinUI startup work rather than control registration, and
+   it is usually too late if deferred to a render pass.
+
+Two paths already exist for this. Pick by scope, not by taste:
+
+| | Global — `ControlRegistry.Register*` | Per-host — `reconciler.RegisterType` / `RegisterHandler` |
+|---|---|---|
+| Scope | Whole process | One host's reconciler |
+| Capture | Must be `static` — captures nothing | May capture host-local state |
+| Two implementations of one element | No (first-wins) | Yes — different hosts may differ |
+| Compatibility | Part of the frozen protocol seam, so a *shipped* control library rolls forward | Outside the frozen seam — apps recompile anyway |
+| Reach for it when | A library-level override, or a reusable control library | A bespoke, app-local control |
+
+**Global.** Registers process-wide, and is the path a redistributable
+library should prefer:
+
+```csharp
+ControlRegistry.Register<ButtonElement, Microsoft.UI.Xaml.Controls.Button>(
+    static () => new MyButtonHandler());
+```
+
+`Register` takes a handler **factory**, not an instance. The registration
+itself is process-wide, but the factory runs lazily *per reconciler* —
+each host that mounts the element builds its own handler instance and
+caches it — so a handler must not assume it is a process-wide singleton.
+The `static` on the lambda is the same mandate as Step 6 — a capturing
+lambda allocates a closure and blunts the trimmer, and
+`REACTOR_DESC_001` flags it. The sibling entry points are
+`RegisterDecorator<TElement>` for decorator elements, and
+`RegisterForDerivedTypes<TBase, TControl>` /
+`RegisterDecoratorForDerivedTypes<TBase>` to cover a whole element
+family through its base type.
+
+**Per-host.** Registers on one host's reconciler, from the `configure`
+callback that runs before the first render:
+
+```csharp
+ReactorApp.Run<EditorApp>("Monaco Editor", configure: host =>
+{
+    host.Reconciler.RegisterType<MonacoEditorElement, MonacoEditor>(
+        mount: static (r, el, requestRerender) => new MonacoEditor { Text = el.Text },
+        update: static (r, oldEl, newEl, editor, requestRerender) =>
+        {
+            if (newEl.Text != oldEl.Text) editor.Text = newEl.Text;
+            return null;   // null = the same control was patched in place
+        },
+        unmount: static (r, editor) => editor.Dispose());
+});
+```
+
+`RegisterType` takes **inline** mount/update/unmount delegates, so a
+one-off control needs no `IElementHandler` class at all; `unmount` is
+optional. Returning `null` from `update` means "I patched the existing
+control" — return a different `UIElement` only when you genuinely
+replaced it. If you *do* have a handler class, `RegisterHandler` takes
+an **instance** of it instead. This is the shape Reactor's own docking
+natives and the Monaco sample use.
+
+A library that wants eager setup ships an ordinary
+`public static void UseAcme(Reconciler reconciler)` over one of these —
+Reactor deliberately adds no `IReactorLibrary` interface or
+marker-driven discovery scan. Assembly scanning is AOT-hostile, and a
+`[ModuleInitializer]` names every handler on first type-load, so the
+trimmer can never prove any of it dead — both would forfeit the
+pay-for-what-you-use trimming that Step 6 exists to preserve.
+
 ## Patterns
 
 A few recurring shapes turn up across most custom-control ports:
