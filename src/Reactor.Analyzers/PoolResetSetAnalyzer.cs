@@ -109,6 +109,27 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
         isEnabledByDefault: true,
         description: VisibilityDescription);
 
+    /// <summary>
+    /// Diagnostic-property key carrying the comma-separated names of <em>every</em> WinUI
+    /// property reported on this <c>.Set(...)</c>, so <see cref="PoolResetSetCodeFix"/> knows
+    /// exactly which assignments passed the gates.
+    /// <para>
+    /// Load-bearing for multi-statement bodies. A block can mix an assignment that was
+    /// reported with one the analyzer deliberately skipped (a gated property on the wrong
+    /// control type, or one with no modifier at all). Without this the fix would re-derive
+    /// candidates from the table alone and could rewrite an assignment that was gated out —
+    /// producing exactly the silent no-op the gating exists to prevent.
+    /// </para>
+    /// <para>
+    /// Every diagnostic on the invocation carries the <em>whole</em> set rather than just its
+    /// own property, because a code fix provider is not guaranteed to be handed all the
+    /// diagnostics sharing a span — Roslyn's <c>CodeFixService</c> groups them, but
+    /// <c>Microsoft.CodeAnalysis.Testing</c> invokes the provider once per diagnostic. Making
+    /// each diagnostic self-sufficient keeps the fix correct under both.
+    /// </para>
+    /// </summary>
+    internal const string ReportedPropertiesKey = "ReactorReportedProperties";
+
     private static readonly LocalizableString ModifierAvailableTitle =
         "Use the Reactor modifier instead of .Set";
 
@@ -175,6 +196,12 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
         var simpleAssignments = assignments
             .Where(assignment => assignment.IsKind(SyntaxKind.SimpleAssignmentExpression));
 
+        // Two passes. The first classifies every assignment; the second reports, stamping each
+        // diagnostic with the complete reported set. The code fix needs the whole set to decide
+        // whether a block body is convertible in full, and cannot rely on being handed its
+        // siblings (see ReportedPropertiesKey).
+        var reportable = new List<(MemberAccessExpressionSyntax Left, ModifierInfo Info, string PropName)>();
+
         foreach (var assignment in simpleAssignments)
         {
             var leftAccess = SetLambdaHelpers.GetAssignedMemberAccess(assignment, lambdaParam.Identifier.Text);
@@ -193,11 +220,39 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
             if (!isReactorSet)
                 return;
 
-            AnalyzeAssignment(context, invocation, memberAccess, leftAccess, assignment);
+            var classified = ClassifyAssignment(context, invocation, memberAccess, leftAccess, assignment);
+            if (classified is { } hit)
+                reportable.Add((leftAccess, hit.Info, hit.PropName));
+        }
+
+        if (reportable.Count == 0)
+            return;
+
+        var reportedProperties = ImmutableDictionary<string, string?>.Empty.Add(
+            ReportedPropertiesKey,
+            string.Join(",", reportable.Select(r => r.PropName)));
+
+        foreach (var (_, info, propName) in reportable)
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                info.PoolReset ? Rule : ModifierAvailableRule,
+                invocation.GetLocation(),
+                properties: reportedProperties,
+                propName,
+                info.Modifier));
         }
     }
 
-    private static void AnalyzeAssignment(
+    /// <summary>
+    /// Decide whether one assignment inside a <c>.Set(...)</c> body should be reported as
+    /// having a usable modifier. Returns <c>null</c> when it should stay on <c>.Set</c>.
+    /// </summary>
+    /// <remarks>
+    /// REACTOR_VIS_001 is reported inline here and returns <c>null</c>: it has its own
+    /// descriptor and its own code fix, so it must not join a REACTOR_POOL_001/MOD_002
+    /// modifier chain.
+    /// </remarks>
+    private static (string PropName, ModifierInfo Info)? ClassifyAssignment(
         SyntaxNodeAnalysisContext context,
         InvocationExpressionSyntax invocation,
         MemberAccessExpressionSyntax memberAccess,
@@ -221,11 +276,11 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
                     VisibilityRule,
                     invocation.GetLocation()));
             }
-            return;
+            return null;
         }
 
         if (!ModifierTable.Properties.TryGetValue(propName, out var info))
-            return;
+            return null;
 
         // A null / default right-hand side is not expressible through the modifier.
         // ApplyModifiers treats a null modifier value as "no modifier supplied" and only
@@ -237,7 +292,7 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
             || assignment.Right.IsKind(SyntaxKind.DefaultLiteralExpression)
             || assignment.Right is DefaultExpressionSyntax)
         {
-            return;
+            return null;
         }
 
         // Receiver gates. Both are checked against the semantic model rather than inferred:
@@ -254,7 +309,7 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
             var applies = gate.Any(allowed =>
                 SetLambdaHelpers.InheritsFrom(controlType, allowed, "Microsoft.UI.Xaml.Controls"));
             if (!applies)
-                return;
+                return null;
         }
 
         if (info.ElementTypes is { } elementTypes)
@@ -264,18 +319,14 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
             var elementType = context.SemanticModel
                 .GetTypeInfo(memberAccess.Expression, context.CancellationToken).Type;
             if (elementType is null)
-                return;
+                return null;
 
             var declared = elementTypes.Any(candidate =>
                 string.Equals(elementType.Name, candidate, System.StringComparison.Ordinal));
             if (!declared)
-                return;
+                return null;
         }
 
-        context.ReportDiagnostic(Diagnostic.Create(
-            info.PoolReset ? Rule : ModifierAvailableRule,
-            invocation.GetLocation(),
-            propName,
-            info.Modifier));
+        return (propName, info);
     }
 }

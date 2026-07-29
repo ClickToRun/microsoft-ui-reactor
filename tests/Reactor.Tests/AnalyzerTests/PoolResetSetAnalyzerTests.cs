@@ -307,13 +307,17 @@ class C
         // scoped detection to the codefix's reach and said: "If a future PR adds multi-stmt
         // support, this test should flip to a positive case." This is that change.
         //
-        // The analyzer now reports every modifier-backed assignment in the body, while
-        // PoolResetSetCodeFix still declines to rewrite multi-statement lambdas (it would
-        // have to extract one assignment and preserve the rest). Diagnostic and fix scope
-        // are therefore deliberately no longer identical — a real trap is reported even when
-        // it cannot be auto-fixed, which matters because this shape hid live bugs: the
-        // widening immediately surfaced MaxWidth/MaxHeight writes in minesweeper's App.cs
-        // that were silently lost on pool reuse.
+        // Both halves of that support landed: the analyzer reports every modifier-backed
+        // assignment in the body, and PoolResetSetCodeFix rewrites the whole body into a
+        // modifier chain when every statement is convertible (see
+        // ModifierAvailableAnalyzerTests.CodeFix_Rewrites_Multi_Statement_Block_Into_A_Chain).
+        //
+        // Detection is still deliberately wider than the fix: a body that mixes convertible
+        // and non-convertible statements is reported but not auto-fixed, because a partial
+        // extraction would reorder the extracted write against the ones left in .Set. That
+        // asymmetry matters — this shape hid live bugs, and the widening immediately surfaced
+        // MaxWidth/MaxHeight writes in minesweeper's App.cs that were silently lost on pool
+        // reuse.
         var source = Stubs + @"
 class C
 {

@@ -390,16 +390,92 @@ class C
     }
 
     [Fact]
-    public async Task CodeFix_Does_Not_Offer_Rewrite_For_Multi_Statement_Block()
+    public async Task CodeFix_Rewrites_Multi_Statement_Block_Into_A_Chain()
     {
-        // The analyzer reports every modifier-backed write in a block, but a multi-statement
-        // body has no mechanical rewrite — the other statements must stay in .Set while only
-        // one moves. The fix must leave the code untouched rather than guess, so FixedCode
-        // is identical to TestCode.
-        var source = Stubs + @"
+        // The support the original No_Diagnostic_For_Block_Bodied_Lambda_With_Multiple_Statements
+        // comment anticipated: "the codefix ... would need to extract the matched assignment
+        // while preserving the rest of the body".
+        //
+        // Resolved by converting the WHOLE body rather than extracting one statement, so
+        // nothing is left behind to preserve. That is exactly N applications of the
+        // single-assignment rewrite and carries no new risk — whereas a partial extraction
+        // would move one write from the setter phase into the modifier phase and change its
+        // order relative to the statements left in .Set.
+        var before = Stubs + @"
 class C
 {
     ButtonElement M(ButtonElement b) => {|REACTOR_MOD_002:{|REACTOR_MOD_002:b.Set(c => { c.IsEnabled = false; c.Padding = new Thickness(4); })|}|};
+}";
+        var after = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => b.IsEnabled(false).Padding(4);
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Preserves_Source_Order_In_The_Chain()
+    {
+        // Chain order follows source order, so any ordering the author relied on between the
+        // writes survives the rewrite. Same two properties as above, written the other way
+        // round, must produce the reversed chain.
+        var before = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => {|REACTOR_MOD_002:{|REACTOR_MOD_002:b.Set(c => { c.Padding = new Thickness(4); c.IsEnabled = false; })|}|};
+}";
+        var after = Stubs + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => b.Padding(4).IsEnabled(false);
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Declines_Mixed_Block_With_An_Unmapped_Statement()
+    {
+        // One convertible assignment sharing a body with a statement that has no modifier.
+        // Converting only the first would leave a residual .Set and move that write into the
+        // modifier phase, reordering it against what stays behind — so the fix declines and
+        // the diagnostic stands unfixed. FixedCode is identical to TestCode.
+        var source = Stubs.Replace(
+            "public class Button : Control { }",
+            "public class Button : Control { public string Name { get; set; } }") + @"
+class C
+{
+    ButtonElement M(ButtonElement b) => {|REACTOR_MOD_002:b.Set(c => { c.IsEnabled = false; c.Name = ""x""; })|};
+}";
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Declines_Mixed_Block_With_A_Gated_Out_Statement()
+    {
+        // The subtle one. Both properties are in the modifier table, but the receiver is a
+        // Grid: Background applies to a Panel, Padding does not. Only Background is reported.
+        // The fix must not "helpfully" convert the Padding write as well — that is precisely
+        // the silent no-op the gating exists to prevent, and it is why the analyzer passes
+        // the reported property names through Diagnostic.Properties rather than letting the
+        // fix re-derive candidates from the table.
+        var source = Stubs + @"
+class C
+{
+    GridElement M(GridElement g, Microsoft.UI.Xaml.Media.Brush brush)
+        => {|REACTOR_MOD_002:g.Set(x => { x.Background = brush; x.Padding = new Thickness(4); })|};
 }";
         await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
         {
