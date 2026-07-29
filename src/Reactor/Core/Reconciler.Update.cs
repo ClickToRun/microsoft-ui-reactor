@@ -104,7 +104,7 @@ public sealed partial class Reconciler
             && oldEl.HasCallbacks == newEl.HasCallbacks
             && !ForceRenderThroughWrapper(newEl)
             && !IsOnDirtyAncestorPath(control)
-            && !(HasActiveContextValues && HasConsumedContextChangedInSubtree(control)))
+            && !ShouldDeclineSkip(control))
         {
             DebugElementsSkipped++;
             // Refresh Tag so the event trampoline dispatches into the new element's

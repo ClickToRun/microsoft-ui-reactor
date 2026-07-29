@@ -1,6 +1,7 @@
 using Microsoft.UI.Reactor;
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Reactor.AppTests.Host.SelfTest;
+using Microsoft.UI.Reactor.Hooks;
 using static Microsoft.UI.Reactor.Factories;
 
 namespace Microsoft.UI.Reactor.AppTests.Host.SelfTest.Fixtures;
@@ -80,6 +81,92 @@ internal static class Issue811ContextConsumerSkipFixtures
 
             H.Check("Issue811_ActionUsesCurrentContext", probe.LastAction == "unlock");
             H.Check("Issue811_ActionDidNotUseStaleContext", probe.LastAction != "lock");
+        }
+    }
+
+    internal sealed class KeyedReferenceStableChildSkip_ContextConsumerRerenders(Harness h)
+        : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var probe = new Probe();
+            var stableOverlay = Component<OverlayConsumer, OverlayProps>(new OverlayProps(probe))
+                .WithKey("overlay");
+
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (interactive, setInteractive) = ctx.UseState(true);
+
+                return VStack(
+                        stableOverlay,
+                        TextBlock(interactive ? "keyed-surface:on" : "keyed-surface:off")
+                            .WithKey("surface"),
+                        Button("Toggle keyed interactive", () => setInteractive(!interactive))
+                            .WithKey("toggle"))
+                    .Provide(InteractiveCtx, interactive);
+            });
+
+            await Harness.Render();
+
+            H.Check("Issue811_Keyed_Mount_LabelLock", H.FindText("Lock interactivity") is not null);
+            H.Check("Issue811_Keyed_Mount_OverlayRenderedOnce", probe.RenderCount == 1);
+
+            H.ClickButton("Toggle keyed interactive");
+            await Harness.Render();
+
+            H.Check("Issue811_Keyed_Toggle_SurfaceOff", H.FindText("keyed-surface:off") is not null);
+            H.Check("Issue811_Keyed_Toggle_LabelUpdated", H.FindText("Unlock interactivity") is not null);
+            H.Check("Issue811_Keyed_Toggle_OverlayRerendered", probe.RenderCount >= 2);
+
+            H.ClickButton("Invoke overlay action");
+            await Harness.Render();
+
+            H.Check("Issue811_Keyed_ActionUsesCurrentContext", probe.LastAction == "unlock");
+        }
+    }
+
+    internal sealed class HintedRange_ContextConsumerRerenders(Harness h)
+        : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var probe = new Probe();
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (interactive, setInteractive) = ctx.UseState(true);
+                var (values, setValues) = ctx.UseState(new[] { 0, 0 });
+                var (changed, setChanged) = ctx.UseState(Array.Empty<int>());
+                var cells = ctx.UseMemoCellsByIndex(
+                    values,
+                    changed,
+                    (item, index) => index == 0
+                        ? Component<OverlayConsumer, OverlayProps>(new OverlayProps(probe))
+                        : TextBlock($"hint-cell:{item}"));
+
+                return VStack(
+                        Button("Toggle hinted interactive", () =>
+                        {
+                            setInteractive(!interactive);
+                            setChanged(new[] { 1 });
+                            setValues(new[] { values[0], values[1] + 1 });
+                        }),
+                        VStack(cells))
+                    .Provide(InteractiveCtx, interactive);
+            });
+
+            await Harness.Render();
+
+            H.Check("Issue811_Hint_Mount_LabelLock", H.FindText("Lock interactivity") is not null);
+            H.Check("Issue811_Hint_Mount_OverlayRenderedOnce", probe.RenderCount == 1);
+
+            H.ClickButton("Toggle hinted interactive");
+            await Harness.Render();
+
+            H.Check("Issue811_Hint_ChangedCellUpdated", H.FindText("hint-cell:1") is not null);
+            H.Check("Issue811_Hint_LabelUpdated", H.FindText("Unlock interactivity") is not null);
+            H.Check("Issue811_Hint_OverlayRerendered", probe.RenderCount >= 2);
         }
     }
 }

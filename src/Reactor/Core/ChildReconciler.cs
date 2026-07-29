@@ -116,7 +116,8 @@ internal static class ChildReconciler
             && !hint.AnyThemeSensitive
             && hint.PreviousChildren.TryGetTarget(out var hintPrev)
             && ReferenceEquals(oldChildren, hintPrev)
-            && !reconciler.IsOnDirtyAncestorPath(parentControl))
+            && !reconciler.IsOnDirtyAncestorPath(parentControl)
+            && (parentControl is null || !reconciler.ShouldDeclineSkip(parentControl)))
         {
             var changed = hint.ChangedIndices;
             int visited = 0;
@@ -217,36 +218,32 @@ internal static class ChildReconciler
         if (Element.CanSkipUpdate(oldEl, newEl)
             && !reconciler.ForceRenderThroughWrapper(newEl))
         {
-            if (reconciler.HasActiveContextValues)
+            if (!reconciler.HasActiveContextValues
+                || !reconciler.ShouldDeclineSkip(existingControl ??= children.Get(i)))
             {
-                existingControl = children.Get(i);
-                if (reconciler.HasConsumedContextChangedInSubtree(existingControl))
-                    goto perform_update;
+                reconciler.DebugElementsSkipped++;
+                // Refresh Tag when the element carries callbacks. The skip short-
+                // circuits Update, so without this the event trampoline keeps
+                // dispatching through the previous render's closure — stale state
+                // (e.g., Counter's `() => setCount(count + 1)` would keep capturing
+                // the initial count). For callback-free elements we still avoid
+                // the children.Get COM call.
+                // #721 — the gesture/drag slots are excluded from the skip predicate,
+                // so refresh their cached dispatch closures here too (same stale-closure
+                // hazard as Tag). Fetch the control once for either need.
+                if ((newEl.HasCallbacks
+                        || Reconciler.HasGestureOrDragSlots(newEl.Modifiers)
+                        || Reconciler.HasGestureOrDragSlots(oldEl.Modifiers))
+                    && (existingControl ??= children.Get(i)) is FrameworkElement fe)
+                {
+                    if (newEl.HasCallbacks)
+                        Reconciler.SetElementTag(fe, newEl);
+                    Reconciler.RefreshGestureDragStateOnSkip(fe, oldEl.Modifiers, newEl.Modifiers);
+                }
+                return;
             }
-
-            reconciler.DebugElementsSkipped++;
-            // Refresh Tag when the element carries callbacks. The skip short-
-            // circuits Update, so without this the event trampoline keeps
-            // dispatching through the previous render's closure — stale state
-            // (e.g., Counter's `() => setCount(count + 1)` would keep capturing
-            // the initial count). For callback-free elements we still avoid
-            // the children.Get COM call.
-            // #721 — the gesture/drag slots are excluded from the skip predicate,
-            // so refresh their cached dispatch closures here too (same stale-closure
-            // hazard as Tag). Fetch the control once for either need.
-            if ((newEl.HasCallbacks
-                    || Reconciler.HasGestureOrDragSlots(newEl.Modifiers)
-                    || Reconciler.HasGestureOrDragSlots(oldEl.Modifiers))
-                && (existingControl ??= children.Get(i)) is FrameworkElement fe)
-            {
-                if (newEl.HasCallbacks)
-                    Reconciler.SetElementTag(fe, newEl);
-                Reconciler.RefreshGestureDragStateOnSkip(fe, oldEl.Modifiers, newEl.Modifiers);
-            }
-            return;
         }
 
-perform_update:
         if (reconciler.CanUpdate(oldEl, newEl))
         {
             existingControl ??= children.Get(i);
@@ -310,8 +307,12 @@ perform_update:
             // Issue #675 — shares Element.CanSkipUpdate with the positional arm, so a
             // ThemeBindings/ResourceOverrides.ThemeRefs child likewise declines the
             // skip and re-resolves through Update (see UpdateCommonChild's contract note).
+            UIElement? existingControl = null;
             if (Element.CanSkipUpdate(oldEl, newEl)
-                && !reconciler.ForceRenderThroughWrapper(newEl))
+                && !reconciler.ForceRenderThroughWrapper(newEl)
+                && (!reconciler.HasActiveContextValues
+                    || prefixLen >= childCount
+                    || !reconciler.ShouldDeclineSkip(existingControl ??= children.Get(prefixLen))))
             {
                 reconciler.DebugElementsSkipped++;
                 // Refresh the Tag when the element carries callbacks so the
@@ -321,7 +322,8 @@ perform_update:
                 if ((newEl.HasCallbacks
                         || Reconciler.HasGestureOrDragSlots(newEl.Modifiers)
                         || Reconciler.HasGestureOrDragSlots(oldEl.Modifiers))
-                    && prefixLen < childCount && children.Get(prefixLen) is FrameworkElement fe)
+                    && prefixLen < childCount
+                    && (existingControl ??= children.Get(prefixLen)) is FrameworkElement fe)
                 {
                     if (newEl.HasCallbacks)
                         Reconciler.SetElementTag(fe, newEl);
@@ -334,10 +336,11 @@ perform_update:
             // Update in place
             if (prefixLen < childCount)
             {
-                var replacement = reconciler.UpdateChild(oldEl, newEl, children.Get(prefixLen), requestRerender);
+                existingControl ??= children.Get(prefixLen);
+                var replacement = reconciler.UpdateChild(oldEl, newEl, existingControl, requestRerender);
                 if (replacement is not null)
                 {
-                    reconciler.UnmountChild(children.Get(prefixLen));
+                    reconciler.UnmountChild(existingControl);
                     children.Replace(prefixLen, replacement);
                 }
             }
@@ -359,15 +362,22 @@ perform_update:
 
             // Early skip (#30): same fast-path as the prefix loop, applied from
             // the end of the list.
+            UIElement? existingControl = null;
             if (Element.CanSkipUpdate(oldEl, newEl)
-                && !reconciler.ForceRenderThroughWrapper(newEl))
+                && !reconciler.ForceRenderThroughWrapper(newEl)
+                && (!reconciler.HasActiveContextValues
+                    || panelIdx < 0
+                    || panelIdx >= childCount
+                    || !reconciler.ShouldDeclineSkip(existingControl ??= children.Get(panelIdx))))
             {
                 reconciler.DebugElementsSkipped++;
                 // #721 — refresh Tag + cached gesture/drag dispatch closures on skip.
                 if ((newEl.HasCallbacks
                         || Reconciler.HasGestureOrDragSlots(newEl.Modifiers)
                         || Reconciler.HasGestureOrDragSlots(oldEl.Modifiers))
-                    && panelIdx >= 0 && panelIdx < childCount && children.Get(panelIdx) is FrameworkElement fe)
+                    && panelIdx >= 0
+                    && panelIdx < childCount
+                    && (existingControl ??= children.Get(panelIdx)) is FrameworkElement fe)
                 {
                     if (newEl.HasCallbacks)
                         Reconciler.SetElementTag(fe, newEl);
@@ -379,10 +389,11 @@ perform_update:
 
             if (panelIdx >= 0 && panelIdx < childCount)
             {
-                var replacement = reconciler.UpdateChild(oldEl, newEl, children.Get(panelIdx), requestRerender);
+                existingControl ??= children.Get(panelIdx);
+                var replacement = reconciler.UpdateChild(oldEl, newEl, existingControl, requestRerender);
                 if (replacement is not null)
                 {
-                    reconciler.UnmountChild(children.Get(panelIdx));
+                    reconciler.UnmountChild(existingControl);
                     children.Replace(panelIdx, replacement);
                 }
             }

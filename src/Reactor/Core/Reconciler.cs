@@ -1931,6 +1931,9 @@ public sealed partial class Reconciler : IDisposable
         return found;
     }
 
+    internal bool ShouldDeclineSkip(UIElement control)
+        => HasActiveContextValues && HasConsumedContextChangedInSubtree(control);
+
     /// <summary>
     /// Calls ShouldUpdate(oldProps, newProps) on a Component&lt;TProps&gt; via interface dispatch.
     /// </summary>
