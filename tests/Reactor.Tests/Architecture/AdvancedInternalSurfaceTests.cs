@@ -71,7 +71,14 @@ public class AdvancedInternalSurfaceTests
     ///     <c>OpenWindow</c> overloads deliberately don't expose;
     ///     <c>ReflectionTypeMetadataProvider.BuildInitOnlySetter</c> and
     ///     <c>Component.Context</c> (settable so the reconciler can transplant a live
-    ///     <c>RenderContext</c> on Hot Reload, spec 049 §7) are internal plumbing.</item>
+    ///     <c>RenderContext</c> on Hot Reload, spec 049 §7) are internal plumbing.
+    ///     <c>DiagnosticLog</c> + <c>LogCategory</c> are the spec 044 §6.1 swallowed-
+    ///     exception / HRESULT sink: they gate on the <c>Errors</c> keyword, strip
+    ///     <c>Exception.Message</c> from the ETW payload per §6.2.1, and mirror to
+    ///     <c>Debug.WriteLine</c> in DEBUG. Advanced subsystems that swallow an
+    ///     exception must report it, and the public <c>ReactorTrace</c> is deliberately
+    ///     subscribe-only — so this is the sanctioned emit path, and a strictly safer
+    ///     one than the already-approved raw <c>ReactorEventSource</c>.</item>
     ///   <item><b>Performance hooks.</b> <c>Element.HasCallbacks</c> gates the
     ///     <c>ReactorState</c> allocation (spec 047 §4.4) and
     ///     <c>ElementFactory{T}.ShouldSkipRefresh</c> drives row memoization.
@@ -103,6 +110,8 @@ public class AdvancedInternalSurfaceTests
         "override: Microsoft.UI.Reactor.Core.Element::OwnPropsEqualOverride",
 
         // ── Framework-level operations ────────────────────────────────────────
+        "type: Microsoft.UI.Reactor.Core.Diagnostics.DiagnosticLog",
+        "type: Microsoft.UI.Reactor.Core.Diagnostics.LogCategory",
         "type: Microsoft.UI.Reactor.Core.Diagnostics.ReactorEventSource",
         "member: Microsoft.UI.Reactor.Controls.ReflectionTypeMetadataProvider::BuildInitOnlySetter",
         "member: Microsoft.UI.Reactor.Controls.Validation.ValidationContext::ClearInternal",
