@@ -45,6 +45,64 @@ public sealed class UnregisteredHandlerAndRegisterAllBuiltInsTests
         Assert.Contains("factory", ex.Message);
         Assert.Contains("RegisterAllBuiltIns", ex.Message);
         Assert.Contains("ControlRegistry.Register", ex.Message);
+
+        // Spec 062 §10 — with lazy self-registration the norm, the message must also
+        // name the per-host path that 048's wording left out, or it sends an author
+        // hunting for a registration call they were never supposed to write.
+        Assert.Contains("RegisterHandler", ex.Message);          // per-host, app-local bespoke control (§8)
+
+        // A [GenerateReactorWrapper] element registers in its generated static ctor, so
+        // having an instance means registration already ran — it cannot be the cause and
+        // must not be advertised as one (it would send wrapper authors down a dead end).
+        Assert.DoesNotContain("GenerateReactorWrapper", ex.Message);
+
+        // …and must NOT lead with the reconciler's internal dispatch-arm mechanics,
+        // which name private fields an app author cannot act on.
+        Assert.DoesNotContain("_v1Handlers", ex.Message);
+        Assert.DoesNotContain("_typeRegistry", ex.Message);
+    }
+
+    private sealed record UnregisteredGenericProbeElement<T>(T Value) : Element;
+
+    [Fact]
+    public void Unregistered_Generic_Element_Prints_A_Pasteable_Type_Name()
+    {
+        var reconciler = new Reconciler();
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => reconciler.Mount(new UnregisteredGenericProbeElement<int>(1), NoOp));
+
+        // The remediation snippets are meant to be copy-pasted, so a closed generic must
+        // render as C# (`Foo<Int32>`), never as the raw metadata name (``Foo`1``).
+        Assert.Contains("UnregisteredGenericProbeElement<Int32>", ex.Message);
+        Assert.DoesNotContain("UnregisteredGenericProbeElement`1", ex.Message);
+
+        // A nested type must keep its declaring chain, or the printed name is ambiguous
+        // (and the snippet still wouldn't compile).
+        Assert.Contains(
+            nameof(UnregisteredHandlerAndRegisterAllBuiltInsTests) + ".UnregisteredGenericProbeElement<Int32>",
+            ex.Message);
+    }
+
+    private static class GenericHolder<TOuter>
+    {
+        internal sealed record NestedProbeElement<TInner>(TOuter A, TInner B) : Element;
+    }
+
+    [Fact]
+    public void Nested_Inside_A_Generic_Type_Does_Not_Duplicate_The_Outer_Type_Arguments()
+    {
+        var reconciler = new Reconciler();
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => reconciler.Mount(new GenericHolder<int>.NestedProbeElement<string>(1, "x"), NoOp));
+
+        // Reflection reports the generic arguments of a nested type as the whole chain
+        // flattened outermost-first, so a naive render repeats the outer arguments on the
+        // inner name (`GenericHolder<Int32>.NestedProbeElement<Int32, String>`) — which is
+        // not the type and does not compile.
+        Assert.Contains("GenericHolder<Int32>.NestedProbeElement<String>", ex.Message);
+        Assert.DoesNotContain("NestedProbeElement<Int32, String>", ex.Message);
     }
 
     [Fact]
