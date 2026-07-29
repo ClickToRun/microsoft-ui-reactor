@@ -1,4 +1,5 @@
 using Microsoft.UI.Reactor.Core;
+using Microsoft.UI.Reactor.Core.V1Protocol;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -396,5 +397,45 @@ public class FlyoutAttachmentTests
     public void CommandBarFlyout_IsOpen_Is_Settable_Via_With()
     {
         Assert.True((CommandBarFlyout(Button("target", null)) with { IsOpen = true }).IsOpen);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Deferred-open guard (OverlayLifecycle.IsStillRequestingOpen)
+    //
+    //  A mount-time IsOpen=true defers the show to the target's Loaded.
+    //  Between those two points the element can be re-rendered with
+    //  IsOpen=false, replaced by a different element, or unmounted (the
+    //  pool clears the tag). The guard reads the target's *current* tag so
+    //  a stale request never pops a flyout.
+    // ════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void DeferredOpen_Honoured_While_Element_Still_Wants_Open()
+    {
+        Assert.True(OverlayLifecycle.IsStillRequestingOpen(
+            CommandBarFlyout(Button("t", null)) with { IsOpen = true }));
+    }
+
+    [Fact]
+    public void DeferredOpen_Dropped_When_Element_Rerendered_Closed()
+    {
+        Assert.False(OverlayLifecycle.IsStillRequestingOpen(
+            CommandBarFlyout(Button("t", null)) with { IsOpen = false }));
+    }
+
+    [Fact]
+    public void DeferredOpen_Dropped_When_Target_Untagged()
+    {
+        // Pool return calls ClearElementTag, so a recycled control reports no element.
+        Assert.False(OverlayLifecycle.IsStillRequestingOpen(null));
+    }
+
+    [Fact]
+    public void DeferredOpen_Dropped_When_Target_Now_Hosts_A_Different_Element()
+    {
+        // FlyoutElement.IsOpen is a different feature on a different element type —
+        // it must not satisfy the CommandBarFlyout deferred-open guard.
+        Assert.False(OverlayLifecycle.IsStillRequestingOpen(
+            Flyout(Button("t", null), TextBlock("content")) with { IsOpen = true }));
     }
 }

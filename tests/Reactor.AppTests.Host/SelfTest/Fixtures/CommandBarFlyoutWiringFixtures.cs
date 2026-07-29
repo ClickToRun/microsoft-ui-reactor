@@ -244,14 +244,138 @@ internal static class CommandBarFlyoutWiringFixtures
             await Harness.Render();
             var flyout = H.FindButton("cbfa-target")?.Flyout as CommandBarFlyout;
             H.Check("CbfAuto_FlyoutInstalled", flyout is not null);
-            // Auto is never written through; WinUI's own default stands.
-            H.Check("CbfAuto_PlacementNotAuto", flyout?.Placement != WinPrim.FlyoutPlacementMode.Auto);
+            // Auto is never written through; WinUI's own Placement default stands.
+            // (`is CommandBarFlyout` so a null flyout can't pass this by accident.)
+            H.Check("CbfAuto_PlacementNotAuto",
+                flyout is CommandBarFlyout { Placement: not WinPrim.FlyoutPlacementMode.Auto });
 
             H.ClickButton("CbfAutoGo");
             await Harness.Render();
             H.Check("CbfAuto_OpenedWithoutFailFast", await WaitOpen(flyout));
 
             await CloseAndSettle(flyout);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  A SplitButton target uses SplitButton.Flyout (its own slot — SplitButton
+    //  does not derive from Button), not the attached-flyout metadata.
+    // ════════════════════════════════════════════════════════════════════
+    internal class SplitButtonTargetWiring(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (phase, set) = ctx.UseState(0);
+                AppBarItemBase[] primary = phase == 0
+                    ? [AppBarButton("cbfs-cut")]
+                    : [AppBarButton("cbfs-copy"), AppBarButton("cbfs-paste")];
+                return VStack(
+                    Button("CbfSplitGo", () => set(phase + 1)),
+                    CommandBarFlyout(
+                        SplitButton("cbfs-target", () => { }),
+                        primaryCommands: primary) with
+                    {
+                        Placement = WinPrim.FlyoutPlacementMode.Top,
+                    });
+            });
+
+            await Harness.Render();
+            var target0 = H.FindControl<SplitButton>(sb => sb.Content is string s && s == "cbfs-target");
+            H.Check("CbfSplit_TargetMounted", target0 is not null);
+            var flyout0 = target0?.Flyout as CommandBarFlyout;
+            H.Check("CbfSplit_FlyoutInSplitButtonSlot", flyout0 is not null);
+            H.Check("CbfSplit_MountPrimary1", flyout0?.PrimaryCommands.Count == 1);
+            H.Check("CbfSplit_MountNotAttached",
+                target0 is not null && WinPrim.FlyoutBase.GetAttachedFlyout(target0) is null);
+
+            H.ClickButton("CbfSplitGo");
+            await Harness.Render();
+            var target1 = H.FindControl<SplitButton>(sb => sb.Content is string s && s == "cbfs-target");
+            var flyout1 = target1?.Flyout as CommandBarFlyout;
+            H.Check("CbfSplit_FlyoutReusedInPlace", SameInstance(flyout0, flyout1));
+            H.Check("CbfSplit_UpdatePrimaryPatched",
+                flyout1?.PrimaryCommands.Count == 2
+                && (flyout1?.PrimaryCommands[0] as AppBarButton)?.Label == "cbfs-copy");
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  Placement explicit → Auto must land back on WinUI's default, matching
+    //  what a fresh mount of the same element would produce. Merely skipping
+    //  the Auto write would strand the previous explicit value.
+    // ════════════════════════════════════════════════════════════════════
+    internal class PlacementExplicitToAutoResets(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (phase, set) = ctx.UseState(0);
+                return VStack(
+                    Button("CbfResetGo", () => set(1)),
+                    CommandBarFlyout(
+                        Button("cbfr-target", () => { }),
+                        primaryCommands: [AppBarButton("cbfr-cut")]) with
+                    {
+                        Placement = phase == 0
+                            ? WinPrim.FlyoutPlacementMode.Bottom
+                            : WinPrim.FlyoutPlacementMode.Auto,
+                    });
+            });
+
+            await Harness.Render();
+            var flyout = H.FindButton("cbfr-target")?.Flyout as CommandBarFlyout;
+            H.Check("CbfReset_ExplicitPlacementApplied",
+                flyout?.Placement == WinPrim.FlyoutPlacementMode.Bottom);
+
+            // The default a fresh Auto mount produces — captured from a real fresh flyout so
+            // the assertion doesn't hard-code WinUI's default and silently rot.
+            var freshDefault = new CommandBarFlyout().Placement;
+            H.ClickButton("CbfResetGo");
+            await Harness.Render();
+            H.Check("CbfReset_AutoRestoresDefaultPlacement",
+                flyout is CommandBarFlyout && flyout.Placement == freshDefault);
+            H.Check("CbfReset_DefaultIsNotAuto", freshDefault != WinPrim.FlyoutPlacementMode.Auto);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  Unmount detaches the flyout so a recycled target can't keep showing
+    //  the previous component's command bar.
+    // ════════════════════════════════════════════════════════════════════
+    internal class UnmountDetachesFlyout(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (shown, set) = ctx.UseState(true);
+                return VStack(
+                    Button("CbfUnmountGo", () => set(false)),
+                    shown
+                        ? CommandBarFlyout(
+                            Button("cbfu-target", () => { }),
+                            primaryCommands: [AppBarButton("cbfu-cut")]) with
+                          {
+                              Placement = WinPrim.FlyoutPlacementMode.Top,
+                          }
+                        : TextBlock("cbfu-gone"));
+            });
+
+            await Harness.Render();
+            // Hold the control across the unmount so the detach is observable.
+            var target = H.FindButton("cbfu-target");
+            H.Check("CbfUnmount_FlyoutInstalled", target?.Flyout is CommandBarFlyout);
+
+            H.ClickButton("CbfUnmountGo");
+            await Harness.Render();
+            H.Check("CbfUnmount_TargetRemoved", H.FindButton("cbfu-target") is null);
+            H.Check("CbfUnmount_FlyoutDetached", target is not null && target.Flyout is null);
         }
     }
 }

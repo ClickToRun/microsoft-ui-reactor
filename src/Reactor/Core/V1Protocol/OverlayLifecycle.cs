@@ -419,7 +419,7 @@ internal static class OverlayLifecycle
         if (target is FrameworkElement targetFe)
         {
             var flyout = new WinUI.CommandBarFlyout();
-            ApplyPlacement(flyout, cbf.Placement);
+            Reconciler.ApplyFlyoutPlacement(flyout, cbf.Placement);
             if (cbf.PrimaryCommands is not null)
                 foreach (var cmd in cbf.PrimaryCommands) flyout.PrimaryCommands.Add(MenuCommandFactory.CreateAppBarItem(cmd));
             if (cbf.SecondaryCommands is not null)
@@ -468,7 +468,7 @@ internal static class OverlayLifecycle
             if (existing is null)
             {
                 var flyout = new WinUI.CommandBarFlyout();
-                ApplyPlacement(flyout, n.Placement);
+                Reconciler.ApplyFlyoutPlacement(flyout, n.Placement);
                 if (n.PrimaryCommands is not null)
                     foreach (var cmd in n.PrimaryCommands) flyout.PrimaryCommands.Add(MenuCommandFactory.CreateAppBarItem(cmd));
                 if (n.SecondaryCommands is not null)
@@ -479,7 +479,7 @@ internal static class OverlayLifecycle
             }
             else
             {
-                ApplyPlacement(existing, n.Placement);
+                Reconciler.ApplyFlyoutPlacement(existing, n.Placement);
                 if (commandsChanged)
                 {
                     existing.PrimaryCommands.Clear();
@@ -497,20 +497,12 @@ internal static class OverlayLifecycle
     }
 
     /// <summary>
-    /// Assigns a flyout's placement, skipping <see cref="WinPrim.FlyoutPlacementMode.Auto"/>.
-    ///
-    /// <c>Auto</c> (13) is outside the range <c>FlyoutBase::ShowAtCore</c> accepts, and
-    /// <c>GetEffectivePlacement</c> hands the raw value straight to the validator, so an
-    /// <c>Auto</c>-placed flyout fail-fasts the process with <c>E_INVALIDARG</c> the moment
-    /// it opens. Skipping the write leaves WinUI's own <c>Placement</c> default (Top) in
-    /// place. Mirrors the guard MenuFlyout already carries in
-    /// <c>Reconciler.CreateFlyoutFromElement</c>.
+    /// Whether a target's current element still wants its CommandBarFlyout open. Guards the
+    /// deferred (Loaded) open against the element being re-rendered with <c>IsOpen = false</c>,
+    /// swapped for a different element, or unmounted (the tag is cleared on pool return) in the
+    /// window between mount and the target entering the live tree.
     /// </summary>
-    private static void ApplyPlacement(WinPrim.FlyoutBase flyout, WinPrim.FlyoutPlacementMode placement)
-    {
-        if (placement != WinPrim.FlyoutPlacementMode.Auto && flyout.Placement != placement)
-            flyout.Placement = placement;
-    }
+    internal static bool IsStillRequestingOpen(Element? tag) => tag is CommandBarFlyoutElement { IsOpen: true };
 
     /// <summary>
     /// Opens <paramref name="flyout"/> against <paramref name="target"/>, deferring to the
@@ -532,10 +524,14 @@ internal static class OverlayLifecycle
         void OnLoaded(object sender, RoutedEventArgs e)
         {
             target.Loaded -= OnLoaded;
-            // The element may have been unmounted (and its flyout replaced) between mount
-            // and Loaded — only show if this flyout is still the one installed on it.
-            if (ReferenceEquals(Reconciler.GetFlyoutOnControl(target), flyout))
+            // Only honour a deferred open if this flyout is still the one installed on the
+            // target AND the target's current element still asks to be open — otherwise a
+            // re-render that cleared IsOpen (or a recycled control) would pop a stale flyout.
+            if (ReferenceEquals(Reconciler.GetFlyoutOnControl(target), flyout)
+                && IsStillRequestingOpen(Reconciler.GetElementTag(target)))
+            {
                 flyout.ShowAt(target);
+            }
         }
 
         target.Loaded += OnLoaded;
