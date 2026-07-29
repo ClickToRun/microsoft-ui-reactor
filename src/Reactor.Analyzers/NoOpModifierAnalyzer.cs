@@ -1,0 +1,375 @@
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Diagnostics;
+
+namespace Microsoft.UI.Reactor.Analyzers;
+
+/// <summary>
+/// REACTOR_MOD_003 — a <b>generic common modifier</b> applied to an element whose mounted control
+/// is outside the set of WinUI types <c>Reconciler.ApplyModifiers</c> writes that modifier to. The
+/// call compiles, chains, type-checks, and is then silently dropped at reconcile time.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The motivating case is <c>Rectangle().Size(80, 80).Background("#FF6B6B")</c>, which renders an
+/// invisible shape: <c>ApplyModifiers</c> writes <c>Background</c> only to a <c>Panel</c>,
+/// <c>Control</c>, or <c>Border</c>, and a <c>Rectangle</c> is a
+/// <c>Microsoft.UI.Xaml.Shapes.Shape</c>. Shapes are painted with <c>Fill</c>/<c>Stroke</c>. The
+/// <c>ThemeRef</c> overload drops through a second, independent copy of the same allow-list in
+/// <c>Reconciler.GetDependencyPropertyName</c>, so every <c>Background</c> overload is affected.
+/// </para>
+/// <para>
+/// This is the reverse direction of <see cref="PoolResetSetAnalyzer"/>'s <c>REACTOR_MOD_002</c>:
+/// that rule asks "you wrote <c>.Set</c>, would the modifier work here?", this one asks "you wrote
+/// the modifier, does it reach this control?". Both answer from the same
+/// <see cref="ModifierTable"/> allow-lists, so the two cannot disagree about what
+/// <c>ApplyModifiers</c> does.
+/// </para>
+/// <para><b>Precision.</b> Every step below is a hard gate, and any uncertainty resolves to
+/// <em>no diagnostic</em>:</para>
+/// <list type="number">
+/// <item><description>The modifier must carry a <see cref="ModifierInfo.ControlGate"/>. A
+/// <see langword="null"/> gate is <b>never</b> read as "applies everywhere" here — see the note on
+/// <c>IsEnabled</c> below.</description></item>
+/// <item><description>The call must bind to the <em>generic</em>
+/// <c>Microsoft.UI.Reactor.ElementExtensions</c> modifier (its <c>this</c> parameter is a type
+/// parameter). A type-specific overload such as <c>RichTextBlockElement.FontSize(double)</c> writes
+/// the element record directly and is sound, so it is skipped — this is the same
+/// <see cref="ModifierInfo.ElementTypes"/> escape route <c>REACTOR_MOD_002</c> OR-combines, obtained
+/// here for free from overload resolution.</description></item>
+/// <item><description>The receiver must be a concrete element type. A type parameter
+/// (<c>T Style&lt;T&gt;(T el) where T : Element =&gt; el.Background(…)</c>) or a receiver typed as
+/// <c>Element</c> could be anything at runtime.</description></item>
+/// <item><description>The element type must expose Reactor's <c>Set(this TElement,
+/// Action&lt;TControl&gt;)</c> overload, whose <c>Action</c> type argument <em>is</em> the control
+/// the descriptor mounts and therefore the one <c>ApplyModifiers</c> receives. This is the same
+/// signal <c>REACTOR_MOD_002</c> reads off the <c>.Set</c> lambda parameter, and it is public API —
+/// unlike the <c>[GenerateReactorWrapper]</c> / <c>[GenerateReactorDescriptor]</c> attributes, which
+/// live in <c>Reactor.Wrappers.Abstractions</c> and do <b>not</b> flow to consumers
+/// (<c>PrivateAssets="all"</c> in <c>Reactor.csproj</c>), so they are unresolvable in exactly the
+/// compilations this rule has to work in. Elements with no <c>Set</c> overload are skipped.
+/// <c>ModifierTableIntegrityTests</c> pins the equivalence: for every element carrying a generator
+/// attribute, the <c>Set</c> overload's control must equal the attribute's.</description></item>
+/// <item><description><c>XamlInterop</c>'s host element takes
+/// <c>Action&lt;FrameworkElement&gt;</c> but hosts an arbitrary pre-built XAML element, which at
+/// runtime may well <em>be</em> a <c>Panel</c> or <c>Control</c>. Those two polymorphic bases are
+/// excluded outright.</description></item>
+/// </list>
+/// <para>
+/// <b>Why a <see langword="null"/> <see cref="ModifierInfo.ControlGate"/> is not "ungated".</b>
+/// <c>IsEnabled</c> / <c>HorizontalContentAlignment</c> / <c>VerticalContentAlignment</c> <em>are</em>
+/// <c>Control</c>-gated in <c>ApplyModifiers</c>, but the table leaves their gate null because in the
+/// <c>.Set</c> direction the receiver is already a <c>Control</c> (WinUI declares those dependency
+/// properties only there), so no predicate is needed. In <em>this</em> direction
+/// <c>.IsEnabled(false)</c> is callable on any <c>Element</c>, so treating null as "reaches
+/// everything" would silently drop real findings. Reporting is therefore restricted to entries with
+/// an explicit gate, and <c>ModifierTable.GateOnlyInReconciler</c> plus its integrity test keep the
+/// remainder recorded rather than invisible.
+/// </para>
+/// </remarks>
+[DiagnosticAnalyzer(LanguageNames.CSharp)]
+public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
+{
+    public const string DiagnosticId = "REACTOR_MOD_003";
+
+    /// <summary>Code-fix payload: the modifier name to rewrite the call to.</summary>
+    internal const string ReplacementKey = "Replacement";
+
+    /// <summary>
+    /// Code-fix payload: how the sole argument must be carried across — <c>brush</c> passes it
+    /// through unchanged, <c>string</c> needs a <c>BrushHelper.Parse(…)</c> wrap because the shape
+    /// modifiers take a <c>Brush</c>. Any other shape (e.g. the <c>ThemeRef</c> overload) is absent,
+    /// and the fix is not registered.
+    /// </summary>
+    internal const string ArgumentKindKey = "ArgumentKind";
+
+    internal const string BrushArgument = "brush";
+    internal const string StringArgument = "string";
+
+    private const string ReactorNamespace = "Microsoft.UI.Reactor";
+    private const string ReactorCoreNamespace = "Microsoft.UI.Reactor.Core";
+    private const string XamlNamespace = "Microsoft.UI.Xaml";
+    private const string XamlControlsNamespace = "Microsoft.UI.Xaml.Controls";
+    private const string XamlShapesNamespace = "Microsoft.UI.Xaml.Shapes";
+    private const string XamlMediaNamespace = "Microsoft.UI.Xaml.Media";
+
+    private const string ElementExtensionsTypeName = "ElementExtensions";
+    private const string ElementTypeName = "Element";
+    private const string ShapeTypeName = "Shape";
+    private const string BrushTypeName = "Brush";
+    private const string SetMethodName = "Set";
+
+    /// <summary>
+    /// Modifier → the shape modifier(s) that carry the same intent, most specific first. Only
+    /// consulted when the receiver's control is a <c>Shape</c>, and only after the candidate is
+    /// confirmed to resolve on that element type — so <c>LineElement</c>, which has no <c>Fill</c>,
+    /// falls through to <c>Stroke</c> and the emitted fix always compiles.
+    /// </summary>
+    internal static readonly IReadOnlyDictionary<string, string[]> ShapeReplacements =
+        new Dictionary<string, string[]>(System.StringComparer.Ordinal)
+        {
+            { "Background", new[] { "Fill", "Stroke" } },
+            { "Foreground", new[] { "Fill", "Stroke" } },
+            { "BorderBrush", new[] { "Stroke" } },
+            { "BorderThickness", new[] { "StrokeThickness" } },
+        };
+
+    /// <summary>
+    /// Control bases that stand in for "whatever was handed to us" rather than naming a real
+    /// control, so their declared type says nothing about what <c>ApplyModifiers</c> will see.
+    /// </summary>
+    private static readonly string[] PolymorphicHostControls = { "FrameworkElement", "UIElement" };
+
+    private static readonly LocalizableString Title =
+        "Modifier is silently dropped for this element's control type";
+
+    private static readonly LocalizableString MessageFormat =
+        "'{0}' has no effect on '{1}' — Reactor only applies '{0}' to {2}{3}";
+
+    private static readonly LocalizableString Description =
+        "Reconciler.ApplyModifiers writes each of these common modifiers only to specific WinUI " +
+        "control types. On anything else the call compiles and is silently discarded, so the value " +
+        "never reaches the control — for example '.Background(...)' on a Rectangle renders an " +
+        "invisible shape, because shapes are painted with '.Fill(...)'. Use the modifier the target " +
+        "control actually supports, or host the element in a container that does (a Border for " +
+        "Background).";
+
+    private static readonly DiagnosticDescriptor Rule = new(
+        DiagnosticId,
+        Title,
+        MessageFormat,
+        "Reactor.Modifier",
+        DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: Description);
+
+    public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
+        ImmutableArray.Create(Rule);
+
+    public override void Initialize(AnalysisContext context)
+    {
+        context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
+        context.EnableConcurrentExecution();
+        context.RegisterSyntaxNodeAction(AnalyzeInvocation, SyntaxKind.InvocationExpression);
+    }
+
+    private static void AnalyzeInvocation(SyntaxNodeAnalysisContext context)
+    {
+        var invocation = (InvocationExpressionSyntax)context.Node;
+
+        // Shape: `<receiver>.Modifier(args)`.
+        if (invocation.Expression is not MemberAccessExpressionSyntax
+            {
+                RawKind: (int)SyntaxKind.SimpleMemberAccessExpression,
+            } memberAccess)
+            return;
+
+        // Cheap syntactic gate before any semantic work.
+        var modifierName = memberAccess.Name.Identifier.ValueText;
+        if (!ModifierTable.Properties.TryGetValue(modifierName, out var info)
+            || info.ControlGate is not { } gate)
+            return;
+
+        var model = context.SemanticModel;
+        var cancellationToken = context.CancellationToken;
+
+        if (model.GetSymbolInfo(invocation, cancellationToken).Symbol is not IMethodSymbol method
+            || !IsGenericReactorModifier(method))
+            return;
+
+        if (model.GetTypeInfo(memberAccess.Expression, cancellationToken).Type is not INamedTypeSymbol receiver
+            || !IsConcreteReactorElement(receiver))
+            return;
+
+        if (!TryGetMountedControl(model, invocation.SpanStart, receiver, out var control))
+            return;
+
+        // The XamlInterop host: declared as a base, mounted as whatever the caller supplied.
+        if (PolymorphicHostControls.Contains(control.Name)
+            && control.ContainingNamespace?.ToDisplayString() == XamlNamespace)
+            return;
+
+        // Reconciler.ApplyModifiers writes this modifier to one of these — nothing to report.
+        if (gate.Any(allowed => SetLambdaHelpers.InheritsFrom(control, allowed, XamlControlsNamespace)))
+            return;
+
+        var properties = ImmutableDictionary<string, string?>.Empty;
+        var hint = string.Empty;
+
+        if (SetLambdaHelpers.InheritsFrom(control, ShapeTypeName, XamlShapesNamespace)
+            && TryGetShapeReplacement(context, invocation, receiver, modifierName, out var replacement))
+        {
+            hint = $". {control.Name} is a Shape, which is painted with '{replacement}' — did you mean '.{replacement}(...)'?";
+            properties = properties.Add(ReplacementKey, replacement);
+
+            if (DescribeSoleArgument(invocation, method) is { } argumentKind)
+                properties = properties.Add(ArgumentKindKey, argumentKind);
+        }
+        else if (modifierName == "Background")
+        {
+            hint = ". Wrap it in a Border(...) to paint a background behind this element";
+        }
+
+        context.ReportDiagnostic(Diagnostic.Create(
+            Rule,
+            memberAccess.Name.GetLocation(),
+            properties,
+            modifierName,
+            receiver.Name,
+            Humanize(gate),
+            hint));
+    }
+
+    /// <summary>
+    /// True for the generic common modifier <c>ElementExtensions.M&lt;T&gt;(this T el, …)</c>. The
+    /// <c>this</c> parameter being a type parameter is what separates it from a type-specific
+    /// overload like <c>RichTextBlockElement.FontSize(double)</c>, which writes the record property
+    /// directly and therefore never goes through <c>ApplyModifiers</c>' control gate.
+    /// </summary>
+    private static bool IsGenericReactorModifier(IMethodSymbol method)
+    {
+        var definition = (method.ReducedFrom ?? method).OriginalDefinition;
+        var containingType = definition.ContainingType;
+
+        return containingType is { Name: ElementExtensionsTypeName }
+            && containingType.ContainingNamespace?.ToDisplayString() == ReactorNamespace
+            && definition.IsExtensionMethod
+            && definition.Parameters.Length > 0
+            && definition.Parameters[0].Type.TypeKind == TypeKind.TypeParameter;
+    }
+
+    /// <summary>
+    /// The receiver must be a concrete Reactor element record. <c>Element</c> itself is excluded:
+    /// its runtime type is unknown, so nothing can be said about the control it mounts.
+    /// </summary>
+    private static bool IsConcreteReactorElement(INamedTypeSymbol receiver) =>
+        SetLambdaHelpers.InheritsFrom(receiver, ElementTypeName, ReactorCoreNamespace)
+        && !(receiver.Name == ElementTypeName
+             && receiver.ContainingNamespace?.ToDisplayString() == ReactorCoreNamespace);
+
+    /// <summary>
+    /// The WinUI control the element mounts, read off Reactor's <c>Set(this TElement,
+    /// Action&lt;TControl&gt;)</c> overload — the <c>Action</c> type argument is the control type the
+    /// generated <c>ControlDescriptor&lt;TElement, TControl&gt;</c> was built for, so it is the one
+    /// <c>ApplyModifiers</c> is handed at reconcile time.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The generator attributes would be the more direct source, but they live in
+    /// <c>Reactor.Wrappers.Abstractions</c>, which <c>Reactor.csproj</c> references with
+    /// <c>PrivateAssets="all"</c> — so in a consumer compilation the attribute type does not resolve
+    /// and the element looks unannotated. <c>Set</c> is public, is generated/declared alongside the
+    /// descriptor, and is the same fact <c>REACTOR_MOD_002</c> reads off its <c>.Set</c> lambda
+    /// parameter.
+    /// </para>
+    /// <para>
+    /// Bails on an ambiguous element (two <c>Set</c> overloads naming different controls) and on an
+    /// element with none, so an unknown control never produces a diagnostic.
+    /// </para>
+    /// </remarks>
+    private static bool TryGetMountedControl(
+        SemanticModel model,
+        int position,
+        INamedTypeSymbol receiver,
+        out INamedTypeSymbol control)
+    {
+        INamedTypeSymbol? found = null;
+
+        foreach (var symbol in model.LookupSymbols(position, receiver, SetMethodName, includeReducedExtensionMethods: true))
+        {
+            if (symbol is not IMethodSymbol { MethodKind: MethodKind.ReducedExtension, Parameters.Length: 1 } method)
+                continue;
+
+            var declaringNamespace = (method.ReducedFrom ?? method).ContainingType?.ContainingNamespace?.ToDisplayString();
+            if (declaringNamespace is null
+                || (declaringNamespace != ReactorNamespace
+                    && !declaringNamespace.StartsWith(ReactorNamespace + ".", System.StringComparison.Ordinal)))
+                continue;
+
+            if (method.Parameters[0].Type is not INamedTypeSymbol { Name: "Action", TypeArguments.Length: 1 } action
+                || action.ContainingNamespace?.ToDisplayString() != "System"
+                || action.TypeArguments[0] is not INamedTypeSymbol candidate)
+                continue;
+
+            if (found is not null && !SymbolEqualityComparer.Default.Equals(found, candidate))
+            {
+                control = null!;
+                return false;
+            }
+
+            found = candidate;
+        }
+
+        control = found!;
+        return found is not null;
+    }
+
+    /// <summary>
+    /// First <see cref="ShapeReplacements"/> candidate that actually resolves as an invocable member
+    /// on the receiver — so the suggestion (and the fix built from it) always compiles.
+    /// </summary>
+    private static bool TryGetShapeReplacement(
+        SyntaxNodeAnalysisContext context,
+        InvocationExpressionSyntax invocation,
+        INamedTypeSymbol receiver,
+        string modifierName,
+        out string replacement)
+    {
+        if (ShapeReplacements.TryGetValue(modifierName, out var candidates))
+        {
+            foreach (var candidate in candidates)
+            {
+                var symbols = context.SemanticModel.LookupSymbols(
+                    invocation.SpanStart,
+                    receiver,
+                    candidate,
+                    includeReducedExtensionMethods: true);
+
+                if (symbols.Any(symbol => symbol is IMethodSymbol))
+                {
+                    replacement = candidate;
+                    return true;
+                }
+            }
+        }
+
+        replacement = null!;
+        return false;
+    }
+
+    /// <summary>
+    /// How the code fix must carry the argument onto the shape modifier, or <see langword="null"/>
+    /// when it cannot — the <c>ThemeRef</c> overload has no shape counterpart, and the non-fluent
+    /// <c>ElementExtensions.Background(el, v)</c> spelling is not a shape the rewrite handles. Keyed
+    /// off the <em>bound parameter</em> type rather than the argument syntax, so a variable, a
+    /// field, or a method call is classified as accurately as a literal.
+    /// </summary>
+    private static string? DescribeSoleArgument(InvocationExpressionSyntax invocation, IMethodSymbol method)
+    {
+        if (invocation.ArgumentList.Arguments.Count != 1
+            || method.MethodKind != MethodKind.ReducedExtension
+            || method.Parameters.Length != 1)
+            return null;
+
+        var type = method.Parameters[0].Type;
+        if (type.SpecialType == SpecialType.System_String)
+            return StringArgument;
+
+        return SetLambdaHelpers.InheritsFrom(type, BrushTypeName, XamlMediaNamespace)
+            ? BrushArgument
+            : null;
+    }
+
+    /// <summary>"Panel, Control, or Border".</summary>
+    private static string Humanize(string[] gate) => gate.Length switch
+    {
+        0 => "no control type",
+        1 => gate[0],
+        2 => $"{gate[0]} or {gate[1]}",
+        _ => string.Join(", ", gate.Take(gate.Length - 1)) + ", or " + gate[gate.Length - 1],
+    };
+}

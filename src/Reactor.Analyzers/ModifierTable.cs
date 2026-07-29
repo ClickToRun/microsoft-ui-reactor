@@ -223,6 +223,55 @@ internal static class ModifierTable
         };
 
     /// <summary>
+    /// Modifiers that <c>Reconciler.ApplyModifiers</c> gates on a control type but that carry
+    /// <see cref="ModifierInfo.ControlGate"/> <see langword="null"/> here (or no
+    /// <see cref="Properties"/> entry at all), with the reason.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A null <see cref="ModifierInfo.ControlGate"/> is ambiguous between "the reconciler applies
+    /// this unconditionally" and "the reconciler gates it, but this rule's direction cannot reach a
+    /// non-qualifying receiver anyway". <c>REACTOR_MOD_002</c> reads <c>.Set(x =&gt; x.IsEnabled = v)</c>,
+    /// where the lambda parameter is already a <c>Control</c> because WinUI declares the dependency
+    /// property only there — so no predicate is needed. <see cref="NoOpModifierAnalyzer"/> reads
+    /// <c>.IsEnabled(v)</c>, a generic modifier callable on <em>any</em> element, where the same
+    /// null would mean "never report" and quietly lose real findings.
+    /// </para>
+    /// <para>
+    /// <c>ModifierTableIntegrityTests</c> requires every control gate it reads out of
+    /// <c>ApplyModifiers</c> to match a declared <see cref="ModifierInfo.ControlGate"/> or appear
+    /// here, so a newly gated modifier forces a deliberate decision in both directions instead of
+    /// being invisible to one of them. The converse also holds: every row here must name a gate the
+    /// reader actually finds, so the list cannot accumulate stale entries that silently suppress
+    /// that check.
+    /// </para>
+    /// <para>
+    /// One gate is deliberately absent: the content-alignment pair is written under a bare
+    /// <c>if (fe is Control …)</c> with no <c>m.&lt;Prop&gt;</c> in the condition, so the gate reader —
+    /// which ties a type test to the modifier guarding it — cannot attribute it to a property name.
+    /// Recording it here would claim a gate the reader found, which it did not; the null-gate
+    /// rationale for that pair is documented at its <see cref="Properties"/> entry instead.
+    /// </para>
+    /// </remarks>
+    public static readonly IReadOnlyDictionary<string, string> GateOnlyInReconciler =
+        new Dictionary<string, string>(System.StringComparer.Ordinal)
+        {
+            ["IsEnabled"] = "Control-gated in ApplyModifiers. Mapped with a null ControlGate because WinUI declares IsEnabled on Control only, so a .Set lambda that compiles already qualifies. REACTOR_MOD_003 therefore does not report .IsEnabled(...) — declaring the gate here would be the way to turn that on.",
+            ["TabIndex"] = "Control-gated in ApplyModifiers but unmapped in Properties (see DeliberatelyExcluded) — WinUI also declares TabIndex on UIElement, so the gate needs verifying before either direction uses it.",
+            ["ElementSoundMode"] = "Control-gated in ApplyModifiers and unmapped in Properties: there is no .ElementSoundMode modifier to suggest, and the generic .ElementSoundMode(...) path has not been audited for the reverse direction.",
+
+            // Reactor-only BiDi logical modifiers. Both fold into a physical write
+            // (PaddingInlineStart → Padding, BorderInlineStart → BorderThickness) and inherit that
+            // write's control gate, so `.PaddingInlineStart(8)` on a Grid is dropped exactly like
+            // `.Padding(8)` is. They are NOT WinUI property names, and Properties is keyed by the
+            // name written inside a .Set lambda — so mapping them there would add rows REACTOR_MOD_002
+            // can never match. Covering them in REACTOR_MOD_003 needs a modifier-keyed gate table;
+            // recorded here so the omission is deliberate rather than invisible.
+            ["PaddingInlineStart"] = "Reactor-only BiDi logical modifier; folds into the Padding write and inherits its Control/Border/StackPanel gate. Not a WinUI property name, so it has no home in Properties (which is keyed on those). REACTOR_MOD_003 coverage needs a modifier-keyed table.",
+            ["BorderInlineStart"] = "Reactor-only BiDi logical modifier; folds into the BorderThickness write and inherits its Control/Border gate. Not a WinUI property name — same reasoning as PaddingInlineStart.",
+        };
+
+    /// <summary>
     /// Properties intentionally absent from <see cref="Properties"/>, with the reason.
     /// <c>ModifierTableIntegrityTests</c> requires every candidate modifier to appear in one
     /// of the two, so adding a modifier forces a deliberate choice instead of silently
