@@ -178,14 +178,11 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
         // would never match the ones the tree walk below reports.
         var carried = new HashSet<TextSpan>();
 
-        foreach (var assignment in assignments)
+        // Block bodies hang their trivia off the statement; an expression body has none
+        // of its own worth carrying (it is on the invocation, which keeps it).
+        foreach (var owner in assignments.Select(assignment =>
+            assignment.Parent is ExpressionStatementSyntax statement ? (SyntaxNode)statement : assignment))
         {
-            // Block bodies hang their trivia off the statement; an expression body has none
-            // of its own worth carrying (it is on the invocation, which keeps it).
-            var owner = assignment.Parent is ExpressionStatementSyntax statement
-                ? (SyntaxNode)statement
-                : assignment;
-
             // The preceding token's trailing trivia matters as much as the statement's own
             // leading trivia: it holds the line break (and any same-line trailing comment) that
             // makes the '//' safe and the chain readable. That token is '{' for the first

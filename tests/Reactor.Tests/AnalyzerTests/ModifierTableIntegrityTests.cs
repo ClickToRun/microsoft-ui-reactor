@@ -336,27 +336,24 @@ public class ModifierTableIntegrityTests
 
                 // Type tests on the FrameworkElement inside this branch (and its else clauses)
                 // are the gate: `fe is WinUI.Control padCtrl`.
-                var declarations = ifStatement.DescendantNodes()
+                var typeNames = ifStatement.DescendantNodes()
                     .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.IsPatternExpressionSyntax>()
                     .Where(pattern =>
                         pattern.Expression is Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax { Identifier.Text: "fe" }
                         && pattern.Pattern is Microsoft.CodeAnalysis.CSharp.Syntax.DeclarationPatternSyntax)
-                    .Select(pattern => (Microsoft.CodeAnalysis.CSharp.Syntax.DeclarationPatternSyntax)pattern.Pattern);
-
-                foreach (var declaration in declarations)
-                {
-                    var typeName = declaration.Type switch
+                    .Select(pattern => ((Microsoft.CodeAnalysis.CSharp.Syntax.DeclarationPatternSyntax)pattern.Pattern).Type switch
                     {
                         Microsoft.CodeAnalysis.CSharp.Syntax.QualifiedNameSyntax qualified => qualified.Right.Identifier.Text,
                         Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax simple => simple.Identifier.Text,
                         _ => null,
-                    };
-                    if (typeName is null)
-                        continue;
+                    })
+                    .Where(typeName => typeName is not null);
 
+                foreach (var typeName in typeNames)
+                {
                     if (!gates.TryGetValue(guarded, out var set))
                         gates[guarded] = set = new HashSet<string>(StringComparer.Ordinal);
-                    set.Add(typeName);
+                    set.Add(typeName!);
                 }
             }
         }
