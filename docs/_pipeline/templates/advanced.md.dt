@@ -139,7 +139,9 @@ head: never store the control, always go through the ref.
 `.Set()` gives you direct access to the underlying WinUI control. Use
 it for the properties Reactor doesn't expose as modifiers — and only
 those. Check for a fluent modifier first: tooltips are `.ToolTip("…")`
-(or `.WithToolTip(element)` for rich content), not a hand-rolled
+(or `.WithToolTip(element)` for rich content, plus
+`.ToolTipPlacement(...)` / `.ToolTipPlacementTarget(...)` for the two
+`ToolTipService` positioning properties), not a hand-rolled
 `ToolTipService.SetToolTip` inside `.Set()`. Padding, text wrapping,
 character spacing, and selection all have modifiers too. Anything you
 route through `.Set()` sits outside the property diff, so prefer the

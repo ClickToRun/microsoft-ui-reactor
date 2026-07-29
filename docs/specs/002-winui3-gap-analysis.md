@@ -135,12 +135,12 @@ with custom layout). SemanticZoom is also exposed (SemanticZoomElement).
 | **MenuFlyout** | Exposed | `MenuFlyout(target, items)` | MenuFlyoutElement + MenuFlyoutContentElement |
 | **CommandBarFlyout** | Exposed | `CommandBarFlyout(target, ...)` | CommandBarFlyoutElement |
 | **TeachingTip** | Exposed | `TeachingTip(title, content)` | TeachingTipElement |
-| **ToolTip** | Missing | `.ToolTip("text")` / `.WithToolTip(element)` modifier | Basic text tooltips work, but the full WinUI ToolTip feature set (placement, timing, rich content styling, ToolTipService properties) is not exposed; needs first-class element or richer modifier |
+| **ToolTip** | Exposed | `.ToolTip("text")` / `.WithToolTip(element)` / `.ToolTipPlacement(mode)` / `.ToolTipPlacementTarget(ref)` | Text and rich (Element) content, plus both `ToolTipService` attached properties — `Placement` and `PlacementTarget`. WinUI has no tooltip show/hide delay knobs (`InitialShowDelay`/`BetweenShowDelay` are WPF-only), so nothing is missing there |
 | **Popup** | Exposed | `Popup(content)` | PopupElement |
 
-**Verdict: 6/7 exposed, 1 missing.** ToolTip has a basic modifier but lacks the full
-WinUI ToolTip feature set (placement, timing, rich content control). Needs a richer API
-to expose the full platform capability.
+**Verdict: 7/7 exposed.** ToolTip covers text content, rich Element content, and the
+full `ToolTipService` attached-property surface (`ToolTip`, `Placement`,
+`PlacementTarget`).
 
 ### 1.7 Menus, Toolbars, and Commands
 

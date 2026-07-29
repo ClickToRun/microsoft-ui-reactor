@@ -352,6 +352,8 @@ Modifiers return `Element`, so type-specific sugar (`.Bold()`,
 .IsVisible(bool)          // Collapsed when false
 .Opacity(0.6)
 .ToolTip("text") / .WithToolTip(element)
+.ToolTip("text", PlacementMode.Right) / .WithToolTip(element, PlacementMode.Right)
+.ToolTipPlacement(PlacementMode.Bottom) / .ToolTipPlacementTarget(elementRef)
 .WithFlyout(flyout) / .WithContextFlyout(flyout)
 .ApplyStyle(styleName)
 .AutomationName("name")
