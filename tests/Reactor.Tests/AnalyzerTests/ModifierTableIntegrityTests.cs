@@ -82,11 +82,8 @@ public class ModifierTableIntegrityTests
                 continue;
             }
 
-            foreach (var listed in info.ElementTypes)
-            {
-                if (!declaredOn.Contains(listed))
-                    wrong.Add($"{prop}: '.{info.Modifier}()' is NOT declared on {listed}");
-            }
+            foreach (var listed in info.ElementTypes.Where(listed => !declaredOn.Contains(listed)))
+                wrong.Add($"{prop}: '.{info.Modifier}()' is NOT declared on {listed}");
         }
 
         Assert.True(
@@ -113,14 +110,13 @@ public class ModifierTableIntegrityTests
             if (!typeSpecific.TryGetValue(info.Modifier, out var declaredOn))
                 continue;
 
-            foreach (var declared in declaredOn)
+            // Only element records participate in the '.Set' DSL; the inline
+            // RichTextParagraph / RichTextRun / RichTextHyperlink types do not.
+            foreach (var declared in declaredOn.Where(declared =>
+                declared.EndsWith("Element", StringComparison.Ordinal)
+                && !info.ElementTypes.Contains(declared)))
             {
-                // Only element records participate in the '.Set' DSL; the inline
-                // RichTextParagraph / RichTextRun / RichTextHyperlink types do not.
-                if (!declared.EndsWith("Element", StringComparison.Ordinal))
-                    continue;
-                if (!info.ElementTypes.Contains(declared))
-                    missing.Add($"{prop}: {declared} declares '.{info.Modifier}()' but is not listed");
+                missing.Add($"{prop}: {declared} declares '.{info.Modifier}()' but is not listed");
             }
         }
 
@@ -314,11 +310,10 @@ public class ModifierTableIntegrityTests
             // `m.Padding`. Map those locals back to the modifier they were seeded from.
             var localToProperty = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var declarator in method.DescendantNodes()
-                .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.VariableDeclaratorSyntax>())
+                .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.VariableDeclaratorSyntax>()
+                .Where(declarator => declarator.Initializer is not null))
             {
-                if (declarator.Initializer is null)
-                    continue;
-                var seed = ModifierPropertyNames(declarator.Initializer.Value).FirstOrDefault();
+                var seed = ModifierPropertyNames(declarator.Initializer!.Value).FirstOrDefault();
                 if (seed is not null)
                     localToProperty[declarator.Identifier.Text] = seed;
             }
@@ -341,14 +336,15 @@ public class ModifierTableIntegrityTests
 
                 // Type tests on the FrameworkElement inside this branch (and its else clauses)
                 // are the gate: `fe is WinUI.Control padCtrl`.
-                foreach (var pattern in ifStatement.DescendantNodes()
-                    .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.IsPatternExpressionSyntax>())
-                {
-                    if (pattern.Expression is not Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax { Identifier.Text: "fe" })
-                        continue;
-                    if (pattern.Pattern is not Microsoft.CodeAnalysis.CSharp.Syntax.DeclarationPatternSyntax declaration)
-                        continue;
+                var declarations = ifStatement.DescendantNodes()
+                    .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.IsPatternExpressionSyntax>()
+                    .Where(pattern =>
+                        pattern.Expression is Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax { Identifier.Text: "fe" }
+                        && pattern.Pattern is Microsoft.CodeAnalysis.CSharp.Syntax.DeclarationPatternSyntax)
+                    .Select(pattern => (Microsoft.CodeAnalysis.CSharp.Syntax.DeclarationPatternSyntax)pattern.Pattern);
 
+                foreach (var declaration in declarations)
+                {
                     var typeName = declaration.Type switch
                     {
                         Microsoft.CodeAnalysis.CSharp.Syntax.QualifiedNameSyntax qualified => qualified.Right.Identifier.Text,

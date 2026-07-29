@@ -216,17 +216,9 @@ internal static class SetLambdaHelpers
     /// fix, whereas missing a real reference emits broken code.
     /// </remarks>
     private static bool ReferencesIdentifier(SyntaxNode expression, string identifier)
-    {
-        foreach (var node in expression.DescendantNodesAndSelf())
-        {
-            if (node is IdentifierNameSyntax name
-                && string.Equals(name.Identifier.Text, identifier, StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
+        => expression.DescendantNodesAndSelf()
+            .OfType<IdentifierNameSyntax>()
+            .Any(name => string.Equals(name.Identifier.Text, identifier, StringComparison.Ordinal));
 
     /// <summary>
     /// Extract the single assignment expression from a lambda passed to <c>.Set(...)</c>.

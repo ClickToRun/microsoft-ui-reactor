@@ -193,16 +193,10 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
             var precedingTrailing = owner.GetFirstToken().GetPreviousToken().TrailingTrivia;
             var ownLeading = owner.GetLeadingTrivia();
 
-            foreach (var trivia in precedingTrailing)
-            {
-                if (IsComment(trivia))
-                    carried.Add(trivia.Span);
-            }
-            foreach (var trivia in ownLeading)
-            {
-                if (IsComment(trivia))
-                    carried.Add(trivia.Span);
-            }
+            // Explicit Where rather than an inner `if`: keeps the filter in the sequence so the
+            // intent reads as "carry the comments" (CodeQL cs/linq/missed-where).
+            carried.UnionWith(precedingTrailing.Where(IsComment).Select(trivia => trivia.Span));
+            carried.UnionWith(ownLeading.Where(IsComment).Select(trivia => trivia.Span));
 
             perStatement.Add((precedingTrailing, ownLeading));
         }
@@ -210,22 +204,17 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
         if (carried.Count == 0)
         {
             // Nothing to preserve: keep the chain compact rather than reflowing it.
-            foreach (var trivia in lambda.DescendantTrivia())
-            {
-                if (IsComment(trivia))
-                    return null;
-            }
+            if (lambda.DescendantTrivia().Any(IsComment))
+                return null;
+
             return perStatement.ConvertAll(_ => (default(SyntaxTriviaList), default(SyntaxTriviaList)));
         }
 
         // Every comment in the body must be one we are about to carry. Anything else — a
         // trailing comment on the final statement, one dangling before the closing brace, one
         // inside the lambda header or an assignment — would be dropped by the rewrite.
-        foreach (var trivia in lambda.DescendantTrivia())
-        {
-            if (IsComment(trivia) && !carried.Contains(trivia.Span))
-                return null;
-        }
+        if (lambda.DescendantTrivia().Where(IsComment).Any(trivia => !carried.Contains(trivia.Span)))
+            return null;
 
         return perStatement;
     }

@@ -57,11 +57,8 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
     private static IReadOnlyDictionary<string, string> BuildTrappedProperties()
     {
         var map = new Dictionary<string, string>(System.StringComparer.Ordinal);
-        foreach (var pair in ModifierTable.Properties)
-        {
-            if (pair.Value.PoolReset)
-                map[pair.Key] = pair.Value.Modifier;
-        }
+        foreach (var pair in ModifierTable.Properties.Where(pair => pair.Value.PoolReset))
+            map[pair.Key] = pair.Value.Modifier;
         return map;
     }
 
