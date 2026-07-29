@@ -59,7 +59,10 @@ public class SessionListItem : Component<SessionListItemProps>
         .CornerRadius(0)
         .HAlign(HorizontalAlignment.Stretch)
         .HorizontalContentAlignment(HorizontalAlignment.Stretch)
-        .Set(b => b.ContextFlyout = BuildContextMenu())
+        .WithContextFlyout(MenuItems(
+            MenuItem(S.Status == ChatThreadStatus.Suspended ? "Resume" : "Suspend",
+                () => Props.OnSuspend(S.Id)),
+            MenuItem("Delete", () => Props.OnDelete(S.Id))))
         .Resources(r => r
             .Set("ButtonBackground", Props.IsSelected ? Ref("SubtleFillColorTertiaryBrush") : Ref("SubtleFillColorTransparentBrush"))
             .Set("ButtonBackgroundPointerOver", Ref("SubtleFillColorSecondaryBrush"))
@@ -68,22 +71,5 @@ public class SessionListItem : Component<SessionListItemProps>
             .Set("ButtonBorderBrushPointerOver", Ref("SubtleFillColorTransparentBrush"))
             .Set("ButtonBorderBrushPressed", Ref("SubtleFillColorTransparentBrush"))
         ).WithKey(S.Id);
-    }
-
-    Microsoft.UI.Xaml.Controls.MenuFlyout BuildContextMenu()
-    {
-        var suspendItem = new Microsoft.UI.Xaml.Controls.MenuFlyoutItem
-        {
-            Text = S.Status == ChatThreadStatus.Suspended ? "Resume" : "Suspend",
-        };
-        suspendItem.Click += (_, _) => Props.OnSuspend(S.Id);
-
-        var deleteItem = new Microsoft.UI.Xaml.Controls.MenuFlyoutItem
-        {
-            Text = "Delete",
-        };
-        deleteItem.Click += (_, _) => Props.OnDelete(S.Id);
-
-        return new Microsoft.UI.Xaml.Controls.MenuFlyout { Items = { suspendItem, deleteItem } };
     }
 }
