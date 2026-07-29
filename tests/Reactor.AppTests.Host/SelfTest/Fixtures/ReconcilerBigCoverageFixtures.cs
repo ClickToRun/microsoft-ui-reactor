@@ -1792,8 +1792,13 @@ internal static class ReconcilerBigCoverageFixtures
             {
                 _ = appResources?["DefinitelyNotAThemeResourceKey"];
             }
-            catch (global::System.Exception)
+            catch (global::System.Runtime.InteropServices.COMException)
             {
+                // COMException, not KeyNotFoundException: ResourceDictionary is a projected
+                // WinRT type, so a missing-key lookup surfaces the underlying IMap.Lookup
+                // HRESULT rather than the managed dictionary exception. Worth pinning —
+                // catching KeyNotFoundException here would not match, and code that tries to
+                // guard the indexer with the managed exception type would still crash.
                 indexerThrowsOnMissingKey = true;
             }
             var tryGetValueReturnsFalse =
