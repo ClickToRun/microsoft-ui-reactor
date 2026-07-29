@@ -680,6 +680,21 @@ public static partial class ElementExtensions
     public static RichTextBlockElement FontFamily(this RichTextBlockElement el, Microsoft.UI.Xaml.Media.FontFamily family) =>
         el with { FontFamily = family };
 
+    /// <summary>
+    /// Sets the root font size on a <see cref="RichTextBlockElement"/>.
+    /// <para>
+    /// This overload is required, not sugar. Without it <c>.FontSize(n)</c> on a
+    /// <c>RichTextBlockElement</c> binds the generic <c>FontSize&lt;T&gt;</c> modifier, which
+    /// routes through <c>ElementModifiers</c> — and <c>ApplyModifiers</c> writes FontSize
+    /// only to a <c>Control</c> or a <c>TextBlock</c>. <c>RichTextBlock</c> is neither, so
+    /// the call would compile and silently do nothing. Mirrors the sibling
+    /// <c>FontFamily</c>/<c>FontWeight</c>/<c>FontStyle</c> overloads, which set the record
+    /// property and reach the control through the generated descriptor's auto-map.
+    /// </para>
+    /// </summary>
+    public static RichTextBlockElement FontSize(this RichTextBlockElement el, double size) =>
+        el with { FontSize = size };
+
     public static RichTextBlockElement FontWeight(this RichTextBlockElement el, global::Windows.UI.Text.FontWeight weight) =>
         el with { FontWeight = weight };
 
