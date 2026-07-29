@@ -785,9 +785,12 @@ shareable installer.
 
 Both modes share the same `App` assembly and component code — only the
 `.csproj` head changes. There must be no `#if PACKAGED` divergence in
-component code; runtime mode is detected at startup if needed via
-`Windows.ApplicationModel.Package.Current` (wrapped in a try/catch since
-unpackaged throws).
+component code; runtime mode is detected at startup if needed via the
+non-throwing Win32 `GetCurrentPackageFullName` probe
+(`APPMODEL_ERROR_NO_PACKAGE` ⇒ unpackaged), the same mechanism
+`Microsoft.UI.Reactor`'s own `PackageRuntime` uses. Do not probe
+`Windows.ApplicationModel.Package.Current`: it reports "unpackaged" by
+throwing, so it raises a first-chance exception on every unpackaged launch.
 
 ### Project layout addition
 

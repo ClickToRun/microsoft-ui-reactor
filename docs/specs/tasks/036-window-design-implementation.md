@@ -24,7 +24,10 @@ Conventions:
   036 § number, and a `PublicAPI.Unshipped.txt` entry if the project uses
   the public-API analyzer (verify per project — see Phase 0).
 - Component code must not branch on packaged vs. unpackaged via `#if`;
-  runtime detection through `Windows.ApplicationModel.Package.Current` only.
+  runtime detection through `Hosting.Shell.PackageRuntime.IsPackaged` only.
+  That helper wraps the non-throwing Win32 `GetCurrentPackageFullName` probe —
+  never `Windows.ApplicationModel.Package.Current`, which reports "unpackaged"
+  by throwing and so raises a first-chance exception on every unpackaged launch.
 - "Production-quality fundamentals" applied per phase: input validation,
   threading (UI vs. arbitrary), disposal, logging, localization,
   accessibility, exception safety, trim/AOT-safety. Tasks call these out

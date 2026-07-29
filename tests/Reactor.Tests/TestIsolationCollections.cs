@@ -60,3 +60,14 @@ public sealed class HotReloadCollection { }
 /// </summary>
 [CollectionDefinition("LayoutFootgunDetector", DisableParallelization = true)]
 public sealed class LayoutFootgunDetectorCollection { }
+
+/// <summary>
+/// xUnit collection marker for tests that probe MSIX package identity — they call
+/// <c>PackageRuntime.ResetForTests()</c> / poke its cached flag and install a
+/// process-wide <see cref="AppDomain.FirstChanceException"/> handler. Both are global
+/// to the test process: a concurrent reset from another class would make the caching
+/// assertions flaky, and a first-chance handler would otherwise observe exceptions
+/// thrown by unrelated tests running in parallel.
+/// </summary>
+[CollectionDefinition("PackageIdentityProbe", DisableParallelization = true)]
+public sealed class PackageIdentityProbeCollection { }
