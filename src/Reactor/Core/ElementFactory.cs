@@ -88,10 +88,19 @@ public sealed partial class ElementFactory<T> : IElementFactory
     // bound (nothing can un-parent them).
     //
     // Because a pool miss is not a cache miss but a permanent native leak, the
-    // per-shape window is granted to EVERY recurring shape and only an absolute
-    // container ceiling caps the total. A clamp on the shape COUNT would quietly
+    // per-shape window is granted to EVERY recurring shape and an absolute
+    // container ceiling caps that term. A clamp on the shape COUNT would quietly
     // reintroduce the leak for any list cycling more shapes than the clamp: the
     // managed pool would stay bounded while the visual tree grew forever.
+    //
+    // The ceiling bounds the SHAPE term only. TrimPool always grants the
+    // two-window floor first, so a viewport realizing more than half this many
+    // rows settles above this number — deliberately. A pool smaller than the
+    // realized window evicts containers the very next scroll re-realizes, and
+    // every such eviction is permanent (nothing can un-parent a repeater child),
+    // so clamping there would cost more than it saves. The real bound is
+    // max(2 x window, min(ceiling, shapes x window)): bounded by the viewport,
+    // which is the term that cannot run away.
     private const int MaxPooledContainers = 512;
     private int _maxRealized;
     private readonly Dictionary<ShapeKey, int> _shapeCounts = new();
@@ -687,6 +696,15 @@ public sealed partial class ElementFactory<T> : IElementFactory
                     // never be reconciled — evict it so the scan stays short. It
                     // stays parented but collapsed, which is the best available
                     // outcome for a repeater child.
+                    //
+                    // Parking is sufficient here rather than a shortcut: the only
+                    // writer that drops _lastElementByControl is
+                    // RetireAlreadyUnmounted, which detaches ReactorState first (and
+                    // whose RetireContainer caller unmounts before that). A control
+                    // missing from the map has therefore already been torn down, so
+                    // unmounting it again here would re-run effect cleanups. Any
+                    // future second Remove site must retire the control itself, or
+                    // this branch silently starts leaking.
                     _recyclePool.RemoveAt(i);
                     ParkOrphan(entry.Control);
                     continue;
