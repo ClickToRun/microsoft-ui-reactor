@@ -270,6 +270,51 @@ Decision tree for descriptor authors:
 | Reference to another realized element | `ElementRef<TTarget>?` | `.Reference<TTarget>(get, set)` |
 | Ordered references to several elements | `IReadOnlyList<ElementRef<TTarget>>?` | `.ReferenceList<TTarget>(get, apply)` |
 
+### Values the native control mutates on its own
+
+Some control properties are written by the control itself in response to
+the user, not just by Reactor: `InfoBar.IsOpen` flips to `false` when the
+user clicks the bar's close button, `TeachingTip.IsOpen` flips on a light
+dismiss, `SplitView.IsPaneOpen` and `NavigationView.IsPaneOpen` flip on a
+light dismiss or an adaptive display-mode change. Reactor's diff compares
+the **old element to the new element**, never the live control, so after
+one of those native writes the declared value and the control's value
+disagree — and nothing re-reconciles them.
+
+That is deliberate. Such a value is **edge-triggered**: the element
+declares a *transition*, not a mirror. Reactor writes the control only
+when the declared value *changes*, so a re-render that declares the same
+value again is a no-op and the user's dismissal stands.
+
+```csharp
+var (showBanner, setShowBanner) = UseState(true);
+
+return VStack(
+    InfoBar("Saved", "Your changes were saved.").IsClosable() with
+    {
+        IsOpen  = showBanner,
+        // Without this the dismissal never reaches app state, so a later
+        // `setShowBanner(true)` is a no-op — it is already true.
+        OnClosed = () => setShowBanner(false),
+    },
+    Button("Show again", () => setShowBanner(true)));
+```
+
+Wiring the change callback is what makes the value recoverable: the
+dismissal drives the declared value down to `false`, and the later
+`false → true` transition is a real edge that re-opens the control.
+
+The alternative — re-asserting the declared value against the live
+control on every render — is deliberately **not** what Reactor does. It
+would make a control the user cannot dismiss: `InfoBarElement.IsOpen`,
+`SplitViewElement.IsPaneOpen` and `NavigationViewElement.IsPaneOpen` all
+default to `true`, so any of them written without a change callback would
+snap back open on the next unrelated re-render.
+
+When you wrap a control of your own with a self-mutating property, keep
+it on `.OneWay(get, set)` and surface the control's change event as a
+callback on the element record so callers have the sync channel.
+
 ### Reference properties
 
 Use reference entries when a native control property points at another
