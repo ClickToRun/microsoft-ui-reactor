@@ -39,7 +39,11 @@
 ;   REACTOR_THEME_004    6   inline SolidColorBrush instead of a token
 ;   REACTOR_GRID_001     4   Grid declares a track with no child in it
 ;   REACTOR_A11Y_004     2   clickable container not keyboard-reachable
-;   REACTOR_NAV_001      2   static field pins a UseNavigation handle
+;
+; REACTOR_NAV_001 is deliberately absent: it had exactly one violation, a
+; test-only static navigation handle in ReactorCharting.Gallery, so it is
+; suppressed at that line with a justification instead. A tree-wide downgrade
+; would have hidden every future one.
 
 [*.cs]
 dotnet_diagnostic.REACTOR_THEME_001.severity = suggestion
@@ -50,7 +54,6 @@ dotnet_diagnostic.REACTOR_A11Y_003.severity = suggestion
 dotnet_diagnostic.REACTOR_A11Y_004.severity = suggestion
 dotnet_diagnostic.REACTOR_DSL_001.severity = suggestion
 dotnet_diagnostic.REACTOR_GRID_001.severity = suggestion
-dotnet_diagnostic.REACTOR_NAV_001.severity = suggestion
 
 ; Hook-rule debt, scoped to the files that already carry it. Deliberately a file
 ; list and not a `**/*.cs` glob: a new violation anywhere else still breaks the
