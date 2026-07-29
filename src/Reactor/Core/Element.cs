@@ -5271,6 +5271,12 @@ public record FlyoutElement(
 ) : Element
 {
     public bool IsOpen { get; init; }
+    /// <summary>
+    /// Preferred position of the flyout relative to its target. Defaults to
+    /// <see cref="FlyoutPlacementMode.Auto"/>, which means "no opinion — let WinUI decide";
+    /// Reactor deliberately leaves <c>FlyoutBase.Placement</c> untouched in that case
+    /// because WinUI's own show-time validator rejects <c>Auto</c>.
+    /// </summary>
     public FlyoutPlacementMode Placement { get; init; } = FlyoutPlacementMode.Auto;
     public Action? OnOpened { get; init; }
     public Action? OnClosed { get; init; }
@@ -5290,6 +5296,12 @@ public record FlyoutElement(
 /// </summary>
 public record ContentFlyoutElement(Element Content) : Element
 {
+    /// <summary>
+    /// Preferred position of the flyout relative to its target. Defaults to
+    /// <see cref="FlyoutPlacementMode.Auto"/>, which means "no opinion — let WinUI decide";
+    /// Reactor deliberately leaves <c>FlyoutBase.Placement</c> untouched in that case
+    /// because WinUI's own show-time validator rejects <c>Auto</c>.
+    /// </summary>
     public FlyoutPlacementMode Placement { get; init; } = FlyoutPlacementMode.Auto;
 }
 
@@ -5299,6 +5311,12 @@ public record ContentFlyoutElement(Element Content) : Element
 /// </summary>
 public record MenuFlyoutContentElement(MenuFlyoutItemBase[] Items) : Element
 {
+    /// <summary>
+    /// Preferred position of the flyout relative to its target. Defaults to
+    /// <see cref="FlyoutPlacementMode.Auto"/>, which means "no opinion — let WinUI decide";
+    /// Reactor deliberately leaves <c>FlyoutBase.Placement</c> untouched in that case
+    /// because WinUI's own show-time validator rejects <c>Auto</c>.
+    /// </summary>
     public FlyoutPlacementMode Placement { get; init; } = FlyoutPlacementMode.Auto;
 }
 
@@ -6681,6 +6699,12 @@ public record CommandBarFlyoutElement(
     /// The target normally opens the flyout on click without this.
     /// </summary>
     public bool IsOpen { get; init; }
+    /// <summary>
+    /// Preferred position of the flyout relative to its target. Defaults to
+    /// <see cref="FlyoutPlacementMode.Auto"/>, which means "no opinion — let WinUI decide";
+    /// Reactor deliberately leaves <c>FlyoutBase.Placement</c> untouched in that case
+    /// because WinUI's own show-time validator rejects <c>Auto</c>.
+    /// </summary>
     public FlyoutPlacementMode Placement { get; init; } = FlyoutPlacementMode.Auto;
     internal Action<WinUI.CommandBarFlyout>[] Setters { get; init; } = [];
 }

@@ -115,10 +115,10 @@ internal static class OverlayLifecycle
             var flyout = new WinUI.Flyout
             {
                 Content = flyoutContent,
-                Placement = flyEl.Placement,
                 ShowMode = flyEl.ShowMode,
                 AreOpenCloseAnimationsEnabled = flyEl.AreOpenCloseAnimationsEnabled,
             };
+            FlyoutPlacement.Apply(flyout, flyEl.Placement);
             if (flyEl.OverlayInputPassThroughElement is not null
                 && reconciler.Mount(flyEl.OverlayInputPassThroughElement, requestRerender) is DependencyObject pt)
                 flyout.OverlayInputPassThroughElement = pt;
@@ -172,7 +172,7 @@ internal static class OverlayLifecycle
                     if (flyout.Content is UIElement stale) reconciler.UnmountChild(stale);
                     flyout.Content = reconciler.Mount(n.FlyoutContent, requestRerender);
                 }
-                flyout.Placement = n.Placement;
+                FlyoutPlacement.Apply(flyout, n.Placement);
                 if (flyout.ShowMode != n.ShowMode) flyout.ShowMode = n.ShowMode;
                 if (flyout.AreOpenCloseAnimationsEnabled != n.AreOpenCloseAnimationsEnabled)
                     flyout.AreOpenCloseAnimationsEnabled = n.AreOpenCloseAnimationsEnabled;
@@ -195,10 +195,10 @@ internal static class OverlayLifecycle
                 var newFlyout = new WinUI.Flyout
                 {
                     Content = flyoutContent,
-                    Placement = n.Placement,
                     ShowMode = n.ShowMode,
                     AreOpenCloseAnimationsEnabled = n.AreOpenCloseAnimationsEnabled,
                 };
+                FlyoutPlacement.Apply(newFlyout, n.Placement);
                 // Route handlers through the target's Tag (already set to n above) so future
                 // Update() calls that refresh the tag keep Opened/Closed pointing at the
                 // current FlyoutElement's delegates.

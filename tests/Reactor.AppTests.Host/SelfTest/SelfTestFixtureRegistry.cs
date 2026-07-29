@@ -224,6 +224,13 @@ internal static class SelfTestFixtureRegistry
         "OverlayTeardown_Flyout_Unmount_RunsFlyoutContentCleanup",
         "OverlayTeardown_Flyout_Unmount_RunsPassThroughCleanup",
         "OverlayTeardown_Popup_Unmount_RunsChildCleanup",
+        // Flyout placement guard — Reactor must never write FlyoutPlacementMode.Auto
+        // onto a WinUI FlyoutBase (WinUI's show-time validator rejects it and
+        // fail-fasts the process). These fixtures actually open the flyout.
+        "FlyoutPlacement_Flyout_DefaultPlacement_Opens",
+        "FlyoutPlacement_Flyout_ExplicitPlacement_ReachesTheControl",
+        "FlyoutPlacement_Flyout_PlacementUpdate_NeverWritesAuto",
+        "FlyoutPlacement_ContentFlyout_DefaultPlacement_Opens",
         // Issue #480 — InlineUIContainer rich-text inline (Route A + Route B + unmount)
         "InlineUI_RouteA_ReactorChild",
         "InlineUI_RouteB_NativeFactory",
@@ -1809,6 +1816,11 @@ internal static class SelfTestFixtureRegistry
         "OverlayTeardown_Flyout_Unmount_RunsFlyoutContentCleanup" => new OverlayTeardownFixtures.Flyout_Unmount_RunsFlyoutContentCleanup(harness),
         "OverlayTeardown_Flyout_Unmount_RunsPassThroughCleanup" => new OverlayTeardownFixtures.Flyout_Unmount_RunsPassThroughCleanup(harness),
         "OverlayTeardown_Popup_Unmount_RunsChildCleanup" => new OverlayTeardownFixtures.Popup_Unmount_RunsChildCleanup(harness),
+        // Flyout placement guard — Auto must never reach FlyoutBase.Placement.
+        "FlyoutPlacement_Flyout_DefaultPlacement_Opens" => new FlyoutPlacementFixtures.Flyout_DefaultPlacement_Opens(harness),
+        "FlyoutPlacement_Flyout_ExplicitPlacement_ReachesTheControl" => new FlyoutPlacementFixtures.Flyout_ExplicitPlacement_ReachesTheControl(harness),
+        "FlyoutPlacement_Flyout_PlacementUpdate_NeverWritesAuto" => new FlyoutPlacementFixtures.Flyout_PlacementUpdate_NeverWritesAuto(harness),
+        "FlyoutPlacement_ContentFlyout_DefaultPlacement_Opens" => new FlyoutPlacementFixtures.ContentFlyout_DefaultPlacement_Opens(harness),
         // Issue #480 — InlineUIContainer rich-text inline.
         "InlineUI_RouteA_ReactorChild" => new InlineUIContainerFixtures.InlineUI_RouteA_ReactorChild(harness),
         "InlineUI_RouteB_NativeFactory" => new InlineUIContainerFixtures.InlineUI_RouteB_NativeFactory(harness),
