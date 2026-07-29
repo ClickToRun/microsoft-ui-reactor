@@ -326,7 +326,13 @@ public class AdvancedInternalSurfaceTests
     // ── Metadata helpers ──────────────────────────────────────────────────────
 
     private static bool IsPublicType(TypeAttributes visibility) =>
-        visibility == TypeAttributes.Public || visibility == TypeAttributes.NestedPublic;
+        visibility is TypeAttributes.Public
+            or TypeAttributes.NestedPublic
+            // Protected (and protected-internal) nested types are reachable by any
+            // external subclass, so they are ordinary extensibility surface rather
+            // than something the friend grant provides. Mirrors IsPublicAccess.
+            or TypeAttributes.NestedFamily
+            or TypeAttributes.NestedFamORAssem;
 
     /// <summary>
     /// Protected / protected-internal members are reachable by any external subclass,
@@ -389,18 +395,29 @@ public class AdvancedInternalSurfaceTests
                 var members = new Dictionary<string, string>(StringComparer.Ordinal);
                 var virtuals = new HashSet<string>(StringComparer.Ordinal);
 
-                // Overloads share a name (e.g. a record's public primary constructor and
-                // its private copy constructor). Keep the most permissive access, else a
-                // private overload masks a public one and produces a false positive.
+                // Overloads share a metadata name. Record the LEAST permissive access
+                // across them, so an internal overload is still reported when a public
+                // overload of the same name exists — the conservative direction for a
+                // guard whose job is to notice internal dependencies. ("Most permissive
+                // wins" would let `public Clear(...)` mask `internal Clear(...)` and
+                // silently drop a real friend-grant use.) The trade is a possible false
+                // positive when Advanced only ever calls the public overload; that fails
+                // loudly and is settled by review, whereas a false negative is invisible.
+                //
+                // Compiler-generated members are excluded first (see IsSynthesized):
+                // every positional record emits a PRIVATE copy constructor alongside its
+                // public primary one, so without that filter every record Advanced
+                // constructs would be reported as an internal `::.ctor` dependency.
                 void Record(string memberName, string access)
                 {
-                    if (!members.TryGetValue(memberName, out var existing) || Rank(access) > Rank(existing))
+                    if (!members.TryGetValue(memberName, out var existing) || Rank(access) < Rank(existing))
                         members[memberName] = access;
                 }
 
-                foreach (var methodHandle in typeDef.GetMethods())
+                foreach (var method in typeDef.GetMethods().Select(core.GetMethodDefinition))
                 {
-                    var method = core.GetMethodDefinition(methodHandle);
+                    if (IsSynthesizedConstructor(core, method)) continue;
+
                     var methodName = core.GetString(method.Name);
                     var access = (method.Attributes & MethodAttributes.MemberAccessMask).ToString();
                     Record(methodName, access);
@@ -409,9 +426,8 @@ public class AdvancedInternalSurfaceTests
                         virtuals.Add(methodName);
                 }
 
-                foreach (var fieldHandle in typeDef.GetFields())
+                foreach (var field in typeDef.GetFields().Select(core.GetFieldDefinition))
                 {
-                    var field = core.GetFieldDefinition(fieldHandle);
                     Record(core.GetString(field.Name), (field.Attributes & FieldAttributes.FieldAccessMask).ToString());
                 }
 
@@ -457,6 +473,37 @@ public class AdvancedInternalSurfaceTests
             "FamANDAssem" => 1,
             _ => 0,
         };
+
+        /// <summary>
+        /// True for a compiler-emitted <b>constructor</b> — specifically the private copy
+        /// constructor every positional record gets alongside its public primary one.
+        /// Without this, every record Advanced constructs looks like an internal
+        /// <c>::.ctor</c> dependency once overloads are keyed least-permissive.
+        ///
+        /// Deliberately limited to constructors rather than "anything
+        /// <c>[CompilerGenerated]</c>": auto-property accessors carry that attribute too,
+        /// and those are real, reportable surface (<c>Component::get_Context</c> is one of
+        /// the pinned entries).
+        /// </summary>
+        private static bool IsSynthesizedConstructor(MetadataReader core, MethodDefinition method)
+        {
+            if (core.GetString(method.Name) is not (".ctor" or ".cctor")) return false;
+
+            foreach (var handle in method.GetCustomAttributes())
+            {
+                var attribute = core.GetCustomAttribute(handle);
+                if (attribute.Constructor.Kind != HandleKind.MemberReference) continue;
+
+                var ctor = core.GetMemberReference((MemberReferenceHandle)attribute.Constructor);
+                if (ctor.Parent.Kind != HandleKind.TypeReference) continue;
+
+                var attributeType = core.GetTypeReference((TypeReferenceHandle)ctor.Parent);
+                if (core.GetString(attributeType.Name) is "CompilerGeneratedAttribute")
+                    return true;
+            }
+
+            return false;
+        }
 
         private static string FullName(MetadataReader core, TypeDefinition typeDef)
         {
