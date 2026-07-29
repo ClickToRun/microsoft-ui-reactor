@@ -3,6 +3,7 @@ using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Reactor.AppTests.Host.SelfTest;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using static Microsoft.UI.Reactor.Factories;
 
 namespace Microsoft.UI.Reactor.AppTests.Host.SelfTest.Fixtures;
@@ -158,6 +159,68 @@ internal static class ModifierEventFixtures
             target = H.FindText("TipTarget");
             tip = ToolTipService.GetToolTip(target!);
             H.Check("Tooltip_Updated", tip is not null && tip.ToString() == "Tip2");
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  ToolTipService.Placement / PlacementTarget modifiers
+    //  Exercises ApplyModifiers' ToolTipPlacement arm + the
+    //  ModifierRef_ToolTipPlacementTarget reference edge.
+    // ════════════════════════════════════════════════════════════════════
+
+    internal class TooltipPlacementModifier(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            var anchor = new Microsoft.UI.Reactor.Input.ElementRef();
+
+            host.Mount(ctx =>
+            {
+                var (phase, set) = ctx.UseState(0);
+                return VStack(
+                    Button("UpdPlacement", () => set(phase + 1)),
+                    TextBlock("PlacementAnchor").Ref(anchor),
+                    phase switch
+                    {
+                        0 => TextBlock("PlacementTarget")
+                                .ToolTip("Tip", PlacementMode.Right)
+                                .ToolTipPlacementTarget(anchor),
+                        1 => TextBlock("PlacementTarget")
+                                .ToolTip("Tip", PlacementMode.Left),
+                        _ => TextBlock("PlacementTarget")
+                                .ToolTip("Tip"),
+                    }
+                );
+            });
+
+            await Harness.Render();
+            var target = H.FindText("PlacementTarget");
+            H.Check("TipPlacement_Mounted", target is not null);
+            H.Check("TipPlacement_Initial",
+                ToolTipService.GetPlacement(target!) == PlacementMode.Right);
+            H.Check("TipPlacementTarget_Wired",
+                ReferenceEquals(ToolTipService.GetPlacementTarget(target!), H.FindText("PlacementAnchor")));
+
+            // Phase 1 — placement changes, placement target goes away.
+            H.ClickButton("UpdPlacement");
+            await Harness.Render();
+            target = H.FindText("PlacementTarget");
+            H.Check("TipPlacement_Updated",
+                ToolTipService.GetPlacement(target!) == PlacementMode.Left);
+            H.Check("TipPlacementTarget_Cleared",
+                target!.ReadLocalValue(ToolTipService.PlacementTargetProperty) == DependencyProperty.UnsetValue);
+
+            // Phase 2 — placement itself goes unset: the local value must be
+            // cleared so WinUI's own default takes over again, not left pinned
+            // at the last explicit placement.
+            H.ClickButton("UpdPlacement");
+            await Harness.Render();
+            target = H.FindText("PlacementTarget");
+            H.Check("TipPlacement_Cleared",
+                target!.ReadLocalValue(ToolTipService.PlacementProperty) == DependencyProperty.UnsetValue);
+            H.Check("TipPlacement_TooltipSurvivesPlacementClear",
+                ToolTipService.GetToolTip(target!)?.ToString() == "Tip");
         }
     }
 

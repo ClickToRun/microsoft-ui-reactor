@@ -268,6 +268,13 @@ public sealed class ElementPool : IDisposable
         fe.ClearValue(FrameworkElement.XYFocusDownProperty);
         fe.ClearValue(FrameworkElement.XYFocusLeftProperty);
         fe.ClearValue(FrameworkElement.XYFocusRightProperty);
+        // Same reasoning for the ToolTipService attached properties: the in-place
+        // Update path clears them on a set → unset transition, but a full unmount
+        // does not, so a pooled control would carry a stale tooltip (and its
+        // placement / placement target) into the next unrelated renter.
+        fe.ClearValue(WinUI.ToolTipService.ToolTipProperty);
+        fe.ClearValue(WinUI.ToolTipService.PlacementProperty);
+        fe.ClearValue(WinUI.ToolTipService.PlacementTargetProperty);
         fe.ClearValue(Microsoft.UI.Xaml.Automation.AutomationProperties.HeadingLevelProperty);
         fe.AccessKey = "";
 

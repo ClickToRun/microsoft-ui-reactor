@@ -539,6 +539,31 @@ public static partial class ElementExtensions
     public static T ToolTip<T>(this T el, string tip) where T : Element =>
         Modify(el, new ElementModifiers { ToolTip = tip });
 
+    /// <summary>
+    /// Text tooltip with an explicit <c>ToolTipService.Placement</c>.
+    /// Usage: <c>Button("Save", onSave).ToolTip("Save (Ctrl+S)", PlacementMode.Right)</c>
+    /// </summary>
+    public static T ToolTip<T>(this T el, string tip, Microsoft.UI.Xaml.Controls.Primitives.PlacementMode placement) where T : Element =>
+        Modify(el, new ElementModifiers { ToolTip = tip, ToolTipPlacement = placement });
+
+    /// <summary>
+    /// Sets <c>ToolTipService.Placement</c> — which side of the element the tooltip
+    /// opens on. Pairs with either <see cref="ToolTip{T}(T, string)"/> or
+    /// <see cref="WithToolTip{T}(T, Element)"/>. WinUI's ToolTip honors
+    /// <c>Top</c>, <c>Bottom</c>, <c>Left</c>, <c>Right</c> and <c>Mouse</c>; the
+    /// edge-aligned <c>PlacementMode</c> values are FlyoutBase-only.
+    /// </summary>
+    public static T ToolTipPlacement<T>(this T el, Microsoft.UI.Xaml.Controls.Primitives.PlacementMode placement) where T : Element =>
+        Modify(el, new ElementModifiers { ToolTipPlacement = placement });
+
+    /// <summary>
+    /// Sets <c>ToolTipService.PlacementTarget</c> — position the tooltip relative to
+    /// another element instead of the one it is attached to. Take the ref with
+    /// <c>UseElementRef&lt;T&gt;()</c> and attach it to the target via <c>.Ref(...)</c>.
+    /// </summary>
+    public static T ToolTipPlacementTarget<T>(this T el, Microsoft.UI.Reactor.Input.ElementRef target) where T : Element =>
+        Modify(el, new ElementModifiers { ToolTipPlacementTargetRef = target });
+
     // ── Flyout / Context / Rich ToolTip attachments ─────────────
     public static T WithFlyout<T>(this T el, Element flyout) where T : Element =>
         Modify(el, new ElementModifiers { AttachedFlyout = flyout });
@@ -548,6 +573,12 @@ public static partial class ElementExtensions
 
     public static T WithToolTip<T>(this T el, Element tooltip) where T : Element =>
         Modify(el, new ElementModifiers { RichToolTip = tooltip });
+
+    /// <summary>
+    /// Rich (Element content) tooltip with an explicit <c>ToolTipService.Placement</c>.
+    /// </summary>
+    public static T WithToolTip<T>(this T el, Element tooltip, Microsoft.UI.Xaml.Controls.Primitives.PlacementMode placement) where T : Element =>
+        Modify(el, new ElementModifiers { RichToolTip = tooltip, ToolTipPlacement = placement });
 
     // ── Theme / Style ───────────────────────────────────────────────
 
