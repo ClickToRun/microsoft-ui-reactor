@@ -168,9 +168,10 @@ public sealed class DockHostFocusFallbackTests
         /// <summary>Members called from the named method's own IL body.</summary>
         public IReadOnlySet<string> CallsFrom(string methodName)
         {
-            Assert.True(CallsByMethod.ContainsKey(methodName),
+            var found = CallsByMethod.TryGetValue(methodName, out var calls);
+            Assert.True(found,
                 $"{AnnouncerType} has no method named '{methodName}' with a decoded body.");
-            return CallsByMethod[methodName];
+            return calls!;
         }
     }
 
@@ -212,9 +213,10 @@ public sealed class DockHostFocusFallbackTests
             foreach (var nested in typeDef.GetNestedTypes())
                 pending.Enqueue(reader.GetTypeDefinition(nested));
 
-            foreach (var method in typeDef.GetMethods().Select(reader.GetMethodDefinition))
+            foreach (var method in typeDef.GetMethods()
+                .Select(reader.GetMethodDefinition)
+                .Where(m => m.RelativeVirtualAddress != 0))
             {
-                if (method.RelativeVirtualAddress == 0) continue;
                 var body = pe.GetMethodBody(method.RelativeVirtualAddress);
                 var il = body.GetILBytes();
                 if (il is null || il.Length == 0) continue;
