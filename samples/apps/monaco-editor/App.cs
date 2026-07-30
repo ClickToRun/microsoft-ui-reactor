@@ -193,10 +193,9 @@ class EditorApp : Component
         var titleBar = (TitleBar("Monaco Editor") with
         {
             Subtitle = title,
-            Content = (AutoSuggestBox("") with { PlaceholderText = "Search" })
-                .Width(250)
-                .Set(asb => asb.TextChanged += (s, _) =>
-                    editorRef.Current?.FindText(((Microsoft.UI.Xaml.Controls.AutoSuggestBox)s).Text ?? "")),
+            Content = (AutoSuggestBox("", onTextChanged: t => editorRef.Current?.FindText(t ?? ""))
+                    with { PlaceholderText = "Search" })
+                .Width(250),
         })
             .Grid(row: 0, columnSpan: columns.Length);
 

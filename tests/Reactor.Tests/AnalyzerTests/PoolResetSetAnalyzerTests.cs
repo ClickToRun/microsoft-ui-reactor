@@ -301,20 +301,30 @@ class C
     }
 
     [Fact]
-    public async Task No_Diagnostic_For_Block_Bodied_Lambda_With_Multiple_Statements()
+    public async Task Diagnostic_For_Block_Bodied_Lambda_With_Multiple_Statements()
     {
-        // Multi-statement block bodies are intentionally not detected in v1:
-        // the codefix can't safely rewrite them (it would need to extract the
-        // matched assignment while preserving the rest of the body), and the
-        // analyzer mirrors the codefix scope. If a future PR adds multi-stmt
-        // support, this test should flip to a positive case.
+        // Flipped from No_Diagnostic_For_Block_Bodied_Lambda_With_Multiple_Statements, which
+        // scoped detection to the codefix's reach and said: "If a future PR adds multi-stmt
+        // support, this test should flip to a positive case." This is that change.
+        //
+        // Both halves of that support landed: the analyzer reports every modifier-backed
+        // assignment in the body, and PoolResetSetCodeFix rewrites the whole body into a
+        // modifier chain when every statement is convertible (see
+        // ModifierAvailableAnalyzerTests.CodeFix_Rewrites_Multi_Statement_Block_Into_A_Chain).
+        //
+        // Detection is still deliberately wider than the fix: a body that mixes convertible
+        // and non-convertible statements is reported but not auto-fixed, because a partial
+        // extraction would reorder the extracted write against the ones left in .Set. That
+        // asymmetry matters — this shape hid live bugs, and the widening immediately surfaced
+        // MaxWidth/MaxHeight writes in minesweeper's App.cs that were silently lost on pool
+        // reuse.
         var source = Stubs + @"
 class C
 {
     void M()
     {
         var el = new FakeElement();
-        el.Set(fe => { fe.MaxHeight = 260; fe.MinHeight = 100; });
+        {|REACTOR_POOL_001:{|REACTOR_POOL_001:el.Set(fe => { fe.MaxHeight = 260; fe.MinHeight = 100; })|}|};
     }
 }";
 

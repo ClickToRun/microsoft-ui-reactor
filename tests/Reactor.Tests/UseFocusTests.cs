@@ -72,6 +72,27 @@ public class UseFocusTests
         Assert.Contains("email", fm.Fields);
     }
 
+    [Fact]
+    public void Focus_AutoFocus_Wires_Loaded_At_Mount_Not_Through_A_Setter()
+    {
+        // Setters re-run on every reconcile, so a `Loaded +=` in one accumulates a handler
+        // per render — REACTOR_EVENT_001, and the bug this shape exists to prevent. The
+        // subscription belongs to the mount phase instead.
+        //
+        // Both halves matter. OnMountAction proves the mount hook is there at all: move the
+        // wiring back into .Set and it goes null. The setter count proves nothing was ALSO
+        // left behind on the reconcile path — enabling autoFocus must not add a setter, only
+        // the one fm.SetControl capture is expected either way.
+        var fm = new FocusManager();
+
+        var withAutoFocus = TextBox("test").Focus(fm, "email", autoFocus: true);
+        var withoutAutoFocus = TextBox("test").Focus(fm, "name", autoFocus: false);
+
+        Assert.NotNull(withAutoFocus.Modifiers?.OnMountAction);
+        Assert.Single(withAutoFocus.Setters);
+        Assert.Equal(withoutAutoFocus.Setters.Length, withAutoFocus.Setters.Length);
+    }
+
     // ════════════════════════════════════════════════════════════════
     //  Focus navigation (next/previous) — logic only, no WinUI
     // ════════════════════════════════════════════════════════════════

@@ -493,6 +493,7 @@ RichEditBoxElement.TextWrapping(TextWrapping wrapping = TextWrapping.Wrap) → R
 RichTextBlockElement.CharacterSpacing(int spacing) → RichTextBlockElement
 RichTextBlockElement.FontFamily(FontFamily family) → RichTextBlockElement
 RichTextBlockElement.FontFamily(string family) → RichTextBlockElement
+RichTextBlockElement.FontSize(double size) → RichTextBlockElement
 RichTextBlockElement.FontStretch(FontStretch stretch) → RichTextBlockElement
 RichTextBlockElement.FontStyle(FontStyle style) → RichTextBlockElement
 RichTextBlockElement.FontWeight(FontWeight weight) → RichTextBlockElement

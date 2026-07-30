@@ -35,7 +35,14 @@ class GalleryApp : Component
 {
     // Exposed so the self-test harness can drive navigation without
     // having to find the TitleBar back button in the visual tree.
+    //
+    // REACTOR_NAV_001 is correct that a static handle outlives the page and pins its
+    // dispatcher. Suppressed locally rather than tree-wide because this is a deliberate
+    // test-only affordance in a sample whose process exits with the harness: the rule stays
+    // at warning for every other sample, so a real leak still fails the build.
+#pragma warning disable REACTOR_NAV_001
     internal static NavigationHandle<GalleryRoute>? CurrentNav;
+#pragma warning restore REACTOR_NAV_001
 
     public override Element Render()
     {
@@ -236,11 +243,8 @@ class SampleDetailPage : Component<GallerySample>
                         .Foreground(Theme.PrimaryText)
                     )
                     .HorizontalScrollMode(ScrollMode.Auto)
-                    .Set(sv =>
-                    {
-                        sv.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
-                        sv.MaxHeight = 400;
-                    })
+                    .MaxHeight(400)
+                    .Set(sv => sv.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto)
                 )
                 .Background(Theme.LayerFill)
                 .WithBorder(Theme.SurfaceStroke)

@@ -1,0 +1,68 @@
+; Analyzer severities for the sample tree.
+;
+; samples/Directory.Build.props wires the customer-facing Reactor.Analyzers
+; bundle into every sample (samples are consumer code, so consumer rules apply;
+; src/Reactor deliberately opts out because they would fire on framework
+; internals). Turning that on surfaced 342 pre-existing warnings, almost all of
+; them accessibility and theming debt that predates the analyzer wiring and is
+; unrelated to whatever change enabled it.
+;
+; Rather than hide the wiring or dump 342 warnings into every sample build, the
+; high-volume debt rules are downgraded to `suggestion` here: still visible in
+; the IDE and to `mur check`, silent in build output. The correctness-class
+; rules -- REACTOR_EVENT_001 (imperative event wiring that re-subscribes every
+; render), REACTOR_POOL_001 / REACTOR_VIS_001 (.Set writes lost on pool reuse),
+; REACTOR_THEME_003, REACTOR_ITEMS_001, REACTOR_CTRL_001 -- are deliberately
+; left at their default warning severity, because those indicate real bugs.
+;
+; The REACTOR_HOOKS_* rules are correctness rules too -- a hook called outside
+; Render, or inside a nested lambda, breaks the call-order contract that hook
+; state depends on. They are NOT downgraded globally for that reason. All 112
+; existing violations live in the 22 files listed at the bottom of this file, so
+; the downgrade is scoped to exactly those: a hook bug in any other sample, or
+; in a new one, still fails the build.
+;
+; Each entry below is debt to burn down, not an accepted permanent exemption.
+; Remove a line once its rule is clean across samples.
+;
+; Current counts at the time of writing (full rebuild of Reactor.slnx):
+;   REACTOR_THEME_001  254   hardcoded colors instead of Theme tokens
+;   REACTOR_A11Y_003   184   form fields need header / AutomationName / LabeledBy
+;   REACTOR_A11Y_001    74   icon-only buttons need AutomationName
+;   REACTOR_HOOKS_001   42   hook called outside Render / custom-hook method
+;   REACTOR_DSL_001     36   Select(...) element without .WithKey(...)
+;   REACTOR_HOOKS_013   32   hook called inside a nested lambda / local function
+;   REACTOR_HOOKS_005   24   control cached instead of going through the ref
+;   REACTOR_A11Y_002     8   images need AutomationName / AccessibilityHidden
+;   REACTOR_HOOKS_011    8   freshly-allocated initial value re-evaluated per render
+;   REACTOR_HOOKS_004    6   freshly-allocated deps compare unequal every render
+;   REACTOR_THEME_004    6   inline SolidColorBrush instead of a token
+;   REACTOR_GRID_001     4   Grid declares a track with no child in it
+;   REACTOR_A11Y_004     2   clickable container not keyboard-reachable
+;
+; REACTOR_NAV_001 is deliberately absent: it had exactly one violation, a
+; test-only static navigation handle in ReactorCharting.Gallery, so it is
+; suppressed at that line with a justification instead. A tree-wide downgrade
+; would have hidden every future one.
+
+[*.cs]
+dotnet_diagnostic.REACTOR_THEME_001.severity = suggestion
+dotnet_diagnostic.REACTOR_THEME_004.severity = suggestion
+dotnet_diagnostic.REACTOR_A11Y_001.severity = suggestion
+dotnet_diagnostic.REACTOR_A11Y_002.severity = suggestion
+dotnet_diagnostic.REACTOR_A11Y_003.severity = suggestion
+dotnet_diagnostic.REACTOR_A11Y_004.severity = suggestion
+dotnet_diagnostic.REACTOR_DSL_001.severity = suggestion
+dotnet_diagnostic.REACTOR_GRID_001.severity = suggestion
+
+; Hook-rule debt, scoped to the files that already carry it. Deliberately a file
+; list and not a `**/*.cs` glob: a new violation anywhere else still breaks the
+; build, which is the point of keeping these rules at warning. Delete a path once
+; its file is clean; delete the whole section once the list is empty.
+[{CommandingDemo/App.cs,TodoApp/Program.cs,ReactorHostControlDemo/MainWindow.xaml.cs,ReactorGallery/ControlPages/Navigation/BreadcrumbBarPage.cs,Reactor.TestApp/Demos/CommandingDemo.cs,Reactor.TestApp/Demos/DataGridDemo.cs,Reactor.TestApp/Demos/InputGesturesDemo.cs,Reactor.TestApp/Demos/IntegratedDataDemo.cs,Reactor.TestApp/Demos/MemoDemo.cs,Reactor.TestApp/Demos/PropertyGridDemo.cs,Reactor.TestApp/Demos/TransitionsDemo.cs,ReactorCharting.Gallery/Samples/AnimatedDonut.cs,ReactorCharting.Gallery/Samples/BarChartRace.cs,ReactorCharting.Gallery/Samples/CurveExplorer.cs,ReactorCharting.Gallery/Samples/DonutMixer.cs,apps/chat/App/ChatSampleApp.cs,apps/demo-script-tool/App/Components/StepCard.cs,apps/headtrax/HeadTrax/App.cs,apps/reactor-ide/App.cs,apps/regedit/App.cs,apps/regedit/Components/Dialogs/ExportDialog.cs,apps/widget-creator/WidgetCreatorShell.cs}]
+dotnet_diagnostic.REACTOR_HOOKS_001.severity = suggestion
+dotnet_diagnostic.REACTOR_HOOKS_004.severity = suggestion
+dotnet_diagnostic.REACTOR_HOOKS_005.severity = suggestion
+dotnet_diagnostic.REACTOR_HOOKS_011.severity = suggestion
+dotnet_diagnostic.REACTOR_HOOKS_013.severity = suggestion
+

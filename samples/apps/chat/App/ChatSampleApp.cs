@@ -224,7 +224,10 @@ class ChatSampleApp : Component
 
         Element notificationBar = _notification is { } n
             ? InfoBar(n.Message).Severity(n.Severity).IsClosable()
-                .Set(ib => { ib.IsOpen = true; ib.Closed += (_, _) => _setNotification(null); })
+                // IsOpen already defaults to true on InfoBarElement, and .Closed(...) is
+                // the declarative event modifier — wiring ib.Closed from .Set re-subscribed
+                // on every reconcile (REACTOR_EVENT_001).
+                .Closed(() => _setNotification(null))
             : Empty();
 
         Element statusBar = selectedThread is { } statusThread

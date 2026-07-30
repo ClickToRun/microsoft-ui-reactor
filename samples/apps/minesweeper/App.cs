@@ -139,11 +139,11 @@ public sealed class MinesweeperApp : Component
         )
         .HAlign(HorizontalAlignment.Center)
         .VAlign(VerticalAlignment.Center)
+        .MaxWidth(naturalBoardWidth)
+        .MaxHeight(naturalBoardHeight)
         .Set(vb =>
         {
             vb.Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform;
-            vb.MaxWidth = naturalBoardWidth;
-            vb.MaxHeight = naturalBoardHeight;
         });
 
         var titleSubtitle = state.Board.Phase switch

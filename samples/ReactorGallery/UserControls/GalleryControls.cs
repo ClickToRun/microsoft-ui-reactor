@@ -278,18 +278,26 @@ public static class GalleryControls
                 wrapGrid.ItemWidth = 300 + 12;
                 wrapGrid.ItemHeight = 92 + 12;
             }
-            gv.Loaded += (s, _) =>
-            {
-                if (((GridView)s!).ItemsPanelRoot is ItemsWrapGrid wg)
-                {
-                    wg.ItemWidth = 300 + 12;
-                    wg.ItemHeight = 92 + 12;
-                }
-            };
             var itemContainerStyle = new Style(typeof(GridViewItem));
             itemContainerStyle.Setters.Add(new Setter(GridViewItem.PaddingProperty, new Thickness(0)));
             itemContainerStyle.Setters.Add(new Setter(GridViewItem.MarginProperty, new Thickness(0, 0, 12, 12)));
             gv.ItemContainerStyle = itemContainerStyle;
+        })
+        // Loaded is wired once at mount — .Set re-runs on every reconcile, so
+        // subscribing there stacks a handler per render (REACTOR_EVENT_001).
+        .OnMountAdd(fe =>
+        {
+            if (fe is GridView loadedGv)
+            {
+                loadedGv.Loaded += (s, _) =>
+                {
+                    if (((GridView)s!).ItemsPanelRoot is ItemsWrapGrid wg)
+                    {
+                        wg.ItemWidth = 300 + 12;
+                        wg.ItemHeight = 92 + 12;
+                    }
+                };
+            }
         });
 
     /// <summary>

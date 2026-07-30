@@ -651,6 +651,24 @@ public class Phase4InitFluentTests
     }
 
     [Fact]
+    public void RichTextBlock_FontSize_BindsTypeSpecificOverload_NotGenericModifier()
+    {
+        var el = RichTextBlock("x").FontSize(14);
+
+        // The type-specific overload sets the record property, which the generated
+        // descriptor auto-maps onto RichTextBlock.FontSize.
+        Assert.Equal(14, el.FontSize);
+
+        // The second assertion is what makes this non-vacuous. Remove the
+        // RichTextBlockElement overload and `.FontSize(14)` still compiles — it binds the
+        // generic FontSize<T> instead, landing in ElementModifiers.FontSize. ApplyModifiers
+        // writes that slot only to a Control or a TextBlock, and RichTextBlock is neither,
+        // so the call would silently do nothing. Asserting the modifier slot stayed empty
+        // pins the overload resolution, not just the resulting value.
+        Assert.Null(el.Modifiers?.FontSize);
+    }
+
+    [Fact]
     public void RichEditBox_IsSpellCheckEnabled_Sets()
     {
         var el = new RichEditBoxElement("").IsSpellCheckEnabled();

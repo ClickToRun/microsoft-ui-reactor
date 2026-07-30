@@ -1,32 +1,45 @@
+using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Composition;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeFixes;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Text;
 
 namespace Microsoft.UI.Reactor.Analyzers;
 
 /// <summary>
-/// Code fix for REACTOR_POOL_001: rewrites <c>x.Set(fe =&gt; fe.PROP = VALUE)</c>
-/// to <c>x.PROP(VALUE)</c> using the corresponding Reactor modifier.
-/// Block-body lambdas with a single assignment statement
-/// (<c>fe =&gt; { fe.PROP = VALUE; }</c>) are also handled.
+/// Code fix for REACTOR_POOL_001 / REACTOR_MOD_002: rewrites
+/// <c>x.Set(fe =&gt; fe.PROP = VALUE)</c> to <c>x.PROP(VALUE)</c> using the corresponding
+/// Reactor modifier. Block-body lambdas are handled too, including multi-statement ones —
+/// <c>fe =&gt; { fe.A = 1; fe.B = 2; }</c> becomes <c>.A(1).B(2)</c>.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Where the modifier signature differs from the property type, the codefix
 /// translates the RHS into the modifier's expected shape (see <c>Margin</c>
 /// below). When no safe translation exists, the codefix is suppressed —
 /// the analyzer still reports the trap, the developer just has to fix by hand.
+/// </para>
+/// <para>
+/// Multi-statement bodies are converted all-or-nothing; see
+/// <see cref="TryBuildChain"/> for why a partial extraction is not offered, and
+/// <see cref="TryBuildCarriedTrivia"/> for how comments are preserved.
+/// </para>
 /// </remarks>
 [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(PoolResetSetCodeFix))]
 [Shared]
 public sealed class PoolResetSetCodeFix : CodeFixProvider
 {
     public override ImmutableArray<string> FixableDiagnosticIds =>
-        ImmutableArray.Create(PoolResetSetAnalyzer.DiagnosticId);
+        ImmutableArray.Create(
+            PoolResetSetAnalyzer.DiagnosticId,
+            PoolResetSetAnalyzer.ModifierAvailableDiagnosticId);
 
     public override FixAllProvider GetFixAllProvider() => WellKnownFixAllProviders.BatchFixer;
 
@@ -35,46 +48,270 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
         var root = await context.Document.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
         if (root is null) return;
 
+        // Each diagnostic carries the complete reported set for its invocation, so one is
+        // enough to rewrite the whole `.Set(...)`. Dedupe by span so a block body — which
+        // reports once per convertible assignment — produces a single chain fix rather than N
+        // competing fixes that each want to replace the same node.
+        var seen = new HashSet<TextSpan>();
+
         foreach (var diagnostic in context.Diagnostics)
         {
             var span = diagnostic.Location.SourceSpan;
+            if (!seen.Add(span)) continue;
+
             var node = root.FindNode(span);
             if (node is not InvocationExpressionSyntax invocation) continue;
             if (invocation.Expression is not MemberAccessExpressionSyntax memberAccess) continue;
 
+            // The rewrite deletes the whole invocation. If it spans a #if/#region, the
+            // surviving directives would be left unbalanced.
+            if (invocation.ContainsDirectives) continue;
+
             var args = invocation.ArgumentList.Arguments;
             if (args.Count != 1) continue;
 
-            var assignment = SetLambdaHelpers.TryGetLambdaAssignment(args[0].Expression);
-            if (assignment is null) continue;
-            if (assignment.Left is not MemberAccessExpressionSyntax leftAccess) continue;
-
-            var propName = leftAccess.Name.Identifier.Text;
-            if (!PoolResetSetAnalyzer.TrappedProperties.TryGetValue(propName, out var modifierName))
+            // Only the properties the analyzer actually reported are safe to convert — it
+            // applied the receiver gates, this fix does not repeat them.
+            if (!diagnostic.Properties.TryGetValue(PoolResetSetAnalyzer.ReportedPropertiesKey, out var packed)
+                || string.IsNullOrEmpty(packed))
+            {
                 continue;
+            }
+            var reported = new HashSet<string>(packed!.Split(','), StringComparer.Ordinal);
 
-            var modifierArgs = TryBuildModifierArguments(propName, assignment.Right);
-            if (modifierArgs is null) continue; // Cannot safely translate RHS; leave the warning unfixed.
+            // Fully-convertible only: every statement must be accounted for, or the rewrite
+            // would delete the ones it did not recognise.
+            var assignments = SetLambdaHelpers.GetFullyConvertibleLambdaBody(args[0].Expression);
+            if (assignments.IsDefaultOrEmpty) continue;
+
+            var steps = TryBuildChain(assignments, reported);
+            if (steps is null) continue; // Mixed or untranslatable body — leave the diagnostic unfixed.
+
+            if (ReceiverAlreadyApplies(memberAccess.Expression, steps))
+                continue; // Rewriting would invert precedence — see the method's remarks.
+
+            var carriedTrivia = TryBuildCarriedTrivia(args[0].Expression, assignments);
+            if (carriedTrivia is null) continue; // A comment with nowhere safe to go.
+
+            var title = steps.Count == 1
+                ? $"Use .{steps[0].Modifier}() modifier"
+                : $"Use .{string.Join("().", steps.Select(s => s.Modifier))}() modifiers";
 
             context.RegisterCodeFix(
                 CodeAction.Create(
-                    $"Use .{modifierName}() modifier",
+                    title,
                     ct =>
                     {
-                        var newInvocation = SyntaxFactory.InvocationExpression(
-                            SyntaxFactory.MemberAccessExpression(
-                                SyntaxKind.SimpleMemberAccessExpression,
-                                memberAccess.Expression,
-                                SyntaxFactory.IdentifierName(modifierName)),
-                            modifierArgs)
-                            .WithTriviaFrom(invocation);
+                        // Chain in source order so any ordering the author relied on between
+                        // the writes is preserved.
+                        ExpressionSyntax rewritten = memberAccess.Expression;
+                        for (var i = 0; i < steps.Count; i++)
+                        {
+                            // Trivia that preceded the statement hangs off the END of what came
+                            // before, not the start of this step — the same reason Roslyn puts it
+                            // on the separator comma. Attaching it to the dot instead would make
+                            // the formatter treat a same-line trailing comment as leading the next
+                            // call and move it onto its own line.
+                            var (preceding, own) = carriedTrivia[i];
+                            if (preceding.Count > 0)
+                            {
+                                rewritten = rewritten.WithTrailingTrivia(
+                                    rewritten.GetTrailingTrivia().AddRange(preceding));
+                            }
 
-                        var newRoot = root.ReplaceNode(invocation, newInvocation);
+                            var dot = SyntaxFactory.Token(SyntaxKind.DotToken).WithLeadingTrivia(own);
+
+                            rewritten = SyntaxFactory.InvocationExpression(
+                                SyntaxFactory.MemberAccessExpression(
+                                    SyntaxKind.SimpleMemberAccessExpression,
+                                    rewritten,
+                                    dot,
+                                    SyntaxFactory.IdentifierName(steps[i].Modifier)),
+                                steps[i].Arguments);
+                        }
+
+                        var newRoot = root.ReplaceNode(invocation, rewritten.WithTriviaFrom(invocation));
                         return Task.FromResult(context.Document.WithSyntaxRoot(newRoot));
                     },
-                    equivalenceKey: PoolResetSetAnalyzer.DiagnosticId + ":" + modifierName),
+                    equivalenceKey: "ReactorModifierChain:" + string.Join(",", steps.Select(s => s.Modifier))),
                 diagnostic);
         }
+    }
+
+    /// <summary>
+    /// Work out the trivia to place before each modifier call's <c>.</c>, or <c>null</c> when
+    /// a comment in the body has nowhere safe to go.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Follows Roslyn's own N-statements-to-one-expression fix rather than inventing a scheme:
+    /// <c>CSharpUseObjectInitializerCodeFixProvider.CreateExpressions</c> carries each matched
+    /// statement's leading trivia onto the initializer element that statement becomes. The
+    /// fluent-chain analogue is the <c>.</c> that introduces each modifier call — a legal
+    /// comment position, and safe for <c>//</c> because the statement's original line breaks
+    /// travel with it.
+    /// </para>
+    /// <para>
+    /// Carried all-or-nothing so the common uncommented body still collapses onto one line:
+    /// with no comments anywhere the chain takes no trivia at all, and a single comment makes
+    /// every step take its original line break, yielding a formatted multi-line chain instead
+    /// of one long line with a comment wedged into it.
+    /// </para>
+    /// <para>
+    /// Roslyn can additionally park its last statement's <em>trailing</em> trivia on the last
+    /// element, because an initializer is followed by <c>}</c>. A chain is not: a trailing
+    /// <c>//</c> on the final statement would land immediately before the enclosing <c>;</c>
+    /// and comment it out. A trailing comment on any <em>earlier</em> statement is fine — it
+    /// rides along on the next step's <c>.</c> and stays on the line the author wrote it on —
+    /// but anything that cannot be placed exactly declines the fix, the same all-or-nothing
+    /// rule the rest of this fix follows.
+    /// </para>
+    /// </remarks>
+    private static List<(SyntaxTriviaList Preceding, SyntaxTriviaList Own)>? TryBuildCarriedTrivia(
+        ExpressionSyntax lambda,
+        ImmutableArray<AssignmentExpressionSyntax> assignments)
+    {
+        var perStatement = new List<(SyntaxTriviaList Preceding, SyntaxTriviaList Own)>(assignments.Length);
+
+        // Spans must be gathered from the ORIGINAL attached lists. A list rebuilt with AddRange
+        // is detached and its positions restart at zero, so spans taken from a combined list
+        // would never match the ones the tree walk below reports.
+        var carried = new HashSet<TextSpan>();
+
+        // Block bodies hang their trivia off the statement; an expression body has none
+        // of its own worth carrying (it is on the invocation, which keeps it).
+        foreach (var owner in assignments.Select(assignment =>
+            assignment.Parent is ExpressionStatementSyntax statement ? (SyntaxNode)statement : assignment))
+        {
+            // The preceding token's trailing trivia matters as much as the statement's own
+            // leading trivia: it holds the line break (and any same-line trailing comment) that
+            // makes the '//' safe and the chain readable. That token is '{' for the first
+            // statement and the previous statement's ';' after that, so one lookup covers both.
+            var precedingTrailing = owner.GetFirstToken().GetPreviousToken().TrailingTrivia;
+            var ownLeading = owner.GetLeadingTrivia();
+
+            // Explicit Where rather than an inner `if`: keeps the filter in the sequence so the
+            // intent reads as "carry the comments" (CodeQL cs/linq/missed-where).
+            carried.UnionWith(precedingTrailing.Where(IsComment).Select(trivia => trivia.Span));
+            carried.UnionWith(ownLeading.Where(IsComment).Select(trivia => trivia.Span));
+
+            perStatement.Add((precedingTrailing, ownLeading));
+        }
+
+        if (carried.Count == 0)
+        {
+            // Nothing to preserve: keep the chain compact rather than reflowing it.
+            if (lambda.DescendantTrivia().Any(IsComment))
+                return null;
+
+            return perStatement.ConvertAll(_ => (default(SyntaxTriviaList), default(SyntaxTriviaList)));
+        }
+
+        // Every comment in the body must be one we are about to carry. Anything else — a
+        // trailing comment on the final statement, one dangling before the closing brace, one
+        // inside the lambda header or an assignment — would be dropped by the rewrite.
+        if (lambda.DescendantTrivia().Where(IsComment).Any(trivia => !carried.Contains(trivia.Span)))
+            return null;
+
+        return perStatement;
+    }
+
+    private static bool IsComment(SyntaxTrivia trivia)
+        => trivia.IsKind(SyntaxKind.SingleLineCommentTrivia)
+            || trivia.IsKind(SyntaxKind.MultiLineCommentTrivia)
+            || trivia.IsKind(SyntaxKind.SingleLineDocumentationCommentTrivia)
+            || trivia.IsKind(SyntaxKind.MultiLineDocumentationCommentTrivia);
+
+    /// <summary>
+    /// Build the ordered modifier chain replacing a whole <c>.Set(...)</c> body, or
+    /// <c>null</c> when the body cannot be converted in full.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Deliberately all-or-nothing. Converting <em>every</em> statement removes the
+    /// <c>.Set</c> entirely, which is exactly N applications of the long-standing
+    /// single-assignment rewrite and carries no new risk.
+    /// </para>
+    /// <para>
+    /// A partial extraction would be different in kind: it leaves a residual <c>.Set</c>, and
+    /// the extracted write moves from the setter phase into the modifier phase — so its order
+    /// relative to the statements left behind changes. That is harmless for independent
+    /// properties but cannot be shown safe in general (the reconciler has real
+    /// order-sensitive pairs, e.g. TextBox <c>AcceptsReturn</c> before <c>Text</c>). So a
+    /// mixed body keeps its diagnostic and gets no automatic fix.
+    /// </para>
+    /// <para>
+    /// Assumes <paramref name="assignments"/> came from
+    /// <see cref="SetLambdaHelpers.GetFullyConvertibleLambdaBody"/>, which has already
+    /// established that they are simple assignments to the lambda parameter and that they
+    /// account for every statement in the body.
+    /// </para>
+    /// </remarks>
+    private static List<(string Modifier, ArgumentListSyntax Arguments)>? TryBuildChain(
+        ImmutableArray<AssignmentExpressionSyntax> assignments,
+        HashSet<string> reported)
+    {
+        var steps = new List<(string Modifier, ArgumentListSyntax Arguments)>();
+
+        foreach (var assignment in assignments)
+        {
+            var propName = ((MemberAccessExpressionSyntax)assignment.Left).Name.Identifier.Text;
+
+            // Not reported means the analyzer gated it out (wrong control type for the
+            // modifier, or no modifier at all). Converting it would be the silent no-op the
+            // gate exists to prevent.
+            if (!reported.Contains(propName)) return null;
+            if (!ModifierTable.Properties.TryGetValue(propName, out var info)) return null;
+
+            var modifierArgs = TryBuildModifierArguments(propName, assignment.Right);
+            if (modifierArgs is null) return null;
+
+            steps.Add((info.Modifier, modifierArgs));
+        }
+
+        return steps.Count == 0 ? null : steps;
+    }
+
+    /// <summary>
+    /// True when the receiver chain already calls one of the modifiers we are about to append,
+    /// which makes the rewrite a behaviour change rather than a refactor.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Setters and modifiers run in different phases, and modifiers run <em>second</em>:
+    /// <c>ApplySetters</c> is called from inside the mount/update dispatch
+    /// (<c>DescriptorHandler</c> and friends), while <c>ApplyModifiers</c> is called after that
+    /// dispatch returns (<c>Reconciler.Mount.cs</c>, <c>Reconciler.Update.cs</c>). So a modifier
+    /// beats a <c>.Set</c> write of the same property regardless of their order in the chain:
+    /// </para>
+    /// <code>
+    /// b.IsEnabled(true).Set(c =&gt; c.IsEnabled = false)   // renders true — the modifier wins
+    /// b.IsEnabled(true).IsEnabled(false)                 // renders false — last call wins
+    /// </code>
+    /// <para>
+    /// Only a modifier appearing <em>before</em> the <c>.Set</c> is affected, and that is
+    /// exactly what the receiver expression contains, so walking it is sufficient. Any part of
+    /// the chain we cannot see (a local, a helper's return value) is left alone — this is a
+    /// syntactic guard for the visible case, not a whole-program analysis.
+    /// </para>
+    /// </remarks>
+    private static bool ReceiverAlreadyApplies(
+        ExpressionSyntax receiver,
+        List<(string Modifier, ArgumentListSyntax Arguments)> steps)
+    {
+        for (var node = receiver; node is InvocationExpressionSyntax call;)
+        {
+            if (call.Expression is not MemberAccessExpressionSyntax access)
+                break;
+
+            var called = access.Name.Identifier.Text;
+            if (steps.Exists(step => string.Equals(step.Modifier, called, StringComparison.Ordinal)))
+                return true;
+
+            node = access.Expression;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -87,37 +324,37 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
     /// </returns>
     private static ArgumentListSyntax? TryBuildModifierArguments(string propName, ExpressionSyntax value)
     {
-        // The FrameworkElement.Margin property is a Thickness, but Reactor's
-        // .Margin(...) modifier overloads all take doubles. Translate the
-        // common literal shapes:
-        //   new Thickness(uniform)           → .Margin(uniform)
-        //   new Thickness(l, t, r, b)        → .Margin(l, t, r, b)
-        // Other RHS shapes (variables, member access, Thickness without
-        // constructor args, etc.) we can't rewrite safely — skip the fix.
-        if (propName == "Margin")
+        // Margin/Padding/BorderThickness are Thickness-typed properties whose modifiers all
+        // take doubles, and CornerRadius is the same shape with a CornerRadius struct.
+        // Translate the literal constructor forms:
+        //   new Thickness(uniform)      → .Padding(uniform)
+        //   new Thickness(l, t, r, b)   → .Padding(l, t, r, b)
+        // Other RHS shapes (variables, member access, no-arg construction) cannot be
+        // rewritten safely — skip the fix and leave the diagnostic for a human.
+        if (propName is "Margin" or "Padding" or "BorderThickness" or "CornerRadius")
         {
+            var structName = propName == "CornerRadius" ? "CornerRadius" : "Thickness";
             if (value is not ObjectCreationExpressionSyntax oce) return null;
-            if (!IsThicknessType(oce.Type)) return null;
+            if (!IsNamedType(oce.Type, structName)) return null;
             var ctorArgs = oce.ArgumentList?.Arguments;
             if (ctorArgs is null) return null;
-            // Thickness has constructors for 0, 1, and 4 args. The 0-arg
-            // (default Thickness) is not interesting; 1 and 4 map cleanly to
-            // Margin(double) and Margin(double, double, double, double).
+            // Both structs have 0/1/4-arg constructors. The 0-arg form is not interesting;
+            // 1 and 4 map cleanly onto the uniform and per-edge modifier overloads.
             if (ctorArgs.Value.Count is 1 or 4)
                 return SyntaxFactory.ArgumentList(SyntaxFactory.SeparatedList(ctorArgs.Value));
             return null;
         }
 
         // All other tracked properties: the modifier accepts the same type
-        // as the property (double / enum / string), so pass the RHS through.
+        // as the property (double / enum / string / Brush), so pass the RHS through.
         return SyntaxFactory.ArgumentList(
             SyntaxFactory.SingletonSeparatedList(SyntaxFactory.Argument(value)));
     }
 
-    private static bool IsThicknessType(TypeSyntax type) => type switch
+    private static bool IsNamedType(TypeSyntax type, string simpleName) => type switch
     {
-        IdentifierNameSyntax { Identifier.Text: "Thickness" } => true,
-        QualifiedNameSyntax q when q.Right.Identifier.Text == "Thickness" => true,
+        IdentifierNameSyntax id => id.Identifier.Text == simpleName,
+        QualifiedNameSyntax q => q.Right.Identifier.Text == simpleName,
         _ => false,
     };
 }

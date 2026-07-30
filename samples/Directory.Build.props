@@ -33,4 +33,27 @@
     <ProjectReference Include="$(MSBuildThisFileDirectory)..\src\Reactor.Devtools\Reactor.Devtools.csproj" />
   </ItemGroup>
 
+  <!--
+    Run the customer-facing analyzer bundle over the samples.
+
+    Samples ARE consumer code, so the rules that `src/Reactor/Reactor.csproj`
+    deliberately opts out of (they would fire spuriously on framework
+    internals) are exactly the rules we want here. Consumers get these through
+    the NuGet `analyzers/dotnet/cs` path, but samples consume Reactor via
+    ProjectReference and packed analyzer DLLs do not flow across one — so
+    without this the whole sample tree is unanalyzed. That gap let a
+    `.Set(tb => tb.KeyDown += ...)` double-subscribe (REACTOR_EVENT_001) and
+    several `.Set(b => b.RequestedTheme = ...)` (REACTOR_THEME_003) sit in the
+    samples unreported.
+
+    Opt out per-project with <ReactorSampleAnalyzers>false</ReactorSampleAnalyzers>.
+    samples/apps/a11y-showcase wires this itself and is excluded to avoid a
+    duplicate analyzer reference.
+  -->
+  <ItemGroup Condition="'$(ReactorSampleAnalyzers)' != 'false' And !$([System.String]::Copy('$(MSBuildProjectDirectory)').Contains('\samples\apps\a11y-showcase'))">
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\src\Reactor.Analyzers\Reactor.Analyzers.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
 </Project>

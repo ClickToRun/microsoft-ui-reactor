@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -38,30 +39,28 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
     public const string VisibilityDiagnosticId = "REACTOR_VIS_001";
 
     /// <summary>
-    /// FrameworkElement property → Reactor modifier method name.
-    /// Each entry must be:
-    ///   - a property reset in <c>src/Reactor/Core/ElementPool.cs CleanElement(...)</c>
-    ///     (or otherwise cleared between renders by the reconciler), AND
-    ///   - have a corresponding modifier in <c>ElementExtensions.cs</c> that
-    ///     stores into <c>ElementModifiers</c> and is re-applied each render.
-    /// Keep this list in sync with both files when either changes.
+    /// REACTOR_MOD_002: a fluent modifier exists for this property, but it is not
+    /// pool-reset — the value is written correctly, it just costs the element its
+    /// structural skip (<c>Element.SettersEqual</c>) and is never unwound when a later
+    /// render drops it. A preference rather than a bug, hence Info rather than Warning.
+    /// </summary>
+    public const string ModifierAvailableDiagnosticId = "REACTOR_MOD_002";
+
+    /// <summary>
+    /// Property → modifier name for the pool-reset subset, preserved as a public surface
+    /// for callers that only care about that group. The authoritative table, including the
+    /// non-pool-reset properties and the receiver gating, is <see cref="ModifierTable"/>.
     /// </summary>
     public static readonly IReadOnlyDictionary<string, string> TrappedProperties =
-        new Dictionary<string, string>(System.StringComparer.Ordinal)
-        {
-            { "Margin",              "Margin" },
-            { "Width",               "Width" },
-            { "Height",              "Height" },
-            { "MinWidth",            "MinWidth" },
-            { "MinHeight",           "MinHeight" },
-            { "MaxWidth",            "MaxWidth" },
-            { "MaxHeight",           "MaxHeight" },
-            { "HorizontalAlignment", "HorizontalAlignment" },
-            { "VerticalAlignment",   "VerticalAlignment" },
-            { "Opacity",             "Opacity" },
-            { "AccessKey",           "AccessKey" },
-            { "IsTabStop",           "IsTabStop" },
-        };
+        BuildTrappedProperties();
+
+    private static IReadOnlyDictionary<string, string> BuildTrappedProperties()
+    {
+        var map = new Dictionary<string, string>(System.StringComparer.Ordinal);
+        foreach (var pair in ModifierTable.Properties.Where(pair => pair.Value.PoolReset))
+            map[pair.Key] = pair.Value.Modifier;
+        return map;
+    }
 
     private static readonly LocalizableString Title =
         "Use modifier instead of .Set for pool-reset property";
@@ -107,8 +106,52 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
         isEnabledByDefault: true,
         description: VisibilityDescription);
 
+    /// <summary>
+    /// Diagnostic-property key carrying the comma-separated names of <em>every</em> WinUI
+    /// property reported on this <c>.Set(...)</c>, so <see cref="PoolResetSetCodeFix"/> knows
+    /// exactly which assignments passed the gates.
+    /// <para>
+    /// Load-bearing for multi-statement bodies. A block can mix an assignment that was
+    /// reported with one the analyzer deliberately skipped (a gated property on the wrong
+    /// control type, or one with no modifier at all). Without this the fix would re-derive
+    /// candidates from the table alone and could rewrite an assignment that was gated out —
+    /// producing exactly the silent no-op the gating exists to prevent.
+    /// </para>
+    /// <para>
+    /// Every diagnostic on the invocation carries the <em>whole</em> set rather than just its
+    /// own property, because a code fix provider is not guaranteed to be handed all the
+    /// diagnostics sharing a span — Roslyn's <c>CodeFixService</c> groups them, but
+    /// <c>Microsoft.CodeAnalysis.Testing</c> invokes the provider once per diagnostic. Making
+    /// each diagnostic self-sufficient keeps the fix correct under both.
+    /// </para>
+    /// </summary>
+    internal const string ReportedPropertiesKey = "ReactorReportedProperties";
+
+    private static readonly LocalizableString ModifierAvailableTitle =
+        "Use the Reactor modifier instead of .Set";
+
+    private static readonly LocalizableString ModifierAvailableMessageFormat =
+        "A '.{1}(...)' modifier exists for '{0}'. Prefer it over '.Set(...)', which re-runs every render, is never unwound, and keeps the element on the reconciler's update path.";
+
+    private static readonly LocalizableString ModifierAvailableDescription =
+        "Reactor exposes a fluent modifier for this property. Modifier values are stored on " +
+        "Element.Modifiers, structurally diffed, and cleared when removed, whereas '.Set(...)' " +
+        "setters are imperative writes the reconciler cannot diff — Element.SettersEqual only " +
+        "treats setter arrays as equal when they are the same instance or both empty, so any " +
+        "element carrying setters re-runs them on every reconcile. Unlike the pool-reset " +
+        "properties this is a preference rather than a correctness bug, so it reports as Info.";
+
+    private static readonly DiagnosticDescriptor ModifierAvailableRule = new(
+        ModifierAvailableDiagnosticId,
+        ModifierAvailableTitle,
+        ModifierAvailableMessageFormat,
+        "Reactor.Modifier",
+        DiagnosticSeverity.Info,
+        isEnabledByDefault: true,
+        description: ModifierAvailableDescription);
+
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-        ImmutableArray.Create(Rule, VisibilityRule);
+        ImmutableArray.Create(Rule, VisibilityRule, ModifierAvailableRule);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -126,10 +169,13 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
 
         var lambdaExpr = invocation.ArgumentList.Arguments[0].Expression;
 
-        var assignment = SetLambdaHelpers.TryGetLambdaAssignment(lambdaExpr);
-        if (assignment is null)
-            return;
-        if (assignment.Kind() != SyntaxKind.SimpleAssignmentExpression)
+        // Detection considers every assignment in the body, not just a lone one: a
+        // modifier-backed write is no less wrong for sharing a block with other statements.
+        // This is deliberately wider than the fix, which converts a body only when EVERY
+        // statement is convertible (SetLambdaHelpers.GetFullyConvertibleLambdaBody) — so a
+        // mixed body is reported here and left unfixed rather than partially rewritten.
+        var assignments = SetLambdaHelpers.GetLambdaAssignments(lambdaExpr);
+        if (assignments.IsDefaultOrEmpty)
             return;
 
         // Both arms require the assignment target to be the .Set lambda's own parameter
@@ -138,42 +184,210 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
         var lambdaParam = SetLambdaHelpers.GetSingleLambdaParameter(lambdaExpr);
         if (lambdaParam is null)
             return;
-        var leftAccess = SetLambdaHelpers.GetAssignedMemberAccess(assignment, lambdaParam.Identifier.Text);
-        if (leftAccess is null)
+
+        var isReactorSet = false;
+        var reactorSetChecked = false;
+
+        // Explicit filter (CodeQL cs/linq/missed-where): only simple assignments are
+        // candidates here. '+=' on an event is REACTOR_EVENT_001's job, and a numeric
+        // compound assignment has no modifier equivalent.
+        var simpleAssignments = assignments
+            .Where(assignment => assignment.IsKind(SyntaxKind.SimpleAssignmentExpression));
+
+        // Two passes. The first classifies every assignment; the second reports, stamping each
+        // diagnostic with the complete reported set. The code fix needs the whole set to decide
+        // whether a block body is convertible in full, and cannot rely on being handed its
+        // siblings (see ReportedPropertiesKey).
+        var reportable = new List<(MemberAccessExpressionSyntax Left, ModifierInfo Info, string PropName)>();
+
+        foreach (var assignment in simpleAssignments)
+        {
+            var leftAccess = SetLambdaHelpers.GetAssignedMemberAccess(assignment, lambdaParam.Identifier.Text);
+            if (leftAccess is null)
+                continue;
+
+            // Guard against an unrelated user-defined '.Set' helper with the same shape: only
+            // Reactor's own .Set setters map to the Reactor modifiers these diagnostics/fixes
+            // assume. Resolved lazily and once — it is the most expensive check here.
+            if (!reactorSetChecked)
+            {
+                isReactorSet = SetLambdaHelpers.IsReactorSetInvocation(
+                    invocation, context.SemanticModel, context.CancellationToken);
+                reactorSetChecked = true;
+            }
+            if (!isReactorSet)
+                return;
+
+            var classified = ClassifyAssignment(context, invocation, memberAccess, leftAccess, assignment);
+            if (classified is { } hit)
+                reportable.Add((leftAccess, hit.Info, hit.PropName));
+        }
+
+        if (reportable.Count == 0)
             return;
 
-        // Guard against an unrelated user-defined '.Set' helper with the same shape: only
-        // Reactor's own .Set setters map to the Reactor modifiers these diagnostics/fixes assume.
-        if (!SetLambdaHelpers.IsReactorSetInvocation(invocation, context.SemanticModel, context.CancellationToken))
-            return;
+        var reportedProperties = ImmutableDictionary<string, string?>.Empty.Add(
+            ReportedPropertiesKey,
+            string.Join(",", reportable.Select(r => r.PropName)));
 
+        foreach (var (_, info, propName) in reportable)
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                info.PoolReset ? Rule : ModifierAvailableRule,
+                invocation.GetLocation(),
+                properties: reportedProperties,
+                propName,
+                info.Modifier));
+        }
+    }
+
+    /// <summary>
+    /// Decide whether one assignment inside a <c>.Set(...)</c> body should be reported as
+    /// having a usable modifier. Returns <c>null</c> when it should stay on <c>.Set</c>.
+    /// </summary>
+    /// <remarks>
+    /// REACTOR_VIS_001 is reported inline here and returns <c>null</c>: it has its own
+    /// descriptor and its own code fix, so it must not join a REACTOR_POOL_001/MOD_002
+    /// modifier chain.
+    /// </remarks>
+    private static (string PropName, ModifierInfo Info)? ClassifyAssignment(
+        SyntaxNodeAnalysisContext context,
+        InvocationExpressionSyntax invocation,
+        MemberAccessExpressionSyntax memberAccess,
+        MemberAccessExpressionSyntax leftAccess,
+        AssignmentExpressionSyntax assignment)
+    {
         var propName = leftAccess.Name.Identifier.Text;
 
         // REACTOR_VIS_001 — imperative Visibility toggling. Handled here as a POOL_001
-        // extension: 'Visibility' is intentionally NOT in TrappedProperties (its modifier,
+        // extension: 'Visibility' is intentionally NOT in the modifier table (its modifier,
         // .IsVisible(bool), has a different signature than the enum property), so it gets a
         // distinct descriptor and its own bool-translating code fix. The receiver must derive
         // from UIElement so the '.IsVisible(...)' rewrite is always sound.
         if (propName == "Visibility")
         {
-            var receiverType = context.SemanticModel
+            var visibilityReceiver = context.SemanticModel
                 .GetTypeInfo(leftAccess.Expression, context.CancellationToken).Type;
-            if (SetLambdaHelpers.InheritsFrom(receiverType, "UIElement", "Microsoft.UI.Xaml"))
+            if (SetLambdaHelpers.InheritsFrom(visibilityReceiver, "UIElement", "Microsoft.UI.Xaml"))
             {
                 context.ReportDiagnostic(Diagnostic.Create(
                     VisibilityRule,
                     invocation.GetLocation()));
             }
-            return;
+            return null;
         }
 
-        if (!TrappedProperties.TryGetValue(propName, out var modifierName))
-            return;
+        if (!ModifierTable.Properties.TryGetValue(propName, out var info))
+            return null;
 
-        context.ReportDiagnostic(Diagnostic.Create(
-            Rule,
-            invocation.GetLocation(),
-            propName,
-            modifierName));
+        // A null / default right-hand side is not expressible through the modifier.
+        // ApplyModifiers treats a null modifier value as "no modifier supplied" and only
+        // clears the property when the PREVIOUS render had one, so `.Background(null)` does
+        // not reliably write null the way `.Set(x => x.Background = null)` does. Suggesting
+        // the rewrite here would change behaviour — the precise failure this analyzer exists
+        // to prevent. Real site: samples/ReactorGallery/ControlPages/Media/ParallaxViewPage.cs.
+        if (IsNullOrDefault(assignment.Right))
+            return null;
+
+        // Receiver gates. Both are checked against the semantic model rather than inferred:
+        // for `.Set(x => …)` the lambda parameter's type IS the runtime WinUI control type
+        // (the overload is Action<WinUI.Grid> and friends), and the `.Set` receiver's type
+        // is the concrete Reactor element type.
+        //
+        // The two gates are OR'd when both are present: they are independent routes to a
+        // sound rewrite — the generic modifier reaching this control at runtime, or a
+        // type-specific overload existing for this element type. Fonts need both.
+        var gated = info.ControlGate is not null || info.ElementTypes is not null;
+        if (gated && !PassesControlGate(context, info, leftAccess) && !PassesElementGate(context, info, memberAccess))
+            return null;
+
+        return (propName, info);
+    }
+
+    /// <summary>
+    /// True when <c>ApplyModifiers</c> would actually write the generic modifier to this
+    /// runtime control type. False when no control gate is declared — the caller OR-combines
+    /// this with <see cref="PassesElementGate"/>, so "not applicable" must not count as a pass.
+    /// </summary>
+    private static bool PassesControlGate(
+        SyntaxNodeAnalysisContext context,
+        ModifierInfo info,
+        MemberAccessExpressionSyntax leftAccess)
+    {
+        if (info.ControlGate is not { } gate)
+            return false;
+
+        // ApplyModifiers writes this modifier only to certain control types; on anything
+        // else it compiles and silently does nothing, so staying on .Set is correct.
+        var controlType = context.SemanticModel
+            .GetTypeInfo(leftAccess.Expression, context.CancellationToken).Type;
+
+        return gate.Any(allowed =>
+            SetLambdaHelpers.InheritsFrom(controlType, allowed, "Microsoft.UI.Xaml.Controls"));
+    }
+
+    /// <summary>
+    /// True when the receiver element type declares a type-specific overload of the modifier.
+    /// False when no element types are declared, for the same reason as
+    /// <see cref="PassesControlGate"/>.
+    /// </summary>
+    private static bool PassesElementGate(
+        SyntaxNodeAnalysisContext context,
+        ModifierInfo info,
+        MemberAccessExpressionSyntax memberAccess)
+    {
+        if (info.ElementTypes is not { } elementTypes)
+            return false;
+
+        // No generic overload exists (or it does not reach this control), so the rewrite
+        // only compiles when the receiver element type declares one.
+        var elementType = context.SemanticModel
+            .GetTypeInfo(memberAccess.Expression, context.CancellationToken).Type;
+        if (elementType is null)
+            return false;
+
+        // Walk the base chain rather than comparing the exact name: element records are not
+        // sealed, and an extension declared on TextBlockElement is equally callable on a type
+        // derived from it — so exact matching would drop the diagnostic on a receiver where
+        // the rewrite compiles fine. InheritsFrom also pins the namespace, so an unrelated
+        // type that merely shares a name is still rejected.
+        return elementTypes.Any(candidate =>
+            SetLambdaHelpers.InheritsFrom(elementType, candidate, "Microsoft.UI.Reactor"));
+    }
+
+    /// <summary>
+    /// True for a right-hand side that assigns null, seeing through the wrappers that do not
+    /// change that: parentheses, casts, and the null-forgiving operator.
+    /// </summary>
+    /// <remarks>
+    /// A bare-literal test is not enough. <c>(Brush)null!</c>, <c>(Brush?)null</c> and
+    /// <c>((Brush)null)</c> all assign null while none of them is a
+    /// <see cref="SyntaxKind.NullLiteralExpression"/> at the top. Letting one through would
+    /// suggest <c>.Background((Brush)null!)</c>, and <c>ApplyModifiers</c> skips a null modifier
+    /// value — so the explicit null write silently stops happening, which is exactly the
+    /// class of silent behaviour change this gate exists to prevent.
+    /// </remarks>
+    private static bool IsNullOrDefault(ExpressionSyntax expression)
+    {
+        while (true)
+        {
+            switch (expression)
+            {
+                case ParenthesizedExpressionSyntax parenthesized:
+                    expression = parenthesized.Expression;
+                    continue;
+                case CastExpressionSyntax cast:
+                    expression = cast.Expression;
+                    continue;
+                case PostfixUnaryExpressionSyntax suppression
+                    when suppression.IsKind(SyntaxKind.SuppressNullableWarningExpression):
+                    expression = suppression.Operand;
+                    continue;
+                default:
+                    return expression.IsKind(SyntaxKind.NullLiteralExpression)
+                        || expression.IsKind(SyntaxKind.DefaultLiteralExpression)
+                        || expression is DefaultExpressionSyntax;
+            }
+        }
     }
 }

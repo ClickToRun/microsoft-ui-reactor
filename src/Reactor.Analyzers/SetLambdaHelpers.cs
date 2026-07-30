@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Threading;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -75,10 +76,160 @@ internal static class SetLambdaHelpers
     }
 
     /// <summary>
+    /// All assignment expressions in a <c>.Set(...)</c> lambda body — the expression body
+    /// (<c>fe =&gt; fe.X = v</c>) or every top-level assignment statement in a block body,
+    /// regardless of statement count.
+    /// <para>
+    /// Prefer this over <see cref="TryGetLambdaAssignment"/> for pure <em>detection</em>.
+    /// The single-assignment helper deliberately bails on multi-statement blocks because a
+    /// code fix cannot mechanically rewrite them — but a diagnostic still should fire.
+    /// Reusing the code-fix-shaped helper for detection created a false negative that hid
+    /// real double-subscribe bugs inside bodies like
+    /// <c>.Set(ib =&gt; { ib.IsOpen = true; ib.Closed += h; })</c>, where the offending
+    /// <c>+=</c> is merely sharing a block with another statement.
+    /// </para>
+    /// </summary>
+    internal static ImmutableArray<AssignmentExpressionSyntax> GetLambdaAssignments(ExpressionSyntax lambdaExpr)
+    {
+        SyntaxNode? exprOrBlock = lambdaExpr switch
+        {
+            SimpleLambdaExpressionSyntax simple => (SyntaxNode?)simple.ExpressionBody ?? simple.Block,
+            ParenthesizedLambdaExpressionSyntax paren => (SyntaxNode?)paren.ExpressionBody ?? paren.Block,
+            _ => null,
+        };
+
+        switch (exprOrBlock)
+        {
+            case AssignmentExpressionSyntax a:
+                return ImmutableArray.Create(a);
+            case BlockSyntax block:
+            {
+                // OfType/Select rather than a foreach with an inner `is` test: makes the
+                // filter explicit (CodeQL cs/linq/missed-where) without the double type-test
+                // a Where(...) + cast would need, since the pattern here also binds.
+                var assignments = block.Statements
+                    .OfType<ExpressionStatementSyntax>()
+                    .Select(statement => statement.Expression)
+                    .OfType<AssignmentExpressionSyntax>();
+
+                var builder = ImmutableArray.CreateBuilder<AssignmentExpressionSyntax>();
+                foreach (var assignment in assignments)
+                    builder.Add(assignment);
+                return builder.ToImmutable();
+            }
+            default:
+                return ImmutableArray<AssignmentExpressionSyntax>.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Extract the assignments from a <c>.Set(...)</c> lambda when — and only when — the
+    /// entire body can be replaced by a modifier chain: every statement is a simple
+    /// assignment whose receiver is the lambda parameter itself.
+    /// Returns empty when the body is not fully convertible.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Deliberately stricter than <see cref="GetLambdaAssignments"/>, which exists for
+    /// <em>detection</em> and may ignore statements it cannot classify. A code fix cannot
+    /// ignore them: it replaces the whole invocation, so anything unaccounted for is silently
+    /// deleted rather than left behind. Two shapes must be rejected:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description>A non-assignment statement (<c>c.Focus();</c>, an <c>if</c>, a local
+    /// declaration). Invisible to a filter over assignments, and destroyed by the
+    /// rewrite.</description></item>
+    /// <item><description>An assignment to a different receiver (<c>other.IsEnabled = true</c>).
+    /// The analyzer only reports writes to the lambda parameter, but it reports them by
+    /// property <em>name</em> — so a same-named write to a captured variable would otherwise
+    /// be folded into the chain and lost.</description></item>
+    /// </list>
+    /// <para>
+    /// Comments inside the block body are not carried over; trivia around the invocation is.
+    /// </para>
+    /// </remarks>
+    internal static ImmutableArray<AssignmentExpressionSyntax> GetFullyConvertibleLambdaBody(
+        ExpressionSyntax lambdaExpr)
+    {
+        string paramName;
+        SyntaxNode? exprOrBlock;
+        switch (lambdaExpr)
+        {
+            case SimpleLambdaExpressionSyntax simple:
+                paramName = simple.Parameter.Identifier.Text;
+                exprOrBlock = (SyntaxNode?)simple.ExpressionBody ?? simple.Block;
+                break;
+            case ParenthesizedLambdaExpressionSyntax paren
+                when paren.ParameterList.Parameters.Count == 1:
+                paramName = paren.ParameterList.Parameters[0].Identifier.Text;
+                exprOrBlock = (SyntaxNode?)paren.ExpressionBody ?? paren.Block;
+                break;
+            default:
+                return ImmutableArray<AssignmentExpressionSyntax>.Empty;
+        }
+
+        switch (exprOrBlock)
+        {
+            case AssignmentExpressionSyntax single:
+                return IsConvertibleAssignment(single, paramName)
+                    ? ImmutableArray.Create(single)
+                    : ImmutableArray<AssignmentExpressionSyntax>.Empty;
+
+            case BlockSyntax block:
+            {
+                var builder = ImmutableArray.CreateBuilder<AssignmentExpressionSyntax>(block.Statements.Count);
+                foreach (var statement in block.Statements)
+                {
+                    if (statement is not ExpressionStatementSyntax expressionStatement
+                        || expressionStatement.Expression is not AssignmentExpressionSyntax assignment
+                        || !IsConvertibleAssignment(assignment, paramName))
+                    {
+                        return ImmutableArray<AssignmentExpressionSyntax>.Empty;
+                    }
+                    builder.Add(assignment);
+                }
+                return builder.Count == 0
+                    ? ImmutableArray<AssignmentExpressionSyntax>.Empty
+                    : builder.ToImmutable();
+            }
+
+            default:
+                return ImmutableArray<AssignmentExpressionSyntax>.Empty;
+        }
+    }
+
+    private static bool IsConvertibleAssignment(AssignmentExpressionSyntax assignment, string paramName)
+        // '+=' / '-=' are event subscriptions (REACTOR_EVENT_001's job) and have no modifier form.
+        => assignment.IsKind(SyntaxKind.SimpleAssignmentExpression)
+            && GetAssignedMemberAccess(assignment, paramName) is not null
+            && !ReferencesIdentifier(assignment.Right, paramName);
+
+    /// <summary>
+    /// True when <paramref name="expression"/> mentions <paramref name="identifier"/> anywhere.
+    /// </summary>
+    /// <remarks>
+    /// The right-hand side is copied verbatim into the modifier call, but the lambda parameter
+    /// does not survive the rewrite — the lambda is deleted. So
+    /// <c>b.Set(c =&gt; c.IsEnabled = c.Opacity &gt; 0)</c> would become
+    /// <c>b.IsEnabled(c.Opacity &gt; 0)</c>, which does not compile. Purely syntactic on
+    /// purpose: a shadowing declaration that happens to reuse the name only costs a declined
+    /// fix, whereas missing a real reference emits broken code.
+    /// </remarks>
+    private static bool ReferencesIdentifier(SyntaxNode expression, string identifier)
+        => expression.DescendantNodesAndSelf()
+            .OfType<IdentifierNameSyntax>()
+            .Any(name => string.Equals(name.Identifier.Text, identifier, StringComparison.Ordinal));
+
+    /// <summary>
     /// Extract the single assignment expression from a lambda passed to <c>.Set(...)</c>.
     /// Supports both expression-body lambdas (<c>fe =&gt; fe.X = v</c>) and block-body
     /// lambdas with a single assignment statement (<c>fe =&gt; { fe.X = v; }</c>).
-    /// Multi-statement blocks return <c>null</c> — a codefix can't safely rewrite them.
+    /// Multi-statement blocks return <c>null</c>: with more than one assignment there is no
+    /// single "the" assignment to return. Callers that want to classify a whole body should
+    /// use <see cref="GetLambdaAssignments"/>; callers that want to <em>rewrite</em> one —
+    /// such as <c>PoolResetSetCodeFix</c>, which turns every statement into a modifier chain
+    /// — must use <see cref="GetFullyConvertibleLambdaBody"/>, which additionally proves that
+    /// no statement would be dropped by the rewrite.
     /// Returns simple assignments (<c>=</c>) and compound assignments (<c>+=</c>/<c>-=</c>);
     /// callers branch on <see cref="AssignmentExpressionSyntax.Kind"/>.
     /// </summary>
