@@ -218,6 +218,16 @@ public sealed class DockHostFocusFallbackTests
 
     // ── metadata scan ────────────────────────────────────────────────────────
 
+    // The scan is a full PEReader + metadata + IL walk plus a reflected opcode
+    // table, and every [Fact] needs the same read-only result — so do it once.
+    // Lazy's default ExecutionAndPublication mode makes this safe under xUnit's
+    // parallel collections, and a failure inside the factory (e.g. the assembly
+    // not being on disk) is cached and rethrown for every test, which is the
+    // reporting behaviour we want anyway.
+    private static readonly Lazy<AnnouncerScan> _scan = new(ScanAnnouncerCore);
+
+    private static AnnouncerScan ScanAnnouncer() => _scan.Value;
+
     private sealed record AnnouncerScan(
         IReadOnlySet<string> CalledMembers,
         IReadOnlySet<string> ReferencedTypes,
@@ -239,7 +249,7 @@ public sealed class DockHostFocusFallbackTests
     [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage(
         "SingleFile", "IL3000",
         Justification = "Test-only: reads Reactor.Advanced.dll's on-disk Location to feed the IL/metadata scanner (PEReader) — the assertion below fails loudly on an empty path. IL3000 only affects single-file publish; this metadata-scanning test cannot run single-file and this host is not single-file-published. Behaviour-neutral.")]
-    private static AnnouncerScan ScanAnnouncer()
+    private static AnnouncerScan ScanAnnouncerCore()
     {
         var assemblyPath = typeof(DockHostLiveAnnouncer).Assembly.Location;
         Assert.False(string.IsNullOrEmpty(assemblyPath),
