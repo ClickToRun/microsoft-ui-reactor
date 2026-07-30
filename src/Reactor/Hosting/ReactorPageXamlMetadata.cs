@@ -78,9 +78,6 @@ internal static class ReactorPageTypeRegistry
 
     internal static IXamlType? Resolve(string fullName)
         => fullName is not null && Volatile.Read(ref _byName).TryGetValue(fullName, out var t) ? t : null;
-
-    /// <summary>Test seam — number of published page types.</summary>
-    internal static int Count => Volatile.Read(ref _byType).Count;
 }
 
 /// <summary>

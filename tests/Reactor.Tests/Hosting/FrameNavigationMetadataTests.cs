@@ -96,13 +96,15 @@ public sealed class FrameNavigationMetadataTests
     {
         ReactorPageTypeRegistry.Register(typeof(ProbeIdempotentPage));
         var first = ReactorPageTypeRegistry.Resolve(typeof(ProbeIdempotentPage));
-        var countAfterFirst = ReactorPageTypeRegistry.Count;
 
         ReactorPageTypeRegistry.Register(typeof(ProbeIdempotentPage));
         var second = ReactorPageTypeRegistry.Resolve(typeof(ProbeIdempotentPage));
 
+        // Same instance — a second Register neither replaced the entry nor added a rival.
+        // Asserted on identity rather than registry size: the registry is process-wide and
+        // xUnit runs collections in parallel, so a count is not a stable oracle.
         Assert.Same(first, second);
-        Assert.Equal(countAfterFirst, ReactorPageTypeRegistry.Count);
+        Assert.Same(first, ReactorPageTypeRegistry.Resolve(typeof(ProbeIdempotentPage).FullName!));
     }
 
     [Fact]
@@ -118,12 +120,10 @@ public sealed class FrameNavigationMetadataTests
         var openGeneric = typeof(ProbeOpenGenericPage<>);
         Assert.NotNull(openGeneric.FullName);
 
-        var countBefore = ReactorPageTypeRegistry.Count;
         ReactorPageTypeRegistry.Register(openGeneric);
 
         Assert.Null(ReactorPageTypeRegistry.Resolve(openGeneric));
         Assert.Null(ReactorPageTypeRegistry.Resolve(openGeneric.FullName!));
-        Assert.Equal(countBefore, ReactorPageTypeRegistry.Count);
 
         // The closed construction is a perfectly good target and must still publish —
         // otherwise the guard would be over-broad.
