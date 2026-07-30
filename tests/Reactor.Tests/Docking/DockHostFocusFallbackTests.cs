@@ -164,6 +164,36 @@ public sealed class DockHostFocusFallbackTests
     }
 
     /// <summary>
+    /// Spec 044 §6.7.2 — the focus swallow is audited as **Narrow**, not Keep
+    /// (see <c>docs/specs/044/swallowed-error-audit.md</c>). A broad
+    /// <c>catch (Exception)</c> here is what hid the R4 bug: an
+    /// <see cref="ArgumentException"/> on every hand-off that nobody saw.
+    /// Surprise exception types must propagate, so no handler in the announcer
+    /// may catch <see cref="Exception"/> itself.
+    /// </summary>
+    [Fact]
+    public void Announcer_narrows_the_focus_catch()
+    {
+        var scan = ScanAnnouncer();
+
+        // Sanity: there *is* a handler to inspect, so a rename can't make this
+        // pass by finding nothing.
+        Assert.Contains("TryFocus", scan.MethodsWithExceptionHandlers);
+        Assert.NotEmpty(scan.CaughtTypes);
+
+        Assert.DoesNotContain("System.Exception", scan.CaughtTypes);
+
+        // …and not laundered through `catch (Exception) when (...)`, which hides
+        // the declared type from metadata.
+        Assert.DoesNotContain("<filter>", scan.CaughtTypes);
+
+        // The three classes the audit entry names as actually reachable here.
+        Assert.Contains("System.ArgumentException", scan.CaughtTypes);
+        Assert.Contains("System.Runtime.InteropServices.COMException", scan.CaughtTypes);
+        Assert.Contains("System.InvalidOperationException", scan.CaughtTypes);
+    }
+
+    /// <summary>
     /// Scanner self-check. Without this, a scan that silently matched nothing
     /// (renamed type, stripped IL, wrong assembly) would make every
     /// <c>DoesNotContain</c> above pass vacuously.
@@ -191,6 +221,7 @@ public sealed class DockHostFocusFallbackTests
         IReadOnlySet<string> CalledMembers,
         IReadOnlySet<string> ReferencedTypes,
         IReadOnlySet<string> MethodsWithExceptionHandlers,
+        IReadOnlySet<string> CaughtTypes,
         IReadOnlyDictionary<string, IReadOnlySet<string>> CallsByMethod,
         int MethodsWithIl)
     {
@@ -217,6 +248,7 @@ public sealed class DockHostFocusFallbackTests
         var members = new SortedSet<string>(StringComparer.Ordinal);
         var types = new SortedSet<string>(StringComparer.Ordinal);
         var withHandlers = new SortedSet<string>(StringComparer.Ordinal);
+        var caughtTypes = new SortedSet<string>(StringComparer.Ordinal);
         var callsByMethod = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
         int methodsWithIl = 0;
 
@@ -251,8 +283,25 @@ public sealed class DockHostFocusFallbackTests
                 if (il is null || il.Length == 0) continue;
                 methodsWithIl++;
                 var methodName = reader.GetString(method.Name);
-                if (body.ExceptionRegions.Any(r => r.Kind == ExceptionRegionKind.Catch))
-                    withHandlers.Add(methodName);
+                foreach (var region in body.ExceptionRegions)
+                {
+                    if (region.Kind == ExceptionRegionKind.Catch)
+                    {
+                        withHandlers.Add(methodName);
+                        var caught = TypeNameOf(reader, region.CatchType);
+                        if (caught is not null) caughtTypes.Add(caught);
+                    }
+                    else if (region.Kind == ExceptionRegionKind.Filter)
+                    {
+                        // `catch (T) when (...)` compiles to a filter region with
+                        // a nil CatchType, so the declared type is invisible to a
+                        // metadata scan. Record a sentinel: this audited site is
+                        // pinned to plain typed catches, and a rewrite into the
+                        // filter form must come back through review.
+                        withHandlers.Add(methodName);
+                        caughtTypes.Add("<filter>");
+                    }
+                }
 
                 var perMethod = new SortedSet<string>(StringComparer.Ordinal);
                 ScanMethodBody(reader, il, opcodes, perMethod, types);
@@ -265,7 +314,7 @@ public sealed class DockHostFocusFallbackTests
             }
         }
 
-        return new AnnouncerScan(members, types, withHandlers, callsByMethod, methodsWithIl);
+        return new AnnouncerScan(members, types, withHandlers, caughtTypes, callsByMethod, methodsWithIl);
     }
 
     private static void ScanMethodBody(

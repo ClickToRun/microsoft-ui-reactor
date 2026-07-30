@@ -135,14 +135,31 @@ internal static class DockHostLiveAnnouncer
                 Microsoft.UI.Xaml.Input.FocusManager.TryFocusAsync(
                     target, Microsoft.UI.Xaml.FocusState.Programmatic));
         }
-        catch (Exception ex)
+        catch (global::System.ArgumentException ex)
         {
-            // The hand-off is an accessibility nicety — never take the app
-            // down for it. But do not discard the failure either: silently
-            // swallowing exactly this exception is what hid the illegal
-            // Next + FindNextElementOptions pairing above for so long.
+            // Parameter validation — the class the pre-fix
+            // TryMoveFocusAsync(Next, FindNextElementOptions) pairing threw on
+            // *every* hand-off (R4).
             ReportFocusFailure(ex);
         }
+        catch (global::System.Runtime.InteropServices.COMException ex)
+        {
+            // Interop failure below the WinRT projection.
+            ReportFocusFailure(ex);
+        }
+        catch (global::System.InvalidOperationException ex)
+        {
+            // Element / visual-tree state — the same class PackagedSettingsStore
+            // narrows to on its WinRT surface.
+            ReportFocusFailure(ex);
+        }
+        // Narrow, per spec 044 §6.7.2 and this site's **Narrow** verdict in
+        // docs/specs/044/swallowed-error-audit.md. Anything outside those three
+        // propagates on purpose: a broad catch here is precisely what hid R4,
+        // and a surprise exception out of the focus stack is a bug someone needs
+        // to see rather than absorb. The hand-off stays best-effort for the
+        // three audited classes — an accessibility nicety must not take the app
+        // down mid-pane-close, but it must not be silent either.
     }
 
     /// <summary>

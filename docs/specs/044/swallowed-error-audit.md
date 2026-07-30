@@ -45,7 +45,7 @@ auditable against the working code.
 | Verdict | Count | Shipped | Deferred |
 |---|---|---|---|
 | Keep (iteration sibling-independence) | 8 | 8 | — |
-| Narrow (specific exception type / HR filter) | 36 | 33 | 3 (Shell HResultFailed already narrowed; typed-event promotion deferred) |
+| Narrow (specific exception type / HR filter) | 37 | 34 | 3 (Shell HResultFailed already narrowed; typed-event promotion deferred) |
 | Propagate (no catch — user / framework bug surfaces) | 12 | 12 | — |
 | Replace with `TryXxx` | 10 | 0 | 10 (Win32 P/Invoke reporters, Phase 4.8) |
 | Promote to typed event | 18 | 9 (Navigation 6 + Intl 1 + Persistence 2) | 9 (Shell COM-calls 5 + ConnectedAnimation 4, Phase 4.6) |
@@ -200,7 +200,39 @@ have no catch at all.
 |---|---|---|
 | 4 `Debug.Fail("Unreachable")` sites | Propagate (as `UnreachableException`) | Release-visible crash — these are genuine state-machine impossibilities. The Reconciler.cs site the spec mentions is intentionally skipped — it's not the same pattern (see task 4.1). |
 
-### `src/Reactor/Core/Reconciler.cs:2635` (typed-ref assert) — Skipped intentionally
+### `src/Reactor.Advanced/Docking/Native/DockHostLiveAnnouncer.cs` — spec 045 §2.22 focus fallback (PR #938)
+
+First `Reactor.Advanced` entry in this audit. Not a `Debug.WriteLine`
+migration — a **new** swallow site introduced alongside the R4 focus-hand-off
+fix — but recorded here because §6.7 is the permanent record for framework
+swallow sites and this one has a verdict worth pinning.
+
+| Site | Verdict | Notes |
+|---|---|---|
+| `TryFocus` focus hand-off | Narrow | Narrowed to `ArgumentException` / `COMException` / `InvalidOperationException`; anything else propagates. Emitted via `ReactorEventSource.Log.SwallowedError("Docking", …)` **directly**, not `DiagnosticLog` — the event source is already on the `AdvancedInternalSurfaceTests` allowlist (spec 062 §7) and docking already uses it from `DockLayoutSerializer`, whereas the helper would drag `DiagnosticLog` + `LogCategory` onto that allowlist for a byte-identical payload. Trade-off accepted: no DEBUG `Debug.WriteLine` mirror. |
+
+**Failure modes the catch hides.** `FocusManager.FindFirstFocusableElement` /
+`TryFocusAsync` / `Control.Focus` are WinRT projections invoked during a pane
+close. `ArgumentException` is the parameter-validation class — and is exactly
+what the pre-fix `TryMoveFocusAsync(Next, FindNextElementOptions)` pairing
+threw on *every* hand-off. `COMException` covers interop failure below the
+projection. `InvalidOperationException` covers element/visual-tree state, the
+same class `PackagedSettingsStore` narrowed to on its WinRT surface.
+
+**Why swallowing is right for those three, and only those three.** The
+hand-off is an accessibility nicety on the pane-close path; a failed focus
+move must not take the app down mid-close. But the *broad* catch was not
+defensible: this site is the R4 bug — a fire-and-forget `_ =` discard meant an
+`ArgumentException` fired on every close, focus never moved, and nobody saw it
+for as long as the code existed. Applying §6.7.2 the way the ReactorWindow /
+JsonFileStore second pass did, a surprise exception out of the focus stack is
+a bug someone needs to see, not absorb. Hence Narrow rather than Keep.
+
+**Guard.** `DockHostFocusFallbackTests.Announcer_narrows_the_focus_catch`
+reads the method's exception regions out of IL and fails if a handler catches
+`System.Exception`, so the narrowing cannot be quietly widened back.
+
+
 
 The spec §4.3 also mentioned 1 site in `Reconciler.cs:~2635`. Audit
 note: that site is not a `Debug.Fail("Unreachable")` — its message
