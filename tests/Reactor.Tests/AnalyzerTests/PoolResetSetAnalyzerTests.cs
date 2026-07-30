@@ -874,6 +874,30 @@ class C
     }
 
     [Fact]
+    public async Task CodeFix_Suppressed_When_The_Receiver_Already_Applies_The_Same_Attached_Modifier()
+    {
+        // Modifiers run after setters, so `.AutomationName("old")` currently wins and the name
+        // renders as "old". Rewriting to `.AutomationName("old").AutomationName("new")` makes
+        // the last call win instead. Same precedence-inversion guard the instance shape has,
+        // reached through the attached path.
+        var code = AttachedStubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        {|REACTOR_POOL_001:el.AutomationName(""old"").Set(fe => Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(fe, ""new""))|};
+    }
+}";
+
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task CodeFix_Suppressed_When_The_Receiver_Already_Sets_Placement_Through_ToolTip()
     {
         // Modifiers run after setters, so today the receiver's `.ToolTip("Save", 1)` wins and
