@@ -6713,15 +6713,15 @@ public record CommandBarFlyoutElement(
     public bool IsOpen { get; init; }
     /// <summary>
     /// Preferred position of the flyout relative to its target. Defaults to
-    /// <see cref="FlyoutPlacementMode.Auto"/>.
+    /// <see cref="FlyoutPlacementMode.Auto"/>, meaning "no opinion — let the platform decide".
     /// </summary>
     /// <remarks>
-    /// <c>Auto</c> is currently written through to <c>CommandBarFlyout.Placement</c> rather
-    /// than being guarded like the other flyout elements. That is a merge-boundary artifact,
-    /// not a statement that <c>CommandBarFlyout</c> tolerates <c>Auto</c> — it does not. The
-    /// value simply never reached WinUI's show-time validator, because the flyout was
-    /// installed as <c>AttachedFlyout</c> metadata that nothing ever opened. The companion
-    /// change that fixes that wiring also guards these sites.
+    /// These sites are guarded by <c>Reconciler.ApplyFlyoutPlacement</c> rather than by
+    /// <c>FlyoutPlacement.Apply</c>, because they are owned by the change that fixed
+    /// <c>CommandBarFlyout</c> never opening from its target. Both prevent <c>Auto</c> from
+    /// reaching WinUI's show-time validator, which rejects it; they differ only on an update
+    /// back to <c>Auto</c>, where this one clears the DP so it returns to the platform
+    /// default rather than retaining the last explicit value.
     /// </remarks>
     public FlyoutPlacementMode Placement { get; init; } = FlyoutPlacementMode.Auto;
     internal Action<WinUI.CommandBarFlyout>[] Setters { get; init; } = [];

@@ -102,10 +102,10 @@ Conventions for contributors:
   leaves the dependency property alone when the element says `Auto`, so it keeps
   its own documented default of `Top` and WinUI repositions from there. Applies
   to `Flyout(...)`, `ContentFlyout(...)` / `.WithFlyout(...)` /
-  `.WithContextFlyout(...)` and `MenuItems(...)`. `CommandBarFlyout(...)` is
-  affected by the same defect but is fixed separately, alongside the change that
-  makes it open from its target at all — until that lands it never reaches the
-  validator, because nothing ever shows it. Explicit placements are unaffected
+  `.WithContextFlyout(...)` and `MenuItems(...)`. `CommandBarFlyout(...)` was
+  affected by the same defect and is guarded by the companion fix that made it
+  open from its target at all — before that it never reached the validator,
+  because nothing ever showed it. Explicit placements are unaffected
   everywhere; a guarded flyout whose placement changes from an explicit value
   back to `Auto` keeps the last explicit value rather than resetting.
 

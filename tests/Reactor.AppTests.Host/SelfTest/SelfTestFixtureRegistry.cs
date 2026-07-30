@@ -228,8 +228,8 @@ internal static class SelfTestFixtureRegistry
         // onto a WinUI FlyoutBase, because the show-time validator rejects it and
         // fail-fasts the process. The Flyout/ContentFlyout/fresh-create fixtures
         // actually open the flyout, which is the only thing that catches the crash;
-        // the button-slot one pins the DP value only. CommandBarFlyout is affected
-        // too but is covered by the separate change that fixes it opening at all.
+        // the button-slot one pins the DP value only. CommandBarFlyout was affected
+        // too and is guarded by the fix that made it open from its target at all.
         "FlyoutPlacement_Platform_FlyoutBase_PlacementDefault",
         "FlyoutPlacement_Flyout_DefaultPlacement_Opens",
         "FlyoutPlacement_Flyout_ExplicitPlacement_ReachesTheControl",

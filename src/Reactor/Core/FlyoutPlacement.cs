@@ -37,19 +37,20 @@ namespace Microsoft.UI.Reactor.Core;
 /// from there.
 /// </para>
 /// <para>
-/// <c>CommandBarFlyout</c>'s three placement sites are <b>not</b> routed through this helper.
-/// That is a merge boundary, not an exemption on the merits: those methods are being rewritten
-/// by the companion change that fixes <c>CommandBarFlyout</c> never opening, and that change
-/// guards them itself. <c>CommandBarFlyout</c> is affected by the same crash — it simply never
-/// reached the validator, because the flyout was installed as <c>AttachedFlyout</c> metadata
-/// that nothing ever called <c>ShowAttachedFlyout</c> on. A latent crash masked by a separate
-/// defect reads exactly like a working code path.
+/// <c>CommandBarFlyout</c>'s three placement sites are guarded by
+/// <c>Reconciler.ApplyFlyoutPlacement</c> instead of by this helper — they are owned by the
+/// change that fixed <c>CommandBarFlyout</c> never opening from its target, and that change
+/// guards them itself. <c>CommandBarFlyout</c> is affected by the same crash: it simply never
+/// reached the validator beforehand, because the flyout was installed as <c>AttachedFlyout</c>
+/// metadata that nothing ever called <c>ShowAttachedFlyout</c> on. A latent crash masked by a
+/// separate defect reads exactly like a working code path.
 /// </para>
 /// <para>
-/// An update from an explicit placement back to <c>Auto</c> intentionally leaves the previously
-/// written value in place; this matches the pre-existing <c>MenuFlyout</c> guard that this
-/// helper generalizes. The companion change instead clears the DP, which resets to the platform
-/// default — the two should converge on one behaviour once both have landed.
+/// The two helpers differ only on an update back to <c>Auto</c>: this one leaves the previously
+/// written value in place, matching the pre-existing <c>MenuFlyout</c> guard it generalizes,
+/// while <c>ApplyFlyoutPlacement</c> clears the DP so it returns to the platform default.
+/// Converging on one of them is a worthwhile follow-up; clearing is arguably the better
+/// semantic, since it makes an update idempotent with a fresh mount.
 /// </para>
 /// </remarks>
 internal static class FlyoutPlacement

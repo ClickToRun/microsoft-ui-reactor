@@ -127,17 +127,17 @@ public class FlyoutPlacementGuardTests
     /// </summary>
     /// <remarks>
     /// <para>
-    /// These three sites are left byte-identical to <c>main</c> here purely to avoid
-    /// conflicting with that in-flight work — <b>not</b> because <c>CommandBarFlyout</c> is
-    /// unaffected by the crash. It is affected: it simply never reached the validator,
-    /// because the flyout was installed as <c>AttachedFlyout</c> metadata that nothing ever
-    /// called <c>ShowAttachedFlyout</c> on. Once that wiring is fixed, a default
-    /// <see cref="FlyoutPlacementMode.Auto"/> reaches <c>ShowAtCore</c> and fail-fasts
-    /// exactly as it did for <c>Flyout</c>.
+    /// Those sites are guarded by <c>Reconciler.ApplyFlyoutPlacement</c>, not by
+    /// <c>FlyoutPlacement.Apply</c> — <b>not</b> because <c>CommandBarFlyout</c> is unaffected
+    /// by the crash. It is affected: it simply never reached the validator, because the flyout
+    /// was installed as <c>AttachedFlyout</c> metadata that nothing ever called
+    /// <c>ShowAttachedFlyout</c> on. Once that wiring was fixed, a default
+    /// <see cref="FlyoutPlacementMode.Auto"/> reached <c>ShowAtCore</c> and fail-fasted exactly
+    /// as it did for <c>Flyout</c>.
     /// </para>
     /// <para>
-    /// Keyed by method name so it holds whether those methods still write placement directly
-    /// or have been routed through a helper.
+    /// Keyed by method name so it holds regardless of whether those methods write placement
+    /// directly or route it through a helper.
     /// </para>
     /// </remarks>
     private static readonly string[] MethodsOwnedElsewhere =
