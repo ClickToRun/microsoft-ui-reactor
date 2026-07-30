@@ -71,9 +71,10 @@ class ListViewPage : Component
                         items.Select(i => TextBlock(i) as Element).ToArray()
                     ).SelectionMode(selectionMode).Height(250),
                     """
+                    // SelectionMode is driven by the Options combo below.
                     ListView(
                         TextBlock("Apples"), TextBlock("Bananas"), ...
-                    ).SelectionMode(ListViewSelectionMode.Multiple)
+                    ).SelectionMode(selectionMode)
                     """,
                     OptionPanel(
                         TextBlock("Selection Mode"),

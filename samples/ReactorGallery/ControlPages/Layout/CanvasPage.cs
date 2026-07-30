@@ -15,6 +15,12 @@ class CanvasPage : Component
         var (offsetX, setOffsetX) = UseState(50.0);
         var (offsetY, setOffsetY) = UseState(30.0);
 
+        // Shapes are painted with Fill, not Background — Background is only applied to
+        // Panel / Control / Border, so it is silently dropped on a Rectangle.
+        var coral = BrushHelper.Parse("#FF6B6B");
+        var teal = BrushHelper.Parse("#4ECDC4");
+        var sky = BrushHelper.Parse("#45B7D1");
+
         return ScrollView(
             VStack(16,
                 PageHeader("Canvas", "Supports absolute positioning of child elements."),
@@ -22,15 +28,16 @@ class CanvasPage : Component
                 SampleCard("Absolute Positioning",
                     Border(
                         Canvas(
-                            Rectangle().Size(80, 80).Background("#FF6B6B").Canvas(left: 10, top: 10),
-                            Rectangle().Size(80, 80).Background("#4ECDC4").Canvas(left: 60, top: 50),
-                            Rectangle().Size(80, 80).Background("#45B7D1").Canvas(left: 110, top: 90)
+                            Rectangle().Size(80, 80).Fill(coral).Canvas(left: 10, top: 10),
+                            Rectangle().Size(80, 80).Fill(teal).Canvas(left: 60, top: 50),
+                            Rectangle().Size(80, 80).Fill(sky).Canvas(left: 110, top: 90)
                         )
                     ).Size(250, 200).Background(Theme.SubtleFill).CornerRadius(ThemeResource.CornerRadius("ControlCornerRadius").TopLeft),
                     """
+                    // Shapes paint with Fill — Background has no effect on a Rectangle.
                     Canvas(
-                        Rectangle().Size(80, 80).Background("#FF6B6B").Canvas(left: 10, top: 10),
-                        Rectangle().Size(80, 80).Background("#4ECDC4").Canvas(left: 60, top: 50)
+                        Rectangle().Size(80, 80).Fill(BrushHelper.Parse("#FF6B6B")).Canvas(left: 10, top: 10),
+                        Rectangle().Size(80, 80).Fill(BrushHelper.Parse("#4ECDC4")).Canvas(left: 60, top: 50)
                     )
                     """),
 

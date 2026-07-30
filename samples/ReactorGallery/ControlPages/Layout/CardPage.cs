@@ -67,6 +67,7 @@ class CardPage : Component
                     VStack(8,
                         BodyStrong("Custom padding & radius"),
                         Body("Card(child) returns a BorderElement, so any Border fluent (Padding, CornerRadius, Background, etc.) chains as normal.")
+                            .TextWrapping()
                             .Foreground(Theme.SecondaryText)
                     )
                 ).Padding(24).CornerRadius(16).Width(360),

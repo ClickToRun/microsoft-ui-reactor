@@ -176,7 +176,7 @@
     "keywords": ["maps", "geolocation", "pan zoom", "markers", "interactive map"],
     "sampleOverride": {
       "header": "Interactive map",
-      "code": "MapControl(zoomLevel: 4)\n    .Height(320).Width(480)\n// Supply a Bing Maps token to load tiles:\n//   MapControl(mapServiceToken: mapKey, zoomLevel: 12)"
+      "code": "// MapControl needs a maps service token — without one it renders an empty\n// viewport and reports no error at all, so check for the token up front.\nvar token = Environment.GetEnvironmentVariable(\"REACTOR_GALLERY_MAP_TOKEN\");\n\nElement map = string.IsNullOrWhiteSpace(token)\n    ? Border(BodyStrong(\"No map service token configured\")).Height(320).Width(480)\n    : MapControl(mapServiceToken: token, zoomLevel: 4).Height(320).Width(480);\n\n// Pan and zoom with mouse/touch. Center and layers are set through .Set(m => { })."
     }
   },
   "markdown": {
@@ -189,7 +189,7 @@
     "relatedControls": ["AnimatedVisualPlayer"],
     "sampleOverride": {
       "header": "Video with transport controls",
-      "code": "MediaPlayerElement(\"https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4\")\n    .Height(280).Width(480)\n// Transport controls are enabled by default; AutoPlay is opt-in:\n//   .Set(mpe => mpe.AutoPlay = true)"
+      "code": "var (failure, setFailure) = UseState<string?>(null);\n\nElement player = failure is null\n    // OnMediaFailed lets a dead source explain itself instead of leaving the\n    // player showing its opaque built-in error text.\n    ? (MediaPlayerElement(\"https://media.w3.org/2010/05/sintel/trailer.mp4\")\n        with { OnMediaFailed = message => setFailure(message) })\n        .Height(280).Width(480)\n    : Border(BodyStrong(\"Sample stream unavailable\")).Height(280).Width(480);\n\n// Transport controls are enabled by default; AutoPlay is opt-in:\n//   .Set(mpe => mpe.AutoPlay = true)"
     }
   },
   "menu-bar": {
