@@ -120,6 +120,10 @@ namespace Microsoft.UI.Reactor.Core
     [GenerateReactorDescriptor(typeof(WinShapes.Path))]
     public record PathElement : Element { }
 
+    // A shape whose only Fill comes from a look-alike extension class, not ElementExtensions.
+    [GenerateReactorDescriptor(typeof(WinShapes.Ellipse))]
+    public record TriangleElement : Element { }
+
     // A user-defined element derived from a wrapped one. It declares no Set of its own, so the
     // inherited signature says nothing authoritative about what it mounts.
     public record RoundedRectangleElement : RectangleElement { }
@@ -176,6 +180,7 @@ namespace Microsoft.UI.Reactor.Core
         public static EllipseElement Ellipse() => new();
         public static LineElement Line() => new();
         public static PathElement Path() => new();
+        public static TriangleElement Triangle() => new();
         public static RoundedRectangleElement RoundedRectangle() => new();
         public static TintedRectangleElement TintedRectangle() => new();
         public static BorderElement Border() => new();
@@ -216,6 +221,7 @@ namespace Microsoft.UI.Reactor
         public static EllipseElement Set(this EllipseElement el, Action<WinShapes.Ellipse> configure) => el;
         public static LineElement Set(this LineElement el, Action<WinShapes.Line> configure) => el;
         public static PathElement Set(this PathElement el, Action<WinShapes.Path> configure) => el;
+        public static TriangleElement Set(this TriangleElement el, Action<WinShapes.Ellipse> configure) => el;
         public static TintedRectangleElement Set(this TintedRectangleElement el, Action<WinShapes.Rectangle> configure) => el;
         public static TintedRectangleElement Tint(this TintedRectangleElement el, double amount) => el;
         public static BorderElement Set(this BorderElement el, Action<WinUI.Border> configure) => el;
@@ -275,6 +281,13 @@ namespace Microsoft.UI.Reactor
     public static class LookAlikeExtensions
     {
         public static LookAlikeElement Set(this LookAlikeElement el, Action<WinShapes.Rectangle> configure) => el;
+
+        // A Fill/Stroke that are not Reactor's. The replacement lookup must not treat them as
+        // framework truth, or the fix would rewrite to someone else's method. (TriangleElement's
+        // Set is on ElementExtensions, so the mounted control still resolves and the diagnostic
+        // still fires — it just cannot name a replacement.)
+        public static TriangleElement Fill(this TriangleElement el, Brush brush) => el;
+        public static TriangleElement Stroke(this TriangleElement el, Brush brush) => el;
     }
 }
 
@@ -682,6 +695,40 @@ namespace TestApp
         internal static Element M() => LookAlike().Background(""#FF6B6B"");");
 
         await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Does_Not_Suggest_A_Replacement_That_Is_Not_Reactors()
+    {
+        // TriangleElement is a shape and its Set is Reactor's, so the drop is still reported — but
+        // its only Fill/Stroke come from a look-alike extension class. Treating those as the
+        // framework's would rewrite to someone else's method, or emit an ambiguous call. So the
+        // diagnostic names no replacement and no fix is offered.
+        var body = @"
+namespace TestApp2
+{
+    using Microsoft.UI.Reactor;
+    using Microsoft.UI.Reactor.Core;
+    using Microsoft.UI.Xaml.Media;
+    using static Microsoft.UI.Reactor.Core.Factories;
+
+    static class C3
+    {
+        internal static Element M(Brush b) => Triangle().{|#0:Background|}(b);
+    }
+}";
+
+        var test = MakeAnalyzerTest(body);
+        test.ExpectedDiagnostics.Add(
+            AnalyzerVerifier.Diagnostic(NoOpModifierAnalyzer.DiagnosticId)
+                .WithLocation(0)
+                .WithArguments(
+                    "Background",
+                    "TriangleElement",
+                    "Panel, Control, or Border",
+                    ". Wrap it in a Border(...) to paint a background behind this element"));
+
+        await test.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]

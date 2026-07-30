@@ -424,6 +424,26 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
     }
 
     /// <summary>
+    /// The method is declared on <c>Microsoft.UI.Reactor.ElementExtensions</c> — the one surface
+    /// this analyzer treats as authoritative, and the only one
+    /// <c>ModifierTableIntegrityTests</c> cross-checks against the descriptors.
+    /// </summary>
+    /// <remarks>
+    /// Applied to both the <c>Set</c> lookup (which decides the mounted control) and the
+    /// replacement lookup (which decides what the fix rewrites to). Without it, a user-defined
+    /// <c>Fill(this RectangleElement, Brush)</c> or <c>Set(this SomeElement, Action&lt;…&gt;)</c>
+    /// that happens to be in scope would be taken as framework truth — the fix could rewrite to
+    /// someone else's method, or emit a call that is ambiguous and does not compile.
+    /// </remarks>
+    private static bool IsElementExtensionsMember(IMethodSymbol method)
+    {
+        var containingType = (method.ReducedFrom ?? method).ContainingType;
+
+        return containingType is { Name: ElementExtensionsTypeName }
+            && containingType.ContainingNamespace?.ToDisplayString() == ReactorNamespace;
+    }
+
+    /// <summary>
     /// The <c>Set</c> overload is Reactor's own — declared on
     /// <c>Microsoft.UI.Reactor.ElementExtensions</c> — and is declared for
     /// <paramref name="receiver"/> itself, not inherited from a base element.
@@ -450,10 +470,7 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
     /// </remarks>
     private static bool IsDeclaredByReactorForExactly(IMethodSymbol declared, INamedTypeSymbol receiver)
     {
-        var declaringType = declared.ContainingType;
-
-        return declaringType is { Name: ElementExtensionsTypeName }
-            && declaringType.ContainingNamespace?.ToDisplayString() == ReactorNamespace
+        return IsElementExtensionsMember(declared)
             && SymbolEqualityComparer.Default.Equals(
                 declared.Parameters[0].Type.OriginalDefinition, receiver.OriginalDefinition);
     }
@@ -524,7 +541,7 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
             var overloads = context.SemanticModel
                 .LookupSymbols(invocation.SpanStart, receiver, candidate, includeReducedExtensionMethods: true)
                 .OfType<IMethodSymbol>()
-                .Where(m => m.MethodKind == MethodKind.ReducedExtension)
+                .Where(m => m.MethodKind == MethodKind.ReducedExtension && IsElementExtensionsMember(m))
                 .ToArray();
 
             if (overloads.Length == 0)
