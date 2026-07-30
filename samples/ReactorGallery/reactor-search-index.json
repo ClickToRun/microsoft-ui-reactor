@@ -2080,7 +2080,7 @@
         {
           "header": "Basic TabView",
           "language": "csharp",
-          "code": "TabView(\n    Tab(\"Home\", TextBlock(\"Home content\")),\n    Tab(\"Document\", TextBlock(\"Document content\")),\n    Tab(\"Settings\", TextBlock(\"Settings content\"))\n) with { SelectedIndex = idx, OnSelectedIndexChanged = i => setIdx(i) }"
+          "code": "var (tabs, setTabs) = UseState(new[] { \"Home\", \"Document\", \"Settings\" });\n\nTabView(tabs.Select(t => Tab(t, TextBlock($\"{t} content\"))).ToArray()) with\n{\n    SelectedIndex = idx,\n    OnSelectedIndexChanged = i => setIdx(i),\n    // The per-tab ✕ only raises TabCloseRequested — the app removes the tab.\n    OnTabCloseRequested = i => setTabs(tabs.Where((_, n) => n != i).ToArray()),\n}"
         }
       ]
     },
