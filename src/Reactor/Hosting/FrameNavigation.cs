@@ -32,6 +32,12 @@ internal static class FrameNavigation
         ArgumentNullException.ThrowIfNull(resolveXamlType);
         if (pageType is null) return false;
         try { return resolveXamlType(pageType) is not null; }
+        // Deliberately BROAD, and not a narrowing: an exception filter still compiles to an IL
+        // filter region with a nil CatchType, so this catches everything except the two fatal
+        // carve-outs. That is intended here — spec 044's audit keeps broad catches for
+        // "genuine fail-safe-to-default behavior", and this method's contract is "true only if
+        // definitively resolvable". Any failure to answer means we cannot confirm, and the safe
+        // default is to refuse the navigation rather than risk the access violation.
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException) { return false; }
     }
 
@@ -79,13 +85,20 @@ internal static class FrameNavigation
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
+            // Deliberately BROAD, and not a narrowing — the filter above still compiles to an
+            // IL filter region with a nil CatchType. Intended: what surfaces here is the *page
+            // constructor's* exception, i.e. arbitrary application code, and routing it into
+            // the element's declared navigation-failed channel is precisely spec 044's
+            // "user-callback isolation / fail-safe-to-default" Keep category. A type list would
+            // let an unanticipated page-constructor failure escape the mount pass, which is the
+            // behaviour this arm exists to prevent.
+            //
             // A page whose constructor throws surfaces one of two ways depending on how
             // WinUI classifies the failure: either it raises NavigationFailed (which the
             // element's own trampoline marks Handled, so Navigate returns normally and we
             // never get here), or it propagates the failure straight out of Navigate. This
-            // arm covers the second case so a broken page degrades into the caller's
-            // navigation-failed channel instead of tearing down the render pass. The two
-            // paths are mutually exclusive, so the failure is never reported twice.
+            // arm covers the second case. The two paths are mutually exclusive, so the
+            // failure is never reported twice.
             return ex;
         }
     }
