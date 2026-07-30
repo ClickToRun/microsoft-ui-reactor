@@ -200,10 +200,10 @@ public sealed class GallerySampleLintTests
 
         foreach (var (path, root) in Pages())
         {
-            foreach (var invocation in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
+            foreach (var invocation in root.DescendantNodes()
+                         .OfType<InvocationExpressionSyntax>()
+                         .Where(i => InvokedName(i) == "ItemsView"))
             {
-                if (InvokedName(invocation) != "ItemsView") continue;
-
                 // The view builder is the (item, index) => Element lambda.
                 var lambdas = ViewBuilders(invocation);
 
@@ -350,9 +350,9 @@ public sealed class GallerySampleLintTests
 
         foreach (var (path, root) in Pages())
         {
-            foreach (Match match in MsAppxLiteral.Matches(root.ToFullString()))
+            foreach (var assetPath in MsAppxLiteral.Matches(root.ToFullString())
+                         .Select(m => m.Groups["path"].Value))
             {
-                var assetPath = match.Groups["path"].Value;
                 inspectedAssets++;
 
                 // A composed / interpolated URI cannot be resolved statically, so it would
