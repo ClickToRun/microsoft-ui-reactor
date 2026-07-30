@@ -841,6 +841,46 @@ namespace TestApp
     }
 
     [Fact]
+    public async Task Does_Not_Fire_For_A_Constant_Null_Argument()
+    {
+        // `.Background(x)` merges through VisualModifiers.Merge — `other.Background ?? Background`
+        // — so a null reads as "not supplied" and the call is inert on ANY receiver, not because
+        // of the control gate. And the rewrite would not be equivalent: `el with { Fill = null }`
+        // becomes Optional.Of(null), an explicit set-to-null that CLEARS the brush. Reporting here
+        // would name the wrong cause and offer a behaviour-changing fix.
+        //
+        // A bare `.Background(null)` is not tested because it does not compile — null is ambiguous
+        // across the string/Brush/ThemeRef overloads (CS0121), so it can never reach the analyzer.
+        var body = App(@"
+        internal static Element Cast() => Rectangle().Background((Brush)null);
+        internal static Element Typed() => Rectangle().Background(default(Brush));
+        internal static Element Bare() => Rectangle().Background(default);");
+
+        await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Still_Fires_For_A_Possibly_Null_Brush_Variable()
+    {
+        // Control for the guard above: only *syntactically* constant nulls are skipped. A variable
+        // that merely might be null at runtime is undecidable, so the diagnostic stands — the guard
+        // must not be over-broad.
+        var body = App(@"
+        internal static Element M(Brush b) => Rectangle().{|REACTOR_MOD_003:Background|}(b);");
+
+        await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Is_Not_Offered_For_A_Constant_Null_Argument()
+    {
+        var body = App(@"
+        internal static Element M() => Rectangle().Background((Brush)null);");
+
+        await MakeFixTest(body, body).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task CodeFix_Is_Not_Offered_For_The_ThemeRef_Overload()
     {
         // No Fill(ThemeRef) counterpart exists. The diagnostic still reports; FixedCode equal to

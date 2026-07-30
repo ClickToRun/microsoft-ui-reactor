@@ -226,6 +226,12 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
             || !IsGenericReactorModifier(method))
             return;
 
+        // A constant-null argument is inert regardless of the receiver, so the control gate is not
+        // what makes it do nothing — and the rewrite would not be equivalent. See
+        // HasConstantNullArgument.
+        if (HasConstantNullArgument(invocation, model, cancellationToken))
+            return;
+
         if (model.GetTypeInfo(memberAccess.Expression, cancellationToken).Type is not INamedTypeSymbol receiver
             || !IsConcreteReactorElement(receiver))
             return;
@@ -282,6 +288,50 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
             receiver.Name,
             Humanize(gate),
             hint));
+    }
+
+    /// <summary>
+    /// True when an argument is a compile-time constant <see langword="null"/> — <c>(Brush)null</c>,
+    /// <c>default</c>, <c>default(Brush)</c>. Such a call is skipped entirely: no diagnostic, no fix.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why no diagnostic.</b> The common modifiers funnel through
+    /// <c>VisualModifiers.Merge</c>, which is <c>Background = other.Background ?? Background</c> —
+    /// a null delta reads as "not supplied" and leaves the previous value alone. So
+    /// <c>.Background((Brush)null)</c> does nothing on <em>any</em> receiver, not because
+    /// <c>ApplyModifiers</c>' control gate rejected it. Reporting it would name the wrong cause,
+    /// and this rule's contract is that anything uncertain produces no diagnostic.
+    /// </para>
+    /// <para>
+    /// <b>Why no fix, even more importantly.</b> The shape modifiers assign the element record
+    /// directly (<c>el with { Fill = brush }</c>), and for a reference-typed property backed by a
+    /// dependency property the generated descriptor takes the <c>Optional&lt;T&gt;</c> + dp channel.
+    /// <c>Optional&lt;T&gt;</c> is explicit that <c>with { X = null }</c> becomes
+    /// <c>Optional.Of(null)</c> and <b>not</b> <c>Unset</c> — an explicit set-to-null, which clears
+    /// the brush. Rewriting <c>.Background(null)</c> to <c>.Fill(null)</c> would therefore turn a
+    /// no-op into an active clear: a behaviour-changing auto-fix, which is the exact failure this
+    /// analyzer exists to prevent.
+    /// </para>
+    /// <para>
+    /// Only <em>syntactically</em> constant nulls are caught. An expression that merely happens to
+    /// evaluate to null at runtime is undecidable here and is left alone — the same line
+    /// <c>REACTOR_MOD_002</c> draws for its own null/default check.
+    /// </para>
+    /// </remarks>
+    private static bool HasConstantNullArgument(
+        InvocationExpressionSyntax invocation,
+        SemanticModel model,
+        global::System.Threading.CancellationToken cancellationToken)
+    {
+        foreach (var argument in invocation.ArgumentList.Arguments)
+        {
+            var constant = model.GetConstantValue(argument.Expression, cancellationToken);
+            if (constant.HasValue && constant.Value is null)
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>
