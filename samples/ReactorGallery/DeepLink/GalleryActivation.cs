@@ -156,19 +156,36 @@ public static class GalleryActivation
         // No command-line fallback here: this process's argv belongs to the *original*
         // launch, so falling back to it would re-navigate to wherever the gallery was
         // first opened instead of honouring (or ignoring) the incoming activation.
-        var route = ResolveRoute(args, allowCommandLineFallback: false) ?? GalleryRoutes.HomeRoute;
+        //
+        // A null route means the second launch carried no link at all — someone
+        // double-clicked the exe or a taskbar shortcut while the gallery was already
+        // running. That must bring the window forward and nothing else; substituting
+        // HomeRoute here would throw away whatever page the user was actually reading.
+        var route = ResolveRoute(args, allowCommandLineFallback: false);
 
         var dispatcher = ReactorApp.UIDispatcher;
         if (dispatcher is null)
         {
             // The UI thread doesn't exist yet — this activation raced startup. Park the
             // route for the shell to drain once it has subscribed.
-            Park(route);
+            if (route is not null) Park(route);
             return;
         }
 
         if (!dispatcher.TryEnqueue(() =>
         {
+            // Bring the existing window forward first: a link that navigates a window
+            // the user can't see is worse than not handling it at all. This is also the
+            // whole job for a plain re-launch.
+            try { ReactorApp.PrimaryWindow?.Activate(); }
+            catch (Exception ex)
+            {
+                global::System.Diagnostics.Debug.WriteLine(
+                    $"[Gallery] window activation failed: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            if (route is null) return;
+
             var handler = RouteActivated;
             if (handler is null)
             {
@@ -177,21 +194,12 @@ public static class GalleryActivation
                 return;
             }
 
-            // Bring the existing window forward first: a link that navigates a window
-            // the user can't see is worse than not handling it at all.
-            try { ReactorApp.PrimaryWindow?.Activate(); }
-            catch (Exception ex)
-            {
-                global::System.Diagnostics.Debug.WriteLine(
-                    $"[Gallery] window activation failed: {ex.GetType().Name}: {ex.Message}");
-            }
-
             handler(route);
         }))
         {
             // The dispatcher refused the work item (shutting down). Park rather than
             // silently drop, in case another window is still coming up.
-            Park(route);
+            if (route is not null) Park(route);
         }
     }
 
