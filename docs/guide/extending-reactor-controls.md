@@ -270,6 +270,71 @@ Decision tree for descriptor authors:
 | Reference to another realized element | `ElementRef<TTarget>?` | `.Reference<TTarget>(get, set)` |
 | Ordered references to several elements | `IReadOnlyList<ElementRef<TTarget>>?` | `.ReferenceList<TTarget>(get, apply)` |
 
+### Values the native control mutates on its own
+
+Some control properties are written by the control itself in response to
+the user, not just by Reactor: `InfoBar.IsOpen` flips to `false` when the
+user clicks the bar's close button, `TeachingTip.IsOpen` flips on a light
+dismiss, `SplitView.IsPaneOpen` and `NavigationView.IsPaneOpen` flip on a
+light dismiss or an adaptive display-mode change. Reactor's diff compares
+the **old element to the new element**, never the live control, so after
+one of those native writes the declared value and the control's value
+disagree — and nothing re-reconciles them.
+
+That is deliberate. Such a value is **edge-triggered**: the element
+declares a *transition*, not a mirror. Reactor writes the control only
+when the declared value *changes*, so a re-render that declares the same
+value again is a no-op and the user's dismissal stands.
+
+```csharp
+var (showBanner, setShowBanner) = UseState(true);
+
+return VStack(
+    InfoBar("Saved", "Your changes were saved.").IsClosable() with
+    {
+        IsOpen  = showBanner,
+        // Without this the dismissal never reaches app state, so a later
+        // `setShowBanner(true)` is a no-op — it is already true.
+        OnClosed = () => setShowBanner(false),
+    },
+    Button("Show again", () => setShowBanner(true)));
+```
+
+Wiring the change callback is what makes the value recoverable: the
+dismissal drives the declared value down to `false`, and the later
+`false → true` transition is a real edge that re-opens the control.
+
+`OnClosed` also has a fluent form — `.Closed(() => setShowBanner(false))` —
+which composes with the rest of the chain when you are not already using a
+`with` expression for `IsOpen`. The equivalent hooks on the other three are
+`SplitView` / `NavigationView`'s `OnPaneOpenChanged` and `TeachingTip`'s
+`OnClosed`.
+
+The alternative — re-asserting the declared value against the live
+control on every render — is deliberately **not** what these four do. It
+would make a control the user cannot dismiss: `InfoBarElement.IsOpen`,
+`SplitViewElement.IsPaneOpen` and `NavigationViewElement.IsPaneOpen` all
+default to `true`, so any of them written without a change callback would
+snap back open on the next unrelated re-render.
+
+Re-asserting is safe only when the element cannot silently claim
+authority it was never given. Two built-ins do re-assert, and both clear
+that bar: `Expander.IsExpanded` is an `Optional<bool>` whose *unset*
+value means "the control owns this", so the element only wins when the
+author explicitly declared it; `Popup.IsOpen` defaults to `false`, which
+is also the value a light-dismissed popup rests at, so the re-assert is a
+no-op in the direction that would otherwise fight the user.
+
+So, when wrapping a control of your own with a self-mutating property:
+
+- **Default to edge-triggered** — `.OneWay(get, set)` plus the control's
+  change event surfaced as a callback on the element record, so callers
+  have a sync channel. This is always safe.
+- **Only re-assert against the live control** if authority is opt-in
+  (an `Optional<T>` prop, unset by default) or the element's default
+  equals the value the control rests at after the user acts. A plain
+  `bool` defaulting to the "showing" state fails both tests.
+
 ### Reference properties
 
 Use reference entries when a native control property points at another

@@ -4452,6 +4452,14 @@ public partial record SplitViewElement(
     Element? Content = null
 ) : Element
 {
+    /// <summary>
+    /// Whether the pane is open. Defaults to <c>true</c>.
+    /// <para><b>Edge-triggered.</b> This declares a <i>transition</i>, not a mirror: Reactor
+    /// writes the control only when the declared value <i>changes</i>. The control opens and
+    /// closes its own pane (light dismiss, display-mode changes on resize) without touching the
+    /// declared value, so re-rendering the same declared value will not force the pane back.
+    /// Feed <see cref="OnPaneOpenChanged"/> into the state that drives this property.</para>
+    /// </summary>
     public bool IsPaneOpen { get; init; } = true;
     public double OpenPaneLength { get; init; } = 320;
     public double CompactPaneLength { get; init; } = 48;
@@ -4637,6 +4645,15 @@ public partial record NavigationViewElement(
     /// Carries the item's tag, or <see cref="SettingsTag"/> for the settings item.
     /// </summary>
     public Action<string?>? OnItemInvoked { get; init; }
+    /// <summary>
+    /// Whether the pane is open. Defaults to <c>true</c>.
+    /// <para><b>Edge-triggered.</b> This declares a <i>transition</i>, not a mirror: Reactor
+    /// writes the control only when the declared value <i>changes</i>. The control opens and
+    /// closes its own pane (light dismiss, adaptive display-mode changes on resize) without
+    /// touching the declared value, so re-rendering the same declared value will not force the
+    /// pane back. Feed <see cref="OnPaneOpenChanged"/> into the state that drives this
+    /// property (issue #916).</para>
+    /// </summary>
     public bool IsPaneOpen { get; init; } = true;
     /// <summary>
     /// Fires whenever the realized control's <c>IsPaneOpen</c> changes — including changes the
@@ -5302,6 +5319,15 @@ public partial record TeachingTipElement(
     string? Subtitle = null
 ) : Element
 {
+    /// <summary>
+    /// Whether the tip is shown. Defaults to <c>false</c> — drive it from state.
+    /// <para><b>Edge-triggered.</b> This declares a <i>transition</i>, not a mirror: Reactor
+    /// writes the control only when the declared value <i>changes</i>. A light dismiss or the
+    /// tip's own close button sets <c>IsOpen</c> to <c>false</c> on the control without touching
+    /// the declared value, so re-rendering the same declared <c>true</c> will not re-open it.
+    /// Wire <see cref="OnClosed"/> back into the state that drives this property; a later
+    /// <c>false → true</c> transition then re-opens the tip.</para>
+    /// </summary>
     public bool IsOpen { get; init; }
     public Element? Content { get; init; }
     public string? ActionButtonContent { get; init; }
@@ -5410,7 +5436,19 @@ public partial record InfoBarElement(
 ) : Element
 {
     public InfoBarSeverity Severity { get; init; } = InfoBarSeverity.Informational;
+    /// <summary>
+    /// Whether the bar is shown. Defaults to <c>true</c>, so <c>InfoBar("Title", "Message")</c>
+    /// is visible without ceremony.
+    /// <para><b>Edge-triggered.</b> This declares a <i>transition</i>, not a mirror: Reactor
+    /// writes the control only when the declared value <i>changes</i>. The user can dismiss the
+    /// bar with its built-in close button, which sets <c>IsOpen</c> to <c>false</c> on the
+    /// control without touching the declared value — re-rendering the same declared <c>true</c>
+    /// will <b>not</b> bring it back, and is not meant to. Wire <see cref="OnClosed"/> (or
+    /// <c>.Closed(...)</c>) into the state that drives this property; a later <c>false → true</c>
+    /// transition then re-opens the bar.</para>
+    /// </summary>
     public bool IsOpen { get; init; } = true;
+    /// <summary>Whether the bar shows its built-in close button. Defaults to <c>true</c>.</summary>
     public bool IsClosable { get; init; } = true;
     public string? ActionButtonContent { get; init; }
     public Action? OnActionButtonClick { get; init; }
