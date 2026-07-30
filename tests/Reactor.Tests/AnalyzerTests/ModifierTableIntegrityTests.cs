@@ -458,29 +458,36 @@ public class ModifierTableIntegrityTests
             if (property is null)
                 continue;
 
-            foreach (var binary in ifStatement.Condition
+            var typeNames = ifStatement.Condition
                 .DescendantNodesAndSelf()
                 .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.BinaryExpressionSyntax>()
                 .Where(b => b.RawKind == (int)Microsoft.CodeAnalysis.CSharp.SyntaxKind.IsExpression
-                            && b.Left is Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax { Identifier.Text: "fe" }))
-            {
-                var typeName = binary.Right switch
-                {
-                    Microsoft.CodeAnalysis.CSharp.Syntax.QualifiedNameSyntax qualified => qualified.Right.Identifier.Text,
-                    Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax simple => simple.Identifier.Text,
-                    _ => null,
-                };
-                if (typeName is null)
-                    continue;
+                            && b.Left is Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax { Identifier.Text: "fe" })
+                .Select(b => SimpleTypeName(b.Right))
+                .Where(typeName => typeName is not null);
 
+            foreach (var typeName in typeNames)
+            {
                 if (!gates.TryGetValue(property, out var set))
                     gates[property] = set = new HashSet<string>(StringComparer.Ordinal);
-                set.Add(typeName);
+                set.Add(typeName!);
             }
         }
 
         return gates;
     }
+
+    /// <summary>
+    /// Unqualified name of a type reference written as either <c>Type</c> or <c>Ns.Type</c>, or
+    /// <see langword="null"/> for any other shape (array, generic, tuple, …), which the gates never
+    /// use.
+    /// </summary>
+    private static string? SimpleTypeName(Microsoft.CodeAnalysis.SyntaxNode type) => type switch
+    {
+        Microsoft.CodeAnalysis.CSharp.Syntax.QualifiedNameSyntax qualified => qualified.Right.Identifier.Text,
+        Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax simple => simple.Identifier.Text,
+        _ => null,
+    };
 
     /// <summary>
     /// <see cref="NoOpModifierAnalyzer"/> resolves an element's mounted control from Reactor's
