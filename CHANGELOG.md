@@ -92,7 +92,10 @@ Conventions for contributors:
   discarded on pool reuse, so the rule's subject matter grows from 12 properties
   to 41. **Consumer builds that were clean may start reporting
   `REACTOR_POOL_001` on upgrade**; each report is a write that really is lost when
-  the control is recycled. Most map 1:1 and ship a codefix
+  the control is recycled. Matching is gated on the write's target being the
+  lambda parameter itself and on the setter's owner resolving to the real WinUI
+  (or Reactor) type, so a write to some other object — or to a lookalike type of
+  the same name — stays silent. Most map 1:1 and ship a codefix
   (`AutomationProperties.SetName` → `.AutomationName(...)`,
   `ToolTipService.SetToolTip` → `.ToolTip(...)`,
   `TitleBar.SetIsDragRegion` → `.IsDragRegion(...)`); the rest are
