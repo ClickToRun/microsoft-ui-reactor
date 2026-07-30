@@ -44,7 +44,7 @@ auditable against the working code.
 
 | Verdict | Count | Shipped | Deferred |
 |---|---|---|---|
-| Keep (iteration sibling-independence / fail-safe-to-default) | 10 | 10 | — |
+| Keep (iteration sibling-independence) | 8 | 8 | — |
 | Narrow (specific exception type / HR filter) | 37 | 34 | 3 (Shell HResultFailed already narrowed; typed-event promotion deferred) |
 | Propagate (no catch — user / framework bug surfaces) | 12 | 12 | — |
 | Replace with `TryXxx` | 10 | 0 | 10 (Win32 P/Invoke reporters, Phase 4.8) |
@@ -159,6 +159,14 @@ the inventory in §3.3 of the task doc.
 | 5 pure-trace `Debug.WriteLine` (session started / parser output / orphan cleanup) | Keep as `Debug.WriteLine` | Framework-internal per spec §6.3 carve-out. |
 
 ### `src/Reactor/Hosting/FrameNavigation.cs` — added with the Frame-navigation access-violation fix
+
+> **Not yet reflected in the verdict-distribution table above.** These two sites are
+> deliberately left out of the counter pending reconciliation once the concurrent PRs
+> touching this file have landed. The counter's derivation rule is not a plain row count
+> (the `Keep` row reads 8 while ~15 rows carry a `Keep` verdict, so it tracks a
+> subcategory and/or collapses multi-site rows), so incrementing it from a branch would
+> risk writing a confidently wrong number into the one figure this audit exists to make
+> trustworthy. The entries below are the load-bearing record; the count is derived from them.
 
 Both sites are new with that fix and are **fail-safe-to-default** per §6.7.2, not
 sibling-independence. They are deliberately broad and the code comments say so —
