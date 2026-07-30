@@ -44,7 +44,7 @@ auditable against the working code.
 
 | Verdict | Count | Shipped | Deferred |
 |---|---|---|---|
-| Keep (iteration sibling-independence) | 8 | 8 | — |
+| Keep (iteration sibling-independence / fail-safe-to-default) | 10 | 10 | — |
 | Narrow (specific exception type / HR filter) | 37 | 34 | 3 (Shell HResultFailed already narrowed; typed-event promotion deferred) |
 | Propagate (no catch — user / framework bug surfaces) | 12 | 12 | — |
 | Replace with `TryXxx` | 10 | 0 | 10 (Win32 P/Invoke reporters, Phase 4.8) |
@@ -157,6 +157,20 @@ the inventory in §3.3 of the task doc.
 |---|---|---|
 | 7 error-swallow catches (provider start, session enable, parser, etc.) | Keep + DiagnosticLog | LogCategory.LayoutCost. |
 | 5 pure-trace `Debug.WriteLine` (session started / parser output / orphan cleanup) | Keep as `Debug.WriteLine` | Framework-internal per spec §6.3 carve-out. |
+
+### `src/Reactor/Hosting/FrameNavigation.cs` — added with the Frame-navigation access-violation fix
+
+Both sites are new with that fix and are **fail-safe-to-default** per §6.7.2, not
+sibling-independence. They are deliberately broad and the code comments say so —
+note that `catch (Exception ex) when (ex is not A and not B)` still compiles to an
+IL filter region with a nil `CatchType`, so the carve-outs exclude the two fatal
+types without making it a narrowing. Same shape as the existing convention at
+`Reconciler.cs:1795`, `ElementPool.cs:93` and `ObservableTreeTracker.cs:124`.
+
+| Site | Verdict | Notes |
+|---|---|---|
+| `CanResolvePageType` resolver probe | Keep (fail-safe-to-default) | The method's contract is "true **only if** definitively resolvable". Any failure to answer means we cannot confirm, and returning `false` refuses the navigation — the safe direction, and the one that cannot produce the access violation. Expected types are `COMException` at the WinRT boundary and `InvalidOperationException` / `ArgumentException` from a generated or hand-written `IXamlMetadataProvider`; propagating anything else would convert a third-party provider's bug into a render-loop error **while the navigation is refused either way**, i.e. strictly worse for identical safety. `OutOfMemoryException` / `StackOverflowException` still propagate. |
+| `TryNavigate` around `Frame.Navigate` | Keep (user-callback isolation, §6.7.3) | What surfaces here is the **page constructor's** exception — arbitrary application code — and routing it into the element's declared `OnNavigationFailed` channel is the arm's entire purpose. Directly analogous to the `ContentDialog.ShowAsync + OnClosed` entry above. **Narrowing would reintroduce the defect this fix exists to remove:** an unanticipated page-constructor failure would escape the mount pass. Mutually exclusive with the `NavigationFailed` event path, so a failure is reported exactly once (pinned by the `FrameNavFail_ReportedOnce` selftest). |
 
 ### `src/Reactor/Hosting/ReactorWindow.cs` — Phase C.8 (commit `21cd6ef9`) + Phase C.9 narrowing
 
