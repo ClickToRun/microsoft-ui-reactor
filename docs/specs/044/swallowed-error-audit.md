@@ -71,6 +71,12 @@ Spec §6.7.4 worry-threshold for `Propagate` is 20; we're at 12.
 > Its figures are correctly frozen at that point and drift from the table above by design —
 > do not "fix" them to match.
 >
+> That is checkable rather than asserted: of the four verdicts the prose names, **three still
+> match the table exactly** (`Keep 8`, `Propagate 12`, `Deleted 9`) and only `Narrow` has moved
+> (prose `33`, table `37`) — precisely the row later narrowing work advanced. If the paragraph
+> were a current-state summary, someone would have updated it during that drift. Nobody did,
+> because it isn't one. **The divergence is the evidence, not the defect.**
+>
 > **Also note the `Keep` row's label under-describes its own contents.** It reads
 > "iteration sibling-independence", but entries filed under it include user-callback isolation
 > (`ContentDialog.ShowAsync + OnClosed`, navigation lifecycle dispatch) and fail-safe-to-default
