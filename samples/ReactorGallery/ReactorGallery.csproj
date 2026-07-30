@@ -87,6 +87,10 @@
     <AppxManifest Include="Package.appxmanifest">
       <SubType>Designer</SubType>
     </AppxManifest>
-    <Content Include="Images\*.png" />
+    <!-- CopyToOutputDirectory so the build output is a complete, registerable package
+         layout: `Add-AppxPackage -Register bin\...\AppxManifest.xml` is the normal way to
+         run the packaged flavour without producing and signing an .msix, and it resolves
+         the manifest's logo paths against this folder. -->
+    <Content Include="Images\*.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
