@@ -110,11 +110,29 @@ public class InfoBarIsOpenEdgeTriggeredTests
         return get(baseline) && !get(closed) && get(notClosable);
     }
 
+    /// <summary>
+    /// Collects instance field names across the whole type hierarchy.
+    ///
+    /// <para><c>BindingFlags.NonPublic</c> does <b>not</b> return private fields
+    /// declared on base types, so a naive single-level <c>GetFields</c> would let
+    /// <see cref="IsOpenEntry_CannotObserveTheLiveControl"/> start passing if a
+    /// refactor moved <c>_readBack</c> into a base class — the entry could still
+    /// observe the live control while the guard reported clean. Walk the chain
+    /// with <c>DeclaredOnly</c> at each level instead.</para>
+    /// </summary>
     [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2070", Justification = "Test-only: reflects non-public instance fields on concrete descriptor entry types the test resolves at runtime. JIT-only (this host is never trimmed) and behaviour-neutral — neither preserves nor prunes members.")]
+    [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "Test-only: walks Type.BaseType to collect DeclaredOnly fields at each level, which the trim analyzer cannot annotate. JIT-only (this host is never trimmed) and behaviour-neutral.")]
     private static IReadOnlyCollection<string> InstanceFieldNames(Type type)
-        => type.GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)
-               .Select(f => f.Name)
-               .ToList();
+    {
+        var names = new List<string>();
+        for (var t = type; t is not null && t != typeof(object); t = t.BaseType)
+        {
+            names.AddRange(t
+                .GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.DeclaredOnly)
+                .Select(f => f.Name));
+        }
+        return names;
+    }
 
     [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "Test-only: reflects a known non-public field on a concrete descriptor entry. JIT-only (this host is never trimmed) and behaviour-neutral.")]
     private static object? GetPrivateField(object owner, string name)
