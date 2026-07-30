@@ -882,14 +882,17 @@ namespace TestApp
         var shapeElements = 0;
         var missing = new global::System.Collections.Generic.List<string>();
 
-        foreach (var element in typeof(Element).Assembly.GetTypes()
-                     .Where(t => typeof(Element).IsAssignableFrom(t) && !t.IsAbstract && !t.IsGenericTypeDefinition)
-                     .OrderBy(t => t.Name, StringComparer.Ordinal))
-        {
-            if (MountedControl(element) is not { } control
-                || !typeof(global::Microsoft.UI.Xaml.Shapes.Shape).IsAssignableFrom(control))
-                continue;
+        // Projected + filtered in the pipeline rather than with an in-loop `continue`
+        // (CodeQL cs/linq/missed-where), which also avoids resolving the control twice.
+        var shapes = typeof(Element).Assembly.GetTypes()
+            .Where(t => typeof(Element).IsAssignableFrom(t) && !t.IsAbstract && !t.IsGenericTypeDefinition)
+            .Select(element => (Element: element, Control: MountedControl(element)))
+            .Where(pair => pair.Control is not null
+                           && typeof(global::Microsoft.UI.Xaml.Shapes.Shape).IsAssignableFrom(pair.Control))
+            .OrderBy(pair => pair.Element.Name, StringComparer.Ordinal);
 
+        foreach (var (element, control) in shapes)
+        {
             shapeElements++;
 
             var hasReplacement = candidates.Any(name => modifiers[name].Any(m =>
@@ -901,7 +904,7 @@ namespace TestApp
             if (!hasReplacement)
             {
                 missing.Add(
-                    $"{element.Name} mounts {control.Name} (a Shape) but ElementExtensions declares none of " +
+                    $"{element.Name} mounts {control!.Name} (a Shape) but ElementExtensions declares none of " +
                     $"[{string.Join("|", candidates)}] for it — REACTOR_MOD_003 would suggest a modifier that " +
                     "does not exist, or silently stop suggesting one.");
             }

@@ -342,31 +342,24 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
     {
         INamedTypeSymbol? found = null;
 
-        foreach (var symbol in model.LookupSymbols(position, receiver, SetMethodName, includeReducedExtensionMethods: true))
+        // Filtered in the pipeline rather than with an in-loop `continue` (CodeQL
+        // cs/linq/missed-where): everything here is a predicate on the symbol's shape, and only the
+        // ambiguity check needs the loop.
+        var mountedControls = model
+            .LookupSymbols(position, receiver, SetMethodName, includeReducedExtensionMethods: true)
+            .OfType<IMethodSymbol>()
+            .Where(method =>
+                method is { MethodKind: MethodKind.ReducedExtension, Parameters.Length: 1, ReducedFrom: not null }
+                && IsDeclaredByReactorForExactly(method.ReducedFrom!, receiver))
+            .Select(method => method.Parameters[0].Type as INamedTypeSymbol)
+            .Where(action =>
+                action is { Name: "Action", TypeArguments.Length: 1 }
+                && action.ContainingNamespace?.ToDisplayString() == "System")
+            .Select(action => action!.TypeArguments[0] as INamedTypeSymbol)
+            .Where(candidate => candidate is not null);
+
+        foreach (var candidate in mountedControls)
         {
-            if (symbol is not IMethodSymbol { MethodKind: MethodKind.ReducedExtension, Parameters.Length: 1 } method
-                || method.ReducedFrom is not { } declared)
-                continue;
-
-            var declaringNamespace = declared.ContainingType?.ContainingNamespace?.ToDisplayString();
-            if (declaringNamespace is null
-                || (declaringNamespace != ReactorNamespace
-                    && !declaringNamespace.StartsWith(ReactorNamespace + ".", System.StringComparison.Ordinal)))
-                continue;
-
-            // Declared for this exact element, not inherited from a base element. Compared on the
-            // original definitions: ReducedFrom does not carry the type arguments inferred during
-            // reduction, so `Set<T>(this ItemsViewElement<T>, …)` reduced against
-            // `ItemsViewElement<Foo>` still reports `ItemsViewElement<T>` as its receiver.
-            if (!SymbolEqualityComparer.Default.Equals(
-                    declared.Parameters[0].Type.OriginalDefinition, receiver.OriginalDefinition))
-                continue;
-
-            if (method.Parameters[0].Type is not INamedTypeSymbol { Name: "Action", TypeArguments.Length: 1 } action
-                || action.ContainingNamespace?.ToDisplayString() != "System"
-                || action.TypeArguments[0] is not INamedTypeSymbol candidate)
-                continue;
-
             if (found is not null && !SymbolEqualityComparer.Default.Equals(found, candidate))
             {
                 control = null!;
@@ -378,6 +371,28 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
 
         control = found!;
         return found is not null;
+    }
+
+    /// <summary>
+    /// The <c>Set</c> overload is Reactor's and is declared for <paramref name="receiver"/> itself,
+    /// not inherited from a base element.
+    /// </summary>
+    /// <remarks>
+    /// The receiver comparison runs on the original definitions: <c>ReducedFrom</c> does not carry
+    /// the type arguments inferred during reduction, so <c>Set&lt;T&gt;(this ItemsViewElement&lt;T&gt;, …)</c>
+    /// reduced against <c>ItemsViewElement&lt;Foo&gt;</c> still reports <c>ItemsViewElement&lt;T&gt;</c>.
+    /// A base and a derived element still have different original definitions, so the
+    /// inherited-only case stays excluded.
+    /// </remarks>
+    private static bool IsDeclaredByReactorForExactly(IMethodSymbol declared, INamedTypeSymbol receiver)
+    {
+        var declaringNamespace = declared.ContainingType?.ContainingNamespace?.ToDisplayString();
+
+        return declaringNamespace is not null
+            && (declaringNamespace == ReactorNamespace
+                || declaringNamespace.StartsWith(ReactorNamespace + ".", System.StringComparison.Ordinal))
+            && SymbolEqualityComparer.Default.Equals(
+                declared.Parameters[0].Type.OriginalDefinition, receiver.OriginalDefinition);
     }
 
     /// <summary>

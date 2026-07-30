@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Composition;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
@@ -59,16 +60,21 @@ public sealed class NoOpModifierCodeFix : CodeFixProvider
         if (root is null)
             return;
 
-        foreach (var diagnostic in context.Diagnostics)
+        var fixable = context.Diagnostics
+            .Select(diagnostic => (
+                Diagnostic: diagnostic,
+                Replacement: diagnostic.Properties.TryGetValue(NoOpModifierAnalyzer.ReplacementKey, out var replacement)
+                    ? replacement
+                    : null,
+                ArgumentKind: diagnostic.Properties.TryGetValue(NoOpModifierAnalyzer.ArgumentKindKey, out var argumentKind)
+                    ? argumentKind
+                    : null))
+            .Where(candidate =>
+                !string.IsNullOrEmpty(candidate.Replacement)
+                && candidate.ArgumentKind is NoOpModifierAnalyzer.RenameArgument or NoOpModifierAnalyzer.StringArgument);
+
+        foreach (var (diagnostic, replacement, argumentKind) in fixable)
         {
-            if (!diagnostic.Properties.TryGetValue(NoOpModifierAnalyzer.ReplacementKey, out var replacement)
-                || string.IsNullOrEmpty(replacement))
-                continue;
-
-            if (!diagnostic.Properties.TryGetValue(NoOpModifierAnalyzer.ArgumentKindKey, out var argumentKind)
-                || argumentKind is not (NoOpModifierAnalyzer.RenameArgument or NoOpModifierAnalyzer.StringArgument))
-                continue;
-
             var node = root.FindNode(diagnostic.Location.SourceSpan, getInnermostNodeForTie: true);
             if (node.FirstAncestorOrSelf<InvocationExpressionSyntax>() is not
                 {

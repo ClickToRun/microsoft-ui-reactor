@@ -460,12 +460,10 @@ public class ModifierTableIntegrityTests
 
             foreach (var binary in ifStatement.Condition
                 .DescendantNodesAndSelf()
-                .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.BinaryExpressionSyntax>())
+                .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.BinaryExpressionSyntax>()
+                .Where(b => b.RawKind == (int)Microsoft.CodeAnalysis.CSharp.SyntaxKind.IsExpression
+                            && b.Left is Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax { Identifier.Text: "fe" }))
             {
-                if (!binary.RawKind.Equals((int)Microsoft.CodeAnalysis.CSharp.SyntaxKind.IsExpression)
-                    || binary.Left is not Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax { Identifier.Text: "fe" })
-                    continue;
-
                 var typeName = binary.Right switch
                 {
                     Microsoft.CodeAnalysis.CSharp.Syntax.QualifiedNameSyntax qualified => qualified.Right.Identifier.Text,
@@ -510,19 +508,16 @@ public class ModifierTableIntegrityTests
         var elementExtensions = elementType.Assembly.GetType("Microsoft.UI.Reactor.ElementExtensions");
         Assert.NotNull(elementExtensions);
 
-        // element type → the Action<TControl> named by its own Set overload(s).
         var setControls = new Dictionary<Type, HashSet<Type>>();
-        foreach (var method in elementExtensions!.GetMethods(BindingFlags.Public | BindingFlags.Static))
+        var setOverloads = elementExtensions!.GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Where(m => m.Name == "Set")
+            .Select(m => m.GetParameters())
+            .Where(parameters => parameters.Length == 2
+                                 && parameters[1].ParameterType.IsGenericType
+                                 && parameters[1].ParameterType.GetGenericTypeDefinition() == typeof(Action<>));
+
+        foreach (var parameters in setOverloads)
         {
-            if (method.Name != "Set")
-                continue;
-
-            var parameters = method.GetParameters();
-            if (parameters.Length != 2
-                || !parameters[1].ParameterType.IsGenericType
-                || parameters[1].ParameterType.GetGenericTypeDefinition() != typeof(Action<>))
-                continue;
-
             var receiver = parameters[0].ParameterType;
             if (receiver.IsGenericType)
                 receiver = receiver.GetGenericTypeDefinition();
@@ -535,23 +530,26 @@ public class ModifierTableIntegrityTests
         var checkedElements = 0;
         var problems = new List<string>();
 
-        foreach (var element in elementType.Assembly.GetTypes()
-                     .Where(t => elementType.IsAssignableFrom(t) && !t.IsAbstract)
-                     .OrderBy(t => t.Name, StringComparer.Ordinal))
-        {
-            if (DeclaredControl(element) is not { } declared)
-                continue;   // no generator attribute — nothing to cross-check against.
+        // Projected + filtered in the pipeline (CodeQL cs/linq/missed-where); this also avoids
+        // resolving the declared control twice.
+        var attributed = elementType.Assembly.GetTypes()
+            .Where(t => elementType.IsAssignableFrom(t) && !t.IsAbstract)
+            .Select(element => (Element: element, Declared: DeclaredControl(element)))
+            .Where(pair => pair.Declared is not null)
+            .OrderBy(pair => pair.Element.Name, StringComparer.Ordinal);
 
+        foreach (var (element, declared) in attributed)
+        {
             var key = element.IsGenericType ? element.GetGenericTypeDefinition() : element;
             if (!setControls.TryGetValue(key, out var fromSet))
                 continue;   // no Set overload; the analyzer skips these elements entirely.
 
             checkedElements++;
 
-            if (!fromSet.Contains(declared))
+            if (!fromSet.Contains(declared!))
             {
                 problems.Add(
-                    $"{element.Name}: the descriptor mounts {declared.Name}, but its Set overload(s) take " +
+                    $"{element.Name}: the descriptor mounts {declared!.Name}, but its Set overload(s) take " +
                     $"[{string.Join("|", fromSet.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal))}]. " +
                     "REACTOR_MOD_003 reads the mounted control off Set, so it would gate against the wrong type.");
             }
@@ -653,35 +651,31 @@ public class ModifierTableIntegrityTests
         var keys = new HashSet<string>(StringComparer.Ordinal);
         var hooks = 0;
 
-        foreach (var file in Directory.GetFiles(sourceDir, "*.cs", SearchOption.AllDirectories))
+        foreach (var file in Directory.GetFiles(sourceDir, "*.cs", SearchOption.AllDirectories)
+                     .Select(File.ReadAllText)
+                     .Where(text => text.Contains("Customize")))
         {
-            var text = File.ReadAllText(file);
-            if (!text.Contains("Customize"))
-                continue;
-
-            var tree = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(text);
+            var tree = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(file);
             foreach (var method in tree.GetRoot()
                 .DescendantNodes()
                 .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.MethodDeclarationSyntax>()
-                .Where(m => m.Identifier.Text == "Customize"))
+                .Where(m => m.Identifier.Text == "Customize"
+                            && m.Parent is Microsoft.CodeAnalysis.CSharp.Syntax.TypeDeclarationSyntax))
             {
-                if (method.Parent is not Microsoft.CodeAnalysis.CSharp.Syntax.TypeDeclarationSyntax owner)
-                    continue;
-
                 hooks++;
 
-                var elementName = QualifiedTypeName(owner);
+                var elementName = QualifiedTypeName(
+                    (Microsoft.CodeAnalysis.CSharp.Syntax.TypeDeclarationSyntax)method.Parent!);
 
-                foreach (var access in method.DescendantNodes()
-                    .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.MemberAccessExpressionSyntax>())
-                {
-                    if (access.Expression is not Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax receiver
-                        || !gated.Contains(access.Name.Identifier.Text)
-                        || !IsLambdaParameter(access, receiver.Identifier.Text))
-                        continue;
+                var gatedReads = method.DescendantNodes()
+                    .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.MemberAccessExpressionSyntax>()
+                    .Where(access =>
+                        access.Expression is Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax receiver
+                        && gated.Contains(access.Name.Identifier.Text)
+                        && IsLambdaParameter(access, receiver.Identifier.Text));
 
+                foreach (var access in gatedReads)
                     keys.Add(NoOpModifierAnalyzer.ElementModifierKey(elementName, access.Name.Identifier.Text));
-                }
             }
         }
 
