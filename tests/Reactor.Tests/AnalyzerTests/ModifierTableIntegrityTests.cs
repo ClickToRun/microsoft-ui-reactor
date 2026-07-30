@@ -779,39 +779,42 @@ public class ModifierTableIntegrityTests
             foreach (var ifStatement in method.DescendantNodes()
                 .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.IfStatementSyntax>())
             {
-                // Which modifier does this branch guard? `m.Background is not null`,
-                // `resolvedPadding.HasValue`, `oldM?.FontSize.HasValue == true`, …
+                // Which modifier(s) does this branch guard? `m.Background is not null`,
+                // `resolvedPadding.HasValue`, `oldM?.FontSize.HasValue == true`, … A guard can name
+                // more than one — `m.PaddingInlineStart.HasValue || m.PaddingInlineEnd.HasValue`
+                // gates BOTH on the same control set — so every name is attributed, not just the
+                // first. Taking only the first left PaddingInlineEnd invisible to
+                // Every_ApplyModifiers_ControlGate_Is_Declared_Or_Explicitly_Recorded, which is
+                // precisely the bookkeeping hole that test exists to close.
                 var guarded = ModifierPropertyNames(ifStatement.Condition)
                     .Concat(ifStatement.Condition
                         .DescendantNodesAndSelf()
                         .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax>()
                         .Select(id => localToProperty.TryGetValue(id.Identifier.Text, out var mapped) ? mapped : null)
                         .Where(name => name is not null)!)
-                    .FirstOrDefault();
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
 
-                if (guarded is null)
+                if (guarded.Length == 0)
                     continue;
 
                 // Type tests on the FrameworkElement inside this branch (and its else clauses)
                 // are the gate: `fe is WinUI.Control padCtrl`.
                 var typeNames = ifStatement.DescendantNodes()
                     .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.IsPatternExpressionSyntax>()
-                    .Where(pattern =>
-                        pattern.Expression is Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax { Identifier.Text: "fe" }
-                        && pattern.Pattern is Microsoft.CodeAnalysis.CSharp.Syntax.DeclarationPatternSyntax)
-                    .Select(pattern => ((Microsoft.CodeAnalysis.CSharp.Syntax.DeclarationPatternSyntax)pattern.Pattern).Type switch
-                    {
-                        Microsoft.CodeAnalysis.CSharp.Syntax.QualifiedNameSyntax qualified => qualified.Right.Identifier.Text,
-                        Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax simple => simple.Identifier.Text,
-                        _ => null,
-                    })
+                    .Where(p => p.Expression is Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax { Identifier.Text: "fe" }
+                                && p.Pattern is Microsoft.CodeAnalysis.CSharp.Syntax.DeclarationPatternSyntax)
+                    .Select(p => SimpleTypeName(((Microsoft.CodeAnalysis.CSharp.Syntax.DeclarationPatternSyntax)p.Pattern).Type))
                     .Where(typeName => typeName is not null);
 
                 foreach (var typeName in typeNames)
                 {
-                    if (!gates.TryGetValue(guarded, out var set))
-                        gates[guarded] = set = new HashSet<string>(StringComparer.Ordinal);
-                    set.Add(typeName!);
+                    foreach (var modifier in guarded)
+                    {
+                        if (!gates.TryGetValue(modifier!, out var set))
+                            gates[modifier!] = set = new HashSet<string>(StringComparer.Ordinal);
+                        set.Add(typeName!);
+                    }
                 }
             }
         }
