@@ -244,13 +244,20 @@ internal static class Phase4WindowingFixtures
             var win = await OpenAndSettle(spec);
             try
             {
+                // The Level flip reaches the native window through SetWindowPos, so the ex-style
+                // bit lands asynchronously. Poll instead of betting on one fixed wait — under a
+                // full selftest run (many windows opened/closed by preceding fixtures) 80ms was
+                // not always enough and this pair flaked ~1 run in 3 (issue #927). The assertion
+                // stays just as strict: it still fails if the bit never flips.
                 win.Update(spec with { Level = WindowLevel.AlwaysOnTop });
-                await Harness.Render(80);
-                H.Check("WindowLevel_RuntimeFlip_Topmost", (ExStyleBits(win) & Native.WS_EX_TOPMOST) != 0);
+                H.Check("WindowLevel_RuntimeFlip_Topmost",
+                    await Harness.WaitFor(() => (ExStyleBits(win) & Native.WS_EX_TOPMOST) != 0,
+                        maxPasses: 10, perPassMs: 40));
 
                 win.Update(spec with { Level = WindowLevel.Normal });
-                await Harness.Render(80);
-                H.Check("WindowLevel_RuntimeFlip_Normal", (ExStyleBits(win) & Native.WS_EX_TOPMOST) == 0);
+                H.Check("WindowLevel_RuntimeFlip_Normal",
+                    await Harness.WaitFor(() => (ExStyleBits(win) & Native.WS_EX_TOPMOST) == 0,
+                        maxPasses: 10, perPassMs: 40));
             }
             finally { await CloseAndSettle(win); }
         }
