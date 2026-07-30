@@ -49,17 +49,12 @@ public static partial class GalleryProtocol
             if (Volatile.Read(ref _isPackagedComputed) != 0)
                 return Volatile.Read(ref _isPackaged) != 0;
 
-            // A zero-length / NULL buffer asks only the identity question:
-            //   APPMODEL_ERROR_NO_PACKAGE (15700) → no identity      → unpackaged
-            //   ERROR_INSUFFICIENT_BUFFER (122)   → identity exists  → packaged
-            //   ERROR_SUCCESS (0)                 → identity exists  → packaged
-            //   anything else                     → unexpected       → unpackaged
-            // No try/catch: the export has shipped in kernel32 since Windows 8 and this
-            // app's minimum platform is far newer, so wrapping it would only reintroduce
-            // exception-driven control flow.
+            // A zero-length / NULL buffer asks only the identity question; the status code
+            // is interpreted by GalleryPackageIdentity. No try/catch: the export has
+            // shipped in kernel32 since Windows 8 and this app's minimum platform is far
+            // newer, so wrapping it would only reintroduce exception-driven control flow.
             uint length = 0;
-            int status = GetCurrentPackageFullName(ref length, nint.Zero);
-            bool packaged = status is 0 or 122;
+            bool packaged = GalleryPackageIdentity.IsPackaged(GetCurrentPackageFullName(ref length, nint.Zero));
 
             Volatile.Write(ref _isPackaged, packaged ? 1 : 0);
             Volatile.Write(ref _isPackagedComputed, 1);

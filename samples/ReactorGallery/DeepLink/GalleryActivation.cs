@@ -206,24 +206,25 @@ public static class GalleryActivation
 
     /// <summary>
     /// Extract a route from an activation payload, or <c>null</c> when it carries no
-    /// usable link.
+    /// usable link. Pulling the candidate strings out of the WinRT payload is the only
+    /// part that needs the platform; the priority order lives in
+    /// <see cref="GalleryActivationRouting"/> so it can be unit-tested.
     /// </summary>
     static GalleryRoute? ResolveRoute(AppActivationArguments? args, bool allowCommandLineFallback)
     {
+        string? protocolUri = null;
+        string? launchArguments = null;
+
         try
         {
             if (args?.Kind == ExtendedActivationKind.Protocol &&
-                args.Data is global::Windows.ApplicationModel.Activation.IProtocolActivatedEventArgs protocolArgs &&
-                GalleryRoutes.TryResolve(protocolArgs.Uri?.ToString(), out var protocolRoute))
+                args.Data is global::Windows.ApplicationModel.Activation.IProtocolActivatedEventArgs protocolArgs)
             {
-                return protocolRoute;
+                protocolUri = protocolArgs.Uri?.ToString();
             }
 
-            if (args?.Data is global::Windows.ApplicationModel.Activation.ILaunchActivatedEventArgs launchArgs &&
-                GalleryRoutes.TryResolve(launchArgs.Arguments, out var launchRoute))
-            {
-                return launchRoute;
-            }
+            if (args?.Data is global::Windows.ApplicationModel.Activation.ILaunchActivatedEventArgs launchArgs)
+                launchArguments = launchArgs.Arguments;
         }
         catch (Exception ex)
         {
@@ -231,31 +232,32 @@ public static class GalleryActivation
                 $"[Gallery] activation parse failed: {ex.GetType().Name}: {ex.Message}");
         }
 
-        return allowCommandLineFallback ? RouteFromCommandLine() : null;
+        return GalleryActivationRouting.Resolve(
+            protocolUri,
+            launchArguments,
+            allowCommandLineFallback ? CommandLineArgsAfterExecutable() : null);
     }
 
     /// <summary>
-    /// Last-resort parse of the raw command line, covering
-    /// <c>ReactorGallery.exe reactor-gallery:///item/button</c> typed by hand and any
-    /// shell that passes the URI through without the AppLifecycle marker.
+    /// This process's command-line arguments with the executable dropped, or <c>null</c>
+    /// if the platform refuses to hand them over.
     /// </summary>
-    static GalleryRoute? RouteFromCommandLine()
+    static IReadOnlyList<string>? CommandLineArgsAfterExecutable()
     {
         try
         {
             var argv = global::System.Environment.GetCommandLineArgs();
-            for (int i = 1; i < argv.Length; i++)
-            {
-                if (GalleryRoutes.TryResolve(argv[i], out var route))
-                    return route;
-            }
+            return argv.Length > 1 ? argv[1..] : global::System.Array.Empty<string>();
         }
         catch (Exception ex)
         {
             global::System.Diagnostics.Debug.WriteLine(
-                $"[Gallery] command-line parse failed: {ex.GetType().Name}: {ex.Message}");
+                $"[Gallery] command-line read failed: {ex.GetType().Name}: {ex.Message}");
+            return null;
         }
-
-        return null;
     }
+
+    /// <summary>Cold-start route taken purely from the command line.</summary>
+    static GalleryRoute? RouteFromCommandLine() =>
+        GalleryActivationRouting.Resolve(null, null, CommandLineArgsAfterExecutable());
 }

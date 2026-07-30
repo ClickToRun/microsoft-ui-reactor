@@ -189,11 +189,11 @@ class DeepLinkSettingsCard : Component
                 .FontSize(13)
                 .TextWrapping(TextWrapping.Wrap),
 
-            (TextBlock(exampleUri) with { IsTextSelectionEnabled = true })
+            TextBlock(exampleUri)
+                .IsTextSelectionEnabled()
                 .FontFamily("Cascadia Code, Consolas, monospace")
                 .Foreground(Theme.PrimaryText)
-                .FontSize(12),
-        };
+                .FontSize(12),        };
 
         if (registration is not null)
             children.Add(registration);

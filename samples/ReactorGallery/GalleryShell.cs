@@ -39,33 +39,39 @@ class GalleryShell : Component
         var (prevTag, setPrevTag) = UseState<string?>(null);
 
         // Warm-start deep links: GalleryActivation marshals them onto the UI thread and
-        // raises RouteActivated. The subscription mounts once, so the back target is
-        // read through a ref — capturing `selectedTag` directly would pin it to
+        // raises RouteActivated. The subscription mounts once, so it reads the live tag
+        // through a ref — capturing `selectedTag` directly would pin the back target to
         // whatever was selected on the very first render.
         var currentTag = UseRef(selectedTag);
         currentTag.Current = selectedTag;
 
-        // WinUI raises NavigationView.SelectionChanged for programmatic writes as well as
-        // user clicks, and Reactor forwards both to OnSelectedTagChanged. So the moment a
-        // deep link changes SelectedTag, the control echoes that change straight back into
-        // the handler below — which would clear the query a `/search?q=` link just set and
-        // overwrite the back target with the destination. Latch the tag we wrote so the
-        // handler can recognise its own echo and let it pass. Only one echo is possible
-        // per write, and only when the tag actually changes, so the latch can never
-        // swallow a real click.
-        var expectedSelectionEcho = UseRef<string?>(null);
+        // The single navigation entry point for every source: nav items, control cards,
+        // the Home page, and deep links.
+        //
+        // Nothing derives navigation from NavigationView.SelectionChanged, and that is the
+        // whole point. WinUI raises SelectionChanged for our own programmatic SelectedTag
+        // writes as well as for user clicks, and Reactor forwards both, so a handler there
+        // cannot tell a deep link's own echo from a real click — it would clear the query a
+        // `/search?q=` link just set, and overwrite the back target with the destination.
+        // `OnItemInvoked` is user-only, so SelectedTag stays pure controlled output.
+        //
+        // Created once and held in a ref so the callback handed to HomePage /
+        // ControlCardGrid is reference-stable and doesn't force them to re-render on every
+        // shell pass. Safe to capture from the first render: it touches only refs and
+        // UseState setters, both of which are stable for the component's lifetime.
+        void NavigateTo(string tag, string search)
+        {
+            if (tag != currentTag.Current) setPrevTag(currentTag.Current);
+            setSearchQuery(search);
+            setSelectedTag(tag);
+        }
+
+        var navigate = UseRef<Action<string>>(null!);
+        navigate.Current ??= tag => NavigateTo(tag, string.Empty);
 
         UseEffect(() =>
         {
-            void OnRouteActivated(GalleryRoute route)
-            {
-                if (route.Tag != currentTag.Current)
-                    expectedSelectionEcho.Current = route.Tag;
-
-                setPrevTag(currentTag.Current);
-                setSearchQuery(SearchTextFor(route));
-                setSelectedTag(route.Tag);
-            }
+            void OnRouteActivated(GalleryRoute route) => NavigateTo(route.Tag, SearchTextFor(route));
 
             GalleryActivation.RouteActivated += OnRouteActivated;
 
@@ -128,13 +134,13 @@ class GalleryShell : Component
                 GalleryControls.PageHeader("Search Results",
                     $"{searchResults.Length} controls matching \"{searchQuery}\"")
                     .Margin(36, 24, 36, 0),
-                GalleryControls.ControlCardGrid(searchResults, setSelectedTag)
+                GalleryControls.ControlCardGrid(searchResults, navigate.Current)
                     .Margin(36, 0, 0, 36)
             );
         }
         else if (selectedTag == GalleryRoutes.HomeTag)
         {
-            content = Component<HomePage, Action<string>>(setSelectedTag);
+            content = Component<HomePage, Action<string>>(navigate.Current);
         }
         else if (selectedTag == GalleryRoutes.SettingsTag)
         {
@@ -152,7 +158,7 @@ class GalleryShell : Component
                 GalleryControls.PageHeader(categoryName,
                     $"{controls.Length} controls in this category")
                     .Margin(36, 24, 36, 0),
-                GalleryControls.ControlCardGrid(controls, setSelectedTag)
+                GalleryControls.ControlCardGrid(controls, navigate.Current)
                     .Margin(36, 0, 0, 36)
             );
         }
@@ -206,34 +212,24 @@ class GalleryShell : Component
             {
                 SelectedTag = selectedTag,
                 IsPaneOpen = isPaneOpen,
-                OnSelectedTagChanged = tag =>
+                OnItemInvoked = tag =>
                 {
-                    // Our own deep-link write coming back as a SelectionChanged echo:
-                    // state is already exactly right, and re-applying it here would undo
-                    // the query and back target the link just set.
-                    if (tag is not null && expectedSelectionEcho.Current == tag)
-                    {
-                        expectedSelectionEcho.Current = null;
-                        return;
-                    }
-
-                    setSearchQuery("");
-                    if (tag != null)
-                    {
-                        setPrevTag(selectedTag);
-                        setSelectedTag(tag);
-                    }
+                    // User-only: unlike OnSelectedTagChanged this never fires for our own
+                    // programmatic SelectedTag writes, so deep links and Back can't be
+                    // undone by their own echo. It does fire for an already-selected item,
+                    // which NavigateTo handles by leaving the back target alone.
+                    if (tag is null) return;
+                    NavigateTo(
+                        tag == NavigationViewElement.SettingsTag ? GalleryRoutes.SettingsTag : tag,
+                        string.Empty);
                 },
                 IsBackEnabled = false,
                 IsSettingsVisible = true,
                 IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed,
                 IsPaneToggleButtonVisible = false,
-                OnSettingsSelected = () =>
-                {
-                    setSearchQuery("");
-                    setPrevTag(selectedTag);
-                    setSelectedTag(GalleryRoutes.SettingsTag);
-                },
+                // No OnSettingsSelected: it is raised from the same SelectionChanged
+                // trampoline as OnSelectedTagChanged, so it echoes programmatic writes too.
+                // OnItemInvoked already reports the settings item (as SettingsTag).
                 OnPaneOpenChanged = setIsPaneOpen,
             })
             .Grid(row: 1)

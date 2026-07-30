@@ -61,6 +61,8 @@
   <ItemGroup>
     <Compile Include="..\..\samples\ReactorGallery\ControlRegistry.cs" Link="Samples\ReactorGallery\ControlRegistry.cs" />
     <Compile Include="..\..\samples\ReactorGallery\DeepLink\GalleryRoutes.cs" Link="Samples\ReactorGallery\GalleryRoutes.cs" />
+    <Compile Include="..\..\samples\ReactorGallery\DeepLink\GalleryActivationRouting.cs" Link="Samples\ReactorGallery\GalleryActivationRouting.cs" />
+    <Compile Include="..\..\samples\ReactorGallery\DeepLink\GalleryPackageIdentity.cs" Link="Samples\ReactorGallery\GalleryPackageIdentity.cs" />
   </ItemGroup>
 
   <ItemGroup>

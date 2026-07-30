@@ -68,6 +68,20 @@ Resolved control and category tags are validated against `ControlRegistry`, so a
 malformed or hostile link falls back to Home rather than handing an arbitrary string
 to the `NavigationView` as a selected tag.
 
+### Why navigation runs on `OnItemInvoked`
+
+The shell treats `NavigationView.SelectedTag` as **controlled output** and never derives
+navigation from it. WinUI raises `SelectionChanged` for programmatic `SelectedItem`
+writes as well as user clicks, and Reactor forwards both to `OnSelectedTagChanged` — so a
+handler there cannot tell a deep link's own echo from a real click. Handling navigation
+there makes a link undo itself: it clears the query a `/search?q=` link just set, and
+overwrites the back target with the destination.
+
+`OnItemInvoked` is user-only, so every navigation source (nav items, control cards, the
+Home page, Back, and deep links) funnels through one `NavigateTo` helper and no echo can
+reach it. The behaviour difference is pinned by the
+`SelectionEvt_NavigationViewProgrammaticIsNotInvoke` selftest fixture.
+
 ### Packaged vs. unpackaged registration
 
 This is the one place the two flavours genuinely diverge, and it is a *runtime*

@@ -1,5 +1,7 @@
 using System;
+using System.IO;
 using System.Linq;
+using System.Xml.Linq;
 using WinUIGalleryReactor;
 using Xunit;
 
@@ -366,11 +368,34 @@ public sealed class GalleryDeepLinkTests
     [Fact]
     public void Scheme_MatchesThePackageManifestDeclaration()
     {
-        // The packaged flavour declares this scheme in Package.appxmanifest and the
+        // The packaged flavour declares the scheme in Package.appxmanifest and the
         // unpackaged one registers this same constant at runtime; if they drift, links
         // open the wrong app (or nothing) depending on how the gallery was installed.
-        Assert.Equal("reactor-gallery", GalleryRoutes.Scheme);
+        // Read the manifest for real — asserting the constant against itself would leave
+        // a manifest-only rename green.
+        var manifestPath = Path.Join(RepoRoot(), "samples", "ReactorGallery", "Package.appxmanifest");
+        Assert.True(File.Exists(manifestPath), manifestPath);
+
+        var manifest = XDocument.Load(manifestPath);
+        XNamespace uap = "http://schemas.microsoft.com/appx/manifest/uap/windows10";
+        var declared = manifest.Descendants(uap + "Protocol")
+            .Select(p => (string?)p.Attribute("Name"))
+            .Where(n => !string.IsNullOrEmpty(n))
+            .ToArray();
+
+        Assert.Equal(new[] { GalleryRoutes.Scheme }, declared);
         Assert.Equal("reactor-gallery:///", GalleryRoutes.UriPrefix);
         Assert.StartsWith(GalleryRoutes.UriPrefix, GalleryRoutes.UriForTag(AnyControlTag), StringComparison.Ordinal);
+    }
+
+    static string RepoRoot()
+    {
+        var dir = AppContext.BaseDirectory;
+        while (dir is not null)
+        {
+            if (File.Exists(Path.Join(dir, "Reactor.slnx"))) return dir;
+            dir = Path.GetDirectoryName(dir);
+        }
+        throw new DirectoryNotFoundException("Could not locate repo root (Reactor.slnx) from " + AppContext.BaseDirectory);
     }
 }
