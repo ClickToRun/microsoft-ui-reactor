@@ -2,7 +2,6 @@ using System.Runtime.CompilerServices;
 using Microsoft.UI.Reactor.Core.Diagnostics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation.Peers;
-
 namespace Microsoft.UI.Reactor.Docking.Native;
 
 // ════════════════════════════════════════════════════════════════════════
@@ -31,11 +30,18 @@ namespace Microsoft.UI.Reactor.Docking.Native;
 internal static class DockHostLiveAnnouncer
 {
     /// <summary>
-    /// Stable operation label for the <see cref="DiagnosticLog"/> trace emitted
-    /// when a focus hand-off fails. Kept as a constant so the emit sites and
-    /// the tests that assert on them cannot drift apart.
+    /// Stable operation label for the swallowed-error trace emitted when a
+    /// focus hand-off fails. Kept as a constant so the emit sites and the
+    /// tests that assert on them cannot drift apart.
     /// </summary>
     internal const string TryFocusOperation = "DockHostLiveAnnouncer.TryFocus";
+
+    /// <summary>
+    /// Category label on the swallowed-error payload. Matches what
+    /// <c>LogCategory.Docking.ToString()</c> would produce, so the wire format
+    /// is identical to every other <c>SwallowedError</c> emitter.
+    /// </summary>
+    private const string DockingCategory = "Docking";
 
     private static readonly ConditionalWeakTable<DockManager, FrameworkElement> _table = new();
 
@@ -135,7 +141,7 @@ internal static class DockHostLiveAnnouncer
             // down for it. But do not discard the failure either: silently
             // swallowing exactly this exception is what hid the illegal
             // Next + FindNextElementOptions pairing above for so long.
-            DiagnosticLog.SwallowedError(LogCategory.Docking, TryFocusOperation, ex);
+            ReportFocusFailure(ex);
         }
     }
 
@@ -148,11 +154,42 @@ internal static class DockHostLiveAnnouncer
         global::Windows.Foundation.IAsyncOperation<Microsoft.UI.Xaml.Input.FocusMovementResult> operation)
     {
         operation.AsTask().ContinueWith(
-            static t => DiagnosticLog.SwallowedError(
-                LogCategory.Docking, TryFocusOperation, t.Exception?.GetBaseException()),
+            static t => ReportFocusFailure(t.Exception?.GetBaseException()),
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
+    }
+
+    /// <summary>
+    /// Reports a swallowed focus failure on the <c>Microsoft-UI-Reactor</c>
+    /// provider. Mirrors <c>DiagnosticLog.SwallowedError</c>'s shape (spec 044
+    /// §6.1): gated on the <c>Errors</c> keyword at <c>Warning</c>, and the
+    /// exception <b>type</b> only on the payload per §6.2.1 — never the message,
+    /// which can carry paths or user data.
+    ///
+    /// <para>
+    /// Emitted straight to <see cref="ReactorEventSource"/> rather than through
+    /// <c>DiagnosticLog</c> on purpose: the event source is already the reviewed
+    /// core internal that <c>Reactor.Advanced</c> may touch (spec 062 §7), and
+    /// docking already emits on it from <c>DockLayoutSerializer</c>. Going
+    /// through the helper would have pulled two more core internals into that
+    /// allowlist for no change in the emitted payload. The one thing given up is
+    /// <c>DiagnosticLog</c>'s DEBUG-only <c>Debug.WriteLine</c> mirror.
+    /// </para>
+    /// </summary>
+    private static void ReportFocusFailure(Exception? ex)
+    {
+        // Cost-of-disabled: skip the type-name materialization entirely when no
+        // consumer has enabled the Errors keyword.
+        if (!ReactorEventSource.Log.IsEnabled(
+                global::System.Diagnostics.Tracing.EventLevel.Warning,
+                ReactorEventSource.Keywords.Errors))
+        {
+            return;
+        }
+
+        ReactorEventSource.Log.SwallowedError(
+            DockingCategory, TryFocusOperation, ex?.GetType().Name ?? string.Empty);
     }
 
     private static void RaiseNotification(FrameworkElement host, string message)

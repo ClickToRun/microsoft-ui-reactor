@@ -40,7 +40,4 @@ internal enum LogCategory
 
     /// <summary>Markdown rendering: md4c parser, builder, list of inline children.</summary>
     Markdown,
-
-    /// <summary>Docking (spec 045): layout mutation, tear-out, focus invariants, live announcements.</summary>
-    Docking,
 }

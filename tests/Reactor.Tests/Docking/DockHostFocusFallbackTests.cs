@@ -111,7 +111,7 @@ public sealed class DockHostFocusFallbackTests
         Assert.Contains("TryFocus", scan.MethodsWithExceptionHandlers);
         Assert.Contains(
             scan.CallsFrom("TryFocus"),
-            m => m.EndsWith(".SwallowedError", StringComparison.Ordinal));
+            m => m.EndsWith(".ReportFocusFailure", StringComparison.Ordinal));
 
         // Asynchronous half: TryFocus hands the returned IAsyncOperation to the
         // observer (not to a `_ =` discard), the observer chains its outcome,
@@ -131,7 +131,36 @@ public sealed class DockHostFocusFallbackTests
         Assert.Contains(
             scan.CallsByMethod,
             kv => kv.Key.Contains("ObserveFocusMove", StringComparison.Ordinal)
-               && kv.Value.Any(m => m.EndsWith(".SwallowedError", StringComparison.Ordinal)));
+               && kv.Value.Any(m => m.EndsWith(".ReportFocusFailure", StringComparison.Ordinal)));
+
+        // …and the reporter really reaches the trace.
+        Assert.Contains(
+            scan.CallsFrom("ReportFocusFailure"),
+            m => m.EndsWith(".SwallowedError", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The announcer must reach the ETW provider directly rather than through
+    /// <c>DiagnosticLog</c>. Going through the helper pulls <c>DiagnosticLog</c>
+    /// and <c>LogCategory</c> into the reviewed core-internal allowlist that
+    /// <see cref="Architecture.AdvancedInternalSurfaceTests"/> pins (spec 062
+    /// §7), for no change in the emitted payload. <c>ReactorEventSource</c> is
+    /// already on that allowlist and already used by docking's
+    /// <c>DockLayoutSerializer</c>, so this keeps the surface flat.
+    /// </summary>
+    [Fact]
+    public void Announcer_traces_without_widening_the_core_internal_surface()
+    {
+        var scan = ScanAnnouncer();
+
+        Assert.Contains(
+            "Microsoft.UI.Reactor.Core.Diagnostics.ReactorEventSource.SwallowedError",
+            scan.CalledMembers);
+
+        Assert.DoesNotContain(
+            scan.ReferencedTypes,
+            t => t.EndsWith(".DiagnosticLog", StringComparison.Ordinal)
+              || t.EndsWith(".LogCategory", StringComparison.Ordinal));
     }
 
     /// <summary>
