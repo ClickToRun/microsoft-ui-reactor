@@ -184,7 +184,7 @@
         {
           "header": "Basic BreadcrumbBar",
           "language": "csharp",
-          "code": "var (path, setPath) = UseState(new[] { \"Home\", \"Documents\", \"Reports\" });\n\nBreadcrumbBar(\n    path.Select(p => Breadcrumb(p)).ToArray(),\n    item => setClicked(item.Label))"
+          "code": "var (path, setPath) = UseState(UseMemo(() => new[] { \"Home\", \"Documents\", \"Reports\" }));\n\nBreadcrumbBar(\n    path.Select(p => Breadcrumb(p)).ToArray(),\n    item => setClicked(item.Label))"
         }
       ]
     },
@@ -2080,7 +2080,7 @@
         {
           "header": "Basic TabView",
           "language": "csharp",
-          "code": "var (tabs, setTabs) = UseState(new[] { \"Home\", \"Document\", \"Settings\" });\nvar (idx, setIdx) = UseState(0);\n\nTabView(tabs.Select(t => Tab(t, TextBlock($\"{t} content\"))).ToArray()) with\n{\n    SelectedIndex = idx,\n    OnSelectedIndexChanged = i => setIdx(i),\n    // The per-tab ✕ only raises TabCloseRequested — the app removes the tab.\n    OnTabCloseRequested = i => setTabs(tabs.Where((_, n) => n != i).ToArray()),\n}"
+          "code": "var (tabs, setTabs) = UseState(new[] { \"Home\", \"Document\", \"Settings\" });\nvar (idx, setIdx) = UseState(0);\n\nTabView(tabs.Select(t => Tab(t, TextBlock($\"{t} content\"))).ToArray()) with\n{\n    SelectedIndex = idx,\n    OnSelectedIndexChanged = i => setIdx(i),\n    // The per-tab ✕ only raises TabCloseRequested — the app removes the tab, and\n    // must also pull the selection back into range.\n    OnTabCloseRequested = i =>\n    {\n        var remaining = tabs.Where((_, n) => n != i).ToArray();\n        setTabs(remaining);\n        setIdx(SelectionAfterClose(idx, i, remaining.Length));\n    },\n}"
         }
       ]
     },

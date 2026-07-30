@@ -11,12 +11,15 @@ class BreadcrumbBarPage : Component
 {
     public override Element Render()
     {
-        var (path, setPath) = UseState(new[] { "Home", "Documents", "Reports" });
+        // Memoized so the seed arrays are allocated once rather than on every render
+        // (the REACTOR_HOOKS_013 pattern; the analyzer does not flag this shape, but it
+        // is the same allocation and the TabView sample was corrected for it).
+        var (path, setPath) = UseState(UseMemo(() => new[] { "Home", "Documents", "Reports" }));
         var (clicked, setClicked) = UseState("(none)");
 
         // The dynamic card owns its own trail — sharing `path` with the basic card
         // would make navigating here silently rewrite the card above.
-        var (dynamicPath, setDynamicPath) = UseState(new[] { "Home", "Documents", "Reports" });
+        var (dynamicPath, setDynamicPath) = UseState(UseMemo(() => new[] { "Home", "Documents", "Reports" }));
 
         return ScrollView(
             VStack(16,
@@ -30,7 +33,7 @@ class BreadcrumbBarPage : Component
                             item => setClicked(item.Label)),
                         TextBlock($"Last clicked: {clicked}").Foreground(Theme.SecondaryText)
                     ),
-                    @"var (path, setPath) = UseState(new[] { ""Home"", ""Documents"", ""Reports"" });
+                    @"var (path, setPath) = UseState(UseMemo(() => new[] { ""Home"", ""Documents"", ""Reports"" }));
 
 BreadcrumbBar(
     path.Select(p => Breadcrumb(p)).ToArray(),
@@ -55,7 +58,7 @@ BreadcrumbBar(
                     ),
                     @"// Each sample owns its own state — sharing one `path` between the two
 // cards would make navigating here rewrite the card above.
-var (dynamicPath, setDynamicPath) = UseState(new[] { ""Home"", ""Documents"", ""Reports"" });
+var (dynamicPath, setDynamicPath) = UseState(UseMemo(() => new[] { ""Home"", ""Documents"", ""Reports"" }));
 
 BreadcrumbBar(items, item => {
     var idx = Array.IndexOf(dynamicPath, item.Label);

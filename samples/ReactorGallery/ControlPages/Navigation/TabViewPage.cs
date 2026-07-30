@@ -56,8 +56,14 @@ TabView(tabs.Select(t => Tab(t, TextBlock($""{t} content""))).ToArray()) with
 {
     SelectedIndex = idx,
     OnSelectedIndexChanged = i => setIdx(i),
-    // The per-tab ✕ only raises TabCloseRequested — the app removes the tab.
-    OnTabCloseRequested = i => setTabs(tabs.Where((_, n) => n != i).ToArray()),
+    // The per-tab ✕ only raises TabCloseRequested — the app removes the tab, and
+    // must also pull the selection back into range.
+    OnTabCloseRequested = i =>
+    {
+        var remaining = tabs.Where((_, n) => n != i).ToArray();
+        setTabs(remaining);
+        setIdx(SelectionAfterClose(idx, i, remaining.Length));
+    },
 }"),
 
                 SampleCard("Dynamic Tabs",
@@ -100,7 +106,12 @@ TabView(tabs.Select(t => Tab(t, TextBlock($""Content of {t}""))).ToArray()) with
 {
     SelectedIndex = idx,
     OnSelectedIndexChanged = i => setIdx(i),
-    OnTabCloseRequested = i => setTabs(tabs.Where((_, n) => n != i).ToArray()),
+    OnTabCloseRequested = i =>
+    {
+        var remaining = tabs.Where((_, n) => n != i).ToArray();
+        setTabs(remaining);
+        setIdx(SelectionAfterClose(idx, i, remaining.Length));
+    },
 }
 
 Button(""Add Tab"", () =>
