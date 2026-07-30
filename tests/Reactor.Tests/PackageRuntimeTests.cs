@@ -86,7 +86,7 @@ internal static class PackageIdentityCache
 /// the non-throwing Win32 <c>GetCurrentPackageFullName</c> status code instead.
 /// </remarks>
 [Collection("PackageIdentityProbe")]
-public class PackageRuntimeTests
+public partial class PackageRuntimeTests
 {
     // Declared independently of the product constants on purpose: a test that reused
     // PackageRuntime's own values could not catch a wrong constant.
@@ -95,11 +95,12 @@ public class PackageRuntimeTests
     private const int ErrorInsufficientBuffer = 122;
     private const int AppmodelErrorNoPackage = 15700;
 
-    // Deliberately a plain DllImport rather than the product's source-generated
-    // [LibraryImport]: an independent binding to the same export (and this project
-    // does not enable unsafe blocks, which the generated stub requires).
-    [DllImport("kernel32.dll")]
-    private static extern int GetCurrentPackageFullName(ref uint packageFullNameLength, nint packageFullName);
+    // Deliberately a separate declaration from PackageRuntime's own probe: an independent
+    // binding to the same export, so a probe that stopped calling the OS could not pass.
+    // Source-generated [LibraryImport] rather than DllImport keeps the marshalling
+    // compile-time and AOT-honest (this project sets IsAotCompatible).
+    [LibraryImport("kernel32.dll")]
+    private static partial int GetCurrentPackageFullName(ref uint packageFullNameLength, nint packageFullName);
 
     // ══════════════════════════════════════════════════════════════
     //  The regression pin: detection must not throw.

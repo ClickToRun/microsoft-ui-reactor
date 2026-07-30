@@ -19,7 +19,11 @@ internal sealed class CopyToClipboardButton : Component<string>
     public override Element Render()
     {
         var text = Props;
-        var (copied, setCopied) = UseState(false, threadSafe: true);
+        // Default (non-threadSafe) UseState: the Task.Delay continuation below runs on a
+        // thread-pool thread, and the default setter marshals the write and the re-render
+        // back onto the UI dispatcher. `threadSafe: true` applies in place with no UI hop,
+        // which is the wrong tool here.
+        var (copied, setCopied) = UseState(false);
         // Per-click generation token: only the latest click is allowed to
         // flip the label back, so rapid clicks can't reset early.
         var generation = UseRef(0);
@@ -67,6 +71,61 @@ internal sealed class CopyToClipboardButton : Component<string>
             .Background(Theme.Ref("ControlOnImageFillColorDefaultBrush"))
             .CornerRadius(4)
             .Padding(10, 4, 10, 4);
+    }
+}
+
+/// <summary>
+/// Title-bar button that copies a <c>reactor-gallery://</c> deep link to the
+/// clipboard. <c>Props</c> is the URI for whatever the shell is currently showing,
+/// so the button never has to know about routing itself.
+/// </summary>
+internal sealed class CopyDeepLinkButton : Component<string>
+{
+    public override Element Render()
+    {
+        var uri = Props;
+        // Default (non-threadSafe) UseState: the Task.Delay continuation below runs on a
+        // thread-pool thread, and the default setter marshals the write *and* the
+        // re-render back onto the UI dispatcher. `threadSafe: true` would do the opposite
+        // — apply in place with no UI-thread hop — and fire the re-render off-thread.
+        var (copied, setCopied) = UseState(false);
+        // Same transient-label bookkeeping as CopyToClipboardButton: a per-click
+        // generation token so rapid clicks can't reset the glyph early, and a mounted
+        // flag so the delayed reset can't touch a torn-down RenderContext.
+        var generation = UseRef(0);
+        var isMounted = UseRef(true);
+        UseEffect(() =>
+        {
+            isMounted.Current = true;
+            return () => isMounted.Current = false;
+        });
+
+        return Button(Icon(copied ? "\uE73E" : "\uE71B"))
+            .Click(() =>
+            {
+                try
+                {
+                    var dp = new DataPackage();
+                    dp.SetText(uri);
+                    Clipboard.SetContent(dp);
+                    var myGen = ++generation.Current;
+                    setCopied(true);
+                    _ = Task.Delay(1500).ContinueWith(_ =>
+                    {
+                        if (!isMounted.Current) return;
+                        if (generation.Current == myGen) setCopied(false);
+                    });
+                }
+                catch (System.Runtime.InteropServices.COMException)
+                {
+                    // Clipboard.SetContent can throw RPC_E_CALL_REJECTED while another
+                    // app holds the clipboard marshaller — same transient the source-code
+                    // copy button swallows.
+                }
+            })
+            .Width(40).Height(36)
+            .ToolTip(copied ? "Link copied" : $"Copy link to this page\n{uri}")
+            .AutomationName("Copy link to this page");
     }
 }
 
