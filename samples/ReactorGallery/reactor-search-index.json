@@ -184,7 +184,7 @@
         {
           "header": "Basic BreadcrumbBar",
           "language": "csharp",
-          "code": "BreadcrumbBar(\n    new[] { Breadcrumb(\"Home\"), Breadcrumb(\"Docs\"), Breadcrumb(\"Reports\") },\n    item => setClicked(item.Label))"
+          "code": "BreadcrumbBar(\n    new[] { Breadcrumb(\"Home\"), Breadcrumb(\"Documents\"), Breadcrumb(\"Reports\") },\n    item => setClicked(item.Label))"
         }
       ]
     },
@@ -716,7 +716,7 @@
         {
           "header": "Interactive Flex Container",
           "language": "csharp",
-          "code": "new FlexElement(children)\n{\n    Direction = FlexDirection.Row,\n    JustifyContent = FlexJustify.SpaceBetween,\n    AlignItems = FlexAlign.Center,\n    Wrap = FlexWrap.Wrap,\n}"
+          "code": "// Every axis below is driven by the Options combos, so the\n// snippet tracks whatever the live sample is showing.\nnew FlexElement(children)\n{\n    Direction = direction,\n    JustifyContent = justify,\n    AlignItems = align,\n    Wrap = wrap,\n    ColumnGap = 8,\n    RowGap = 8,\n}"
         }
       ]
     },
@@ -883,7 +883,7 @@
         {
           "header": "Basic GridView",
           "language": "csharp",
-          "code": "GridView(\n    items.Select(i =>\n        Border(TextBlock($\"Item {i}\")).Size(100, 100)\n    ).ToArray()\n).SelectionMode(ListViewSelectionMode.Multiple)"
+          "code": "// SelectionMode is driven by the Options combo below.\nGridView(\n    items.Select(i =>\n        Border(TextBlock($\"Item {i}\")).Size(100, 100)\n    ).ToArray()\n).SelectionMode(selectionMode)"
         }
       ]
     },

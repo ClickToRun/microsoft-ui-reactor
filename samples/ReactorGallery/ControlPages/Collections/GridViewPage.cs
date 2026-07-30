@@ -36,11 +36,12 @@ class GridViewPage : Component
                                 .CornerRadius(ThemeResource.CornerRadius("ControlCornerRadius").TopLeft)                        ).ToArray()
                     ).SelectionMode(selectionMode),
                     """
+                    // SelectionMode is driven by the Options combo below.
                     GridView(
                         items.Select(i =>
                             Border(TextBlock($"Item {i}")).Size(100, 100)
                         ).ToArray()
-                    ).SelectionMode(ListViewSelectionMode.Multiple)
+                    ).SelectionMode(selectionMode)
                     """,
                     OptionPanel(
                         TextBlock("Selection Mode"),

@@ -36,7 +36,7 @@ class ImagePage : Component
 // ms-appx:/// resolves against the app folder — the asset must be copied
 // to the output directory (a <Content Include=...> item in the csproj).",
                     options: OptionPanel(
-                        Slider(width, 50, 500, v => setWidth(v))
+                        Slider(width, 50, 500, v => setWidth(v)).AutomationName("Image width")
                     )),
 
                 SampleCard("Image with Border",
