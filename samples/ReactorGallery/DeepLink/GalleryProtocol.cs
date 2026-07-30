@@ -72,8 +72,14 @@ public static partial class GalleryProtocol
     public static bool IsManagedByPackage => IsPackaged;
 
     /// <summary>Icon the shell shows for <c>reactor-gallery://</c> links.</summary>
+    /// <remarks>
+    /// <c>Path.Join</c> rather than <c>Path.Combine</c>: Combine silently discards
+    /// everything before a rooted segment, so it only stays correct while every later
+    /// segment is guaranteed relative. Join concatenates unconditionally, which is the
+    /// property actually wanted for "a file inside the app directory".
+    /// </remarks>
     static string LogoPath =>
-        global::System.IO.Path.Combine(global::System.AppContext.BaseDirectory, "Assets", "GalleryIcon.ico");
+        global::System.IO.Path.Join(global::System.AppContext.BaseDirectory, "Assets", "GalleryIcon.ico");
 
     /// <summary>
     /// True when <c>reactor-gallery://</c> is currently handled by this app. Always
