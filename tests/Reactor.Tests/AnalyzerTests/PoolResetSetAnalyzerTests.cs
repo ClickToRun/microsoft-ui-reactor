@@ -460,6 +460,8 @@ class C
 using System;
 using Microsoft.UI.Reactor;
 
+#nullable enable
+
 namespace Microsoft.UI.Xaml.Automation
 {
     public static class AutomationProperties
@@ -474,7 +476,7 @@ namespace Microsoft.UI.Xaml.Controls
 {
     public static class ToolTipService
     {
-        public static void SetToolTip(object target, object value) { }
+        public static void SetToolTip(object target, object? value) { }
         public static void SetPlacement(object target, int value) { }
     }
 
@@ -503,6 +505,8 @@ namespace Microsoft.UI.Reactor.Layout
     public static class FlexPanel
     {
         public static void SetGrow(object target, double value) { }
+        public static void SetMinWidth(object target, double value) { }
+        public static void SetMinHeight(object target, double value) { }
     }
 }
 
@@ -521,7 +525,8 @@ namespace Microsoft.UI.Reactor
     public class FakeElement
     {
         public double Width;
-        public FakeElement Child;
+        public string Label = string.Empty;
+        public FakeElement Child = null!;
         public FakeElement Set(Action<FakeElement> configure) { configure(this); return this; }
     }
 
@@ -532,6 +537,8 @@ namespace Microsoft.UI.Reactor
         public static FakeElement HelpText(this FakeElement el, string v) => el;
         public static FakeElement PositionInSet(this FakeElement el, int position, int size) => el;
         public static FakeElement ToolTip(this FakeElement el, string v) => el;
+        // Mirrors the real two-argument overload, which writes ToolTipService.Placement too.
+        public static FakeElement ToolTip(this FakeElement el, string v, int placement) => el;
         public static FakeElement ToolTipPlacement(this FakeElement el, int v) => el;
         public static FakeElement IsDragRegion(this FakeElement el, bool v) => el;
         public static FakeElement Flex(this FakeElement el, double grow = 0) => el;
@@ -588,6 +595,40 @@ class C
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 
+    [Theory]
+    // Wrappers that do not change WHICH object is written to must all still match. Each of
+    // these is a distinct arm of SetLambdaHelpers.IsLambdaParameterReference.
+    [InlineData(@"AutomationProperties.SetName((fe), ""Save"")")]                 // parenthesized
+    [InlineData(@"AutomationProperties.SetName(fe!, ""Save"")")]                  // null-forgiving
+    [InlineData(@"AutomationProperties.SetName((object)(fe!), ""Save"")")]        // cast over both
+    public async Task Fires_For_Attached_Setter_Through_A_Target_Wrapper(string call)
+    {
+        // Also exercises the unqualified owner name (`AutomationProperties.SetName`) reached
+        // through a using directive — the other arm of the owner extraction, alongside the
+        // fully-qualified form the rest of these tests use. The usings live inside the
+        // namespace body because the stubs above already opened namespaces at file scope.
+        var source = AttachedStubs + $@"
+namespace TestApp
+{{
+    using Microsoft.UI.Reactor;
+    using Microsoft.UI.Xaml.Automation;
+
+    class C
+    {{
+        void M()
+        {{
+            var el = new FakeElement();
+            {{|REACTOR_POOL_001:el.Set(fe => {call})|}};
+        }}
+    }}
+}}";
+
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
     [Fact]
     public async Task Fires_For_Attached_Setter_In_A_Block_Body_Alongside_Other_Statements()
     {
@@ -630,8 +671,14 @@ class C
     [InlineData(@"Microsoft.UI.Xaml.Controls.ScrollViewer.SetVerticalScrollBarVisibility(fe, 1)")]
     [InlineData(@"Microsoft.UI.Xaml.Controls.ScrollViewer.SetVerticalScrollMode(fe, 1)")]
     // A null write is not expressible through the modifier — ApplyModifiers skips a null
-    // value, so suggesting the rewrite would change behaviour.
+    // value, so suggesting the rewrite would change behaviour. All the wrapped forms of
+    // null must be caught, not just the bare literal.
     [InlineData(@"Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(fe, null)")]
+    [InlineData(@"Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(fe, (string?)null)")]
+    [InlineData(@"Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(fe, default)")]
+    // Named arguments are rejected: they may be written out of order, which would make the
+    // positional target/value read wrong.
+    [InlineData(@"Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(target: fe, value: ""Save"")")]
     public async Task No_Diagnostic_For_Attached_Setter(string call)
     {
         var source = AttachedStubs + $@"
@@ -748,17 +795,101 @@ class C
     // Type: SetToolTip takes object, .ToolTip takes string — `tip` is an object here, so the
     // rewrite would not compile.
     [InlineData(@"Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(fe, tip)")]
+    // A maybe-null string would compile, but `.ToolTip(maybeTip)` silently performs no write
+    // when the value IS null (ApplyModifiers skips a null modifier value) — the same
+    // behaviour change the literal-null gate exists to prevent.
+    [InlineData(@"Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(fe, maybeTip)")]
+    // The value references the lambda parameter, which does not survive the rewrite.
+    [InlineData(@"Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(fe, fe.Label)")]
+    // Setter/property name divergence: FlexPanel.SetMinWidth writes FlexMinWidthProperty.
+    // Flipping either row to AutoFix: true would rewrite it to .Flex(value), which sets
+    // `grow`, not `minWidth`.
+    [InlineData(@"Microsoft.UI.Reactor.Layout.FlexPanel.SetMinWidth(fe, 50)")]
+    [InlineData(@"Microsoft.UI.Reactor.Layout.FlexPanel.SetMinHeight(fe, 50)")]
     public async Task Analyzer_Fires_But_CodeFix_Suppressed_For_Attached_Setter(string call)
     {
         var code = AttachedStubs + $@"
 class C
 {{
-    void M(object tip)
+    void M(object tip, string? maybeTip)
     {{
         var el = new FakeElement();
         {{|REACTOR_POOL_001:el.Set(fe => {call})|}};
     }}
 }}";
+
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Suppressed_When_A_Duplicate_Setter_Is_Not_Uniformly_Fixable()
+    {
+        // Both bags the analyzer hands the fix are keyed by setter name, not by occurrence.
+        // Without the per-key conjunction in the analyzer, the fixable verdict earned by the
+        // string literal would authorize the object-valued sibling too, and the fix would emit
+        // `.ToolTip("Save").ToolTip(tip)` — which does not compile.
+        var code = AttachedStubs + @"
+class C
+{
+    void M(object tip)
+    {
+        var el = new FakeElement();
+        {|REACTOR_POOL_001:{|REACTOR_POOL_001:el.Set(fe => { Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(fe, ""Save""); Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(fe, tip); })|}|};
+    }
+}";
+
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Suppressed_When_A_Duplicate_Setter_Writes_Null()
+    {
+        // Only ONE diagnostic: the null write is deliberately not reported. But it shares a
+        // setter name with the reported one, so without the per-key conjunction the fix would
+        // convert it too and emit `.ToolTip(null)` — a call ApplyModifiers ignores, silently
+        // dropping an explicit clear.
+        var code = AttachedStubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        {|REACTOR_POOL_001:el.Set(fe => { Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(fe, ""Save""); Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(fe, null); })|};
+    }
+}";
+
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Suppressed_When_The_Receiver_Already_Sets_Placement_Through_ToolTip()
+    {
+        // Modifiers run after setters, so today the receiver's `.ToolTip("Save", 1)` wins and
+        // the placement renders as 1. Rewriting to `.ToolTip("Save", 1).ToolTipPlacement(2)`
+        // makes the last modifier win instead, flipping it to 2 — a behaviour change, not a
+        // refactor. A plain name comparison misses this because the conflicting modifier is
+        // called `ToolTip`, not `ToolTipPlacement`.
+        var code = AttachedStubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        {|REACTOR_POOL_001:el.ToolTip(""Save"", 1).Set(fe => Microsoft.UI.Xaml.Controls.ToolTipService.SetPlacement(fe, 2))|};
+    }
+}";
 
         await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
         {

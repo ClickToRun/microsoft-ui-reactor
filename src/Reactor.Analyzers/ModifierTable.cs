@@ -91,7 +91,9 @@ internal sealed class AttachedModifierInfo
         string modifier,
         bool autoFix = true,
         string? setter = null,
-        string? fixValueType = null)
+        string? fixValueType = null,
+        string? modifierUsage = null,
+        string[]? receiverConflicts = null)
     {
         Owner = owner;
         OwnerNamespace = ownerNamespace;
@@ -100,6 +102,8 @@ internal sealed class AttachedModifierInfo
         AutoFix = autoFix;
         Setter = setter ?? "Set" + property;
         FixValueType = fixValueType;
+        ModifierUsage = modifierUsage ?? "." + modifier + "(...)";
+        ReceiverConflicts = receiverConflicts;
     }
 
     /// <summary>Simple name of the type declaring the attached property.</summary>
@@ -148,6 +152,32 @@ internal sealed class AttachedModifierInfo
     /// compile (use <c>.WithToolTip(Element)</c> there instead).
     /// </summary>
     public string? FixValueType { get; }
+
+    /// <summary>
+    /// How the modifier should be written at a call site, e.g. <c>.AutomationName(...)</c> or
+    /// <c>.Flex(grow: …)</c>. Defaults to <c>.Modifier(...)</c>.
+    /// </summary>
+    /// <remarks>
+    /// Carried per entry because the message is the only guidance an author gets for the
+    /// entries with no code fix, and <c>.Modifier(...)</c> is actively misleading for several
+    /// of them: <c>.Required()</c> takes no argument, <c>.PositionInSet</c> takes two, and all
+    /// eleven flex properties share one <c>.Flex(...)</c> where the parameter name is the
+    /// whole answer.
+    /// </remarks>
+    public string ModifierUsage { get; }
+
+    /// <summary>
+    /// Other modifier names on the receiver chain that already write this same property, so
+    /// appending our modifier after them would change the rendered value rather than refactor.
+    /// Empty when the modifier is the only thing that writes it.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="PoolResetSetCodeFix"/> guards against a receiver that already calls the
+    /// modifier we are about to append, but a name comparison alone misses the aliases:
+    /// <c>.ToolTip(tip, placement)</c> writes <c>ToolTipService.Placement</c> too, and
+    /// <c>.AccessibilityHidden()</c> is shorthand for <c>.AccessibilityView(Raw)</c>.
+    /// </remarks>
+    public string[]? ReceiverConflicts { get; }
 
     /// <summary>Table key / diagnostic message subject, e.g. <c>AutomationProperties.Name</c>.</summary>
     public string Key => Owner + "." + Property;
@@ -427,7 +457,8 @@ internal static class ModifierTable
             new AttachedModifierInfo("AutomationProperties", AutomationNs, "HelpText", "HelpText"),
             new AttachedModifierInfo("AutomationProperties", AutomationNs, "FullDescription", "FullDescription"),
             new AttachedModifierInfo("AutomationProperties", AutomationNs, "LandmarkType", "Landmark"),
-            new AttachedModifierInfo("AutomationProperties", AutomationNs, "AccessibilityView", "AccessibilityView"),
+            new AttachedModifierInfo("AutomationProperties", AutomationNs, "AccessibilityView", "AccessibilityView",
+                receiverConflicts: new[] { "AccessibilityHidden" }),
             new AttachedModifierInfo("AutomationProperties", AutomationNs, "LiveSetting", "LiveRegion"),
             new AttachedModifierInfo("AutomationProperties", AutomationNs, "Level", "HierarchyLevel"),
             new AttachedModifierInfo("AutomationProperties", AutomationNs, "ItemStatus", "ItemStatus"),
@@ -436,41 +467,48 @@ internal static class ModifierTable
             // ── AutomationProperties — diagnostic only ───────────────────────
             // .PositionInSet(position, size) sets both DPs at once, so neither single-value
             // setter has a mechanical rewrite.
-            new AttachedModifierInfo("AutomationProperties", AutomationNs, "PositionInSet", "PositionInSet", autoFix: false),
-            new AttachedModifierInfo("AutomationProperties", AutomationNs, "SizeOfSet", "PositionInSet", autoFix: false),
+            new AttachedModifierInfo("AutomationProperties", AutomationNs, "PositionInSet", "PositionInSet",
+                autoFix: false, modifierUsage: ".PositionInSet(position, size)"),
+            new AttachedModifierInfo("AutomationProperties", AutomationNs, "SizeOfSet", "PositionInSet",
+                autoFix: false, modifierUsage: ".PositionInSet(position, size)"),
             // .Required() takes no argument and hardcodes true; SetIsRequiredForForm(fe, false)
             // has no modifier form at all.
-            new AttachedModifierInfo("AutomationProperties", AutomationNs, "IsRequiredForForm", "Required", autoFix: false),
+            new AttachedModifierInfo("AutomationProperties", AutomationNs, "IsRequiredForForm", "Required",
+                autoFix: false, modifierUsage: ".Required()"),
             // SetLabeledBy takes the target DependencyObject; the modifier takes an
             // AutomationId string or an ElementRef.
-            new AttachedModifierInfo("AutomationProperties", AutomationNs, "LabeledBy", "LabeledBy", autoFix: false),
+            new AttachedModifierInfo("AutomationProperties", AutomationNs, "LabeledBy", "LabeledBy",
+                autoFix: false, modifierUsage: ".LabeledBy(automationId)"),
 
             // ── ToolTipService ───────────────────────────────────────────────
             // SetToolTip takes object (it also accepts a ToolTip/UIElement); .ToolTip takes a
             // string, so the fix is withheld unless the value really is one — rich content
             // belongs on .WithToolTip(Element), which is not a mechanical rewrite of this.
-            new AttachedModifierInfo("ToolTipService", ControlsNs, "ToolTip", "ToolTip", fixValueType: "System.String"),
-            new AttachedModifierInfo("ToolTipService", ControlsNs, "Placement", "ToolTipPlacement"),
-            new AttachedModifierInfo("ToolTipService", ControlsNs, "PlacementTarget", "ToolTipPlacementTarget", autoFix: false),
+            new AttachedModifierInfo("ToolTipService", ControlsNs, "ToolTip", "ToolTip",
+                fixValueType: "System.String", receiverConflicts: new[] { "WithToolTip" }),
+            new AttachedModifierInfo("ToolTipService", ControlsNs, "Placement", "ToolTipPlacement",
+                receiverConflicts: new[] { "ToolTip", "WithToolTip" }),
+            new AttachedModifierInfo("ToolTipService", ControlsNs, "PlacementTarget", "ToolTipPlacementTarget",
+                autoFix: false, modifierUsage: ".ToolTipPlacementTarget(elementRef)"),
 
             // ── TitleBar (spec 059) ──────────────────────────────────────────
             new AttachedModifierInfo("TitleBar", ControlsNs, "IsDragRegion", "IsDragRegion"),
 
             // ── FlexPanel — all eleven funnel into one .Flex(...) ────────────
             // Diagnostic only: .Flex(...) is a single SetAttached(FlexAttached) that replaces
-            // the whole record, so a per-statement chain would clobber the earlier calls, and
-            // the modifier's parameters are named differently from the properties anyway.
-            new AttachedModifierInfo("FlexPanel", LayoutNs, "Grow", "Flex", autoFix: false),
-            new AttachedModifierInfo("FlexPanel", LayoutNs, "Shrink", "Flex", autoFix: false),
-            new AttachedModifierInfo("FlexPanel", LayoutNs, "Basis", "Flex", autoFix: false),
-            new AttachedModifierInfo("FlexPanel", LayoutNs, "FlexMinWidth", "Flex", autoFix: false, setter: "SetMinWidth"),
-            new AttachedModifierInfo("FlexPanel", LayoutNs, "FlexMinHeight", "Flex", autoFix: false, setter: "SetMinHeight"),
-            new AttachedModifierInfo("FlexPanel", LayoutNs, "AlignSelf", "Flex", autoFix: false),
-            new AttachedModifierInfo("FlexPanel", LayoutNs, "Position", "Flex", autoFix: false),
-            new AttachedModifierInfo("FlexPanel", LayoutNs, "Left", "Flex", autoFix: false),
-            new AttachedModifierInfo("FlexPanel", LayoutNs, "Top", "Flex", autoFix: false),
-            new AttachedModifierInfo("FlexPanel", LayoutNs, "Right", "Flex", autoFix: false),
-            new AttachedModifierInfo("FlexPanel", LayoutNs, "Bottom", "Flex", autoFix: false));
+            // the whole record, so a per-statement chain would clobber the earlier calls. The
+            // usage strings name the parameter, which is the whole answer for these.
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "Grow", "Flex", autoFix: false, modifierUsage: ".Flex(grow: ...)"),
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "Shrink", "Flex", autoFix: false, modifierUsage: ".Flex(shrink: ...)"),
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "Basis", "Flex", autoFix: false, modifierUsage: ".Flex(basis: ...)"),
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "FlexMinWidth", "Flex", autoFix: false, setter: "SetMinWidth", modifierUsage: ".Flex(minWidth: ...)"),
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "FlexMinHeight", "Flex", autoFix: false, setter: "SetMinHeight", modifierUsage: ".Flex(minHeight: ...)"),
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "AlignSelf", "Flex", autoFix: false, modifierUsage: ".Flex(alignSelf: ...)"),
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "Position", "Flex", autoFix: false, modifierUsage: ".Flex(position: ...)"),
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "Left", "Flex", autoFix: false, modifierUsage: ".Flex(left: ...)"),
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "Top", "Flex", autoFix: false, modifierUsage: ".Flex(top: ...)"),
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "Right", "Flex", autoFix: false, modifierUsage: ".Flex(right: ...)"),
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "Bottom", "Flex", autoFix: false, modifierUsage: ".Flex(bottom: ...)"));
 
     /// <summary>
     /// Attached properties <c>CleanElement</c> resets that are deliberately <em>not</em> in

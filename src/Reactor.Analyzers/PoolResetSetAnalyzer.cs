@@ -95,7 +95,7 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
         "Use modifier instead of .Set for pool-reset property";
 
     private static readonly LocalizableString MessageFormat =
-        "'{0}' is reset on pool return; '.Set(...)' writes to it are lost on re-render. Use '.{1}(...)' modifier instead.";
+        "'{0}' is reset on pool return; '.Set(...)' writes to it are lost on re-render. Use the '{1}' modifier instead.";
 
     private static readonly LocalizableString Description =
         "The element pool clears these FrameworkElement properties when a control is " +
@@ -178,7 +178,7 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
         "Use the Reactor modifier instead of .Set";
 
     private static readonly LocalizableString ModifierAvailableMessageFormat =
-        "A '.{1}(...)' modifier exists for '{0}'. Prefer it over '.Set(...)', which re-runs every render, is never unwound, and keeps the element on the reconciler's update path.";
+        "A '{1}' modifier exists for '{0}'. Prefer it over '.Set(...)', which re-runs every render, is never unwound, and keeps the element on the reconciler's update path.";
 
     private static readonly LocalizableString ModifierAvailableDescription =
         "Reactor exposes a fluent modifier for this property. Modifier values are stored on " +
@@ -261,7 +261,20 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
         // diagnostic with the complete reported set. The code fix needs the whole set to decide
         // whether a block body is convertible in full, and cannot rely on being handed its
         // siblings (see ReportedPropertiesKey).
-        var reportable = new List<(int Position, string Id, string Subject, string Modifier, bool PoolReset, bool Fixable)>();
+        var reportable = new List<(int Position, string Id, string Subject, string Modifier, bool PoolReset)>();
+
+        // Ids the fix must not rewrite. Both bags are keyed by property/setter name, not by
+        // occurrence, so one write can disqualify a same-named sibling — and it must:
+        // `.Set(fe => { ToolTipService.SetToolTip(fe, "a"); ToolTipService.SetToolTip(fe, obj); })`
+        // reports once, and without this the fix would rewrite BOTH occurrences and emit
+        // `.ToolTip(obj)`, which does not compile. Same for a write the analyzer deliberately
+        // skipped (an explicit null) sharing a name with one it reported: converting it would
+        // silently drop the write, since ApplyModifiers ignores a null modifier value.
+        //
+        // Per-key rather than per-occurrence is exact, not an approximation: the fix is
+        // all-or-nothing over the whole body, so a single unconvertible occurrence already
+        // declines the entire rewrite.
+        var unfixableIds = new HashSet<string>(System.StringComparer.Ordinal);
 
         foreach (var assignment in simpleAssignments)
         {
@@ -276,8 +289,12 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
             if (classified is { } hit)
             {
                 reportable.Add((
-                    assignment.SpanStart, hit.PropName, hit.PropName, hit.Info.Modifier,
-                    hit.Info.PoolReset, Fixable: true));
+                    assignment.SpanStart, hit.PropName, hit.PropName,
+                    "." + hit.Info.Modifier + "(...)", hit.Info.PoolReset));
+            }
+            else
+            {
+                unfixableIds.Add(leftAccess.Name.Identifier.Text);
             }
         }
 
@@ -289,18 +306,23 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
                 continue;
             }
 
-            if (!ModifierTable.AttachedBySetter.TryGetValue(owner + "." + setter, out var info))
+            var id = owner + "." + setter;
+            if (!ModifierTable.AttachedBySetter.TryGetValue(id, out var info))
                 continue;
 
             if (!IsReactorSet())
                 return;
 
             if (!ClassifyAttachedCall(context, attachedCall, info, value, out var fixable))
+            {
+                unfixableIds.Add(id);
                 continue;
+            }
 
-            reportable.Add((
-                attachedCall.SpanStart, owner + "." + setter, info.Key, info.Modifier,
-                PoolReset: true, fixable));
+            if (!fixable)
+                unfixableIds.Add(id);
+
+            reportable.Add((attachedCall.SpanStart, id, info.Key, info.ModifierUsage, PoolReset: true));
         }
 
         if (reportable.Count == 0)
@@ -311,16 +333,18 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
 
         var reportedProperties = ImmutableDictionary<string, string?>.Empty
             .Add(ReportedPropertiesKey, string.Join(",", reportable.Select(r => r.Id)))
-            .Add(FixablePropertiesKey, string.Join(",", reportable.Where(r => r.Fixable).Select(r => r.Id)));
+            .Add(FixablePropertiesKey, string.Join(
+                ",",
+                reportable.Select(r => r.Id).Where(id => !unfixableIds.Contains(id)).Distinct(System.StringComparer.Ordinal)));
 
-        foreach (var (_, _, subject, modifier, poolReset, _) in reportable)
+        foreach (var (_, _, subject, modifierUsage, poolReset) in reportable)
         {
             context.ReportDiagnostic(Diagnostic.Create(
                 poolReset ? Rule : ModifierAvailableRule,
                 invocation.GetLocation(),
                 properties: reportedProperties,
                 subject,
-                modifier));
+                modifierUsage));
         }
     }
 
@@ -355,8 +379,12 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
         {
             // The setter is typed more loosely than the modifier (SetToolTip takes object,
             // .ToolTip takes string), so the rewrite only compiles for the narrower type.
-            var valueType = context.SemanticModel.GetTypeInfo(value, context.CancellationToken).Type;
-            fixable = MatchesType(valueType, requiredType);
+            var valueInfo = context.SemanticModel.GetTypeInfo(value, context.CancellationToken);
+            // A maybe-null value is rejected for the same reason IsNullOrDefault rejects a
+            // literal null: ApplyModifiers skips a null modifier value, so the rewrite would
+            // silently stop performing the write at runtime (and warn at compile time).
+            fixable = MatchesType(valueInfo.Type, requiredType)
+                && valueInfo.Nullability.FlowState != NullableFlowState.MaybeNull;
         }
 
         return true;

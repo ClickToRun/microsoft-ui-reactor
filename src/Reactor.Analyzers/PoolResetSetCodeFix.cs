@@ -258,12 +258,12 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
     /// statement in the body.
     /// </para>
     /// </remarks>
-    private static List<(string Modifier, ArgumentListSyntax Arguments)>? TryBuildChain(
+    private static List<(string Modifier, ArgumentListSyntax Arguments, string[]? Conflicts)>? TryBuildChain(
         ImmutableArray<SetLambdaHelpers.SetBodyWrite> writes,
         HashSet<string> reported,
         HashSet<string> fixable)
     {
-        var steps = new List<(string Modifier, ArgumentListSyntax Arguments)>();
+        var steps = new List<(string Modifier, ArgumentListSyntax Arguments, string[]? Conflicts)>();
 
         foreach (var write in writes)
         {
@@ -275,12 +275,14 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
             if (!fixable.Contains(write.Key)) return null;
 
             string modifier;
+            string[]? conflicts;
             ArgumentListSyntax? modifierArgs;
 
             if (write.AttachedCall is not null)
             {
                 if (!ModifierTable.AttachedBySetter.TryGetValue(write.Key, out var attached)) return null;
                 modifier = attached.Modifier;
+                conflicts = attached.ReceiverConflicts;
                 // Every auto-fixable attached entry passes its value straight through; the
                 // ones needing a translation are marked AutoFix: false in the table.
                 modifierArgs = SyntaxFactory.ArgumentList(
@@ -290,12 +292,13 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
             {
                 if (!ModifierTable.Properties.TryGetValue(write.Key, out var info)) return null;
                 modifier = info.Modifier;
+                conflicts = null;
                 modifierArgs = TryBuildModifierArguments(write.Key, write.Value);
             }
 
             if (modifierArgs is null) return null;
 
-            steps.Add((modifier, modifierArgs));
+            steps.Add((modifier, modifierArgs, conflicts));
         }
 
         return steps.Count == 0 ? null : steps;
@@ -323,10 +326,17 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
     /// the chain we cannot see (a local, a helper's return value) is left alone — this is a
     /// syntactic guard for the visible case, not a whole-program analysis.
     /// </para>
+    /// <para>
+    /// A name match is not always enough: some modifiers write more than the property they are
+    /// named after. <c>.ToolTip(tip, placement)</c> also writes
+    /// <c>ToolTipService.Placement</c>, and <c>.AccessibilityHidden()</c> is shorthand for
+    /// <c>.AccessibilityView(Raw)</c>. Those aliases come from the table entry's
+    /// <c>ReceiverConflicts</c>.
+    /// </para>
     /// </remarks>
     private static bool ReceiverAlreadyApplies(
         ExpressionSyntax receiver,
-        List<(string Modifier, ArgumentListSyntax Arguments)> steps)
+        List<(string Modifier, ArgumentListSyntax Arguments, string[]? Conflicts)> steps)
     {
         for (var node = receiver; node is InvocationExpressionSyntax call;)
         {
@@ -334,8 +344,13 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
                 break;
 
             var called = access.Name.Identifier.Text;
-            if (steps.Exists(step => string.Equals(step.Modifier, called, StringComparison.Ordinal)))
+            if (steps.Exists(step =>
+                string.Equals(step.Modifier, called, StringComparison.Ordinal)
+                || (step.Conflicts is not null
+                    && Array.IndexOf(step.Conflicts, called) >= 0)))
+            {
                 return true;
+            }
 
             node = access.Expression;
         }

@@ -254,6 +254,36 @@ class C
             "written in ElementPool.cs.");
     }
 
+    [Fact]
+    public void Every_ClearValue_In_CleanElement_Is_Recognized_By_The_Reset_Scan()
+    {
+        // Both reset scans are regexes over the literal `RECEIVER.ClearValue(OWNER.PROPProperty)`
+        // shape. A reset written any other way — `var dp = X.YProperty; fe.ClearValue(dp);`, or
+        // a helper — is invisible to them, and an invisible reset makes
+        // Every_Reset_Attached_Property_Is_Classified pass vacuously for the property it
+        // clears. Counting is the cheap way to notice: the scan must account for every
+        // ClearValue in the block, not just the ones it happens to parse.
+        var commonBlock = ReadCleanElementCommonBlock(out _);
+
+        var total = Regex.Matches(commonBlock, @"\.ClearValue\s*\(").Count;
+        var recognized = Regex.Matches(commonBlock,
+            @"\b\w+\.ClearValue\(\s*(?:[\w.]+\.)?(\w+)\.(\w+)Property\s*\)").Count;
+
+        Assert.True(
+            total > 0,
+            "No ClearValue calls found in CleanElement's FE-common block — the block boundary " +
+            "detection in ReadCleanElementCommonBlock has probably drifted.");
+
+        Assert.True(
+            total == recognized,
+            $"CleanElement's FE-common block has {total} ClearValue call(s) but the reset scan " +
+            $"only recognizes {recognized}. A reset written in a shape the regex does not match " +
+            "(a local dependency-property alias, a helper method) is silently excluded from the " +
+            "REACTOR_POOL_001 consistency invariants. Either write it in the " +
+            "'receiver.ClearValue(Owner.PropProperty)' form, or teach ReadResetProperties / " +
+            "ReadResetAttachedProperties about the new shape.");
+    }
+
     /// <summary>
     /// Table-driven exercise of every entry in
     /// <see cref="PoolResetSetAnalyzer.TrappedAttachedProperties"/>: for each, prove the

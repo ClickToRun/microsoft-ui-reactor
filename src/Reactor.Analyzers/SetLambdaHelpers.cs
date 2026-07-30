@@ -217,7 +217,10 @@ internal static class SetLambdaHelpers
         if (arguments.Count != 2)
             return false;
 
-        // Named or ref/out arguments would break the positional target/value reading below.
+        // Named arguments are rejected rather than bound: they may be written out of order
+        // (`SetName(value: "x", element: fe)`), which would make the positional target/value
+        // read below silently wrong. A missed diagnostic on a rare shape is the safe side of
+        // that trade. ref/out cannot appear on these setters but would break the same read.
         if (arguments.Any(argument =>
             argument.NameColon is not null || !argument.RefKindKeyword.IsKind(SyntaxKind.None)))
         {
@@ -235,7 +238,8 @@ internal static class SetLambdaHelpers
 
     /// <summary>
     /// True when <paramref name="expression"/> is the lambda parameter, looking through
-    /// parentheses and casts (which do not change which object is being written to).
+    /// parentheses, casts and the null-forgiving operator — none of which change which object
+    /// is being written to.
     /// </summary>
     private static bool IsLambdaParameterReference(ExpressionSyntax expression, string paramName)
     {
@@ -248,6 +252,10 @@ internal static class SetLambdaHelpers
                     continue;
                 case CastExpressionSyntax cast:
                     expression = cast.Expression;
+                    continue;
+                case PostfixUnaryExpressionSyntax suppression
+                    when suppression.IsKind(SyntaxKind.SuppressNullableWarningExpression):
+                    expression = suppression.Operand;
                     continue;
                 default:
                     return expression is IdentifierNameSyntax id

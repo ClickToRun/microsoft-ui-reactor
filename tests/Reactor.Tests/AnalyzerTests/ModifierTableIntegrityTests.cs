@@ -244,21 +244,25 @@ public class ModifierTableIntegrityTests
     /// new owner to the table is a deliberate two-place edit rather than a silent widening.
     /// Reflection only reads metadata; no WinUI object is constructed.
     /// </remarks>
-    private static readonly Dictionary<string, (Func<string, bool> HasSetter, Func<string, bool> HasDependencyProperty)>
+    private static readonly Dictionary<string, (Func<string, bool> HasSetter, Func<string, bool> HasDependencyProperty, Func<string, Type?> SetterValueType)>
         KnownAttachedOwners = new(StringComparer.Ordinal)
         {
             ["Microsoft.UI.Xaml.Automation.AutomationProperties"] = (
                 setter => HasStaticTwoArgMethod(typeof(Microsoft.UI.Xaml.Automation.AutomationProperties), setter),
-                prop => HasDependencyPropertyField(typeof(Microsoft.UI.Xaml.Automation.AutomationProperties), prop)),
+                prop => HasDependencyPropertyField(typeof(Microsoft.UI.Xaml.Automation.AutomationProperties), prop),
+                setter => StaticTwoArgValueType(typeof(Microsoft.UI.Xaml.Automation.AutomationProperties), setter)),
             ["Microsoft.UI.Xaml.Controls.ToolTipService"] = (
                 setter => HasStaticTwoArgMethod(typeof(Microsoft.UI.Xaml.Controls.ToolTipService), setter),
-                prop => HasDependencyPropertyField(typeof(Microsoft.UI.Xaml.Controls.ToolTipService), prop)),
+                prop => HasDependencyPropertyField(typeof(Microsoft.UI.Xaml.Controls.ToolTipService), prop),
+                setter => StaticTwoArgValueType(typeof(Microsoft.UI.Xaml.Controls.ToolTipService), setter)),
             ["Microsoft.UI.Xaml.Controls.TitleBar"] = (
                 setter => HasStaticTwoArgMethod(typeof(Microsoft.UI.Xaml.Controls.TitleBar), setter),
-                prop => HasDependencyPropertyField(typeof(Microsoft.UI.Xaml.Controls.TitleBar), prop)),
+                prop => HasDependencyPropertyField(typeof(Microsoft.UI.Xaml.Controls.TitleBar), prop),
+                setter => StaticTwoArgValueType(typeof(Microsoft.UI.Xaml.Controls.TitleBar), setter)),
             ["Microsoft.UI.Reactor.Layout.FlexPanel"] = (
                 setter => HasStaticTwoArgMethod(typeof(Microsoft.UI.Reactor.Layout.FlexPanel), setter),
-                prop => HasDependencyPropertyField(typeof(Microsoft.UI.Reactor.Layout.FlexPanel), prop)),
+                prop => HasDependencyPropertyField(typeof(Microsoft.UI.Reactor.Layout.FlexPanel), prop),
+                setter => StaticTwoArgValueType(typeof(Microsoft.UI.Reactor.Layout.FlexPanel), setter)),
         };
 
     [Fact]
@@ -360,6 +364,141 @@ public class ModifierTableIntegrityTests
         }
     }
 
+    [Fact]
+    public void Every_Attached_Setter_Is_Named_After_Its_DependencyProperty()
+    {
+        // Without this, a row could pair one property with an unrelated setter of the same
+        // arity — e.g. FullDescription + SetName — and every other check would still pass:
+        // both names exist on AutomationProperties, and the generated stubs in
+        // PoolResetSetConsistencyTests are built FROM the row, so they would agree with it.
+        // The result would be a diagnostic that names the wrong property and a consistency
+        // invariant that silently stops covering the real one.
+        var divergent = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            // FlexPanel prefixes the DP to avoid colliding with FrameworkElement.MinWidth /
+            // MinHeight, but leaves the setters unprefixed.
+            ["FlexPanel.FlexMinWidth"] = "SetMinWidth",
+            ["FlexPanel.FlexMinHeight"] = "SetMinHeight",
+        };
+
+        var mismatched = ModifierTable.AttachedProperties
+            .Where(pair => divergent.TryGetValue(pair.Key, out var expected)
+                ? pair.Value.Setter != expected
+                : pair.Value.Setter != "Set" + pair.Value.Property)
+            .Select(pair => $"{pair.Key} -> {pair.Value.Setter}")
+            .OrderBy(text => text, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            mismatched.Count == 0,
+            "These attached entries name a setter that does not correspond to their dependency " +
+            $"property: [{string.Join(", ", mismatched)}]. Either fix the pairing, or — if the " +
+            "owner really does name them differently — add the row to this test's 'divergent' " +
+            "map with the reason.");
+    }
+
+    [Fact]
+    public void Every_AutoFixable_Attached_Entry_Maps_One_To_One_Onto_Its_Modifier()
+    {
+        // The assertion behind AutoFix: true. PoolResetSetCodeFix passes the setter's single
+        // value argument straight through to the modifier, so that is only sound when the
+        // modifier really has a one-value overload whose parameter accepts the setter's value
+        // type. Checked against the real DSL and the real owner type, so flipping any
+        // AutoFix: false row to true fails here rather than shipping a rewrite that does not
+        // compile — .PositionInSet takes two values, .Required() takes none, and .Flex(...)
+        // takes eleven.
+        var broken = new List<string>();
+
+        foreach (var (key, info) in ModifierTable.AttachedProperties.Where(pair => pair.Value.AutoFix))
+        {
+            var ownerKey = info.OwnerNamespace + "." + info.Owner;
+            if (!KnownAttachedOwners.TryGetValue(ownerKey, out var probes))
+                continue; // Reported by Every_Attached_Entry_Matches_A_Real_Setter_And_DependencyProperty.
+
+            var setterValueType = probes.SetterValueType(info.Setter);
+            if (setterValueType is null)
+                continue; // Same.
+
+            // FixValueType is the documented escape for a setter typed more loosely than its
+            // modifier: the analyzer refuses the fix unless the value really is that type, so
+            // that — not the setter's parameter — is what the modifier must accept.
+            var required = info.FixValueType;
+
+            var accepted = ModifierValueTypes(info.Modifier);
+            if (accepted.Count == 0)
+            {
+                broken.Add($"{key}: no '{info.Modifier}<T>(this T, value)' overload exists");
+                continue;
+            }
+
+            var ok = accepted.Any(candidate => required is not null
+                ? FullName(candidate) == required
+                : AcceptsValueOfType(candidate, setterValueType));
+
+            if (!ok)
+            {
+                var expected = required ?? FullName(setterValueType);
+                broken.Add(
+                    $"{key}: '{info.Modifier}' has no single-value overload accepting '{expected}' " +
+                    $"(overloads accept: {string.Join(" | ", accepted.Select(FullName))})");
+            }
+        }
+
+        Assert.True(
+            broken.Count == 0,
+            "These attached entries are marked AutoFix: true but the modifier does not line up " +
+            $"1:1 with the setter, so the code fix would not compile: [{string.Join("; ", broken)}]. " +
+            "Mark them AutoFix: false, or set fixValueType when the setter is merely typed more " +
+            "loosely than the modifier.");
+    }
+
+    /// <summary>
+    /// Value-parameter types of every <c>public static T Name&lt;T&gt;(this T el, X value)</c>
+    /// overload — the single-value fluent shape the attached code fix rewrites into.
+    /// </summary>
+    private static List<Type> ModifierValueTypes(string modifier)
+    {
+        var types = new List<Type>();
+        CollectModifierValueTypes(typeof(Microsoft.UI.Reactor.ElementExtensions), modifier, types);
+        CollectModifierValueTypes(typeof(Microsoft.UI.Reactor.FlexExtensions), modifier, types);
+        return types;
+    }
+
+    private static void CollectModifierValueTypes(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods)] Type type,
+        string modifier,
+        List<Type> types)
+    {
+        foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static))
+        {
+            if (!method.IsGenericMethodDefinition
+                || !string.Equals(method.Name, modifier, StringComparison.Ordinal))
+            {
+                continue;
+            }
+            var typeArguments = method.GetGenericArguments();
+            var parameters = method.GetParameters();
+            if (typeArguments.Length != 1 || parameters.Length != 2)
+                continue;
+            if (parameters[0].ParameterType != typeArguments[0])
+                continue;
+            types.Add(parameters[1].ParameterType);
+        }
+    }
+
+    /// <summary>
+    /// True when a value of <paramref name="setterValueType"/> can be passed verbatim to a
+    /// parameter of <paramref name="modifierParameterType"/>. Covers the identity case and the
+    /// implicit <c>T</c> → <c>T?</c> lift (<c>TitleBar.SetIsDragRegion(_, bool)</c> →
+    /// <c>.IsDragRegion(bool?)</c>), which reflection does not model as assignability.
+    /// </summary>
+    private static bool AcceptsValueOfType(Type modifierParameterType, Type setterValueType)
+        => modifierParameterType == setterValueType
+            || Nullable.GetUnderlyingType(modifierParameterType) == setterValueType
+            || modifierParameterType.IsAssignableFrom(setterValueType);
+
+    private static string FullName(Type type) => type.FullName ?? type.Name;
+
     /// <summary>
     /// Names of every <c>public static T Name&lt;T&gt;(this T el, ...)</c> modifier declared
     /// by Reactor's extension classes. Restricted to the classes that actually hold them so
@@ -399,16 +538,25 @@ public class ModifierTableIntegrityTests
     private static bool HasStaticTwoArgMethod(
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods)] Type type,
         string name)
+        => StaticTwoArgValueType(type, name) is not null;
+
+    /// <summary>
+    /// The value (second) parameter type of the owner's <c>public static void Set&lt;X&gt;(target, value)</c>,
+    /// or <c>null</c> when no such method exists.
+    /// </summary>
+    private static Type? StaticTwoArgValueType(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods)] Type type,
+        string name)
     {
         foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static))
         {
-            if (string.Equals(method.Name, name, StringComparison.Ordinal)
-                && method.GetParameters().Length == 2)
-            {
-                return true;
-            }
+            if (!string.Equals(method.Name, name, StringComparison.Ordinal))
+                continue;
+            var parameters = method.GetParameters();
+            if (parameters.Length == 2)
+                return parameters[1].ParameterType;
         }
-        return false;
+        return null;
     }
 
     private static bool HasDependencyPropertyField(
