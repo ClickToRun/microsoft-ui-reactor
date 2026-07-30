@@ -310,6 +310,29 @@ public class ChartKeyboardNavTests : AppTestBase
     /// <summary>Re-focus the plot area, then inject one (optionally chorded) key.</summary>
     private void PressOnChart(ushort virtualKey, bool ctrl = false, bool shift = false, bool alt = false)
     {
+        var chord = VkChord(virtualKey, ctrl: ctrl, shift: shift, alt: alt);
+
+        // Fast path — one winapp process instead of three. `send-keys --target` resolves the
+        // element and focuses it inside the SAME invocation, so it replaces the Search + Focus +
+        // SendKeys trio below. This test presses ~46 keys, so the two saved process spawns per
+        // press (~150ms each) dominate its runtime.
+        if (_targetedSendKeysWorks)
+        {
+            try
+            {
+                App.SendKeys(chord, viaSendInput: true, target: ChartName);
+                Thread.Sleep(45);
+                return;
+            }
+            catch (WinAppException)
+            {
+                // Build doesn't support --target, or SetFocus on the Canvas was rejected through
+                // it. Latch off for the rest of the run and use the click-to-focus path, which
+                // handles that case. Latching (not retrying per key) keeps the fallback cheap.
+                _targetedSendKeysWorks = false;
+            }
+        }
+
         // Re-focus before each key. UIA SetFocus is primary; if it's rejected on this build
         // (UiaFocusChart returns false) fall back to a real pointer click on the plot area — the
         // same strategy EnsureChartFocusedAndKeyboardLive uses — so the key actually lands on the
@@ -325,9 +348,13 @@ public class ChartKeyboardNavTests : AppTestBase
                     "the fixture may have failed to render or lost its AutomationName.");
             ClickChartToFocus(match);
         }
-        App.SendKeys(VkChord(virtualKey, ctrl: ctrl, shift: shift, alt: alt), viaSendInput: true);
+        App.SendKeys(chord, viaSendInput: true);
         Thread.Sleep(45);
     }
+
+    // Latched off the first time the single-spawn targeted send-keys path fails, so the rest of
+    // the run takes the click-to-focus fallback without re-probing on every key.
+    private static bool _targetedSendKeysWorks = true;
 
     // Virtual-key codes for the navigator vocabulary (migrated from the retired InputInjector, whose
     // only consumer was this fixture). Each is emitted as a layout-independent `vk=0xNN` send-keys
