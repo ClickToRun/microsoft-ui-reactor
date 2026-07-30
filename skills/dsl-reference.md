@@ -336,8 +336,9 @@ you specifically want the always-re-render shape (spec 033 §4).
 
 ## Fluent Modifiers
 
-Modifiers return `Element`, so type-specific sugar (`.Bold()`,
-`.CornerRadius()`) must come **before** generic modifiers (`.Margin()`).
+Modifiers are generic (`<T> where T : Element`) and preserve the concrete
+element type through the whole chain, so ordering is free — `.Bold().Margin(16)`
+and `.Margin(16).Bold()` both compile on a `TextBlockElement`.
 
 ### Layout (any Element)
 

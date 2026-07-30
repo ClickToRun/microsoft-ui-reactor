@@ -33,10 +33,12 @@ intuitive, consistent, discoverable, and hard to misuse?
   concrete type flowing through the chain. Flag a new modifier that returns base
   `Element` when it should be generic — it breaks chaining of type-specific
   sugar that follows (e.g. `.Bold()` after it would no longer compile).
-- **Modifier order contract.** Type-specific sugar (`.Bold()`, `.Foreground()`
-  on `TextBlockElement`) must be usable before generic modifiers (`.Margin()`,
-  `.Padding()`) that return base `Element`. Flag a new modifier that forces an
-  unnatural ordering or shadows an existing one with different semantics.
+- **Modifier order contract.** Modifiers are generic (`<T> where T : Element`)
+  and preserve the concrete element type through the chain, so type-specific
+  sugar (`.Bold()`, `.Foreground()` on `TextBlockElement`) composes with generic
+  modifiers (`.Margin()`, `.Padding()`) in either order. Flag a new modifier that
+  breaks that by returning base `Element`, forces an unnatural ordering, or
+  shadows an existing one with different semantics.
 - **`.Set()` escape hatch.** It exists for properties not exposed as modifiers.
   Flag a new first-class modifier that merely duplicates a one-line `.Set()`
   with no added value, or conversely a property authors will reach for often
