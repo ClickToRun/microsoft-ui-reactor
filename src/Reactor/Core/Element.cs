@@ -6673,6 +6673,14 @@ public record CommandBarFlyoutElement(
     AppBarItemBase[]? SecondaryCommands = null
 ) : Element
 {
+    /// <summary>
+    /// Opens the flyout declaratively. Like <see cref="FlyoutElement.IsOpen"/> this is a
+    /// one-shot trigger: the flyout is shown on mount when already <c>true</c>, and on the
+    /// <c>false</c> → <c>true</c> edge of an update. Setting it back to <c>false</c> does not
+    /// close the flyout — the user dismisses it (outside click, Esc, or invoking a command).
+    /// The target normally opens the flyout on click without this.
+    /// </summary>
+    public bool IsOpen { get; init; }
     public FlyoutPlacementMode Placement { get; init; } = FlyoutPlacementMode.Auto;
     internal Action<WinUI.CommandBarFlyout>[] Setters { get; init; } = [];
 }

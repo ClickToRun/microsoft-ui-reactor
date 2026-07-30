@@ -4955,14 +4955,8 @@ public sealed partial class Reconciler : IDisposable
     /// </summary>
     private void ApplyFlyoutAttachment(FrameworkElement fe, Element? oldFlyoutEl, Element newFlyoutEl, Action requestRerender)
     {
-        // Try to get the existing flyout from the control.
-        // SplitButton.Flyout and Button.Flyout are separate properties (different type hierarchies).
-        WinPrim.FlyoutBase? existingFlyout = fe switch
-        {
-            WinUI.SplitButton sb => sb.Flyout,
-            WinUI.Button btn => btn.Flyout,  // AppBarButton inherits from Button
-            _ => WinPrim.FlyoutBase.GetAttachedFlyout(fe),
-        };
+        // Read the existing flyout from whichever slot SetFlyoutOnControl writes to.
+        var existingFlyout = GetFlyoutOnControl(fe);
 
         // If we have an existing flyout and old element, try to update in place
         if (oldFlyoutEl is not null && existingFlyout is not null)
@@ -5029,16 +5023,87 @@ public sealed partial class Reconciler : IDisposable
         }
     }
 
-    internal void SetFlyoutOnControl(FrameworkElement fe, WinPrim.FlyoutBase flyout)
+    /// <summary>
+    /// Which slot a flyout occupies on a given target control. Button-family targets
+    /// get the control's own <c>Flyout</c> property, which WinUI opens on click; every
+    /// other target falls back to <c>FlyoutBase.AttachedFlyout</c> metadata, which only
+    /// opens via an explicit <c>ShowAttachedFlyout</c> call.
+    /// </summary>
+    internal enum FlyoutSlot
+    {
+        Attached,
+        Button,
+        SplitButton,
+    }
+
+    /// <summary>
+    /// Single source of truth for the flyout-slot rule shared by
+    /// <see cref="SetFlyoutOnControl"/> and <see cref="GetFlyoutOnControl"/>. Writers and
+    /// readers that disagree on the slot silently lose the flyout, so both go through here.
+    /// </summary>
+    internal static FlyoutSlot ResolveFlyoutSlot(Type targetType)
     {
         // Check SplitButton before Button (SplitButton doesn't inherit from Button,
-        // but DropDownButton does, so Button catch-all handles it).
-        if (fe is WinUI.SplitButton sb)
-            sb.Flyout = flyout;
-        else if (fe is WinUI.Button btn)  // AppBarButton, DropDownButton inherit from Button
-            btn.Flyout = flyout;
-        else
-            WinPrim.FlyoutBase.SetAttachedFlyout(fe, flyout);
+        // but DropDownButton does, so the Button catch-all handles it).
+        if (typeof(WinUI.SplitButton).IsAssignableFrom(targetType)) return FlyoutSlot.SplitButton;
+        if (typeof(WinUI.Button).IsAssignableFrom(targetType)) return FlyoutSlot.Button;  // AppBarButton, DropDownButton inherit from Button
+        return FlyoutSlot.Attached;
+    }
+
+    internal void SetFlyoutOnControl(FrameworkElement fe, WinPrim.FlyoutBase flyout)
+    {
+        switch (ResolveFlyoutSlot(fe.GetType()))
+        {
+            case FlyoutSlot.SplitButton: ((WinUI.SplitButton)fe).Flyout = flyout; break;
+            case FlyoutSlot.Button: ((WinUI.Button)fe).Flyout = flyout; break;
+            default: WinPrim.FlyoutBase.SetAttachedFlyout(fe, flyout); break;
+        }
+    }
+
+    /// <summary>
+    /// Reads back the flyout <see cref="SetFlyoutOnControl"/> installed. Update paths must
+    /// use this rather than <c>GetAttachedFlyout</c> — a Button/SplitButton target holds its
+    /// flyout in the control's own slot, so an attached-only lookup returns null and the
+    /// caller creates a duplicate flyout the user can never see.
+    /// </summary>
+    internal static WinPrim.FlyoutBase? GetFlyoutOnControl(FrameworkElement fe) =>
+        ResolveFlyoutSlot(fe.GetType()) switch
+        {
+            FlyoutSlot.SplitButton => ((WinUI.SplitButton)fe).Flyout,
+            FlyoutSlot.Button => ((WinUI.Button)fe).Flyout,
+            _ => WinPrim.FlyoutBase.GetAttachedFlyout(fe),
+        };
+
+    /// <summary>
+    /// Detaches whatever <see cref="SetFlyoutOnControl"/> installed, so a pooled/reused target
+    /// retains no stale flyout. Clears the same slot the writer and reader agree on.
+    /// </summary>
+    internal static void ClearFlyoutOnControl(FrameworkElement fe)
+    {
+        switch (ResolveFlyoutSlot(fe.GetType()))
+        {
+            case FlyoutSlot.SplitButton: ((WinUI.SplitButton)fe).Flyout = null; break;
+            case FlyoutSlot.Button: ((WinUI.Button)fe).Flyout = null; break;
+            default: WinPrim.FlyoutBase.SetAttachedFlyout(fe, null); break;
+        }
+    }
+
+    /// <summary>
+    /// Assigns a flyout's placement, treating <see cref="WinPrim.FlyoutPlacementMode.Auto"/> as
+    /// "leave it at WinUI's default" rather than writing it through.
+    ///
+    /// <c>Auto</c> (13) is outside the range <c>FlyoutBase::ShowAtCore</c> accepts, and
+    /// <c>GetEffectivePlacement</c> hands the raw value straight to the validator, so an
+    /// <c>Auto</c>-placed flyout fail-fasts the process with <c>E_INVALIDARG</c> the moment it
+    /// opens. Clearing the DP (rather than merely skipping the write) keeps an explicit → Auto
+    /// update consistent with what a fresh mount of the same element would produce.
+    /// </summary>
+    internal static void ApplyFlyoutPlacement(WinPrim.FlyoutBase flyout, WinPrim.FlyoutPlacementMode placement)
+    {
+        if (placement == WinPrim.FlyoutPlacementMode.Auto)
+            flyout.ClearValue(WinPrim.FlyoutBase.PlacementProperty);
+        else if (flyout.Placement != placement)
+            flyout.Placement = placement;
     }
 
     /// <summary>

@@ -1,4 +1,5 @@
 using Microsoft.UI.Reactor.Core;
+using Microsoft.UI.Reactor.Core.V1Protocol;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -329,5 +330,112 @@ public class FlyoutAttachmentTests
     {
         var el = MenuItems(MenuItem("x"));
         Assert.Equal(FlyoutPlacementMode.Auto, el.Placement);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Flyout slot resolution (Reconciler.ResolveFlyoutSlot)
+    //
+    //  Single source of truth shared by SetFlyoutOnControl (write) and
+    //  GetFlyoutOnControl (read). A writer and a reader that disagree on the
+    //  slot silently lose the flyout — that is exactly how CommandBarFlyout
+    //  ended up installing into AttachedFlyout (which nothing ever opens)
+    //  while Flyout/MenuFlyout used the Button.Flyout slot.
+    //
+    //  Type-only: no WinUI object is constructed, so these stay headless.
+    // ════════════════════════════════════════════════════════════════
+
+    [Theory]
+    // Button family → the control's own Flyout property, which WinUI opens on click.
+    [InlineData(typeof(Button), (int)Reconciler.FlyoutSlot.Button)]
+    [InlineData(typeof(DropDownButton), (int)Reconciler.FlyoutSlot.Button)]
+    [InlineData(typeof(AppBarButton), (int)Reconciler.FlyoutSlot.Button)]
+    // SplitButton does NOT derive from Button and has its own Flyout property.
+    [InlineData(typeof(SplitButton), (int)Reconciler.FlyoutSlot.SplitButton)]
+    [InlineData(typeof(ToggleSplitButton), (int)Reconciler.FlyoutSlot.SplitButton)]
+    // Everything else — including ButtonBase-derived types that have no Flyout
+    // property — falls back to FlyoutBase.AttachedFlyout metadata.
+    [InlineData(typeof(HyperlinkButton), (int)Reconciler.FlyoutSlot.Attached)]
+    [InlineData(typeof(AppBarToggleButton), (int)Reconciler.FlyoutSlot.Attached)]
+    [InlineData(typeof(TextBlock), (int)Reconciler.FlyoutSlot.Attached)]
+    [InlineData(typeof(Border), (int)Reconciler.FlyoutSlot.Attached)]
+    [InlineData(typeof(FrameworkElement), (int)Reconciler.FlyoutSlot.Attached)]
+    // int, not FlyoutSlot: the enum is internal and an internal parameter type on a
+    // public test method is CS0051.
+    public void ResolveFlyoutSlot_Maps_TargetType_To_Slot(global::System.Type targetType, int expectedSlot)
+    {
+        Assert.Equal((Reconciler.FlyoutSlot)expectedSlot, Reconciler.ResolveFlyoutSlot(targetType));
+    }
+
+    [Fact]
+    public void ResolveFlyoutSlot_Separates_Button_From_SplitButton()
+    {
+        // Differential: the two button families must NOT collapse onto the same
+        // slot, or one of them gets written to a property the reader never checks.
+        Assert.NotEqual(
+            Reconciler.ResolveFlyoutSlot(typeof(Button)),
+            Reconciler.ResolveFlyoutSlot(typeof(SplitButton)));
+    }
+
+    [Fact]
+    public void ResolveFlyoutSlot_Does_Not_Put_Buttons_In_The_Attached_Slot()
+    {
+        // The attached slot only opens via an explicit ShowAttachedFlyout call.
+        // A Button target landing there is the CommandBarFlyout "dead button" bug.
+        Assert.NotEqual(Reconciler.FlyoutSlot.Attached, Reconciler.ResolveFlyoutSlot(typeof(Button)));
+        Assert.NotEqual(Reconciler.FlyoutSlot.Attached, Reconciler.ResolveFlyoutSlot(typeof(SplitButton)));
+    }
+
+    [Fact]
+    public void CommandBarFlyout_Does_Not_Open_Itself_By_Default()
+    {
+        // IsOpen is an explicit opt-in trigger — defaulting it true would pop every
+        // CommandBarFlyout open on mount.
+        Assert.False(CommandBarFlyout(Button("target", null)).IsOpen);
+    }
+
+    [Fact]
+    public void CommandBarFlyout_IsOpen_Is_Settable_Via_With()
+    {
+        Assert.True((CommandBarFlyout(Button("target", null)) with { IsOpen = true }).IsOpen);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Deferred-open guard (OverlayLifecycle.IsStillRequestingOpen)
+    //
+    //  A mount-time IsOpen=true defers the show to the target's Loaded.
+    //  Between those two points the element can be re-rendered with
+    //  IsOpen=false, replaced by a different element, or unmounted (the
+    //  pool clears the tag). The guard reads the target's *current* tag so
+    //  a stale request never pops a flyout.
+    // ════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void DeferredOpen_Honoured_While_Element_Still_Wants_Open()
+    {
+        Assert.True(OverlayLifecycle.IsStillRequestingOpen(
+            CommandBarFlyout(Button("t", null)) with { IsOpen = true }));
+    }
+
+    [Fact]
+    public void DeferredOpen_Dropped_When_Element_Rerendered_Closed()
+    {
+        Assert.False(OverlayLifecycle.IsStillRequestingOpen(
+            CommandBarFlyout(Button("t", null)) with { IsOpen = false }));
+    }
+
+    [Fact]
+    public void DeferredOpen_Dropped_When_Target_Untagged()
+    {
+        // Pool return calls ClearElementTag, so a recycled control reports no element.
+        Assert.False(OverlayLifecycle.IsStillRequestingOpen(null));
+    }
+
+    [Fact]
+    public void DeferredOpen_Dropped_When_Target_Now_Hosts_A_Different_Element()
+    {
+        // FlyoutElement.IsOpen is a different feature on a different element type —
+        // it must not satisfy the CommandBarFlyout deferred-open guard.
+        Assert.False(OverlayLifecycle.IsStillRequestingOpen(
+            Flyout(Button("t", null), TextBlock("content")) with { IsOpen = true }));
     }
 }

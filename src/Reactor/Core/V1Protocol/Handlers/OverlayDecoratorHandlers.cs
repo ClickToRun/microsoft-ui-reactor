@@ -74,14 +74,7 @@ internal sealed class FlyoutHandler : IDecoratorElementHandler<FlyoutElement>
         // ContinueDefaultTraversal so the Target subtree still tears down.
         if (control is FrameworkElement targetFe)
         {
-            var attached = targetFe switch
-            {
-                WinUI.SplitButton sb => sb.Flyout,
-                WinUI.Button btn => btn.Flyout,
-                _ => WinPrim.FlyoutBase.GetAttachedFlyout(targetFe),
-            };
-
-            if (attached is WinUI.Flyout flyout)
+            if (Reconciler.GetFlyoutOnControl(targetFe) is WinUI.Flyout flyout)
             {
                 if (flyout.Content is UIElement content)
                     ctx.Reconciler.UnmountChild(content);
@@ -91,12 +84,7 @@ internal sealed class FlyoutHandler : IDecoratorElementHandler<FlyoutElement>
                 flyout.OverlayInputPassThroughElement = null;
             }
 
-            switch (targetFe)
-            {
-                case WinUI.SplitButton sb: sb.Flyout = null; break;
-                case WinUI.Button btn: btn.Flyout = null; break;
-                default: WinPrim.FlyoutBase.SetAttachedFlyout(targetFe, null); break;
-            }
+            Reconciler.ClearFlyoutOnControl(targetFe);
         }
         return V1UnmountDisposition.ContinueDefaultTraversal;
     }
@@ -185,5 +173,15 @@ internal sealed class CommandBarFlyoutHandler : IDecoratorElementHandler<Command
         => OverlayLifecycle.UpdateCommandBarFlyout(ctx.Reconciler, oldEl, newEl, control, ctx.RequestRerender) ?? control;
 
     public V1UnmountDisposition Unmount(UnmountContext ctx, CommandBarFlyoutElement? element, UIElement control)
-        => V1UnmountDisposition.ContinueDefaultTraversal;
+    {
+        // Detach the flyout so a pooled/reused target can't keep showing the previous
+        // component's command bar. ElementPool.CleanElement already nulls Button.Flyout,
+        // but nothing clears the attached-flyout slot a non-button target uses.
+        if (control is FrameworkElement targetFe
+            && Reconciler.GetFlyoutOnControl(targetFe) is WinUI.CommandBarFlyout)
+        {
+            Reconciler.ClearFlyoutOnControl(targetFe);
+        }
+        return V1UnmountDisposition.ContinueDefaultTraversal;
+    }
 }

@@ -1631,6 +1631,7 @@ AppBarItemBase[] PrimaryCommands { get; init; }
 AppBarItemBase[] SecondaryCommands { get; init; }
 Element Target { get; init; }
 FlyoutPlacementMode Placement { get; init; }
+bool IsOpen { get; init; }
 Deconstruct(ref Element Target, ref AppBarItemBase[] PrimaryCommands, ref AppBarItemBase[] SecondaryCommands) → void
 Equals(CommandBarFlyoutElement other) → bool
 Equals(Element other) → bool

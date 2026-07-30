@@ -1580,6 +1580,18 @@ internal static class SelfTestFixtureRegistry
         "CoreRRC_RenderContextThreadSafeState",
         "CoreRRC_RenderContextWindowEnvHooks",
         "CoreRRC_UntypedTreeViewReconcile",
+
+        // CommandBarFlyout target wiring + IsOpen (CommandBarFlyoutWiringFixtures).
+        "CmdBarFlyout_TargetWiring",
+        "CmdBarFlyout_NonButtonTargetUsesAttachedSlot",
+        "CmdBarFlyout_IsOpenOnUpdate",
+        "CmdBarFlyout_IsOpenOnMount",
+        "CmdBarFlyout_DefaultPlacementOpens",
+        "CmdBarFlyout_SplitButtonTargetWiring",
+        "CmdBarFlyout_PlacementExplicitToAutoResets",
+        "CmdBarFlyout_UnmountDetachesFlyout",
+        "CmdBarFlyout_KeyedReorderKeepsSiblingFlyouts",
+        "CmdBarFlyout_TargetKeepsItsOwnCallbacks",
     ];
 
     public static SelfTestFixtureBase? Create(string name, Harness harness) => name switch
@@ -3100,6 +3112,18 @@ internal static class SelfTestFixtureRegistry
         "CoreRRC_RenderContextThreadSafeState" => new CoreReconcilerRenderCoverageFixtures.RenderContextThreadSafeState(harness),
         "CoreRRC_RenderContextWindowEnvHooks" => new CoreReconcilerRenderCoverageFixtures.RenderContextWindowEnvHooks(harness),
         "CoreRRC_UntypedTreeViewReconcile" => new CoreReconcilerRenderCoverageFixtures.UntypedTreeViewReconcile(harness),
+
+        // CommandBarFlyout target wiring + IsOpen.
+        "CmdBarFlyout_TargetWiring" => new CommandBarFlyoutWiringFixtures.TargetWiring(harness),
+        "CmdBarFlyout_NonButtonTargetUsesAttachedSlot" => new CommandBarFlyoutWiringFixtures.NonButtonTargetUsesAttachedSlot(harness),
+        "CmdBarFlyout_IsOpenOnUpdate" => new CommandBarFlyoutWiringFixtures.IsOpenOnUpdate(harness),
+        "CmdBarFlyout_IsOpenOnMount" => new CommandBarFlyoutWiringFixtures.IsOpenOnMount(harness),
+        "CmdBarFlyout_DefaultPlacementOpens" => new CommandBarFlyoutWiringFixtures.DefaultPlacementOpens(harness),
+        "CmdBarFlyout_SplitButtonTargetWiring" => new CommandBarFlyoutWiringFixtures.SplitButtonTargetWiring(harness),
+        "CmdBarFlyout_PlacementExplicitToAutoResets" => new CommandBarFlyoutWiringFixtures.PlacementExplicitToAutoResets(harness),
+        "CmdBarFlyout_UnmountDetachesFlyout" => new CommandBarFlyoutWiringFixtures.UnmountDetachesFlyout(harness),
+        "CmdBarFlyout_KeyedReorderKeepsSiblingFlyouts" => new CommandBarFlyoutWiringFixtures.KeyedReorderKeepsSiblingFlyouts(harness),
+        "CmdBarFlyout_TargetKeepsItsOwnCallbacks" => new CommandBarFlyoutWiringFixtures.TargetKeepsItsOwnCallbacks(harness),
 
         _ => null,
     };
