@@ -304,6 +304,12 @@ Wiring the change callback is what makes the value recoverable: the
 dismissal drives the declared value down to `false`, and the later
 `false → true` transition is a real edge that re-opens the control.
 
+`OnClosed` also has a fluent form — `.Closed(() => setShowBanner(false))` —
+which composes with the rest of the chain when you are not already using a
+`with` expression for `IsOpen`. The equivalent hooks on the other three are
+`SplitView` / `NavigationView`'s `OnPaneOpenChanged` and `TeachingTip`'s
+`OnClosed`.
+
 The alternative — re-asserting the declared value against the live
 control on every render — is deliberately **not** what these four do. It
 would make a control the user cannot dismiss: `InfoBarElement.IsOpen`,
