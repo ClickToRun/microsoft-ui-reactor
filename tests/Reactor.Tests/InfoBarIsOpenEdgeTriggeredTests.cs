@@ -134,9 +134,63 @@ public class InfoBarIsOpenEdgeTriggeredTests
         return names;
     }
 
-    [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "Test-only: reflects a known non-public field on a concrete descriptor entry. JIT-only (this host is never trimmed) and behaviour-neutral.")]
+    /// <summary>
+    /// Reads a private instance field, searching the whole type hierarchy.
+    ///
+    /// <para>Same reason as <see cref="InstanceFieldNames"/>: <c>BindingFlags.NonPublic</c>
+    /// does not return private fields declared on base types, and
+    /// <c>BindingFlags.FlattenHierarchy</c> does not help — it is documented not to apply
+    /// to private fields. A single-level lookup would make
+    /// <see cref="FindIsOpenEntry"/> match nothing and go red if a refactor moved
+    /// <c>_get</c> into a base class, even though the contract under test was unchanged.
+    /// A guard that cries wolf on a behaviour-preserving refactor is how guards get
+    /// weakened, so walk the chain explicitly.</para>
+    ///
+    /// <para>This stays fail-loud rather than fail-silent: a miss returns <c>null</c>,
+    /// <see cref="ReadsIsOpen"/> then returns <c>false</c>, and the
+    /// <c>Assert.Single</c> in <see cref="FindIsOpenEntry"/> fails. Widening the lookup
+    /// cannot turn a real regression into a pass, because the entry is still identified
+    /// by <i>behaviour</i> — it must read <c>IsOpen</c> and not <c>IsClosable</c>.</para>
+    /// </summary>
+    [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2070", Justification = "Test-only: reflects a known non-public field on a concrete descriptor entry the test resolves at runtime. JIT-only (this host is never trimmed) and behaviour-neutral.")]
+    [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "Test-only: walks Type.BaseType, which the trim analyzer cannot annotate. JIT-only (this host is never trimmed) and behaviour-neutral.")]
     private static object? GetPrivateField(object owner, string name)
-        => owner.GetType()
-                .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
-                ?.GetValue(owner);
+    {
+        for (var t = owner.GetType(); t is not null && t != typeof(object); t = t.BaseType)
+        {
+            var field = t.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+            if (field is not null) return field.GetValue(owner);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Pins the resilience both reflection helpers depend on, so the hierarchy walk
+    /// cannot be quietly reverted to a single-level lookup. Uses a local hierarchy
+    /// whose private field is declared on the BASE type — the exact shape a future
+    /// descriptor-entry refactor would produce.
+    /// </summary>
+    [Fact]
+    public void ReflectionHelpers_FindPrivateFieldsDeclaredOnABaseType()
+    {
+        var derived = new DerivedProbe();
+
+        // A single-level GetField(Instance | NonPublic) returns null here; that is the
+        // regression this guards. FlattenHierarchy would not help either.
+        Assert.Null(typeof(DerivedProbe).GetField("_onBase", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly));
+
+        Assert.Equal("base-value", GetPrivateField(derived, "_onBase"));
+        Assert.Contains("_onBase", InstanceFieldNames(typeof(DerivedProbe)));
+    }
+
+    private class BaseProbe
+    {
+        private readonly string _onBase = "base-value";
+        protected string Read() => _onBase;
+    }
+
+    private sealed class DerivedProbe : BaseProbe
+    {
+        public string Value => Read();
+    }
 }
