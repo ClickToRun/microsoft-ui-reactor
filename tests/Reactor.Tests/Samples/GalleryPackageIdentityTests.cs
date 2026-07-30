@@ -16,7 +16,7 @@ namespace Microsoft.UI.Reactor.Tests.Samples;
 /// test process happens to be, so the mapping is tested directly and then tied back to
 /// the OS by an independent binding to the same export.</para>
 /// </summary>
-public sealed class GalleryPackageIdentityTests
+public sealed partial class GalleryPackageIdentityTests
 {
     [Theory]
     [InlineData(GalleryPackageIdentity.ErrorSuccess, true)]
@@ -52,8 +52,12 @@ public sealed class GalleryPackageIdentityTests
         Assert.Equal(15700, GalleryPackageIdentity.AppModelErrorNoPackage);
     }
 
-    [DllImport("kernel32.dll")]
-    private static extern int GetCurrentPackageFullName(ref uint packageFullNameLength, nint packageFullName);
+    // Deliberately a separate declaration from the product's own probe: an independent
+    // binding to the same export, so a mapping that drifted from what kernel32 actually
+    // returns is caught. Source-generated [LibraryImport] rather than DllImport keeps the
+    // marshalling compile-time and AOT-honest (this project sets IsAotCompatible).
+    [LibraryImport("kernel32.dll")]
+    private static partial int GetCurrentPackageFullName(ref uint packageFullNameLength, nint packageFullName);
 
     [Fact]
     public void LiveProbe_ReturnsAStatusTheMappingUnderstands()

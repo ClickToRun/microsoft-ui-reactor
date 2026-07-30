@@ -19,6 +19,13 @@
          the analyzer keeps guarding against *new*, unintended reflection. See README.md
          for the per-category rationale and the native-AOT-run verdict. -->
     <IsAotCompatible>true</IsAotCompatible>
+    <!-- Required by the [LibraryImport] source generator, which emits an unsafe stub.
+         Used by the kernel32 package-identity probes in PackageRuntimeTests /
+         GalleryPackageIdentityTests; no hand-written unsafe code in this project.
+         LibraryImport is preferred over DllImport here because its marshalling is
+         source-generated at compile time, which is what keeps the interop honest under
+         the IsAotCompatible analysis above. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Show every individual trimmer warning instead of collapsing them into one. -->
     <TrimmerSingleWarn>false</TrimmerSingleWarn>
     <UseWinUI>true</UseWinUI>
