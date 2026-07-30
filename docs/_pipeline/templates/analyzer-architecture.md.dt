@@ -132,7 +132,7 @@ via `.editorconfig`.
 | `REACTOR_DOCK_001` | Warning | OnLiveLayoutChanged feeds the live layout back into state | `OnLiveLayoutRoundTripAnalyzer.cs` |
 | `REACTOR_DOC_001` | Warning | Public API missing XML doc summary | `XmlDocSummaryAnalyzer.cs` |
 | `REACTOR_EVENT_001` | Warning | Event wired via .Set(+=/-=) re-subscribes every render; use a declarative On* modifier or .OnMountAdd/.OnUnmountAdd | `SetEventSubscriptionAnalyzer.cs` |
-| `REACTOR_POOL_001` | Warning | .Set assigns to a property reset on pool return; use the surviving Reactor modifier | `PoolResetSetAnalyzer.cs` |
+| `REACTOR_POOL_001` | Warning | `.Set` writes a property reset on pool return — either `fe.PROP = v` or `Owner.SetPROP(fe, v)`; use the surviving Reactor modifier | `PoolResetSetAnalyzer.cs` |
 | `REACTOR_ITEMS_001` | Warning | .Set(ItemsSource=...) on a Reactor-owned collection | `SetOwnedItemsSourceAnalyzer.cs` |
 | `REACTOR_ITEMS_002` | Warning | ItemsView viewBuilder returns a statically non-ItemContainer root (mount-time InvalidOperationException); wrap it with ItemContainer(...) | `ItemsViewContainerRootAnalyzer.cs` |
 | `REACTOR_CTRL_001` | Warning | .Set(SelectedItem/SelectedValue) fights controlled SelectedIndex | `SetSelectedItemAnalyzer.cs` |
@@ -249,6 +249,65 @@ back out and inserts the corresponding argument into the call's
 `deps` list. Round-tripping through the property bag is the supported
 pattern — embedding the value in the message text would break the
 fix the moment the message changes or gets localized.
+
+## One id, two syntactic shapes — the attached-property case
+
+Every rule in the `.Set` family starts from an *assignment*:
+`SetLambdaHelpers` hands the analyzer the
+`AssignmentExpressionSyntax` nodes in the lambda body, and each rule
+layers its own member/type check on top. That shape covers instance
+properties only. An attached-property write is a static call —
+`AutomationProperties.SetName(fe, "Save")` — an
+`InvocationExpressionSyntax` with no assignment anywhere in it, so it
+was structurally invisible to the whole family:
+
+```csharp
+// Both are lost when the pooled control is reused. Only the first one
+// was diagnosed before the attached shape was added.
+.Set(fe => fe.Margin = new Thickness(8))
+.Set(fe => AutomationProperties.SetName(fe, "Save"))
+```
+
+`ElementPool.CleanElement` clears far more attached properties than
+instance ones, so this was the larger half of `REACTOR_POOL_001`'s
+subject matter — all of it in the "your write is silently discarded"
+class. The failure is identical either way, so both shapes report the
+*same* diagnostic id rather than a new one; only the matching differs.
+
+**Keyed by owner, not by property name.** The instance table,
+`ModifierTable.Properties`, is keyed by the bare property name, and
+attached properties collide there: `AutomationProperties.SetName`
+would key as `Name`, which is `FrameworkElement.Name` — a different,
+modifier-less property the framework itself writes. Attached entries
+therefore live in their own `ModifierTable.AttachedProperties`, keyed
+`Owner.Property`. The key uses the *dependency property's* base name
+(the `PROP` in `OWNER.PROPProperty`, which is what the consistency
+test scans `CleanElement` for), and carries the setter method name
+separately, because the two are not always the same —
+`FlexPanel.SetMinWidth` writes `FlexMinWidthProperty`.
+
+**Three gates, cheapest first.** The syntactic shape (a two-argument
+`Owner.SetPROP` call) is free; the receiver-identity check — the first
+argument must be the lambda parameter itself, looking through
+parentheses and casts — is the one doing the real work, and mirrors
+what `GetAssignedMemberAccess` does for assignments. Without it,
+`.Set(panel => Grid.SetRow(panel.Children[0], 1))` would report a
+write that never touches the pooled control. Last is a semantic pin on
+the owner's namespace, so a user type that happens to be called
+`AutomationProperties` stays silent. Owners with nothing in the table —
+`Canvas`, `ScrollViewer`, `Grid` — never reach any of it.
+
+**Not everything gets a fix.** An entry is auto-fixable only when the
+setter's single value argument can be handed to the modifier verbatim.
+`ToolTipService.SetToolTip(b, "x")` → `.ToolTip("x")` qualifies;
+`AutomationProperties.SetPositionInSet(fe, 2)` does not, because
+`.PositionInSet(position, size)` takes two arguments, and neither do
+the eleven `FlexPanel` properties that all funnel into a single
+`.Flex(...)` call. Those stay diagnostic-only. That split rides to the
+fix provider through a second property-bag key alongside the reported
+set, because part of the decision is semantic — whether
+`SetToolTip`'s `object` argument really is a `string` — and the
+analyzer is the side that already holds a `SemanticModel`.
 
 ## The doc-system analyzers
 
