@@ -108,6 +108,15 @@ public sealed class GallerySampleLintTests
         }
     }
 
+    /// <summary>Parameter count of a lambda, for either the simple or parenthesized form.</summary>
+    static int ParameterCount(AnonymousFunctionExpressionSyntax lambda) => lambda switch
+    {
+        SimpleLambdaExpressionSyntax => 1,
+        ParenthesizedLambdaExpressionSyntax p => p.ParameterList.Parameters.Count,
+        AnonymousMethodExpressionSyntax a => a.ParameterList?.Parameters.Count ?? 0,
+        _ => -1,
+    };
+
     /// <summary>Every expression a lambda can hand back, flattening conditional branches.</summary>
     static IEnumerable<ExpressionSyntax> ReturnedExpressions(AnonymousFunctionExpressionSyntax lambda)
     {
@@ -159,13 +168,24 @@ public sealed class GallerySampleLintTests
             {
                 if (InvokedName(invocation) != "ItemsView") continue;
 
-                var builder = invocation.ArgumentList.Arguments
+                // The view builder is the (item, index) => Element lambda. Select it by
+                // parameter count rather than position: picking "the last lambda" would
+                // grab the keySelector if the builder were passed as a method group, and
+                // then report a bogus failure against the wrong argument.
+                var lambdas = invocation.ArgumentList.Arguments
                     .Select(a => a.Expression)
                     .OfType<AnonymousFunctionExpressionSyntax>()
-                    // The view builder is the (item, index) => Element lambda — two parameters.
-                    .LastOrDefault();
-                if (builder is null) continue;
+                    .Where(l => ParameterCount(l) == 2)
+                    .ToList();
 
+                if (lambdas.Count == 0)
+                {
+                    offenders.Add($"{Where(path, invocation)}: the ItemsView view builder is not a two-parameter " +
+                                  "lambda, so this lint cannot verify its root. Pass it inline as (item, index) => ItemContainer(...).");
+                    continue;
+                }
+
+                foreach (var builder in lambdas)
                 foreach (var returned in ReturnedExpressions(builder))
                 {
                     checkedBuilders++;
@@ -232,7 +252,10 @@ public sealed class GallerySampleLintTests
     {
         var csproj = Path.Join(GalleryDir(), "ReactorGallery.csproj");
         var text = File.ReadAllText(csproj);
-        var entries = Regex.Matches(text, @"<Content\s+Include=""(?<inc>[^""]+)""")
+        // Match Include= anywhere in the tag, not just as the first attribute — otherwise a
+        // perfectly ordinary `<Content Update="…" Include="…">` silently drops out and the
+        // asset lint reports "not copied to output" for a file that is.
+        var entries = Regex.Matches(text, @"<Content\b[^>]*?\bInclude\s*=\s*""(?<inc>[^""]+)""")
             .Select(m => m.Groups["inc"].Value.Replace('\\', '/'))
             .Select(inc => inc.EndsWith("/**", global::System.StringComparison.Ordinal)
                 ? inc[..^3] + "/"

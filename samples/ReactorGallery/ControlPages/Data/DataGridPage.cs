@@ -71,8 +71,9 @@ class DataGridPage : Component
                         editMode: EditMode.Cell,
                         onRowChanged: (key, item) =>
                         {
-                            // onRowChanged runs on a threadpool thread; UseState setters
-                            // auto-marshal back onto the UI dispatcher, so just call it.
+                            // Invoked synchronously on the UI thread: UseMutation calls the
+                            // mutator inline, which awaits this callback. (Anything you await
+                            // inside may of course resume elsewhere.)
                             setLastCellEdit($"row {key.Value} → {item.Name} / {item.Category} / {item.Price:C2}");
                             return Task.CompletedTask;
                         },
@@ -99,8 +100,8 @@ DataGrid(
     onSelectionChanged: keys => setSelectedCount(keys.Count),
     editable: true,                       // grid-level opt-in; columns opt in individually
     editMode: EditMode.Cell,
-    onRowChanged: (key, item) =>          // runs off the UI thread; UseState setters
-    {                                     // auto-marshal back onto the UI dispatcher
+    onRowChanged: (key, item) =>          // called inline on the UI thread by UseMutation
+    {
         setLastCellEdit($""row {key.Value}: {item.Name}"");
         return Task.CompletedTask;
     },
