@@ -39,6 +39,30 @@ public sealed class FrameNavigationMetadataTests
     private sealed class ProbeUnregisteredPage { }
     private sealed class ProbeBaseTypePage { }
     private sealed class ProbeOpenGenericPage<T> { }
+    private sealed class ProbePublicApiPage { }
+
+    // ── Public opt-in (ReactorApp.RegisterPageType) ─────────────────────────
+
+    [Fact]
+    public void ReactorApp_RegisterPageType_Publishes_Through_The_Public_Entry_Point()
+    {
+        // The public escape hatch for authors who navigate imperatively — e.g.
+        // Frame().Set(f => f.Navigate(typeof(MyPage))) — which bypasses Reactor's guarded
+        // path entirely and would otherwise still hit the access violation.
+        Assert.Null(ReactorPageTypeRegistry.Resolve(typeof(ProbePublicApiPage)));
+
+        ReactorApp.RegisterPageType(typeof(ProbePublicApiPage));
+
+        var resolved = ReactorPageTypeRegistry.Resolve(typeof(ProbePublicApiPage));
+        Assert.NotNull(resolved);
+        Assert.Equal(typeof(ProbePublicApiPage), resolved!.UnderlyingType);
+        // Resolvable by name too — that is the key WinUI actually looks up by.
+        Assert.Same(resolved, ReactorPageTypeRegistry.Resolve(typeof(ProbePublicApiPage).FullName!));
+    }
+
+    [Fact]
+    public void ReactorApp_RegisterPageType_Rejects_Null()
+        => Assert.Throws<ArgumentNullException>(() => ReactorApp.RegisterPageType(null!));
 
     private sealed class ProbeActivatedPage
     {

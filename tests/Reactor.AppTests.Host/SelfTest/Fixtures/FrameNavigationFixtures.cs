@@ -217,10 +217,12 @@ internal static class FrameNavigationFixtures
         public override async Task RunAsync()
         {
             // Same throwing page as fixture 3, but with no .NavigationFailed(...) wired.
-            // The agreed semantic is that the failure then surfaces as an ordinary managed
-            // exception rather than being silently swallowed — ReactorHost's render guard
-            // turns it into the standard error fallback instead of a process kill (which is
-            // what an unguarded Frame.Navigate to an unresolvable type used to produce).
+            // Marking the failure handled is gated on the element having a handler, so with
+            // none the failure stays unhandled and surfaces as an ordinary managed exception
+            // rather than being silently swallowed — which keeps it debuggable. ReactorHost's
+            // render guard turns that into the standard error fallback instead of a process
+            // kill, which is what an unguarded Frame.Navigate to an unresolvable type used to
+            // produce.
             var host = H.CreateHost();
             host.Mount(_ => VStack(
                 Frame(typeof(SelfTestFrameThrowingPage)).Height(120)));
