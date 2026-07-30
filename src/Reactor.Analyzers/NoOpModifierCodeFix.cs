@@ -114,16 +114,25 @@ public sealed class NoOpModifierCodeFix : CodeFixProvider
             return rewritten;
 
         var argument = invocation.ArgumentList.Arguments[0];
-        // Build the inner argument from the original *expression*, not the argument node: an
-        // ArgumentSyntax carries the comments attached to its expression, so `WithoutTrivia()`
-        // here would silently delete `Background(/* brand red */ "#FF6B6B")`'s comment. Taking the
-        // expression keeps it (it ends up inside the Parse call), and replacing the outer
-        // argument's expression avoids emitting it twice.
+        // The colour string gets wrapped in BrushHelper.Parse(...), so its trivia has to be moved
+        // deliberately. Two placements behave differently and both are covered by tests:
+        //   Background(/* c */ "#FFF")  -> the comment is trailing trivia of `(`, which this
+        //                                  rewrite never touches, so it survives regardless.
+        //   Background(\n // c \n "#FFF") -> the comment is leading trivia of the argument's own
+        //                                  first token, and a bare WithoutTrivia() here deletes it
+        //                                  (proven: mutating this line fails
+        //                                  CodeFix_Preserves_A_Line_Comment_Above_The_Argument).
+        // Strip it off the inner argument and re-attach it to the whole Parse(...) call, so the
+        // comment stays above the expression it annotates instead of being buried inside the call.
+        // That is the shape MemoizeCommandCodeFix and MissingWithKeyCodeFix use. Only reachable for
+        // a plain positional argument: the analyzer gates on NameColon/RefKind before offering it.
         var parsed = SyntaxFactory.InvocationExpression(
             SyntaxFactory.ParseExpression(BrushHelperParse)
                 .WithAdditionalAnnotations(Simplifier.Annotation),
             SyntaxFactory.ArgumentList(
-                SyntaxFactory.SingletonSeparatedList(SyntaxFactory.Argument(argument.Expression))));
+                SyntaxFactory.SingletonSeparatedList(
+                    SyntaxFactory.Argument(argument.Expression.WithoutTrivia()))))
+            .WithTriviaFrom(argument.Expression);
 
         return rewritten.WithArgumentList(
             invocation.ArgumentList.WithArguments(

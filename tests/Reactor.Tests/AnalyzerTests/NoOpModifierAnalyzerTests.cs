@@ -841,10 +841,33 @@ namespace TestApp
         // The colour string is wrapped in BrushHelper.Parse(...), and any comment attached to it
         // has to travel with it rather than being dropped by the rewrite. It stays attached to the
         // argument as a whole, which is where it was.
+        //
+        // NOTE: an inline /* */ comment here binds as trailing trivia of the `(` token, which the
+        // rewrite never touches, so on its own this case does NOT exercise the argument's own
+        // trivia. The sibling test below covers the placement that does; keep both.
         var body = App(@"
         internal static Element M() => Rectangle().{|REACTOR_MOD_003:Background|}(/* brand red */ ""#FF6B6B"");");
         var fixedBody = App(@"
         internal static Element M() => Rectangle().Fill(/* brand red */ BrushHelper.Parse(""#FF6B6B""));");
+
+        await MakeFixTest(body, fixedBody).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Preserves_A_Line_Comment_Above_The_Argument()
+    {
+        // A line comment on its own line binds as *leading trivia of the argument's own first
+        // token*, so this is the placement that a `WithoutTrivia()` on the argument would delete.
+        // The inline sibling above cannot catch that: its comment lives on the `(`. Mutating the
+        // fix to `argument.WithoutTrivia()` leaves that one green and fails this one.
+        var body = App(@"
+        internal static Element M() => Rectangle().{|REACTOR_MOD_003:Background|}(
+            // brand red
+            ""#FF6B6B"");");
+        var fixedBody = App(@"
+        internal static Element M() => Rectangle().Fill(
+            // brand red
+            BrushHelper.Parse(""#FF6B6B""));");
 
         await MakeFixTest(body, fixedBody).RunAsync(TestContext.Current.CancellationToken);
     }
