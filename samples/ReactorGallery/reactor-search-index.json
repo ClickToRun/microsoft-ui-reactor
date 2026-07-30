@@ -184,7 +184,7 @@
         {
           "header": "Basic BreadcrumbBar",
           "language": "csharp",
-          "code": "BreadcrumbBar(\n    new[] { Breadcrumb(\"Home\"), Breadcrumb(\"Docs\"), Breadcrumb(\"Reports\") },\n    item => setClicked(item.Label))"
+          "code": "// The trail is fixed, so it is a memoized constant rather than state.\nvar path = UseMemo(() => new[] { \"Home\", \"Documents\", \"Reports\" });\n\nBreadcrumbBar(\n    path.Select(p => Breadcrumb(p)).ToArray(),\n    item => setClicked(item.Label))"
         }
       ]
     },
@@ -291,7 +291,7 @@
         {
           "header": "Absolute Positioning",
           "language": "csharp",
-          "code": "Canvas(\n    Rectangle().Size(80, 80).Background(\"#FF6B6B\").Canvas(left: 10, top: 10),\n    Rectangle().Size(80, 80).Background(\"#4ECDC4\").Canvas(left: 60, top: 50)\n)"
+          "code": "// Shapes paint with Fill — Background has no effect on a Rectangle.\nCanvas(\n    Rectangle().Size(80, 80).Fill(BrushHelper.Parse(\"#FF6B6B\")).Canvas(left: 10, top: 10),\n    Rectangle().Size(80, 80).Fill(BrushHelper.Parse(\"#4ECDC4\")).Canvas(left: 60, top: 50)\n)"
         }
       ]
     },
@@ -573,9 +573,9 @@
       "galleryRoute": "data-grid",
       "samples": [
         {
-          "header": "Columns, sorting & selection",
+          "header": "Columns, sorting, selection & cell editing",
           "language": "csharp",
-          "code": "// Memoize the source so the grid isn't remounted on every render\n// (DataGrid keys off source.GetHashCode()).\nvar source = UseMemo(() => new ListDataSource<Product>(products, p => (RowKey)p.Id));\n\nDataGrid(\n    source: source,\n    columns: new FieldDescriptor[]\n    {\n        Column<Product>(\"Name\", p => p.Name, displayName: \"Product\", width: 200),\n        Column<Product>(\"Price\", p => p.Price, format: \"C2\", width: 100),\n        Column<Product>(\"InStock\", p => p.InStock, displayName: \"In stock\", width: 90),\n    },\n    selectionMode: SelectionMode.Single,\n    onSelectionChanged: keys => setSelectedCount(keys.Count),\n    rowHeight: 36)\n// Click a header to sort. Columns can be reordered and resized by dragging."
+          "code": "// Memoize the source so the grid isn't remounted on every render\n// (DataGrid keys off source.GetHashCode()).\nvar source = UseMemo(() => new ListDataSource<Product>(products, p => (RowKey)p.Id));\n\nDataGrid(\n    source: source,\n    columns: new FieldDescriptor[]\n    {\n        Column<Product>(\"Id\", p => p.Id, width: 60),                   // read-only\n        Column<Product>(\"Name\", p => p.Name, editable: true, displayName: \"Product\", width: 200),\n        Column<Product>(\"Category\", p => p.Category, editable: true, width: 140),\n        Column<Product>(\"Price\", p => p.Price, editable: true, format: \"C2\", width: 100),\n        Column<Product>(\"InStock\", p => p.InStock, displayName: \"In stock\", width: 90),\n    },\n    selectionMode: selection,             // driven by the Options combo below\n    onSelectionChanged: keys => setSelectedCount(keys.Count),\n    editable: true,                       // grid-level opt-in; columns opt in individually\n    editMode: EditMode.Cell,\n    onRowChanged: (key, item) =>          // called inline on the UI thread by UseMutation\n    {\n        setLastCellEdit($\"row {key.Value} → {item.Name} / {item.Category} / {item.Price:C2}\");\n        return Task.CompletedTask;\n    },\n    rowHeight: 36)\n// Click a header to sort. Columns can be reordered and resized by dragging."
         }
       ]
     },
@@ -716,7 +716,7 @@
         {
           "header": "Interactive Flex Container",
           "language": "csharp",
-          "code": "new FlexElement(children)\n{\n    Direction = FlexDirection.Row,\n    JustifyContent = FlexJustify.SpaceBetween,\n    AlignItems = FlexAlign.Center,\n    Wrap = FlexWrap.Wrap,\n}"
+          "code": "// Every axis below is driven by the Options combos, so the\n// snippet tracks whatever the live sample is showing.\nnew FlexElement(children)\n{\n    Direction = direction,\n    JustifyContent = justify,\n    AlignItems = align,\n    Wrap = wrap,\n    ColumnGap = 8,\n    RowGap = 8,\n}"
         }
       ]
     },
@@ -883,7 +883,7 @@
         {
           "header": "Basic GridView",
           "language": "csharp",
-          "code": "GridView(\n    items.Select(i =>\n        Border(TextBlock($\"Item {i}\")).Size(100, 100)\n    ).ToArray()\n).SelectionMode(ListViewSelectionMode.Multiple)"
+          "code": "// SelectionMode is driven by the Options combo below.\nGridView(\n    items.Select(i =>\n        Border(TextBlock($\"Item {i}\")).Size(100, 100)\n    ).ToArray()\n).SelectionMode(selectionMode)"
         }
       ]
     },
@@ -963,7 +963,7 @@
         {
           "header": "Image from URI",
           "language": "csharp",
-          "code": "Image(\"ms-appx:///Assets/Square150x150Logo.scale-200.png\")\n    .Width(300).Height(300)"
+          "code": "Image(\"ms-appx:///Assets/SampleImages/LandscapeSample.png\")\n    .AutomationName(\"A stylised mountain lake at dusk\")   // alt text for screen readers\n    .Width(300).Height(300)\n// ms-appx:/// resolves against the app folder — the asset must be copied\n// to the output directory (a <Content Include=...> item in the csproj)."
         }
       ]
     },
@@ -1098,7 +1098,7 @@
         {
           "header": "Basic ItemsView",
           "language": "csharp",
-          "code": "ItemsView(\n    products,\n    p => p.Name,\n    (p, i) => Border(VStack(\n        TextBlock(p.Name).Bold(),\n        TextBlock($\"${p.Price:F2}\")\n    ))\n)"
+          "code": "// The view builder MUST return an ItemContainer root —\n// ItemsView's selection / focus / animation infrastructure requires it.\nItemsView(\n    products,\n    p => p.Name,\n    (p, i) => ItemContainer(\n        Border(VStack(\n            TextBlock(p.Name).Bold(),\n            TextBlock($\"${p.Price:F2}\")\n        ))\n    )\n)"
         }
       ]
     },
@@ -1178,7 +1178,7 @@
         {
           "header": "Interactive map",
           "language": "csharp",
-          "code": "MapControl(zoomLevel: 4)\n    .Height(320).Width(480)\n// Supply a Bing Maps token to load tiles:\n//   MapControl(mapServiceToken: mapKey, zoomLevel: 12)"
+          "code": "// MapControl needs a maps service token — without one it renders an empty\n// viewport and reports no error at all, so check for the token up front.\nvar token = Environment.GetEnvironmentVariable(\"REACTOR_GALLERY_MAP_TOKEN\");\n\nElement map = string.IsNullOrWhiteSpace(token)\n    ? Border(BodyStrong(\"No map service token configured\")).Height(320).Width(480)\n    : MapControl(mapServiceToken: token, zoomLevel: 4).Height(320).Width(480);\n\n// Pan and zoom with mouse/touch. Center and layers are set through .Set(m => { })."
         }
       ]
     },
@@ -1229,7 +1229,7 @@
         {
           "header": "Video with transport controls",
           "language": "csharp",
-          "code": "MediaPlayerElement(\"https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4\")\n    .Height(280).Width(480)\n// Transport controls are enabled by default; AutoPlay is opt-in:\n//   .Set(mpe => mpe.AutoPlay = true)"
+          "code": "var (failure, setFailure) = UseState<string?>(null);\n\nElement player = failure is null\n    // OnMediaFailed lets a dead source explain itself instead of leaving the\n    // player showing its opaque built-in error text.\n    ? (MediaPlayerElement(\"https://media.w3.org/2010/05/sintel/trailer.mp4\")\n        with { OnMediaFailed = message => setFailure(message) })\n        .Height(280).Width(480)\n    : Border(BodyStrong(\"Sample stream unavailable\")).Height(280).Width(480);\n\n// Transport controls are enabled by default; AutoPlay is opt-in:\n//   .Set(mpe => mpe.AutoPlay = true)"
         }
       ]
     },
@@ -1312,7 +1312,7 @@
         {
           "header": "Left-Pane NavigationView",
           "language": "csharp",
-          "code": "NavigationView(items, content: TextBlock(\"Selected: ...\"))\nwith {\n    SelectedTag = tag,\n    OnSelectedTagChanged = t => setTag(t),\n    PaneTitle = \"Nav Demo\",\n}"
+          "code": "NavigationView(items, content: TextBlock($\"Selected: {selectedTag}\"))\nwith {\n    SelectedTag = selectedTag,\n    // The tag is nullable — guard before writing it back to state.\n    OnSelectedTagChanged = tag => { if (tag != null) setSelectedTag(tag); },\n    PaneTitle = \"Nav Demo\",\n    PaneDisplayMode = modes[paneMode],   // driven by the Options combo below\n    IsSettingsVisible = false,\n}"
         }
       ]
     },
@@ -1364,7 +1364,7 @@
         {
           "header": "Background parallax behind a scrolling list",
           "language": "csharp",
-          "code": "var (scroller, setScroller) = UseState<UIElement?>(null);\n\n// `background` must be TALLER than the viewport and have visible vertical\n// structure (bands/image) — a solid colour has nothing to visibly shift.\nvar parallax = ParallaxView(background, verticalShift: 150);\nif (scroller is not null) parallax = parallax.Source(scroller);\n\nGrid(columns: [GridSize.Star()], rows: [GridSize.Star()],\n    parallax.Grid(row: 0, column: 0),\n    ListView(rows)\n        .Set(lv => lv.Background = null)          // transparent → background shows through\n        .OnMount(el => setScroller((UIElement)el)) // bind the scroller\n        .Grid(row: 0, column: 0))"
+          "code": "var (scroller, setScroller) = UseState<UIElement?>(null);\n\n// `background` must be TALLER than the viewport (+ the shift) and have visible\n// vertical structure — and it needs an explicit width, because ParallaxView\n// arranges its child at the child's own desired size.\nvar background = Border(VStack(0, band1, band2, band3)).Width(480).Height(570);\n\nvar parallax = ParallaxView(background, verticalShift: 150);\nif (scroller is not null) parallax = parallax.Source(scroller);\n\nGrid(columns: [GridSize.Star()], rows: [GridSize.Star()],\n    parallax.Grid(row: 0, column: 0),\n    ListView(rows)\n        .Set(lv => lv.Background = null)          // transparent → background shows through\n        .OnMount(el => setScroller((UIElement)el)) // bind the scroller\n        .Grid(row: 0, column: 0)).Width(480).Height(300)"
         }
       ]
     },
@@ -2080,7 +2080,7 @@
         {
           "header": "Basic TabView",
           "language": "csharp",
-          "code": "TabView(\n    Tab(\"Home\", TextBlock(\"Home content\")),\n    Tab(\"Document\", TextBlock(\"Document content\")),\n    Tab(\"Settings\", TextBlock(\"Settings content\"))\n) with { SelectedIndex = idx, OnSelectedIndexChanged = i => setIdx(i) }"
+          "code": "// Where the selection lands after a close: closing a tab left of the\n// selected one shifts it down, then clamp into the shorter list.\nstatic int SelectionAfterClose(int selected, int closed, int remaining) =>\n    remaining == 0 ? -1 : Math.Clamp(closed < selected ? selected - 1 : selected, 0, remaining - 1);\n\nvar (tabs, setTabs) = UseState(UseMemo(() => new[] { \"Home\", \"Document\", \"Settings\" }));\nvar (idx, setIdx) = UseState(0);\n\nTabView(tabs.Select(t => Tab(t, TextBlock($\"{t} content\").Padding(16))).ToArray()) with\n{\n    SelectedIndex = idx,\n    OnSelectedIndexChanged = i => setIdx(i),\n    // The per-tab ✕ only raises TabCloseRequested — the app removes the tab, and\n    // must also pull the selection back into range.\n    OnTabCloseRequested = i =>\n    {\n        var remaining = tabs.Where((_, n) => n != i).ToArray();\n        setTabs(remaining);\n        setIdx(SelectionAfterClose(idx, i, remaining.Length));\n    },\n}"
         }
       ]
     },

@@ -15,6 +15,9 @@ class ListBoxPage : Component
         var (selected, setSelected) = UseState(0);
         var fruits = new[] { "Apple", "Banana", "Cherry", "Date", "Elderberry" };
 
+        var colors = new[] { "Red", "Green", "Blue", "Yellow" };
+        var (selectedColor, setSelectedColor) = UseState(-1);
+
         return ScrollView(
             VStack(16,
                 PageHeader("ListBox", "A list of selectable items presented inline."),
@@ -30,12 +33,17 @@ class ListBoxPage : Component
                     """),
 
                 SampleCard("Styled ListBox",
-                    ListBox(
-                        new[] { "Red", "Green", "Blue", "Yellow" },
-                        -1,
-                        i => setSelected(i)
-                    ).Width(200),
-                    @"ListBox(colors, -1, i => setSelected(i)).Width(200)")
+                    VStack(8,
+                        ListBox(colors, selectedColor, setSelectedColor).Width(200),
+                        TextBlock(selectedColor >= 0 ? $"Selected: {colors[selectedColor]}" : "Nothing selected")
+                            .Foreground(Theme.SecondaryText)
+                    ),
+                    """
+                    // Each sample owns its own state — sharing a setter between two
+                    // ListBoxes would make one card silently drive the other.
+                    var (selectedColor, setSelectedColor) = UseState(-1);
+                    ListBox(colors, selectedColor, setSelectedColor).Width(200)
+                    """)
             ).Margin(36, 24, 36, 36)
         );
     }

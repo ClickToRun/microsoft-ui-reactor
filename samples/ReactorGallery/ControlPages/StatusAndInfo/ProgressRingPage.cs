@@ -23,11 +23,11 @@ class ProgressRingPage : Component
                     VStack(8,
                         ProgressRing(value).Width(60).Height(60),
                         TextBlock($"Progress: {value:F0}%").Foreground(Theme.SecondaryText),
-                        Slider(value, 0, 100, v => setValue(v)).Width(300)
+                        Slider(value, 0, 100, v => setValue(v)).AutomationName("Progress value").Width(300)
                     ),
                     @"ProgressRing(value).Width(60).Height(60)",
                     options: OptionPanel(
-                        Slider(value, 0, 100, v => setValue(v))
+                        Slider(value, 0, 100, v => setValue(v)).AutomationName("Progress value")
                     )),
 
                 SampleCard("Indeterminate ProgressRing",

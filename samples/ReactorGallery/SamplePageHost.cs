@@ -45,16 +45,38 @@ public static class SamplePageHost
     /// <summary>
     /// Renders a bordered options panel with an "Options" label.
     /// </summary>
+    /// <remarks>
+    /// Call sites list the options as alternating caption/control pairs, e.g.
+    /// <c>OptionPanel(TextBlock("Direction"), ComboBox(...))</c>. The caption sits
+    /// beside the control rather than being associated with it, so a screen reader
+    /// would otherwise announce an unnamed slider or combo box. Any control directly
+    /// preceded by a caption therefore inherits that caption as its automation name
+    /// (unless the call site already supplied one). A control with no preceding
+    /// caption needs <c>.AutomationName(...)</c> at the call site — only the page
+    /// knows what it means.
+    /// </remarks>
     public static Element OptionPanel(params Element[] options) =>
         Border(
                 VStack(8,
                     new Element[] { Caption("Options").Foreground(Theme.SecondaryText).SemiBold() }
-                        .Concat(options)
+                        .Concat(NameOptionsFromCaptions(options))
                         .ToArray()))
             .Background(Theme.SubtleFill)
             .WithBorder(Theme.SurfaceStroke)
             .CornerRadius(ThemeResource.CornerRadius("ControlCornerRadius").TopLeft)
             .Padding(12);
+
+    static IEnumerable<Element> NameOptionsFromCaptions(Element[] options)
+    {
+        for (var i = 0; i < options.Length; i++)
+        {
+            yield return options[i] is not TextBlockElement
+                && options[i].Modifiers?.AutomationName is null
+                && i > 0 && options[i - 1] is TextBlockElement { Content.Length: > 0 } caption
+                    ? options[i].AutomationName(caption.Content)
+                    : options[i];
+        }
+    }
 
     /// <summary>
     /// Wraps page content in a ScrollView with proper WinUI Gallery-style margins.

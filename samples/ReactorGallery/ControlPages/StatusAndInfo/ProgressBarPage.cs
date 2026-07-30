@@ -23,11 +23,11 @@ class ProgressBarPage : Component
                     VStack(8,
                         Progress(value).Width(300),
                         TextBlock($"Progress: {value:F0}%").Foreground(Theme.SecondaryText),
-                        Slider(value, 0, 100, v => setValue(v)).Width(300)
+                        Slider(value, 0, 100, v => setValue(v)).AutomationName("Progress value").Width(300)
                     ),
                     @"Progress(value).Width(300)",
                     options: OptionPanel(
-                        Slider(value, 0, 100, v => setValue(v))
+                        Slider(value, 0, 100, v => setValue(v)).AutomationName("Progress value")
                     )),
 
                 SampleCard("Indeterminate ProgressBar",

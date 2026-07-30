@@ -42,11 +42,15 @@ InfoBar(""Info"",    ""FYI…""     ).Informational().IsClosable(false)"),
                 SampleCard("Closable InfoBar",
                     VStack(8,
                         showClosable
-                            ? InfoBar("Closable", "Click the close button to dismiss.").IsClosable()
+                            ? (InfoBar("Closable", "Click the close button to dismiss.").IsClosable()
+                                with { OnClosed = () => setShowClosable(false) })
                             : TextBlock("InfoBar was closed.").Foreground(Theme.SecondaryText),
                         Button("Reset", () => setShowClosable(true))
                     ),
-                    @"InfoBar(""Closable"", ""Click close to dismiss."").IsClosable()")
+                    @"// IsOpen is controlled by your state, so mirror the native ✕ back into it
+// via OnClosed — otherwise ""Reset"" sets true to true and nothing happens.
+InfoBar(""Closable"", ""Click close to dismiss."").IsClosable()
+    with { OnClosed = () => setShowClosable(false) }")
             ).Margin(36, 24, 36, 36)
         );
     }

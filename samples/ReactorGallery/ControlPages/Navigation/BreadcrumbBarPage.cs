@@ -11,8 +11,15 @@ class BreadcrumbBarPage : Component
 {
     public override Element Render()
     {
-        var (path, setPath) = UseState(new[] { "Home", "Documents", "Reports" });
+        // The basic card's trail never changes, so it is a memoized constant rather than
+        // state — a UseState whose setter is never called would misrepresent the card.
+        var path = UseMemo(() => new[] { "Home", "Documents", "Reports" });
         var (clicked, setClicked) = UseState("(none)");
+
+        // The dynamic card owns its own trail — sharing one array with the basic card
+        // would make navigating here silently rewrite the card above. Memoized seed so
+        // it is allocated once rather than on every render.
+        var (dynamicPath, setDynamicPath) = UseState(UseMemo(() => new[] { "Home", "Documents", "Reports" }));
 
         return ScrollView(
             VStack(16,
@@ -26,30 +33,37 @@ class BreadcrumbBarPage : Component
                             item => setClicked(item.Label)),
                         TextBlock($"Last clicked: {clicked}").Foreground(Theme.SecondaryText)
                     ),
-                    @"BreadcrumbBar(
-    new[] { Breadcrumb(""Home""), Breadcrumb(""Docs""), Breadcrumb(""Reports"") },
+                    @"// The trail is fixed, so it is a memoized constant rather than state.
+var path = UseMemo(() => new[] { ""Home"", ""Documents"", ""Reports"" });
+
+BreadcrumbBar(
+    path.Select(p => Breadcrumb(p)).ToArray(),
     item => setClicked(item.Label))"),
 
                 SampleCard("Dynamic Breadcrumb",
                     VStack(8,
                         BreadcrumbBar(
-                            path.Select(p => Breadcrumb(p)).ToArray(),
+                            dynamicPath.Select(p => Breadcrumb(p)).ToArray(),
                             item =>
                             {
-                                var idx = Array.IndexOf(path, item.Label);
+                                var idx = Array.IndexOf(dynamicPath, item.Label);
                                 if (idx >= 0)
-                                    setPath(path.Take(idx + 1).ToArray());
+                                    setDynamicPath(dynamicPath.Take(idx + 1).ToArray());
                             }),
                         HStack(8,
                             Button("Add Level", () =>
-                                setPath(path.Append($"Level {path.Length}").ToArray())),
+                                setDynamicPath(dynamicPath.Append($"Level {dynamicPath.Length}").ToArray())),
                             Button("Reset", () =>
-                                setPath(new[] { "Home", "Documents", "Reports" }))
+                                setDynamicPath(new[] { "Home", "Documents", "Reports" }))
                         )
                     ),
-                    @"BreadcrumbBar(items, item => {
-    var idx = Array.IndexOf(path, item.Label);
-    if (idx >= 0) setPath(path.Take(idx + 1).ToArray());
+                    @"// Each sample owns its own state — sharing one `path` between the two
+// cards would make navigating here rewrite the card above.
+var (dynamicPath, setDynamicPath) = UseState(UseMemo(() => new[] { ""Home"", ""Documents"", ""Reports"" }));
+
+BreadcrumbBar(items, item => {
+    var idx = Array.IndexOf(dynamicPath, item.Label);
+    if (idx >= 0) setDynamicPath(dynamicPath.Take(idx + 1).ToArray());
 })")
             ).Margin(36, 24, 36, 36)
         );
