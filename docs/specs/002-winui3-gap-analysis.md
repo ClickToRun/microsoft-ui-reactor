@@ -362,15 +362,16 @@ rather than lightweight property changes.
 | **TabView** | Exposed | TabViewElement | Full tab management with selection |
 | **BreadcrumbBar** | Exposed | BreadcrumbBarElement | Click handler per item |
 | **SelectorBar** | Exposed | SelectorBarElement | View switching |
-| **Frame.Navigate(typeof(Page))** | Exposed | `Frame(sourcePageType, navigationParameter)` | Works with code-only `Page` subclasses on `main`? **Not yet** — see the caveat below |
+| **Frame.Navigate(typeof(Page))** | Blocked | — | `Frame(sourcePageType, navigationParameter)` mounts, but navigating to a **code-only** `Page` — the only kind a no-XAML Reactor app has — kills the process. Usable only for XAML-interop Pages today; PR #945 unblocks it. See the caveat below |
 
-**Verdict: Navigation is solved, by replacement rather than by wrapping.** The original
-verdict here ("navigation is generally broken") is obsolete. Reactor now ships a native router:
+**Verdict: the navigation *scenario* is solved by replacement; the WinUI `Frame` *element* is
+still blocked.** The original verdict here ("navigation is generally broken") is obsolete.
+Reactor now ships a native router:
 `UseNavigation<TRoute>()` gives a component a `NavigationHandle<TRoute>` with genuine back and
 forward stacks, `NavigationHost<TRoute>(nav, routeMap)` renders the current route, and
 `NavigationTransition` supplies the animation that WinUI would have attached to the Page. The
 route being an ordinary C# value means parameter passing is type-checked at compile time —
-strictly better than `Frame.Navigate(typeof(T), object)`.
+strictly better than `Frame.Navigate(typeof(T), object)`. Use `NavigationHost`, not `Frame`.
 
 **Caveat — the WinUI `Frame` element itself.** `Frame(sourcePageType)` mounts, but navigating it
 to a **code-only** `Page` subclass currently kills the process with an access violation:
@@ -963,7 +964,7 @@ the two `Partially replaced` rows in §10.
 |---|---|---|---|---|---|---|---|
 | 1 | Built-in Controls | 75 | 4 | 1 | 1 | 5 | — |
 | 2 | Layout System | 5 | 2 | 2 | 7 | 1 | — |
-| 3 | Navigation | 6 | 1 | 3 | — | — | — |
+| 3 | Navigation | 5 | 1 | 3 | — | — | 1 |
 | 4 | Data Binding | — | — | 12 | — | — | — |
 | 5 | Dependency Properties | — | 1 | 2 | 2 | — | 1 |
 | 6 | XAML Markup | — | — | 10 | — | — | 3 |
@@ -1061,7 +1062,7 @@ branch; changing it here as well would only create a merge conflict.
 | PR | Change | Rows to flip on merge |
 |---|---|---|
 | **#946** | `.ToolTipPlacement(PlacementMode)`, `.ToolTipPlacementTarget(ElementRef)`, plus placement overloads of `.ToolTip()` / `.WithToolTip()` | §1.6 ToolTip → **Exposed** (verdict 7/7); Controls Summary row 1.6 → 7 exposed / 0 missing and Totals → **76 exposed / 4 missing**; §1 headline → "4 missing"; §23 scorecard row 1 → 76 exposed / 4 missing; §23 P1 ToolTip row → Shipped. **This PR already contains the §1.6 edit** |
-| **#945** | Synthesizes the XAML metadata a code-only `Page` needs, chains a `ReactorPageXamlMetadataProvider` into `ReactorApplication.GetXamlType`, and makes `FrameNavigation.TryNavigate` refuse to navigate to an unresolvable type instead of faulting. Adds `ReactorApp.RegisterPageType(...)` | §3 — delete the "Caveat" paragraph; `Frame.Navigate(typeof(Page))` becomes usable for code-only Pages. §19 UnhandledException note about uncatchable AVs can be softened |
+| **#945** | Synthesizes the XAML metadata a code-only `Page` needs, chains a `ReactorPageXamlMetadataProvider` into `ReactorApplication.GetXamlType`, and makes `FrameNavigation.TryNavigate` refuse to navigate to an unresolvable type instead of faulting. Adds `ReactorApp.RegisterPageType(...)` | §3 `Frame.Navigate(typeof(Page))` → **Exposed**; delete the "Caveat" paragraph and the "Use `NavigationHost`, not `Frame`" clause in the verdict; §23 scorecard row 3 → 6 exposed / 0 blocked. §19's UnhandledException note about uncatchable AVs can be softened |
 | **#947** | `REACTOR_MOD_003` — flags common modifiers the reconciler silently drops (e.g. `.Background()` on a `Shape`, which should be `.Fill()`) | §5 and §9 — the "silently dropped on a shape" footgun gains a build-time guardrail; §23 top-gap P1 row narrows to the theming half |
 | **#936** | `REACTOR_ITEMS_002` — promotes `ItemsViewElement<T>.GuardedViewBuilder`'s mount-time throw to a build-time diagnostic with a code fix | §1.4 — the ItemContainer-root requirement becomes compile-time enforced |
 
