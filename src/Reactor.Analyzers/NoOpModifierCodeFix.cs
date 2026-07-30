@@ -114,11 +114,16 @@ public sealed class NoOpModifierCodeFix : CodeFixProvider
             return rewritten;
 
         var argument = invocation.ArgumentList.Arguments[0];
+        // Build the inner argument from the original *expression*, not the argument node: an
+        // ArgumentSyntax carries the comments attached to its expression, so `WithoutTrivia()`
+        // here would silently delete `Background(/* brand red */ "#FF6B6B")`'s comment. Taking the
+        // expression keeps it (it ends up inside the Parse call), and replacing the outer
+        // argument's expression avoids emitting it twice.
         var parsed = SyntaxFactory.InvocationExpression(
             SyntaxFactory.ParseExpression(BrushHelperParse)
                 .WithAdditionalAnnotations(Simplifier.Annotation),
             SyntaxFactory.ArgumentList(
-                SyntaxFactory.SingletonSeparatedList(argument.WithoutTrivia())));
+                SyntaxFactory.SingletonSeparatedList(SyntaxFactory.Argument(argument.Expression))));
 
         return rewritten.WithArgumentList(
             invocation.ArgumentList.WithArguments(

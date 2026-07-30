@@ -836,6 +836,20 @@ namespace TestApp
     }
 
     [Fact]
+    public async Task CodeFix_Preserves_A_Comment_On_The_Argument()
+    {
+        // The colour string is wrapped in BrushHelper.Parse(...), and any comment attached to it
+        // has to travel with it rather than being dropped by the rewrite. It stays attached to the
+        // argument as a whole, which is where it was.
+        var body = App(@"
+        internal static Element M() => Rectangle().{|REACTOR_MOD_003:Background|}(/* brand red */ ""#FF6B6B"");");
+        var fixedBody = App(@"
+        internal static Element M() => Rectangle().Fill(/* brand red */ BrushHelper.Parse(""#FF6B6B""));");
+
+        await MakeFixTest(body, fixedBody).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task CodeFix_Rewrites_A_Line_To_Stroke()
     {
         var body = App(@"
