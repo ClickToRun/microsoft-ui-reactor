@@ -32,7 +32,7 @@ internal static class FrameNavigation
         ArgumentNullException.ThrowIfNull(resolveXamlType);
         if (pageType is null) return false;
         try { return resolveXamlType(pageType) is not null; }
-        catch { return false; }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException) { return false; }
     }
 
     /// <summary>
@@ -77,7 +77,7 @@ internal static class FrameNavigation
             else frame.Navigate(pageType, parameter);
             return null;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             // A page whose constructor throws surfaces one of two ways depending on how
             // WinUI classifies the failure: either it raises NavigationFailed (which the

@@ -38,6 +38,7 @@ public sealed class FrameNavigationMetadataTests
     private sealed class ProbeIdempotentPage { }
     private sealed class ProbeUnregisteredPage { }
     private sealed class ProbeBaseTypePage { }
+    private sealed class ProbeOpenGenericPage<T> { }
 
     private sealed class ProbeActivatedPage
     {
@@ -107,6 +108,28 @@ public sealed class FrameNavigationMetadataTests
     [Fact]
     public void Register_Rejects_Null()
         => Assert.Throws<ArgumentNullException>(() => ReactorPageTypeRegistry.Register(null!));
+
+    [Fact]
+    public void Register_Ignores_An_Open_Generic_Type()
+    {
+        // WinUI activates a navigation target by full name and cannot construct an open
+        // generic, so publishing one would put an unusable entry in the chain. Its FullName
+        // is non-null, so the FullName guard alone does not catch it.
+        var openGeneric = typeof(ProbeOpenGenericPage<>);
+        Assert.NotNull(openGeneric.FullName);
+
+        var countBefore = ReactorPageTypeRegistry.Count;
+        ReactorPageTypeRegistry.Register(openGeneric);
+
+        Assert.Null(ReactorPageTypeRegistry.Resolve(openGeneric));
+        Assert.Null(ReactorPageTypeRegistry.Resolve(openGeneric.FullName!));
+        Assert.Equal(countBefore, ReactorPageTypeRegistry.Count);
+
+        // The closed construction is a perfectly good target and must still publish —
+        // otherwise the guard would be over-broad.
+        ReactorPageTypeRegistry.Register(typeof(ProbeOpenGenericPage<int>));
+        Assert.NotNull(ReactorPageTypeRegistry.Resolve(typeof(ProbeOpenGenericPage<int>)));
+    }
 
     // ── Synthesized IXamlType ───────────────────────────────────────────────
 

@@ -46,13 +46,15 @@ internal static class ReactorPageTypeRegistry
 
     /// <summary>
     /// Publishes <paramref name="pageType"/> to the XAML metadata chain. Idempotent and
-    /// thread-safe. Types without a usable <see cref="Type.FullName"/> (generic parameters,
-    /// open generics) are ignored — WinUI keys its lookup on the full name.
+    /// thread-safe. Types WinUI could never activate as a navigation target — open generics
+    /// and anything without a usable <see cref="Type.FullName"/>, which is the key WinUI
+    /// looks up by — are ignored rather than published.
     /// </summary>
     internal static void Register(
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] Type pageType)
     {
         ArgumentNullException.ThrowIfNull(pageType);
+        if (pageType.ContainsGenericParameters) return;
         var fullName = pageType.FullName;
         if (fullName is null) return;
         if (Volatile.Read(ref _byType).ContainsKey(pageType)) return;
