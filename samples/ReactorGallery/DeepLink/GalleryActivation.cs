@@ -202,11 +202,11 @@ public static class GalleryActivation
             }
 
             handler(route);
-        }))
+        }) && route is not null)
         {
             // The dispatcher refused the work item (shutting down). Park rather than
             // silently drop, in case another window is still coming up.
-            if (route is not null) Park(route);
+            Park(route);
         }
     }
 
