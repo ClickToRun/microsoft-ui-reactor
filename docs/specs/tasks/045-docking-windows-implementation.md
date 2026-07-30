@@ -1350,9 +1350,23 @@ integration.*
   fallback is explicit via
   `DockHostLiveAnnouncer.FocusHostFallback(manager)` invoked from
   `CloseActivePane` and `CloseTabViaButton` when the post-remove
-  layout has no group with documents. Tear-out path inherits WinUI's
-  default focus shift to the new floating window. Selftests for the
-  AT-tree-walk + keyboard-only docking cycle remain open.
+  layout has no group with documents. That fallback focuses the
+  **first focusable element inside the host**
+  (`FocusManager.FindFirstFocusableElement(host)` +
+  `FocusManager.TryFocusAsync`), so e.g. a pinned side-strip button
+  takes focus when the last centre document closes. It does **not**
+  focus the host element itself: the host is a `Border`, and WinUI
+  only makes a `Border` focusable via `IsTabStop`, which would also
+  insert the whole docking area into keyboard tab navigation and
+  draw a system focus visual. When the host subtree has nothing
+  focusable at all, focus is therefore left where it is — the
+  "focus moves to the host" half of this invariant remains open
+  pending that tab-order decision. Both behaviours are pinned by
+  `NativeDocking_A11y_FocusFallback_LandsInsideHostSubtree` and
+  `NativeDocking_A11y_FocusFallback_RealHostLandsOnSideStrip`.
+  Tear-out path inherits WinUI's default focus shift to the new
+  floating window. Selftests for the AT-tree-walk + keyboard-only
+  docking cycle remain open.
 - [x] **Touch targets:** drop-target buttons ≥ 44 × 44 DIPs;
   splitter handles 8/16 DIPs visual/hit.
   `DockDropTargetOverlayControl.ButtonSizeDip = 44.0` per spec

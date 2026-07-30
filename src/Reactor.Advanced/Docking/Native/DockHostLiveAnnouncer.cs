@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
+using Microsoft.UI.Reactor.Core.Diagnostics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation.Peers;
-
 namespace Microsoft.UI.Reactor.Docking.Native;
 
 // ════════════════════════════════════════════════════════════════════════
@@ -29,6 +29,20 @@ namespace Microsoft.UI.Reactor.Docking.Native;
 
 internal static class DockHostLiveAnnouncer
 {
+    /// <summary>
+    /// Stable operation label for the swallowed-error trace emitted when a
+    /// focus hand-off fails. Kept as a constant so the emit sites and the
+    /// tests that assert on them cannot drift apart.
+    /// </summary>
+    internal const string TryFocusOperation = "DockHostLiveAnnouncer.TryFocus";
+
+    /// <summary>
+    /// Category label on the swallowed-error payload. Matches what
+    /// <c>LogCategory.Docking.ToString()</c> would produce, so the wire format
+    /// is identical to every other <c>SwallowedError</c> emitter.
+    /// </summary>
+    private const string DockingCategory = "Docking";
+
     private static readonly ConditionalWeakTable<DockManager, FrameworkElement> _table = new();
 
     public static void Register(DockManager element, FrameworkElement host)
@@ -91,22 +105,108 @@ internal static class DockHostLiveAnnouncer
 
     private static void TryFocus(FrameworkElement host)
     {
-        if (host is Microsoft.UI.Xaml.Controls.Control control)
+        try
         {
-            control.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+            if (host is Microsoft.UI.Xaml.Controls.Control control)
+            {
+                control.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+                return;
+            }
+
+            // Border / Panel — focus the first focusable element *inside* the
+            // host so a tab group within still gets focus when its container
+            // hands off.
+            //
+            // Deliberately NOT
+            //   TryMoveFocusAsync(FocusNavigationDirection.Next,
+            //                     new FindNextElementOptions { SearchRoot = host })
+            // WinUI rejects that pairing during parameter validation —
+            // "Focus navigation directions Next and Previous are not supported
+            // when using FindNextElementOptions" — so the call threw an
+            // ArgumentException on every hand-off and focus never moved.
+            // FindNextElementOptions only accepts the four directional values.
+            // Dropping the options instead would make `Next` walk the *global*
+            // tab order from wherever focus happens to be, which can land
+            // outside the dock host entirely; FindFirstFocusableElement keeps
+            // the subtree scoping this fallback needs and takes no direction.
+            var target = Microsoft.UI.Xaml.Input.FocusManager.FindFirstFocusableElement(host);
+            if (target is null) return;
+            ObserveFocusMove(
+                Microsoft.UI.Xaml.Input.FocusManager.TryFocusAsync(
+                    target, Microsoft.UI.Xaml.FocusState.Programmatic));
+        }
+        catch (global::System.ArgumentException ex)
+        {
+            // Parameter validation — the class the pre-fix
+            // TryMoveFocusAsync(Next, FindNextElementOptions) pairing threw on
+            // *every* hand-off (R4).
+            ReportFocusFailure(ex);
+        }
+        catch (global::System.Runtime.InteropServices.COMException ex)
+        {
+            // Interop failure below the WinRT projection.
+            ReportFocusFailure(ex);
+        }
+        catch (global::System.InvalidOperationException ex)
+        {
+            // Element / visual-tree state — the same class PackagedSettingsStore
+            // narrows to on its WinRT surface.
+            ReportFocusFailure(ex);
+        }
+        // Narrow, per spec 044 §6.7.2 and this site's **Narrow** verdict in
+        // docs/specs/044/swallowed-error-audit.md. Anything outside those three
+        // propagates on purpose: a broad catch here is precisely what hid R4,
+        // and a surprise exception out of the focus stack is a bug someone needs
+        // to see rather than absorb. The hand-off stays best-effort for the
+        // three audited classes — an accessibility nicety must not take the app
+        // down mid-pane-close, but it must not be silent either.
+    }
+
+    /// <summary>
+    /// Observes the outcome of a fire-and-forget focus move. No caller gates
+    /// on the result, but an unobserved fault would be invisible — route it to
+    /// the same swallowed-error trace the synchronous path uses.
+    /// </summary>
+    private static void ObserveFocusMove(
+        global::Windows.Foundation.IAsyncOperation<Microsoft.UI.Xaml.Input.FocusMovementResult> operation)
+    {
+        operation.AsTask().ContinueWith(
+            static t => ReportFocusFailure(t.Exception?.GetBaseException()),
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    /// <summary>
+    /// Reports a swallowed focus failure on the <c>Microsoft-UI-Reactor</c>
+    /// provider. Mirrors <c>DiagnosticLog.SwallowedError</c>'s shape (spec 044
+    /// §6.1): gated on the <c>Errors</c> keyword at <c>Warning</c>, and the
+    /// exception <b>type</b> only on the payload per §6.2.1 — never the message,
+    /// which can carry paths or user data.
+    ///
+    /// <para>
+    /// Emitted straight to <see cref="ReactorEventSource"/> rather than through
+    /// <c>DiagnosticLog</c> on purpose: the event source is already the reviewed
+    /// core internal that <c>Reactor.Advanced</c> may touch (spec 062 §7), and
+    /// docking already emits on it from <c>DockLayoutSerializer</c>. Going
+    /// through the helper would have pulled two more core internals into that
+    /// allowlist for no change in the emitted payload. The one thing given up is
+    /// <c>DiagnosticLog</c>'s DEBUG-only <c>Debug.WriteLine</c> mirror.
+    /// </para>
+    /// </summary>
+    private static void ReportFocusFailure(Exception? ex)
+    {
+        // Cost-of-disabled: skip the type-name materialization entirely when no
+        // consumer has enabled the Errors keyword.
+        if (!ReactorEventSource.Log.IsEnabled(
+                global::System.Diagnostics.Tracing.EventLevel.Warning,
+                ReactorEventSource.Keywords.Errors))
+        {
             return;
         }
-        // Border / Panel — focus the nearest focusable child via the
-        // FocusManager's automatic walk so a tab group inside still
-        // gets focus when its container hands off. Fire-and-forget:
-        // the focus shift completes asynchronously but its outcome
-        // doesn't gate any caller — we don't need the IAsyncOp.
-        _ = Microsoft.UI.Xaml.Input.FocusManager.TryMoveFocusAsync(
-            Microsoft.UI.Xaml.Input.FocusNavigationDirection.Next,
-            new Microsoft.UI.Xaml.Input.FindNextElementOptions
-            {
-                SearchRoot = host,
-            });
+
+        ReactorEventSource.Log.SwallowedError(
+            DockingCategory, TryFocusOperation, ex?.GetType().Name ?? string.Empty);
     }
 
     private static void RaiseNotification(FrameworkElement host, string message)
