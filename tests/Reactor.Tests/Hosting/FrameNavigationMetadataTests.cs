@@ -42,8 +42,12 @@ public sealed class FrameNavigationMetadataTests
 
     private sealed class ProbeActivatedPage
     {
-        internal static int Constructions;
-        public ProbeActivatedPage() => Constructions++;
+        // Instance state set by the constructor, rather than a static counter: the registry
+        // is process-wide and xUnit runs collections in parallel, so a shared counter is not
+        // a stable oracle (and writing one from a constructor trips CodeQL). Asserting on the
+        // returned instance is also a stronger check — see the test for why.
+        internal readonly bool ConstructorRan;
+        public ProbeActivatedPage() => ConstructorRan = true;
     }
 
     private sealed class ProbeThrowingPage
@@ -156,14 +160,19 @@ public sealed class FrameNavigationMetadataTests
         ReactorPageTypeRegistry.Register(typeof(ProbeActivatedPage));
         var resolved = ReactorPageTypeRegistry.Resolve(typeof(ProbeActivatedPage))!;
 
-        var before = ProbeActivatedPage.Constructions;
-        var instance = resolved.ActivateInstance();
-        var after = ProbeActivatedPage.Constructions;
+        var first = resolved.ActivateInstance();
+        var second = resolved.ActivateInstance();
 
-        // The constructor side effect — not just the returned reference — is the oracle:
-        // an activator stubbed to return default would leave the counter untouched.
-        Assert.Equal(before + 1, after);
-        Assert.IsType<ProbeActivatedPage>(instance);
+        // An activator stubbed to return default gives null and fails the type check...
+        var typedFirst = Assert.IsType<ProbeActivatedPage>(first);
+        Assert.IsType<ProbeActivatedPage>(second);
+
+        // ...one that fabricated the object without running the constructor fails this...
+        Assert.True(typedFirst.ConstructorRan);
+
+        // ...and one that handed back a cached singleton fails this. Together they pin
+        // "constructs a fresh instance on every activation", which is what WinUI needs.
+        Assert.NotSame(first, second);
     }
 
     [Fact]
