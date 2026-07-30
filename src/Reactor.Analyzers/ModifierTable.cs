@@ -61,6 +61,129 @@ internal sealed class ModifierInfo
 }
 
 /// <summary>
+/// How a <c>.Set(x =&gt; Owner.SetPROP(x, v))</c> <em>attached</em>-property write maps onto
+/// a Reactor fluent modifier.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Separate from <see cref="ModifierInfo"/> because an attached write is a different
+/// syntactic shape — an <c>InvocationExpressionSyntax</c>, not an assignment — and needs
+/// three things an instance property does not: the declaring owner (so
+/// <c>AutomationProperties.Name</c> can be told apart from <c>FrameworkElement.Name</c>),
+/// the owner's namespace (so a same-named user type stays silent), and the setter method
+/// name, which does not always follow the property name —
+/// <c>FlexPanel.SetMinWidth</c> writes <c>FlexMinWidthProperty</c>.
+/// </para>
+/// <para>
+/// Every entry is pool-reset by construction: <see cref="ModifierTable.AttachedProperties"/>
+/// only lists properties <c>ElementPool.CleanElement</c> clears, so they all report
+/// <c>REACTOR_POOL_001</c>. There is deliberately no attached equivalent of the Info tier
+/// (<c>REACTOR_MOD_002</c>) — the value is concentrated in "your write is silently
+/// discarded".
+/// </para>
+/// </remarks>
+internal sealed class AttachedModifierInfo
+{
+    internal AttachedModifierInfo(
+        string owner,
+        string ownerNamespace,
+        string property,
+        string modifier,
+        bool autoFix = true,
+        string? setter = null,
+        string? fixValueType = null,
+        string? modifierUsage = null,
+        string[]? receiverConflicts = null)
+    {
+        Owner = owner;
+        OwnerNamespace = ownerNamespace;
+        Property = property;
+        Modifier = modifier;
+        AutoFix = autoFix;
+        Setter = setter ?? "Set" + property;
+        FixValueType = fixValueType;
+        ModifierUsage = modifierUsage ?? "." + modifier + "(...)";
+        ReceiverConflicts = receiverConflicts;
+    }
+
+    /// <summary>Simple name of the type declaring the attached property.</summary>
+    public string Owner { get; }
+
+    /// <summary>
+    /// Namespace of <see cref="Owner"/>, checked against the resolved method symbol so an
+    /// unrelated user-defined type that merely shares the name cannot trigger the rule.
+    /// </summary>
+    public string OwnerNamespace { get; }
+
+    /// <summary>
+    /// Base name of the dependency property, i.e. <c>Name</c> for <c>NameProperty</c> — the
+    /// form <c>ElementPool.CleanElement</c> clears and <c>PoolResetSetConsistencyTests</c>
+    /// scans for. Combined with <see cref="Owner"/> this is the table key.
+    /// </summary>
+    public string Property { get; }
+
+    /// <summary>
+    /// Static setter method name. Defaults to <c>"Set" + Property</c>, overridden where WinUI
+    /// or Reactor names them differently (<c>FlexPanel.SetMinWidth</c> /
+    /// <c>FlexMinWidthProperty</c>).
+    /// </summary>
+    public string Setter { get; }
+
+    /// <summary>Name of the fluent modifier method to suggest.</summary>
+    public string Modifier { get; }
+
+    /// <summary>
+    /// True when the setter's single value argument can be handed to the modifier verbatim.
+    /// False when the modifier's signature does not line up 1:1 — a different arity
+    /// (<c>SetPositionInSet(fe, 2)</c> vs <c>.PositionInSet(position, size)</c>), a different
+    /// parameter type (<c>SetPlacementTarget</c> takes a <c>UIElement</c>,
+    /// <c>.ToolTipPlacementTarget</c> an <c>ElementRef</c>), or an N:1 mapping
+    /// (every <c>FlexPanel.*</c> property funnels into one <c>.Flex(...)</c> call that
+    /// replaces the whole <c>FlexAttached</c> record, so chaining per statement would clobber
+    /// the earlier ones). Those entries stay diagnostic-only.
+    /// </summary>
+    public bool AutoFix { get; }
+
+    /// <summary>
+    /// Fully-qualified type the value argument must convert to before the fix is offered, or
+    /// <c>null</c> when no extra check is needed. Exists for setters typed more loosely than
+    /// their modifier: <c>ToolTipService.SetToolTip</c> takes <c>object</c> while
+    /// <c>.ToolTip(...)</c> takes <c>string</c>, so rewriting a non-string tooltip would not
+    /// compile (use <c>.WithToolTip(Element)</c> there instead).
+    /// </summary>
+    public string? FixValueType { get; }
+
+    /// <summary>
+    /// How the modifier should be written at a call site, e.g. <c>.AutomationName(...)</c> or
+    /// <c>.Flex(grow: …)</c>. Defaults to <c>.Modifier(...)</c>.
+    /// </summary>
+    /// <remarks>
+    /// Carried per entry because the message is the only guidance an author gets for the
+    /// entries with no code fix, and <c>.Modifier(...)</c> is actively misleading for several
+    /// of them: <c>.Required()</c> takes no argument, <c>.PositionInSet</c> takes two, and all
+    /// eleven flex properties share one <c>.Flex(...)</c> where the parameter name is the
+    /// whole answer.
+    /// </remarks>
+    public string ModifierUsage { get; }
+
+    /// <summary>
+    /// Other modifier names on the receiver chain that already write this same property, so
+    /// appending our modifier after them would change the rendered value rather than refactor.
+    /// Empty when the modifier is the only thing that writes it.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="PoolResetSetCodeFix"/> guards against a receiver that already calls the
+    /// modifier we are about to append, but a name comparison alone misses the aliases:
+    /// <c>.ToolTip(tip, placement)</c> writes <c>ToolTipService.Placement</c> too, and
+    /// <c>.AccessibilityHidden()</c> is shorthand for <c>.AccessibilityView(Raw)</c>.
+    /// </remarks>
+    public string[]? ReceiverConflicts { get; }
+
+    /// <summary>Table key / diagnostic message subject, e.g. <c>AutomationProperties.Name</c>.</summary>
+    public string Key => Owner + "." + Property;
+}
+
+/// <summary>
 /// The single source of truth for "this property has a fluent modifier, prefer it over
 /// <c>.Set</c>" — consumed by <see cref="PoolResetSetAnalyzer"/> and
 /// <see cref="PoolResetSetCodeFix"/>.
@@ -91,6 +214,12 @@ internal sealed class ModifierInfo
 /// the reconciler's update path every render, and the value is never unwound when a later
 /// render drops it → <c>REACTOR_MOD_002</c>, Info.</description></item>
 /// </list>
+/// <para>
+/// <b>Attached properties live in their own table.</b> <see cref="Properties"/> is keyed by
+/// bare property name, which attached properties collide with — see
+/// <see cref="AttachedProperties"/> for why, and for the second syntactic shape
+/// (<c>Owner.SetPROP(x, v)</c>) the same <c>REACTOR_POOL_001</c> id covers.
+/// </para>
 /// </remarks>
 internal static class ModifierTable
 {
@@ -337,4 +466,142 @@ internal static class ModifierTable
             ["TabNavigation"] = "Candidate: Control-only property; not yet verified against ApplyModifiers.",
             ["XYFocusKeyboardNavigation"] = "Candidate: UIElement property; not yet verified against ApplyModifiers.",
         };
+
+    // ── Attached properties ──────────────────────────────────────────────────
+    //
+    // Namespaces, named once. Pinned against the resolved method symbol so an unrelated
+    // user type sharing the simple name cannot trigger the rule.
+    private const string AutomationNs = "Microsoft.UI.Xaml.Automation";
+    private const string ControlsNs = "Microsoft.UI.Xaml.Controls";
+    private const string LayoutNs = "Microsoft.UI.Reactor.Layout";
+
+    /// <summary>
+    /// <c>Owner.Property</c> → modifier mapping for the attached properties
+    /// <c>ElementPool.CleanElement</c> clears, matched against the
+    /// <c>Owner.SetPROP(x, v)</c> invocation shape inside a <c>.Set(...)</c> lambda.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A separate dictionary rather than extra rows in <see cref="Properties"/>, because
+    /// that table is keyed by <em>bare</em> property name and attached properties collide
+    /// there. <c>AutomationProperties.SetName</c> would key as <c>"Name"</c> — which is
+    /// <c>FrameworkElement.Name</c>, a different, modifier-less property the framework itself
+    /// writes (<c>PanelAttachedHooks</c>), and one already listed in
+    /// <see cref="DeliberatelyExcluded"/>. Owner-qualified keys make the two unambiguous and
+    /// leave the instance path untouched.
+    /// </para>
+    /// <para>
+    /// Keyed by the dependency property's base name — the <c>PROP</c> in
+    /// <c>OWNER.PROPProperty</c> as <c>CleanElement</c> clears it — not by the setter method,
+    /// because <c>PoolResetSetConsistencyTests</c> scans the reset list to prove this table
+    /// is complete. The two differ for flex (<c>SetMinWidth</c> /
+    /// <c>FlexMinWidthProperty</c>), which is why <see cref="AttachedModifierInfo.Setter"/>
+    /// is overridable.
+    /// </para>
+    /// </remarks>
+    public static readonly IReadOnlyDictionary<string, AttachedModifierInfo> AttachedProperties =
+        BuildAttached(
+            // ── AutomationProperties — 1:1 with their modifier ───────────────
+            new AttachedModifierInfo("AutomationProperties", AutomationNs, "Name", "AutomationName"),
+            new AttachedModifierInfo("AutomationProperties", AutomationNs, "AutomationId", "AutomationId"),
+            new AttachedModifierInfo("AutomationProperties", AutomationNs, "HelpText", "HelpText"),
+            new AttachedModifierInfo("AutomationProperties", AutomationNs, "FullDescription", "FullDescription"),
+            new AttachedModifierInfo("AutomationProperties", AutomationNs, "LandmarkType", "Landmark"),
+            new AttachedModifierInfo("AutomationProperties", AutomationNs, "AccessibilityView", "AccessibilityView",
+                receiverConflicts: new[] { "AccessibilityHidden" }),
+            new AttachedModifierInfo("AutomationProperties", AutomationNs, "LiveSetting", "LiveRegion"),
+            new AttachedModifierInfo("AutomationProperties", AutomationNs, "Level", "HierarchyLevel"),
+            new AttachedModifierInfo("AutomationProperties", AutomationNs, "ItemStatus", "ItemStatus"),
+            new AttachedModifierInfo("AutomationProperties", AutomationNs, "HeadingLevel", "HeadingLevel"),
+
+            // ── AutomationProperties — diagnostic only ───────────────────────
+            // .PositionInSet(position, size) sets both DPs at once, so neither single-value
+            // setter has a mechanical rewrite.
+            new AttachedModifierInfo("AutomationProperties", AutomationNs, "PositionInSet", "PositionInSet",
+                autoFix: false, modifierUsage: ".PositionInSet(position, size)"),
+            new AttachedModifierInfo("AutomationProperties", AutomationNs, "SizeOfSet", "PositionInSet",
+                autoFix: false, modifierUsage: ".PositionInSet(position, size)"),
+            // .Required() takes no argument and hardcodes true; SetIsRequiredForForm(fe, false)
+            // has no modifier form at all.
+            new AttachedModifierInfo("AutomationProperties", AutomationNs, "IsRequiredForForm", "Required",
+                autoFix: false, modifierUsage: ".Required()"),
+            // SetLabeledBy takes the target DependencyObject; the modifier takes an
+            // AutomationId string or an ElementRef.
+            new AttachedModifierInfo("AutomationProperties", AutomationNs, "LabeledBy", "LabeledBy",
+                autoFix: false, modifierUsage: ".LabeledBy(automationId)"),
+
+            // ── ToolTipService ───────────────────────────────────────────────
+            // SetToolTip takes object (it also accepts a ToolTip/UIElement); .ToolTip takes a
+            // string, so the fix is withheld unless the value really is one — rich content
+            // belongs on .WithToolTip(Element), which is not a mechanical rewrite of this.
+            new AttachedModifierInfo("ToolTipService", ControlsNs, "ToolTip", "ToolTip",
+                fixValueType: "System.String", receiverConflicts: new[] { "WithToolTip" }),
+            new AttachedModifierInfo("ToolTipService", ControlsNs, "Placement", "ToolTipPlacement",
+                receiverConflicts: new[] { "ToolTip", "WithToolTip" }),
+            new AttachedModifierInfo("ToolTipService", ControlsNs, "PlacementTarget", "ToolTipPlacementTarget",
+                autoFix: false, modifierUsage: ".ToolTipPlacementTarget(elementRef)"),
+
+            // ── TitleBar (spec 059) ──────────────────────────────────────────
+            new AttachedModifierInfo("TitleBar", ControlsNs, "IsDragRegion", "IsDragRegion"),
+
+            // ── FlexPanel — all eleven funnel into one .Flex(...) ────────────
+            // Diagnostic only: .Flex(...) is a single SetAttached(FlexAttached) that replaces
+            // the whole record, so a per-statement chain would clobber the earlier calls. The
+            // usage strings name the parameter, which is the whole answer for these.
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "Grow", "Flex", autoFix: false, modifierUsage: ".Flex(grow: ...)"),
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "Shrink", "Flex", autoFix: false, modifierUsage: ".Flex(shrink: ...)"),
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "Basis", "Flex", autoFix: false, modifierUsage: ".Flex(basis: ...)"),
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "FlexMinWidth", "Flex", autoFix: false, setter: "SetMinWidth", modifierUsage: ".Flex(minWidth: ...)"),
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "FlexMinHeight", "Flex", autoFix: false, setter: "SetMinHeight", modifierUsage: ".Flex(minHeight: ...)"),
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "AlignSelf", "Flex", autoFix: false, modifierUsage: ".Flex(alignSelf: ...)"),
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "Position", "Flex", autoFix: false, modifierUsage: ".Flex(position: ...)"),
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "Left", "Flex", autoFix: false, modifierUsage: ".Flex(left: ...)"),
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "Top", "Flex", autoFix: false, modifierUsage: ".Flex(top: ...)"),
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "Right", "Flex", autoFix: false, modifierUsage: ".Flex(right: ...)"),
+            new AttachedModifierInfo("FlexPanel", LayoutNs, "Bottom", "Flex", autoFix: false, modifierUsage: ".Flex(bottom: ...)"));
+
+    /// <summary>
+    /// Attached properties <c>CleanElement</c> resets that are deliberately <em>not</em> in
+    /// <see cref="AttachedProperties"/>, with the reason. <c>PoolResetSetConsistencyTests</c>
+    /// requires every attached reset with a same-named modifier to appear in one of the two.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string> DeliberatelyExcludedAttached =
+        new Dictionary<string, string>(System.StringComparer.Ordinal)
+        {
+            // WinUI exposes these three as GetXxx(DependencyObject) returning a mutable
+            // IList<DependencyObject> — there is no static SetXxx, so the
+            // `Owner.SetPROP(x, v)` shape this rule matches cannot occur. Reactor itself
+            // populates them through the getter (Reconciler's ApplyReferenceListEdge).
+            // The .DescribedBy/.FlowsTo/.FlowsFrom modifiers do exist, which is exactly why
+            // the exclusion has to be recorded rather than inferred.
+            ["AutomationProperties.DescribedBy"] = "No static setter — WinUI exposes GetDescribedBy(...) returning a mutable IList<DependencyObject>.",
+            ["AutomationProperties.FlowsTo"] = "No static setter — WinUI exposes GetFlowsTo(...) returning a mutable IList<DependencyObject>.",
+            ["AutomationProperties.FlowsFrom"] = "No static setter — WinUI exposes GetFlowsFrom(...) returning a mutable IList<DependencyObject>.",
+        };
+
+    private static IReadOnlyDictionary<string, AttachedModifierInfo> BuildAttached(
+        params AttachedModifierInfo[] entries)
+    {
+        var map = new Dictionary<string, AttachedModifierInfo>(
+            entries.Length, System.StringComparer.Ordinal);
+        foreach (var entry in entries)
+            map.Add(entry.Key, entry);
+        return map;
+    }
+
+    /// <summary>
+    /// <c>Owner.Setter</c> → entry, the lookup the analyzer needs: it sees the setter method
+    /// name at the call site, not the dependency property name.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, AttachedModifierInfo> AttachedBySetter =
+        BuildAttachedBySetter();
+
+    private static IReadOnlyDictionary<string, AttachedModifierInfo> BuildAttachedBySetter()
+    {
+        var map = new Dictionary<string, AttachedModifierInfo>(
+            AttachedProperties.Count, System.StringComparer.Ordinal);
+        foreach (var entry in AttachedProperties.Values)
+            map.Add(entry.Owner + "." + entry.Setter, entry);
+        return map;
+    }
 }

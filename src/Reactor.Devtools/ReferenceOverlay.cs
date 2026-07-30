@@ -108,6 +108,7 @@ internal static class ReferenceOverlay
         ReferenceSlots.ModifierRef_XYFocusDown => "XYFocusDown",
         ReferenceSlots.ModifierRef_XYFocusLeft => "XYFocusLeft",
         ReferenceSlots.ModifierRef_XYFocusRight => "XYFocusRight",
+        ReferenceSlots.ModifierRef_ToolTipPlacementTarget => "ToolTipPlacementTarget",
         >= 200_000 => $"modifier#{slot}",
         >= 100_000 => $"binding#{slot - 100_000}",
         _ => $"reference#{slot}",

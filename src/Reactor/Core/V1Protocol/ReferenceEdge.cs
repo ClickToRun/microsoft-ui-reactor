@@ -43,6 +43,7 @@ namespace Microsoft.UI.Reactor.Core
         public const int ModifierRef_XYFocusDown = 200_011;
         public const int ModifierRef_XYFocusLeft = 200_012;
         public const int ModifierRef_XYFocusRight = 200_013;
+        public const int ModifierRef_ToolTipPlacementTarget = 200_020;
     }
 }
 

@@ -47,6 +47,7 @@ public class FakeElement
     public double Height;
     public double Opacity;
     public Thickness Margin;
+    public string AccessKey = string.Empty;
     public HorizontalAlignment HorizontalAlignment;
     public VerticalAlignment VerticalAlignment;
 
@@ -66,6 +67,7 @@ public static class FakeElementExtensions
     public static FakeElement Width(this FakeElement el, double v) => el;
     public static FakeElement Height(this FakeElement el, double v) => el;
     public static FakeElement Opacity(this FakeElement el, double v) => el;
+    public static FakeElement AccessKey(this FakeElement el, string v) => el;
     public static FakeElement Margin(this FakeElement el, double u) => el;
     public static FakeElement Margin(this FakeElement el, double l, double t, double r, double b) => el;
     public static FakeElement HorizontalAlignment(this FakeElement el, HorizontalAlignment a) => el;
@@ -440,6 +442,527 @@ class C
     {
         var el = new FakeElement();
         {|REACTOR_POOL_001:el.Set(fe => fe.Margin = margin)|};
+    }
+}";
+
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Suppressed_When_An_Instance_Property_Is_Written_Twice_And_One_Is_Null()
+    {
+        // The instance-shape half of the per-key fixability rule, and a bug that predates the
+        // attached work. Only ONE diagnostic: the null write is deliberately not reported,
+        // because ApplyModifiers skips a null modifier value (Reconciler.cs — `m.AccessKey is
+        // not null` gates the write). But it shares a property NAME with the reported one, so
+        // before the fixable set was made per-key the fix converted it too and emitted
+        // `.AccessKey("F").AccessKey(null)` — which compiles, and silently stops performing
+        // the explicit clear.
+        var code = Stubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        {|REACTOR_POOL_001:el.Set(fe => { fe.AccessKey = ""F""; fe.AccessKey = null; })|};
+    }
+}";
+
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    // ── Attached properties ─────────────────────────────────────────────
+    //
+    // The second syntactic shape behind REACTOR_POOL_001: an attached-property write is
+    // `Owner.SetPROP(x, v)` — an invocation, not an assignment — so none of the tests above
+    // exercise any of this path.
+
+    private const string AttachedStubs = @"
+using System;
+using Microsoft.UI.Reactor;
+
+#nullable enable
+
+namespace Microsoft.UI.Xaml.Automation
+{
+    public static class AutomationProperties
+    {
+        public static void SetName(object target, string value) { }
+        public static void SetHelpText(object target, string value) { }
+        public static void SetPositionInSet(object target, int value) { }
+    }
+}
+
+namespace Microsoft.UI.Xaml.Controls
+{
+    public static class ToolTipService
+    {
+        public static void SetToolTip(object target, object? value) { }
+        public static void SetPlacement(object target, int value) { }
+    }
+
+    public static class TitleBar
+    {
+        public static void SetIsDragRegion(object target, bool value) { }
+    }
+
+    // Attached owners with no pool-reset entry — the real-world call sites in
+    // docs/_pipeline/apps/layout and samples/apps/widget-creator. Must stay silent.
+    public static class Canvas
+    {
+        public static void SetLeft(object target, double value) { }
+        public static void SetTop(object target, double value) { }
+    }
+
+    public static class ScrollViewer
+    {
+        public static void SetVerticalScrollBarVisibility(object target, int value) { }
+        public static void SetVerticalScrollMode(object target, int value) { }
+    }
+}
+
+namespace Microsoft.UI.Reactor.Layout
+{
+    public static class FlexPanel
+    {
+        public static void SetGrow(object target, double value) { }
+        public static void SetMinWidth(object target, double value) { }
+        public static void SetMinHeight(object target, double value) { }
+    }
+}
+
+namespace Contoso.Ui
+{
+    // Same simple name, unrelated namespace — the modifier rewrite has nothing to do
+    // with this type, so it must stay silent.
+    public static class AutomationProperties
+    {
+        public static void SetName(object target, string value) { }
+    }
+}
+
+namespace Microsoft.UI.Reactor
+{
+    public class FakeElement
+    {
+        public double Width;
+        public string Label = string.Empty;
+        public FakeElement Child = null!;
+        public FakeElement Set(Action<FakeElement> configure) { configure(this); return this; }
+    }
+
+    public static class FakeElementExtensions
+    {
+        public static FakeElement Width(this FakeElement el, double v) => el;
+        public static FakeElement AutomationName(this FakeElement el, string v) => el;
+        public static FakeElement HelpText(this FakeElement el, string v) => el;
+        public static FakeElement PositionInSet(this FakeElement el, int position, int size) => el;
+        public static FakeElement ToolTip(this FakeElement el, string v) => el;
+        // Mirrors the real two-argument overload, which writes ToolTipService.Placement too.
+        public static FakeElement ToolTip(this FakeElement el, string v, int placement) => el;
+        public static FakeElement ToolTipPlacement(this FakeElement el, int v) => el;
+        public static FakeElement IsDragRegion(this FakeElement el, bool v) => el;
+        public static FakeElement Flex(this FakeElement el, double grow = 0) => el;
+    }
+}
+";
+
+    [Theory]
+    // One per owner represented in ModifierTable.AttachedProperties, so a regression that
+    // drops a whole owner (e.g. the semantic namespace pin rejecting it) is caught here
+    // rather than only by the table-driven theory in PoolResetSetConsistencyTests.
+    [InlineData(@"Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(fe, ""Save"")")]
+    [InlineData(@"Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(fe, ""Save (Ctrl+S)"")")]
+    [InlineData(@"Microsoft.UI.Xaml.Controls.TitleBar.SetIsDragRegion(fe, false)")]
+    [InlineData(@"Microsoft.UI.Reactor.Layout.FlexPanel.SetGrow(fe, 1)")]
+    public async Task Fires_For_Attached_Setter_On_The_Lambda_Parameter(string call)
+    {
+        var source = AttachedStubs + $@"
+class C
+{{
+    void M()
+    {{
+        var el = new FakeElement();
+        {{|REACTOR_POOL_001:el.Set(fe => {call})|}};
+    }}
+}}";
+
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_For_Attached_Setter_Through_A_Cast()
+    {
+        // The WinUI setters are typed on DependencyObject/UIElement, so real call sites
+        // sometimes cast the lambda parameter (docs/_pipeline/apps/layout does exactly this
+        // for Canvas). A cast does not change which object is written to, so it must not
+        // become an escape hatch from the rule.
+        var source = AttachedStubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        {|REACTOR_POOL_001:el.Set(fe => Microsoft.UI.Xaml.Automation.AutomationProperties.SetName((object)fe, ""Save""))|};
+    }
+}";
+
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Theory]
+    // Wrappers that do not change WHICH object is written to must all still match. Each of
+    // these is a distinct arm of SetLambdaHelpers.IsLambdaParameterReference.
+    [InlineData(@"AutomationProperties.SetName((fe), ""Save"")")]                 // parenthesized
+    [InlineData(@"AutomationProperties.SetName(fe!, ""Save"")")]                  // null-forgiving
+    [InlineData(@"AutomationProperties.SetName((object)(fe!), ""Save"")")]        // cast over both
+    public async Task Fires_For_Attached_Setter_Through_A_Target_Wrapper(string call)
+    {
+        // Also exercises the unqualified owner name (`AutomationProperties.SetName`) reached
+        // through a using directive — the other arm of the owner extraction, alongside the
+        // fully-qualified form the rest of these tests use. The usings live inside the
+        // namespace body because the stubs above already opened namespaces at file scope.
+        var source = AttachedStubs + $@"
+namespace TestApp
+{{
+    using Microsoft.UI.Reactor;
+    using Microsoft.UI.Xaml.Automation;
+
+    class C
+    {{
+        void M()
+        {{
+            var el = new FakeElement();
+            {{|REACTOR_POOL_001:el.Set(fe => {call})|}};
+        }}
+    }}
+}}";
+
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_For_Attached_Setter_In_A_Block_Body_Alongside_Other_Statements()
+    {
+        // Detection is wider than the fix: an attached write is no less lost for sharing a
+        // block with a statement the fix cannot convert.
+        var source = AttachedStubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        {|REACTOR_POOL_001:el.Set(fe =>
+        {
+            var label = ""Save"";
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(fe, label);
+        })|};
+    }
+}";
+
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = source,
+            FixedCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Theory]
+    // The regression corpus. Each of these is a real, legitimate call site shape that the
+    // invocation-matching must leave alone.
+    //
+    // Different target — the write does not reach the pooled control the .Set configures.
+    [InlineData(@"Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(other, ""Save"")")]
+    [InlineData(@"Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(fe.Child, ""Save"")")]
+    // Same simple name, unrelated namespace.
+    [InlineData(@"Contoso.Ui.AutomationProperties.SetName(fe, ""Save"")")]
+    // Attached owners with no pool-reset entry (docs/_pipeline/apps/layout,
+    // samples/ReactorGallery, samples/apps/widget-creator).
+    [InlineData(@"Microsoft.UI.Xaml.Controls.Canvas.SetLeft((object)fe, 10)")]
+    [InlineData(@"Microsoft.UI.Xaml.Controls.Canvas.SetTop((object)fe, 10)")]
+    [InlineData(@"Microsoft.UI.Xaml.Controls.ScrollViewer.SetVerticalScrollBarVisibility(fe, 1)")]
+    [InlineData(@"Microsoft.UI.Xaml.Controls.ScrollViewer.SetVerticalScrollMode(fe, 1)")]
+    // A null write is not expressible through the modifier — ApplyModifiers skips a null
+    // value, so suggesting the rewrite would change behaviour. All the wrapped forms of
+    // null must be caught, not just the bare literal.
+    [InlineData(@"Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(fe, null)")]
+    [InlineData(@"Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(fe, (string?)null)")]
+    [InlineData(@"Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(fe, default)")]
+    // Named arguments are rejected: they may be written out of order, which would make the
+    // positional target/value read wrong.
+    [InlineData(@"Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(target: fe, value: ""Save"")")]
+    public async Task No_Diagnostic_For_Attached_Setter(string call)
+    {
+        var source = AttachedStubs + $@"
+class C
+{{
+    void M(FakeElement other)
+    {{
+        var el = new FakeElement();
+        el.Set(fe => {call});
+    }}
+}}";
+
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_For_Attached_Setter_In_A_NonReactor_Set_Helper()
+    {
+        // Same guard as the assignment arm: the '.AutomationName(...)' modifiers only exist
+        // for Reactor elements, so a lookalike '.Set' must not be reported.
+        var source = AttachedStubs + @"
+class C
+{
+    void M(RawAttachedThing r)
+    {
+        r.Set(x => Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(x, ""Save""));
+    }
+}
+
+public class RawAttachedThing
+{
+    public RawAttachedThing Set(System.Action<RawAttachedThing> configure) { configure(this); return this; }
+}";
+
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Rewrites_Attached_ToolTip()
+    {
+        var before = AttachedStubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        {|REACTOR_POOL_001:el.Set(b => Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(b, ""This is a native tooltip""))|};
+    }
+}";
+
+        var after = AttachedStubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        el.ToolTip(""This is a native tooltip"");
+    }
+}";
+
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Rewrites_A_Block_Mixing_Instance_And_Attached_Writes()
+    {
+        var before = AttachedStubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        {|REACTOR_POOL_001:{|REACTOR_POOL_001:el.Set(fe => { fe.Width = 10; Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(fe, ""Save""); })|}|};
+    }
+}";
+
+        var after = AttachedStubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        el.Width(10).AutomationName(""Save"");
+    }
+}";
+
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = before,
+            FixedCode = after,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Theory]
+    // Reported, but deliberately not auto-fixed. TestCode == FixedCode asserts the diagnostic
+    // survives AND that no rewrite is offered — flipping any of these to AutoFix: true in
+    // ModifierTable would break this test.
+    //
+    // Arity: SetPositionInSet writes one DP, .PositionInSet(position, size) writes two.
+    [InlineData(@"Microsoft.UI.Xaml.Automation.AutomationProperties.SetPositionInSet(fe, 2)")]
+    // N:1: every FlexPanel property funnels into one .Flex(...) that replaces the whole
+    // FlexAttached record.
+    [InlineData(@"Microsoft.UI.Reactor.Layout.FlexPanel.SetGrow(fe, 1)")]
+    // Type: SetToolTip takes object, .ToolTip takes string — `tip` is an object here, so the
+    // rewrite would not compile.
+    [InlineData(@"Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(fe, tip)")]
+    // A maybe-null string would compile, but `.ToolTip(maybeTip)` silently performs no write
+    // when the value IS null (ApplyModifiers skips a null modifier value) — the same
+    // behaviour change the literal-null gate exists to prevent.
+    [InlineData(@"Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(fe, maybeTip)")]
+    // The value references the lambda parameter, which does not survive the rewrite.
+    [InlineData(@"Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(fe, fe.Label)")]
+    // Setter/property name divergence: FlexPanel.SetMinWidth writes FlexMinWidthProperty.
+    // Flipping either row to AutoFix: true would rewrite it to .Flex(value), which sets
+    // `grow`, not `minWidth`.
+    [InlineData(@"Microsoft.UI.Reactor.Layout.FlexPanel.SetMinWidth(fe, 50)")]
+    [InlineData(@"Microsoft.UI.Reactor.Layout.FlexPanel.SetMinHeight(fe, 50)")]
+    public async Task Analyzer_Fires_But_CodeFix_Suppressed_For_Attached_Setter(string call)
+    {
+        var code = AttachedStubs + $@"
+class C
+{{
+    void M(object tip, string? maybeTip)
+    {{
+        var el = new FakeElement();
+        {{|REACTOR_POOL_001:el.Set(fe => {call})|}};
+    }}
+}}";
+
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Suppressed_When_A_Duplicate_Setter_Is_Not_Uniformly_Fixable()
+    {
+        // Both bags the analyzer hands the fix are keyed by setter name, not by occurrence.
+        // Without the per-key conjunction in the analyzer, the fixable verdict earned by the
+        // string literal would authorize the object-valued sibling too, and the fix would emit
+        // `.ToolTip("Save").ToolTip(tip)` — which does not compile.
+        var code = AttachedStubs + @"
+class C
+{
+    void M(object tip)
+    {
+        var el = new FakeElement();
+        {|REACTOR_POOL_001:{|REACTOR_POOL_001:el.Set(fe => { Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(fe, ""Save""); Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(fe, tip); })|}|};
+    }
+}";
+
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Suppressed_When_A_Duplicate_Setter_Writes_Null()
+    {
+        // Only ONE diagnostic: the null write is deliberately not reported. But it shares a
+        // setter name with the reported one, so without the per-key conjunction the fix would
+        // convert it too and emit `.ToolTip(null)` — a call ApplyModifiers ignores, silently
+        // dropping an explicit clear.
+        var code = AttachedStubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        {|REACTOR_POOL_001:el.Set(fe => { Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(fe, ""Save""); Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(fe, null); })|};
+    }
+}";
+
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Suppressed_When_The_Receiver_Already_Applies_The_Same_Attached_Modifier()
+    {
+        // Modifiers run after setters, so `.AutomationName("old")` currently wins and the name
+        // renders as "old". Rewriting to `.AutomationName("old").AutomationName("new")` makes
+        // the last call win instead. Same precedence-inversion guard the instance shape has,
+        // reached through the attached path.
+        var code = AttachedStubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        {|REACTOR_POOL_001:el.AutomationName(""old"").Set(fe => Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(fe, ""new""))|};
+    }
+}";
+
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Suppressed_When_The_Receiver_Already_Sets_Placement_Through_ToolTip()
+    {
+        // Modifiers run after setters, so today the receiver's `.ToolTip("Save", 1)` wins and
+        // the placement renders as 1. Rewriting to `.ToolTip("Save", 1).ToolTipPlacement(2)`
+        // makes the last modifier win instead, flipping it to 2 — a behaviour change, not a
+        // refactor. A plain name comparison misses this because the conflicting modifier is
+        // called `ToolTip`, not `ToolTipPlacement`.
+        var code = AttachedStubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        {|REACTOR_POOL_001:el.ToolTip(""Save"", 1).Set(fe => Microsoft.UI.Xaml.Controls.ToolTipService.SetPlacement(fe, 2))|};
+    }
+}";
+
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Suppressed_When_A_Block_Mixes_Fixable_And_Unfixable_Attached_Writes()
+    {
+        // All-or-nothing: converting only the fixable half would leave a residual .Set and
+        // move the extracted write from the setter phase into the modifier phase.
+        var code = AttachedStubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        {|REACTOR_POOL_001:{|REACTOR_POOL_001:el.Set(fe => { Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(fe, ""Save""); Microsoft.UI.Reactor.Layout.FlexPanel.SetGrow(fe, 1); })|}|};
     }
 }";
 

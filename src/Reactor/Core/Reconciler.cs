@@ -610,7 +610,8 @@ public sealed partial class Reconciler : IDisposable
         if (m is null) return false;
         if (m.Ref is not null
             || m.XYFocusUpRef is not null || m.XYFocusDownRef is not null
-            || m.XYFocusLeftRef is not null || m.XYFocusRightRef is not null)
+            || m.XYFocusLeftRef is not null || m.XYFocusRightRef is not null
+            || m.ToolTipPlacementTargetRef is not null)
             return true;
 
         var a = m.Accessibility;
@@ -3738,6 +3739,11 @@ public sealed partial class Reconciler : IDisposable
         else if (m.RichToolTip is null && m.ToolTip is null && (oldM?.RichToolTip is not null || oldM?.ToolTip is not null))
             fe.ClearValue(WinUI.ToolTipService.ToolTipProperty);
 
+        if (m.ToolTipPlacement.HasValue && m.ToolTipPlacement != oldM?.ToolTipPlacement)
+            WinUI.ToolTipService.SetPlacement(fe, m.ToolTipPlacement.Value);
+        else if (!m.ToolTipPlacement.HasValue && oldM?.ToolTipPlacement.HasValue == true)
+            fe.ClearValue(WinUI.ToolTipService.PlacementProperty);
+
         if (m.AttachedFlyout is not null)
             ApplyFlyoutAttachment(fe, oldM?.AttachedFlyout, m.AttachedFlyout, requestRerender);
 
@@ -4022,6 +4028,19 @@ public sealed partial class Reconciler : IDisposable
             m.XYFocusRightRef,
             oldM?.XYFocusRightRef,
             static (c, target) => c.XYFocusRight = target);
+
+        // ToolTipService.PlacementTarget takes a UIElement, so an unset target
+        // has to go through ClearValue rather than a null assignment.
+        WireModifierScalarReference(
+            fe,
+            ReferenceSlots.ModifierRef_ToolTipPlacementTarget,
+            m.ToolTipPlacementTargetRef,
+            oldM?.ToolTipPlacementTargetRef,
+            static (c, target) =>
+            {
+                if (target is not null) WinUI.ToolTipService.SetPlacementTarget(c, target);
+                else c.ClearValue(WinUI.ToolTipService.PlacementTargetProperty);
+            });
     }
 
     private static void WireModifierScalarReference(
@@ -4993,7 +5012,7 @@ public sealed partial class Reconciler : IDisposable
                 // Type changed — remount content
                 flyout.Content = Mount(newCf.Content, requestRerender);
             }
-            flyout.Placement = newCf.Placement;
+            FlyoutPlacement.Apply(flyout, newCf.Placement);
             return;
         }
 
@@ -5002,8 +5021,7 @@ public sealed partial class Reconciler : IDisposable
         {
             menuFlyout.Items.Clear();
             foreach (var item in newMf.Items) menuFlyout.Items.Add(MenuCommandFactory.CreateMenuFlyoutItem(item));
-            if (newMf.Placement != WinPrim.FlyoutPlacementMode.Auto)
-                menuFlyout.Placement = newMf.Placement;
+            FlyoutPlacement.Apply(menuFlyout, newMf.Placement);
             return;
         }
 
@@ -5120,14 +5138,17 @@ public sealed partial class Reconciler : IDisposable
             case ContentFlyoutElement cf:
             {
                 var content = Mount(cf.Content, requestRerender);
-                return content is not null ? new WinUI.Flyout { Content = content, Placement = cf.Placement } : null;
+                if (content is null) return null;
+                var contentFlyout = new WinUI.Flyout { Content = content };
+                FlyoutPlacement.Apply(contentFlyout, cf.Placement);
+                return contentFlyout;
             }
             case MenuFlyoutContentElement mf:
             {
                 var menuFlyout = new WinUI.MenuFlyout();
-                // Only set Placement if explicitly specified (Auto can cause assertions on MenuFlyout)
-                if (mf.Placement != WinPrim.FlyoutPlacementMode.Auto)
-                    menuFlyout.Placement = mf.Placement;
+                // Placement is routed through FlyoutPlacement so Auto is never written
+                // (WinUI's FlyoutBase validator rejects it — see FlyoutPlacement).
+                FlyoutPlacement.Apply(menuFlyout, mf.Placement);
                 foreach (var item in mf.Items) menuFlyout.Items.Add(MenuCommandFactory.CreateMenuFlyoutItem(item));
                 return menuFlyout;
             }

@@ -4,8 +4,13 @@
 #             AfterBuild target rewrites this file).
 # Format: one symbol per line. No prose. Alphabetized within each section.
 # Sections: Factories, Modifiers, Reference builders, Hooks, Theme, Enums, Public types.
-# Public types now ARE covered — ctors/properties/methods/events on every
-# public type (e.g. WindowSpec.Opacity, ReactorWindow.SetPosition).
+# Public types covers ctors/properties/methods/events on every public type,
+# including public *static* classes — so process-wide entry points such as
+# ControlRegistry.Register and ReactorApp.Run are listed there, alongside
+# instance members like WindowSpec.Opacity and ReactorWindow.SetPosition.
+# Extension methods with an Element receiver are listed under Modifiers, and
+# RenderContext/Component ones under Hooks, in the fluent form you call them;
+# any other extension is listed under its declaring class.
 
 ## Factories
 # All in `Microsoft.UI.Reactor.Factories` — `using static Microsoft.UI.Reactor.Factories;`
@@ -19,7 +24,7 @@ AppBarButton(Command command) → AppBarButtonData
 AppBarButton(string label, Action onClick = null, string icon = null) → AppBarButtonData
 AppBarSeparator() → AppBarSeparatorData
 AppBarToggleButton(string label, bool isChecked = false, Action<bool> onIsCheckedChanged = null, string icon = null) → AppBarToggleButtonData
-AutoSuggestBox(Optional<string> text = null, Action<string> onTextChanged = null, Action<string> onQuerySubmitted = null) → AutoSuggestBoxElement
+AutoSuggestBox(Optional<string> text = default, Action<string> onTextChanged = null, Action<string> onQuerySubmitted = null) → AutoSuggestBoxElement
 BitmapIcon(Uri source, bool showAsMonochrome = true) → BitmapIconData
 Body(string content) → TextBlockElement
 BodyLarge(string content) → TextBlockElement
@@ -30,15 +35,15 @@ BreadcrumbBar(BreadcrumbBarItemData[] items, Action<BreadcrumbBarItemData> onIte
 Button(Command command) → ButtonElement
 Button(Element content, Action onClick = null) → ButtonElement
 Button(string label, Action onClick = null) → ButtonElement
-CalendarDatePicker(Optional<DateTimeOffset?> date = null, Action<DateTimeOffset?> onDateChanged = null) → CalendarDatePickerElement
+CalendarDatePicker(Optional<DateTimeOffset?> date = default, Action<DateTimeOffset?> onDateChanged = null) → CalendarDatePickerElement
 CalendarView() → CalendarViewElement
 Canvas(Element[] children) → CanvasElement
 Caption(string content) → TextBlockElement
 Card(Element child) → BorderElement
-CheckBox(Optional<bool?> isChecked = null, Action<bool> onIsCheckedChanged = null, string label = null) → CheckBoxElement
-ColorPicker(Optional<Color> color = null, Action<Color> onColorChanged = null) → ColorPickerElement
+CheckBox(Optional<bool?> isChecked = default, Action<bool> onIsCheckedChanged = null, string label = null) → CheckBoxElement
+ColorPicker(Optional<Color> color = default, Action<Color> onColorChanged = null) → ColorPickerElement
 ComboBox(Element[] itemElements, Optional<int> selectedIndex, Action<int> onSelectedIndexChanged) → ComboBoxElement
-ComboBox(string[] items, Optional<int> selectedIndex = null, Action<int> onSelectedIndexChanged = null) → ComboBoxElement
+ComboBox(string[] items, Optional<int> selectedIndex = default, Action<int> onSelectedIndexChanged = null) → ComboBoxElement
 CommandBar(AppBarItemBase[] primaryCommands = null, AppBarItemBase[] secondaryCommands = null) → CommandBarElement
 CommandBarFlyout(Element target, AppBarItemBase[] primaryCommands = null, AppBarItemBase[] secondaryCommands = null) → CommandBarFlyoutElement
 CommandHost(Command[] commands, Element child) → CommandHostElement
@@ -46,14 +51,14 @@ Component<T, TProps>(TProps props) → ComponentElement<TProps>
 Component<T>() → ComponentElement
 ContentDialog(string title, Element content, string primaryButtonText = "OK") → ContentDialogElement
 ContentFlyout(Element content, FlyoutPlacementMode placement = FlyoutPlacementMode.Auto) → ContentFlyoutElement
-DatePicker(Optional<DateTimeOffset> date = null, Action<DateTimeOffset> onDateChanged = null) → DatePickerElement
+DatePicker(Optional<DateTimeOffset> date = default, Action<DateTimeOffset> onDateChanged = null) → DatePickerElement
 DevtoolsMenu(Func<IEnumerable<MenuFlyoutItemBase>> items = null, string glyph = "⚡", string toolTip = "Devtools", string automationId = null) → Element
 DropDownButton(string label, Element flyout = null) → DropDownButtonElement
 Ellipse() → EllipseElement
 Empty() → Element
 ErrorBoundary(Element child, Element fallback) → ErrorBoundaryElement
 ErrorBoundary(Element child, Func<Exception, Element> fallback) → ErrorBoundaryElement
-Expander(string header, Element content, Optional<bool> isExpanded = null, Action<bool> onIsExpandedChanged = null) → ExpanderElement
+Expander(string header, Element content, Optional<bool> isExpanded = default, Action<bool> onIsExpandedChanged = null) → ExpanderElement
 Expr(Func<Element> render) → Element
 Flex(Element[] children) → FlexElement
 Flex(FlexDirection direction, Element[] children) → FlexElement
@@ -104,7 +109,7 @@ LazyHStack<T>(IReadOnlyList<T> items, Func<T, string> keySelector, Func<T, int, 
 LazyVStack<T>(IReadOnlyList<T> items, Func<T, int, Element> viewBuilder) → LazyVStackElement<T>
 LazyVStack<T>(IReadOnlyList<T> items, Func<T, string> keySelector, Func<T, int, Element> viewBuilder) → LazyVStackElement<T>
 Line(double x1, double y1, double x2, double y2) → LineElement
-ListBox(string[] items, Optional<int> selectedIndex = null, Action<int> onSelectedIndexChanged = null) → ListBoxElement
+ListBox(string[] items, Optional<int> selectedIndex = default, Action<int> onSelectedIndexChanged = null) → ListBoxElement
 ListView(Element[] items) → ListViewElement
 ListView(Optional<int> selectedIndex, Action<int> onSelectedIndexChanged = null, Element[] items) → ListViewElement
 ListView(int? selectedIndex, Action<int> onSelectedIndexChanged = null, Element[] items) → ListViewElement
@@ -129,14 +134,14 @@ NavItem(string content, string icon = null, string tag = null) → NavigationVie
 NavItemHeader(string content) → NavigationViewItemData
 NavigationHost<TRoute>(NavigationHandle<TRoute> nav, Func<TRoute, Element> routeMap) → NavigationHostElement
 NavigationView(NavigationViewItemData[] menuItems, Element content = null) → NavigationViewElement
-NumberBox(Optional<double> value = null, Action<double> onValueChanged = null, string header = null) → NumberBoxElement
+NumberBox(Optional<double> value = default, Action<double> onValueChanged = null, string header = null) → NumberBoxElement
 Paragraph(RichTextInline[] inlines) → RichTextParagraph
 ParallaxView(Element child, double verticalShift = 0, double horizontalShift = 0) → ParallaxViewElement
-PasswordBox(Optional<string> password = null, Action<string> onPasswordChanged = null, string placeholderText = null) → PasswordBoxElement
+PasswordBox(Optional<string> password = default, Action<string> onPasswordChanged = null, string placeholderText = null) → PasswordBoxElement
 Path2D() → PathElement
 PathIcon(string data) → PathIconData
 PersonPicture() → PersonPictureElement
-PipsPager(int numberOfPages, Optional<int> selectedPageIndex = null, Action<int> onSelectedPageIndexChanged = null) → PipsPagerElement
+PipsPager(int numberOfPages, Optional<int> selectedPageIndex = default, Action<int> onSelectedPageIndexChanged = null) → PipsPagerElement
 Pivot(Optional<int> selectedIndex, Action<int> onSelectedIndexChanged = null, PivotItemData[] items) → PivotElement
 Pivot(PivotItemData[] items) → PivotElement
 Pivot(int? selectedIndex, Action<int> onSelectedIndexChanged = null, PivotItemData[] items) → PivotElement
@@ -147,26 +152,26 @@ ProgressIndeterminate() → ProgressElement
 ProgressRing() → ProgressRingElement
 ProgressRing(double value) → ProgressRingElement
 PropertyGrid(object target, TypeRegistry registry, Action<object> onRootChanged = null) → ComponentElement<PropertyGridElement>
-RadioButton(string label, Optional<bool> isChecked = null, Action<bool> onIsCheckedChanged = null, string groupName = null) → RadioButtonElement
-RadioButtons(string[] items, Optional<int> selectedIndex = null, Action<int> onSelectedIndexChanged = null) → RadioButtonsElement
+RadioButton(string label, Optional<bool> isChecked = default, Action<bool> onIsCheckedChanged = null, string groupName = null) → RadioButtonElement
+RadioButtons(string[] items, Optional<int> selectedIndex = default, Action<int> onSelectedIndexChanged = null) → RadioButtonsElement
 RadioMenuItem(string text, string groupName, bool isChecked = false, Action onClick = null, string icon = null) → RadioMenuFlyoutItemData
-RatingControl(Optional<double> value = null, Action<double> onValueChanged = null) → RatingControlElement
+RatingControl(Optional<double> value = default, Action<double> onValueChanged = null) → RatingControlElement
 Rectangle() → RectangleElement
 RefreshContainer(Element content, Action onRefreshRequested = null) → RefreshContainerElement
 RelativePanel(Element[] children) → RelativePanelElement
 RenderEachTime(Func<RenderContext, Element> render) → FuncElement
 RepeatButton(Command command) → RepeatButtonElement
 RepeatButton(string label, Action onClick = null) → RepeatButtonElement
-RichEditBox(Optional<string> text = null, Action<string> onTextChanged = null) → RichEditBoxElement
+RichEditBox(Optional<string> text = default, Action<string> onTextChanged = null) → RichEditBoxElement
 RichTextBlock(RichTextParagraph[] paragraphs) → RichTextBlockElement
 RichTextBlock(string text) → RichTextBlockElement
 Run(string text) → RichTextRun
 ScrollView(Element child) → ScrollViewElement
 ScrollViewer(Element child) → ScrollViewerElement
-SelectorBar(SelectorBarItemData[] items, Optional<int> selectedIndex = null, Action<int> onSelectedIndexChanged = null) → SelectorBarElement
+SelectorBar(SelectorBarItemData[] items, Optional<int> selectedIndex = default, Action<int> onSelectedIndexChanged = null) → SelectorBarElement
 SelectorBarItem(string text, string icon = null) → SelectorBarItemData
 SemanticZoom(Element zoomedInView, Element zoomedOutView) → SemanticZoomElement
-Slider(Optional<double> value = null, double min = 0, double max = 100, Action<double> onValueChanged = null) → SliderElement
+Slider(Optional<double> value = default, double min = 0, double max = 100, Action<double> onValueChanged = null) → SliderElement
 SplitButton(Command command, Element flyout = null) → SplitButtonElement
 SplitButton(string label, Action onClick = null, Element flyout = null) → SplitButtonElement
 SplitView(Element pane = null, Element content = null) → SplitViewElement
@@ -180,21 +185,21 @@ TabView(TabViewItemData[] tabs) → TabViewElement
 TabView(int? selectedIndex, Action<int> onSelectedIndexChanged = null, TabViewItemData[] tabs) → TabViewElement
 TeachingTip(string title, string subtitle = null, ElementRef target = null) → TeachingTipElement
 TextBlock(string content) → TextBlockElement
-TextBox(Optional<string> value = null, Action<string> onChanged = null, string placeholderText = null, string header = null) → TextBoxElement
+TextBox(Optional<string> value = default, Action<string> onChanged = null, string placeholderText = null, string header = null) → TextBoxElement
 Thick(double horizontal, double vertical) → Thickness
 Thick(double left, double top, double right, double bottom) → Thickness
 Thick(double uniform) → Thickness
-ThreeStateCheckBox(Optional<bool?> checkedState = null, Action<bool?> onCheckedStateChanged = null, string label = null) → CheckBoxElement
+ThreeStateCheckBox(Optional<bool?> checkedState = default, Action<bool?> onCheckedStateChanged = null, string label = null) → CheckBoxElement
 ThreeStateToggleButton(string label, bool? checkedState = null, Action<bool?> onCheckedStateChanged = null) → ToggleButtonElement
-TimePicker(Optional<TimeSpan> time = null, Action<TimeSpan> onTimeChanged = null) → TimePickerElement
+TimePicker(Optional<TimeSpan> time = default, Action<TimeSpan> onTimeChanged = null) → TimePickerElement
 Title(string content) → TextBlockElement
 TitleBar(string title) → TitleBarElement
 ToggleButton(Command command, bool isChecked = false) → ToggleButtonElement
 ToggleButton(string label, bool isChecked = false, Action<bool> onIsCheckedChanged = null) → ToggleButtonElement
 ToggleMenuItem(string text, bool isChecked = false, Action<bool> onIsCheckedChanged = null, string icon = null) → ToggleMenuFlyoutItemData
-ToggleSplitButton(Command command, Optional<bool> isChecked = null, Element flyout = null) → ToggleSplitButtonElement
-ToggleSplitButton(string label, Optional<bool> isChecked = null, Action<bool> onIsCheckedChanged = null, Element flyout = null) → ToggleSplitButtonElement
-ToggleSwitch(Optional<bool> isOn = null, Action<bool> onIsOnChanged = null, string onContent = null, string offContent = null, string header = null) → ToggleSwitchElement
+ToggleSplitButton(Command command, Optional<bool> isChecked = default, Element flyout = null) → ToggleSplitButtonElement
+ToggleSplitButton(string label, Optional<bool> isChecked = default, Action<bool> onIsCheckedChanged = null, Element flyout = null) → ToggleSplitButtonElement
+ToggleSwitch(Optional<bool> isOn = default, Action<bool> onIsOnChanged = null, string onContent = null, string offContent = null, string header = null) → ToggleSwitchElement
 TreeNode(string content, TreeViewNodeData[] children) → TreeViewNodeData
 TreeView(TreeViewNodeData[] nodes) → TreeViewElement
 TreeView<T>(IReadOnlyList<T> items, Func<T, IReadOnlyList<T>> childrenSelector, Func<T, Element> viewBuilder) → TemplatedTreeViewElement<T>
@@ -700,11 +705,14 @@ T.Semantics<T>(string role = null, string value = null, double? rangeMin = null,
 T.ShowErrors<T>(ShowWhen showWhen = ShowWhen.Always) → ValidationVisualizerElement
 T.Size<T>(double width, double height) → T
 T.SoundMode<T>(ElementSoundMode mode) → T
-T.SpringLayoutAnimation<T>(float dampingRatio = 0.6, float period = 0.08) → T
+T.SpringLayoutAnimation<T>(float dampingRatio = 0.6f, float period = 0.08f) → T
 T.Stagger<T>(TimeSpan delay, Curve curve = null) → T
 T.TabIndex<T>(int index) → T
 T.TabNavigation<T>(KeyboardNavigationMode mode) → T
 T.ToolTip<T>(string tip) → T
+T.ToolTip<T>(string tip, PlacementMode placement) → T
+T.ToolTipPlacement<T>(PlacementMode placement) → T
+T.ToolTipPlacementTarget<T>(ElementRef target) → T
 T.Transition<T>(Transition transition, Curve curve = null) → T
 T.Translation<T>(float x, float y, float z) → T
 T.TranslationTransition<T>(Vector3Transition transition = null) → T
@@ -725,6 +733,7 @@ T.WithFlyout<T>(Element flyout) → T
 T.WithKey<T, TKey>(TKey item) → T
 T.WithKey<T>(string key) → T
 T.WithToolTip<T>(Element tooltip) → T
+T.WithToolTip<T>(Element tooltip, PlacementMode placement) → T
 T.WithTransitions<T>(Transition[] transitions) → T
 T.WrapGridColumnSpan<T>(int columnSpan) → T
 T.WrapGridRowSpan<T>(int rowSpan) → T
@@ -837,7 +846,7 @@ TreeViewElement.Expanding(Action<TreeViewNodeData> handler) → TreeViewElement
 TreeViewElement.ItemInvoked(Action<TreeViewNodeData> handler) → TreeViewElement
 TreeViewElement.Set(Action<TreeView> configure) → TreeViewElement
 ValidationRuleElement.Evaluate(ValidationContext ctx) → void
-ValidationRuleElement.EvaluateAsync(ValidationContext ctx, CancellationToken cancellationToken = null) → Task
+ValidationRuleElement.EvaluateAsync(ValidationContext ctx, CancellationToken cancellationToken = default) → Task
 ViewboxElement.Set(Action<Viewbox> configure) → ViewboxElement
 ViewboxElement.Stretch(Stretch stretch) → ViewboxElement
 ViewboxElement.StretchDirection(StretchDirection direction) → ViewboxElement
@@ -881,7 +890,7 @@ RenderContext.UseDataSource<T>(IDataSource<T> source, DataRequest request, Infin
 RenderContext.UseDataSource<T>(IDataSource<T> source, DataRequest request, QueryCache cache, InfiniteResourceOptions options = null, IHookDispatcher dispatcher = null) → InfiniteResource<T>
 RenderContext.UseDevtools() → bool
 RenderContext.UseDisplays() → IReadOnlyList<DisplayInfo>
-RenderContext.UseDpi() → UInt32
+RenderContext.UseDpi() → uint
 RenderContext.UseEffect(Action effect, object[] dependencies) → void
 RenderContext.UseEffect(Func<Action> effectWithCleanup, object[] dependencies) → void
 RenderContext.UseEffect<T1, T2, T3>(Action effect, T1 d1, T2 d2, T3 d3) → void
@@ -926,7 +935,7 @@ RenderContext.UsePersisted<T>(string key, T initialValue, PersistedScope scope) 
 RenderContext.UseReducedMotion() → bool
 RenderContext.UseReducer<T>(T initialValue, bool threadSafe = false) → ValueTuple<T, Action<Func<T, T>>>
 RenderContext.UseReducer<TState, TAction>(Func<TState, TAction, TState> reducer, TState initialValue, bool threadSafe = false) → ValueTuple<TState, Action<TAction>>
-RenderContext.UseRef<T>(T initialValue = null) → Ref<T>
+RenderContext.UseRef<T>(T initialValue = default) → Ref<T>
 RenderContext.UseResource<T>(Func<CancellationToken, Task<T>> fetcher, QueryCache cache, object[] deps, ResourceOptions options = null, IHookDispatcher dispatcher = null) → AsyncValue<T>
 RenderContext.UseResource<T>(Func<CancellationToken, Task<T>> fetcher, object[] deps, ResourceOptions options = null, IHookDispatcher dispatcher = null) → AsyncValue<T>
 RenderContext.UseState<T>(T initialValue, bool threadSafe = false) → ValueTuple<T, Action<T>>
@@ -1106,6 +1115,10 @@ GetHashCode() → int
 Merge(AccessibilityModifiers other) → AccessibilityModifiers
 ToString() → string
 
+### static class AccessibilityScanner
+ExportJson(List<A11yDiagnostic> diagnostics, string filePath) → void
+Scan(Element root) → List<A11yDiagnostic>
+
 ### record AnimatedIconElement
 new()
 IconSource FallbackIconSource { get; init; }
@@ -1134,6 +1147,16 @@ Equals(AnimationConfig other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
+
+### static class AnimationScope
+Curve Current { get; }
+bool HasScope { get; }
+WithAnimation(Curve curve, Action action) → void
+WithAnimationAsync(Curve curve, Action action) → Task
+
+### static class Animations
+Animate(AnimationKind kind, Action action) → void
+Animate<T>(AnimationKind kind, Func<T> func) → T
 
 ### record AnnotatedScrollBarElement
 new()
@@ -1281,7 +1304,7 @@ GetHashCode() → int
 ToString() → string
 
 ### record AutoSuggestBoxElement
-new(Optional<string> Text = null, Action<string> OnTextChanged = null, Action<string> OnQuerySubmitted = null, Action<string> OnSuggestionChosen = null)
+new(Optional<string> Text = default, Action<string> OnTextChanged = null, Action<string> OnQuerySubmitted = null, Action<string> OnSuggestionChosen = null)
 Action<string> OnQuerySubmitted { get; init; }
 Action<string> OnSuggestionChosen { get; init; }
 Action<string> OnTextChanged { get; init; }
@@ -1297,6 +1320,9 @@ Equals(Element other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
+
+### static class AutoSuggestDsl
+AutoSuggest<T>(T selected, Action<T> onSelected = null, Func<string, CancellationToken, Task<IReadOnlyList<T>>> search = null, Func<T, string> displayText = null, string placeholderText = null, int debounceMs = 300, Func<T, Element> template = null) → AutoSuggestElement<T>
 
 ### record AutoSuggestElement<T>
 new(T Selected, Action<T> OnSelected = null, Func<string, CancellationToken, Task<IReadOnlyList<T>>> Search = null, Func<T, string> DisplayText = null, string PlaceholderText = null)
@@ -1372,6 +1398,9 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
+### static class BrushHelper
+Parse(string color) → SolidColorBrush
+
 ### record ButtonElement
 new(string Label, Action OnClick = null)
 Action OnClick { get; init; }
@@ -1417,7 +1446,7 @@ GetHashCode() → int
 ToString() → string
 
 ### record CalendarDatePickerElement
-new(Optional<DateTimeOffset?> Date = null, Action<DateTimeOffset?> OnDateChanged = null)
+new(Optional<DateTimeOffset?> Date = default, Action<DateTimeOffset?> OnDateChanged = null)
 Action<DateTimeOffset?> OnDateChanged { get; init; }
 DateTimeOffset? MaxDate { get; init; }
 DateTimeOffset? MinDate { get; init; }
@@ -1489,8 +1518,19 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
+### static class CellRenderers
+CheckMark() → Func<object, Element>
+ColorSwatch() → Func<object, Element>
+Date(string format = "d") → Func<object, Element>
+Enum() → Func<object, Element>
+Hyperlink(string displayTextFormat = null) → Func<object, Element>
+Number(string format = null) → Func<object, Element>
+Text(string format = null) → Func<object, Element>
+Time(string format = "t") → Func<object, Element>
+ToggleIndicator() → Func<object, Element>
+
 ### record CheckBoxElement
-new(Optional<bool?> IsChecked = null, Action<bool> OnIsCheckedChanged = null, string Label = null)
+new(Optional<bool?> IsChecked = default, Action<bool> OnIsCheckedChanged = null, string Label = null)
 Action<bool> OnIsCheckedChanged { get; init; }
 Action<bool?> OnCheckedStateChanged { get; init; }
 Optional<bool?> IsChecked { get; init; }
@@ -1511,7 +1551,7 @@ GetHashCode() → int
 ToString() → string
 
 ### record ColorPickerElement
-new(Optional<Color> Color = null, Action<Color> OnColorChanged = null)
+new(Optional<Color> Color = default, Action<Color> OnColorChanged = null)
 Action<Color> OnColorChanged { get; init; }
 ColorSpectrumShape ColorSpectrumShape { get; init; }
 Optional<Color> Color { get; init; }
@@ -1556,7 +1596,7 @@ GetHashCode() → int
 ToString() → string
 
 ### record ComboBoxElement
-new(string[] Items, Optional<int> SelectedIndex = null, Action<int> OnSelectedIndexChanged = null)
+new(string[] Items, Optional<int> SelectedIndex = default, Action<int> OnSelectedIndexChanged = null)
 Action OnDropDownClosed { get; init; }
 Action OnDropDownOpened { get; init; }
 Action<int> OnSelectedIndexChanged { get; init; }
@@ -1650,6 +1690,10 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
+### static class CommandInterop
+FromCommand(ICommand command, string label, IconData icon = null, string description = null, KeyboardAcceleratorData accelerator = null, object parameter = null) → Command
+FromCommand<T>(ICommand command, string label, IconData icon = null, string description = null, KeyboardAcceleratorData accelerator = null) → Command<T>
+
 ### class Component
 Render() → Element
 
@@ -1675,6 +1719,15 @@ Equals(ComponentElement<TProps> other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
+
+### static class ComponentUseMemoCellsExtensions
+Component.UseMemoCells<T>(IReadOnlyList<T> items, Func<T, int, Element> builder, object[] dependencies) → Element[]
+Component.UseMemoCellsByIndex<T>(IReadOnlyList<T> items, IReadOnlyList<int> changedIndices, Func<T, int, Element> builder, object[] dependencies) → Element[]
+Component.UseMemoCellsByKey<T, TKey>(IReadOnlyList<T> items, Func<T, TKey> keySelector, Func<T, int, Element> builder, object[] dependencies) → Element[]
+
+### static class CompositorProvider
+Compositor Current { get; set; }
+EnsureCompositor(UIElement element) → Compositor
 
 ### record ConnectedTransition
 string AnimationKey { get; init; }
@@ -1745,13 +1798,19 @@ Reference(Func<TElement, ElementRef> get, Action<TControl, FrameworkElement> set
 Reference<TTarget>(Func<TElement, ElementRef<TTarget>> get, Action<TControl, TTarget> set) → ControlDescriptor<TElement, TControl>
 ReferenceList<TTarget>(Func<TElement, IReadOnlyList<ElementRef<TTarget>>> get, Action<TControl, IReadOnlyList<TTarget>> apply) → ControlDescriptor<TElement, TControl>
 
+### static class ControlRegistry
+Register<TElement, TControl>(Func<IElementHandler<TElement, TControl>> handlerFactory) → void
+RegisterDecorator<TElement>(Func<IDecoratorElementHandler<TElement>> handlerFactory) → void
+RegisterDecoratorForDerivedTypes<TBase>(Func<IDecoratorElementHandler<TBase>> handlerFactory) → void
+RegisterForDerivedTypes<TBase, TControl>(Func<IElementHandler<TBase, TControl>> handlerFactory) → void
+
 ### record Curve
-Ease(int durationMs, Easing easing = null) → Curve
+Ease(int durationMs, Easing easing = default) → Curve
 Equals(Curve other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 Linear(int durationMs) → Curve
-Spring(float dampingRatio = 0.8, float period = 0.05) → Curve
+Spring(float dampingRatio = 0.8f, float period = 0.05f) → Curve
 ToString() → string
 
 ### record DataPage<T>
@@ -1773,7 +1832,7 @@ int CachedBlockCount { get; }
 int MaxBlocks { get; }
 int? TotalCount { get; }
 GetBlock(int blockIndex) → CacheBlock<T>
-GetBlockAsync(int blockIndex, CancellationToken cancellationToken = null) → ValueTask<CacheBlock<T>>
+GetBlockAsync(int blockIndex, CancellationToken cancellationToken = default) → ValueTask<CacheBlock<T>>
 GetBlockStatus(int blockIndex) → BlockStatus
 GetItem(int rowIndex) → T
 Invalidate() → void
@@ -1801,7 +1860,7 @@ new()
 DateStyle Style { get; init; }
 
 ### record DatePickerElement
-new(Optional<DateTimeOffset> Date = null, Action<DateTimeOffset> OnDateChanged = null)
+new(Optional<DateTimeOffset> Date = default, Action<DateTimeOffset> OnDateChanged = null)
 Action<DateTimeOffset> OnDateChanged { get; init; }
 DateTimeOffset? MaxYear { get; init; }
 DateTimeOffset? MinYear { get; init; }
@@ -1887,9 +1946,9 @@ ToString() → string
 ### record DisplayInfo
 Rect BoundsDip { get; init; }
 Rect WorkAreaDip { get; init; }
-UInt32 Dpi { get; init; }
 bool IsPrimary { get; init; }
 string Id { get; init; }
+uint Dpi { get; init; }
 Equals(DisplayInfo other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
@@ -1908,13 +1967,13 @@ ToString() → string
 new()
 IReadOnlyCollection<string> AvailableFormats { get; }
 int OriginProcessId { get; }
-GetBitmapAsync(CancellationToken cancellationToken = null) → Task<RandomAccessStreamReference>
-GetCustomFormatAsync<T>(string formatId, CancellationToken cancellationToken = null) → Task<T>
-GetFilesAsync(CancellationToken cancellationToken = null) → Task<IReadOnlyList<IStorageItem>>
-GetHtmlAsync(CancellationToken cancellationToken = null) → Task<string>
-GetRtfAsync(CancellationToken cancellationToken = null) → Task<string>
-GetTextAsync(CancellationToken cancellationToken = null) → Task<string>
-GetUriAsync(CancellationToken cancellationToken = null) → Task<Uri>
+GetBitmapAsync(CancellationToken cancellationToken = default) → Task<RandomAccessStreamReference>
+GetCustomFormatAsync<T>(string formatId, CancellationToken cancellationToken = default) → Task<T>
+GetFilesAsync(CancellationToken cancellationToken = default) → Task<IReadOnlyList<IStorageItem>>
+GetHtmlAsync(CancellationToken cancellationToken = default) → Task<string>
+GetRtfAsync(CancellationToken cancellationToken = default) → Task<string>
+GetTextAsync(CancellationToken cancellationToken = default) → Task<string>
+GetUriAsync(CancellationToken cancellationToken = default) → Task<Uri>
 HasFormat(string formatId) → bool
 Text(string text) → DragData
 TryGetBitmap(ref RandomAccessStreamReference value) → bool
@@ -1960,6 +2019,9 @@ Equals(DragEndContext other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
+
+### static class DragOperationNegotiation
+Negotiate(DragOperations source, DragOperations target) → DragOperations
 
 ### record DragSourceConfig
 new(Func<DragData> GetData)
@@ -2047,6 +2109,28 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
+### static class Editors
+CheckBox() → Func<object, Action<object>, Element>
+Color() → Func<object, Action<object>, Element>
+ColorCompact() → Func<object, Action<object>, Element>
+Combo<TValue>(IReadOnlyList<TValue> choices) → Func<object, Action<object>, Element>
+Date() → Func<object, Action<object>, Element>
+DateOffset() → Func<object, Action<object>, Element>
+DateOnly() → Func<object, Action<object>, Element>
+Decimal(decimal? min = null, decimal? max = null) → Func<object, Action<object>, Element>
+Double(double? min = null, double? max = null) → Func<object, Action<object>, Element>
+EnumCombo(Type enumType) → Func<object, Action<object>, Element>
+Float(float? min = null, float? max = null) → Func<object, Action<object>, Element>
+Int(int? min = null, int? max = null) → Func<object, Action<object>, Element>
+Long(long? min = null, long? max = null) → Func<object, Action<object>, Element>
+Number(Type numberType, double? min = null, double? max = null, double smallChange = 1) → Func<object, Action<object>, Element>
+Text(string placeholderText = null, int? maxLength = null) → Func<object, Action<object>, Element>
+TimeOfDay() → Func<object, Action<object>, Element>
+TimeOnlyEditor() → Func<object, Action<object>, Element>
+TimeSpanEditor() → Func<object, Action<object>, Element>
+Toggle(string onContent = null, string offContent = null) → Func<object, Action<object>, Element>
+Uri() → Func<object, Action<object>, Element>
+
 ### record Element
 AnimationConfig AnimationConfig { get; init; }
 ElementExtras Extensions { get; }
@@ -2071,6 +2155,54 @@ Equals(Element other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
+
+### static class ElementExtensions
+AppBarButtonData.Command(Command command) → AppBarButtonData
+RichTextHyperlink.CharacterSpacing(int spacing) → RichTextHyperlink
+RichTextHyperlink.FontFamily(string family) → RichTextHyperlink
+RichTextHyperlink.FontSize(double size) → RichTextHyperlink
+RichTextHyperlink.FontStretch(FontStretch stretch) → RichTextHyperlink
+RichTextHyperlink.FontStyle(FontStyle style) → RichTextHyperlink
+RichTextHyperlink.FontWeight(FontWeight weight) → RichTextHyperlink
+RichTextHyperlink.Foreground(Brush brush) → RichTextHyperlink
+RichTextHyperlink.Foreground(string color) → RichTextHyperlink
+RichTextHyperlink.IsTabStop(bool isTabStop = true) → RichTextHyperlink
+RichTextHyperlink.IsTextScaleFactorEnabled(bool enabled = true) → RichTextHyperlink
+RichTextHyperlink.Language(string language) → RichTextHyperlink
+RichTextHyperlink.TabIndex(int tabIndex) → RichTextHyperlink
+RichTextHyperlink.TextDecorations(TextDecorations decorations) → RichTextHyperlink
+RichTextHyperlink.UnderlineStyle(UnderlineStyle style) → RichTextHyperlink
+RichTextParagraph.CharacterSpacing(int spacing) → RichTextParagraph
+RichTextParagraph.FontFamily(string family) → RichTextParagraph
+RichTextParagraph.FontSize(double size) → RichTextParagraph
+RichTextParagraph.FontStretch(FontStretch stretch) → RichTextParagraph
+RichTextParagraph.FontStyle(FontStyle style) → RichTextParagraph
+RichTextParagraph.FontWeight(FontWeight weight) → RichTextParagraph
+RichTextParagraph.Foreground(Brush brush) → RichTextParagraph
+RichTextParagraph.Foreground(string color) → RichTextParagraph
+RichTextParagraph.HorizontalTextAlignment(TextAlignment alignment) → RichTextParagraph
+RichTextParagraph.IsTextScaleFactorEnabled(bool enabled = true) → RichTextParagraph
+RichTextParagraph.Language(string language) → RichTextParagraph
+RichTextParagraph.LineHeight(double height) → RichTextParagraph
+RichTextParagraph.LineStackingStrategy(LineStackingStrategy strategy) → RichTextParagraph
+RichTextParagraph.Margin(double horizontal, double vertical) → RichTextParagraph
+RichTextParagraph.Margin(double left = 0, double top = 0, double right = 0, double bottom = 0) → RichTextParagraph
+RichTextParagraph.Margin(double uniform) → RichTextParagraph
+RichTextParagraph.TextAlignment(TextAlignment alignment) → RichTextParagraph
+RichTextParagraph.TextDecorations(TextDecorations decorations) → RichTextParagraph
+RichTextParagraph.TextIndent(double indent) → RichTextParagraph
+RichTextRun.CharacterSpacing(int spacing) → RichTextRun
+RichTextRun.FlowDirection(FlowDirection direction) → RichTextRun
+RichTextRun.FontFamily(string family) → RichTextRun
+RichTextRun.FontSize(double size) → RichTextRun
+RichTextRun.FontStretch(FontStretch stretch) → RichTextRun
+RichTextRun.FontStyle(FontStyle style) → RichTextRun
+RichTextRun.FontWeight(FontWeight weight) → RichTextRun
+RichTextRun.Foreground(Brush brush) → RichTextRun
+RichTextRun.Foreground(string color) → RichTextRun
+RichTextRun.IsTextScaleFactorEnabled(bool enabled = true) → RichTextRun
+RichTextRun.Language(string language) → RichTextRun
+RichTextRun.TextDecorations(TextDecorations decorations) → RichTextRun
 
 ### record ElementExtras
 new()
@@ -2136,6 +2268,7 @@ Element AttachedFlyout { get; init; }
 Element ContextFlyout { get; init; }
 Element RichToolTip { get; init; }
 ElementRef Ref { get; init; }
+ElementRef ToolTipPlacementTargetRef { get; init; }
 ElementRef XYFocusDownRef { get; init; }
 ElementRef XYFocusLeftRef { get; init; }
 ElementRef XYFocusRightRef { get; init; }
@@ -2150,6 +2283,7 @@ LayoutModifiers Layout { get; init; }
 LongPressGestureConfig LongPress { get; init; }
 PanGestureConfig Pan { get; init; }
 PinchGestureConfig Pinch { get; init; }
+PlacementMode? ToolTipPlacement { get; init; }
 RotateGestureConfig Rotate { get; init; }
 Thickness? BorderInlineStart { get; init; }
 Thickness? BorderThickness { get; init; }
@@ -2261,6 +2395,15 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
+### static class ErrorBubbling
+FilterMessages(IReadOnlyList<ValidationMessage> messages, Severity? severityFilter) → ValueTuple<IReadOnlyList<ValidationMessage>, IReadOnlyList<ValidationMessage>>
+HighestSeverity(IReadOnlyList<ValidationMessage> messages) → Severity?
+ShouldDisplay(IReadOnlyList<ValidationMessage> messages, ShowWhen showWhen, ValidationContext ctx = null, bool submitAttempted = false) → bool
+
+### static class ErrorStyling
+GetBrushKey(Severity severity) → string
+ShouldShowErrors(ValidationContext ctx, string fieldName, ShowWhen showWhen, bool submitAttempted = false) → bool
+
 ### record ErrorStylingAttached
 new(Func<Element, Element> OnErrorTransform = null, Func<Element, Element> OnWarningTransform = null)
 Func<Element, Element> OnErrorTransform { get; init; }
@@ -2272,7 +2415,7 @@ GetHashCode() → int
 ToString() → string
 
 ### record ExpanderElement
-new(string Header, Element Content, Optional<bool> IsExpanded = null, Action<bool> OnIsExpandedChanged = null)
+new(string Header, Element Content, Optional<bool> IsExpanded = default, Action<bool> OnIsExpandedChanged = null)
 Action<bool> OnIsExpandedChanged { get; init; }
 Element Content { get; init; }
 Element HeaderTemplate { get; init; }
@@ -2466,7 +2609,7 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
-### class FocusManager
+### class FocusManager (in Microsoft.UI.Reactor.Hooks)
 new()
 IReadOnlyList<string> Fields { get; }
 Clear() → void
@@ -2479,6 +2622,10 @@ IsLastField(string fieldName) → bool
 Register(string fieldName) → void
 SetControl(string fieldName, Control control) → void
 SetSubmitHandler(Action handler) → void
+
+### static class FocusManager (in Microsoft.UI.Reactor.Input)
+Focus(ElementRef target, FocusState state = FocusState.Programmatic) → bool
+FocusAsync(ElementRef target, FocusState state = FocusState.Programmatic) → Task<bool>
 
 ### class FocusRevalidationService
 new(QueryCache cache)
@@ -2516,6 +2663,10 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
+### static class FormFieldDsl
+FormField(Element content, string label = null, bool required = false, string description = null, string fieldName = null, ShowWhen showWhen = ShowWhen.WhenTouched) → FormFieldElement
+FormField(FieldDescriptor field, object value, Action<object> onChange, TypeRegistry registry = null) → FormFieldElement
+
 ### record FormFieldElement
 new(Element Content, string Label = null, bool Required = false, string Description = null)
 Element Content { get; init; }
@@ -2530,6 +2681,13 @@ Equals(FormFieldElement other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
+
+### static class FormFieldHelpers
+DetectFieldName(Element content) → string
+GetAutomationName(string label) → string
+GetDescriptionOrError(ValidationContext ctx, string fieldName, string description, ShowWhen showWhen, bool submitAttempted = false) → ValueTuple<string, bool>
+GetDisplayLabel(string label, bool required) → string
+ResolveFieldName(string explicitFieldName, Element content) → string
 
 ### struct FormatResult
 new(string Output, int CursorPos)
@@ -2664,11 +2822,11 @@ GetHashCode() → int
 ToString() → string
 
 ### interface IAsyncValidator
-ValidateAsync(object value, string field, CancellationToken cancellationToken = null) → Task<ValidationMessage>
+ValidateAsync(object value, string field, CancellationToken cancellationToken = default) → Task<ValidationMessage>
 
 ### interface IDataSource<T>
 DataSourceCapabilities Capabilities { get; }
-GetPageAsync(DataRequest request, CancellationToken cancellationToken = null) → Task<DataPage<T>>
+GetPageAsync(DataRequest request, CancellationToken cancellationToken = default) → Task<DataPage<T>>
 GetRowKey(T item) → RowKey
 
 ### interface IDecoratorElementHandler<TElement>
@@ -2693,16 +2851,16 @@ int ItemCount { get; }
 BuildItemView(int index) → Element
 
 ### interface IKeyedDataSource<T>
-GetByKeyAsync(RowKey key, CancellationToken cancellationToken = null) → Task<T>
-GetByKeysAsync(IEnumerable<RowKey> keys, CancellationToken cancellationToken = null) → Task<IReadOnlyList<T>>
+GetByKeyAsync(RowKey key, CancellationToken cancellationToken = default) → Task<T>
+GetByKeysAsync(IEnumerable<RowKey> keys, CancellationToken cancellationToken = default) → Task<IReadOnlyList<T>>
 
 ### interface IKeyedItemSource
 GetKeyAt(int index) → string
 
 ### interface IMutableDataSource<T>
-CreateAsync(T item, CancellationToken cancellationToken = null) → Task<T>
-DeleteAsync(RowKey key, CancellationToken cancellationToken = null) → Task
-UpdateAsync(RowKey key, T item, CancellationToken cancellationToken = null) → Task<T>
+CreateAsync(T item, CancellationToken cancellationToken = default) → Task<T>
+DeleteAsync(RowKey key, CancellationToken cancellationToken = default) → Task
+UpdateAsync(RowKey key, T item, CancellationToken cancellationToken = default) → Task<T>
 
 ### interface IObservableDataSource<T>
 event EventHandler DataChanged
@@ -2728,8 +2886,8 @@ GetString(string locale, string ns, string key) → string
 Validate(object value, string field) → ValidationMessage
 
 ### interface IWindowPersistenceStore
-TryRead(string id, ref Byte[] data) → bool
-Write(string id, Byte[] data) → void
+TryRead(string id, ref byte[] data) → bool
+Write(string id, byte[] data) → void
 
 ### record IconData
 Equals(IconData other) → bool
@@ -3013,8 +3171,15 @@ new()
 new(string path)
 string Path { get; }
 DefaultPath() → string
-TryRead(string id, ref Byte[] data) → bool
-Write(string id, Byte[] data) → void
+TryRead(string id, ref byte[] data) → bool
+Write(string id, byte[] data) → void
+
+### static class JumpList
+bool ShowFrequent { get; set; }
+bool ShowRecent { get; set; }
+string AppUserModelId { get; set; }
+ClearAsync() → Task
+UpdateAsync(IEnumerable<JumpListItem> items) → Task
 
 ### record JumpListItem
 new(string Title, string Arguments, JumpListItemKind Kind = JumpListItemKind.Task, string Description = null, WindowIcon Icon = null, string GroupCategory = null)
@@ -3261,11 +3426,11 @@ ToString() → string
 ### class ListDataSource<T>
 new(IEnumerable<T> items, Func<T, RowKey> getRowKey)
 DataSourceCapabilities Capabilities { get; }
-CreateAsync(T item, CancellationToken cancellationToken = null) → Task<T>
-DeleteAsync(RowKey key, CancellationToken cancellationToken = null) → Task
-GetPageAsync(DataRequest request, CancellationToken cancellationToken = null) → Task<DataPage<T>>
+CreateAsync(T item, CancellationToken cancellationToken = default) → Task<T>
+DeleteAsync(RowKey key, CancellationToken cancellationToken = default) → Task
+GetPageAsync(DataRequest request, CancellationToken cancellationToken = default) → Task<DataPage<T>>
 GetRowKey(T item) → RowKey
-UpdateAsync(RowKey key, T item, CancellationToken cancellationToken = null) → Task<T>
+UpdateAsync(RowKey key, T item, CancellationToken cancellationToken = default) → Task<T>
 
 ### record ListViewElement
 new(Element[] Items)
@@ -3376,23 +3541,26 @@ ToString() → string
 new(string mask)
 int Length { get; }
 string Mask { get; }
-Apply(string input, Char placeholder = _) → string
-GetRawValue(string formatted, Char placeholder = _) → string
-IsComplete(string formatted, Char placeholder = _) → bool
+Apply(string input, char placeholder = '_') → string
+GetRawValue(string formatted, char placeholder = '_') → string
+IsComplete(string formatted, char placeholder = '_') → bool
 IsLiteral(int position) → bool
 NextInputPosition(int position) → int
 PreviousInputPosition(int position) → int
 
+### static class MaskedTextBoxDsl
+MaskedTextBox(string value, Action<string> onChanged = null, string mask = null, string header = null, char placeholder = '_') → MaskedTextBoxElement
+
 ### record MaskedTextBoxElement
-new(string Value, Action<string> OnChanged = null, string Mask = null, string Header = null, Char Placeholder = _)
+new(string Value, Action<string> OnChanged = null, string Mask = null, string Header = null, char Placeholder = '_')
 Action<string> OnChanged { get; init; }
-Char Placeholder { get; init; }
 bool IsComplete { get; }
+char Placeholder { get; init; }
 string Header { get; init; }
 string Mask { get; init; }
 string RawValue { get; }
 string Value { get; init; }
-Deconstruct(ref string Value, ref Action<string> OnChanged, ref string Mask, ref string Header, ref Char Placeholder) → void
+Deconstruct(ref string Value, ref Action<string> OnChanged, ref string Mask, ref string Header, ref char Placeholder) → void
 Equals(Element other) → bool
 Equals(MaskedTextBoxElement other) → bool
 Equals(object obj) → bool
@@ -3620,6 +3788,17 @@ object From { get; }
 object To { get; }
 string Reason { get; init; }
 
+### static class NavigationDiagnostics
+event EventHandler<CacheDiagnosticEvent> CacheEviction
+event EventHandler<CacheDiagnosticEvent> CacheHit
+event EventHandler<CacheDiagnosticEvent> CacheMiss
+event EventHandler<DeepLinkDiagnosticEvent> DeepLinkResolved
+event EventHandler<NavigationDiagnosticEvent> NavigationCancelled
+event EventHandler<NavigationDiagnosticEvent> NavigationCompleted
+event EventHandler<NavigationDiagnosticEvent> NavigationRequested
+event EventHandler<TransitionDiagnosticEvent> TransitionCompleted
+event EventHandler<TransitionDiagnosticEvent> TransitionStarted
+
 ### record NavigationEventArgs<TRoute>
 new(TRoute Route, TRoute PreviousRoute, NavigationMode Mode, NavigateOptions Options = null)
 NavigateOptions Options { get; init; }
@@ -3682,7 +3861,7 @@ Equals(object obj) → bool
 Fade(TimeSpan? duration = null) → NavigationTransition
 GetHashCode() → int
 Slide(SlideDirection direction = SlideDirection.FromRight, TimeSpan? duration = null, CompositionEasingFunction easing = null, float? distance = null) → NavigationTransition
-Spring(float dampingRatio = 0.6, float period = 0.08, SlideDirection direction = SlideDirection.FromRight) → NavigationTransition
+Spring(float dampingRatio = 0.6f, float period = 0.08f, SlideDirection direction = SlideDirection.FromRight) → NavigationTransition
 ToString() → string
 
 ### record NavigationViewElement
@@ -3761,7 +3940,7 @@ new()
 new()
 
 ### record NumberBoxElement
-new(Optional<double> Value = null, Action<double> OnValueChanged = null, string Header = null)
+new(Optional<double> Value = default, Action<double> OnValueChanged = null, string Header = null)
 Action<double> OnValueChanged { get; init; }
 INumberFormatter2 NumberFormatter { get; init; }
 NumberBoxSpinButtonPlacementMode SpinButtonPlacement { get; init; }
@@ -3815,8 +3994,8 @@ ToString() → string
 ### class PackagedSettingsStore
 new()
 IsAvailable() → bool
-TryRead(string id, ref Byte[] data) → bool
-Write(string id, Byte[] data) → void
+TryRead(string id, ref byte[] data) → bool
+Write(string id, byte[] data) → void
 
 ### record Page<TItem, TCursor>
 new(IReadOnlyList<TItem> Items, TCursor NextCursor, int? TotalCount = null)
@@ -3828,6 +4007,11 @@ Equals(Page<TItem, TCursor> other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
+
+### static class PageHelper
+Mount<TComponent, TProps>(Page page, NavigationEventArgs e) → ReactorHostControl
+Mount<TComponent>(Page page, NavigationEventArgs e) → ReactorHostControl
+Unmount(ref ReactorHostControl host) → void
 
 ### struct PanGesture
 new(Point Translation, Point Delta, Point Velocity, Point Position, Point StartPosition, GesturePhase Phase, bool IsInertial)
@@ -3888,7 +4072,7 @@ GetHashCode() → int
 ToString() → string
 
 ### record PasswordBoxElement
-new(Optional<string> Password = null, Action<string> OnPasswordChanged = null, string PlaceholderText = null)
+new(Optional<string> Password = default, Action<string> OnPasswordChanged = null, string PlaceholderText = null)
 Action<string> OnPasswordChanged { get; init; }
 Optional<string> Password { get; init; }
 PasswordRevealMode PasswordRevealMode { get; init; }
@@ -3902,6 +4086,9 @@ Equals(PasswordBoxElement other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
+
+### static class PathDataParser
+Parse(string pathData) → Geometry
 
 ### record PathElement
 new()
@@ -3938,6 +4125,9 @@ ToString() → string
 ### class PendingComponent
 new()
 Render() → Element
+
+### static class PendingFactory
+Pending(Element fallback, Element child) → Element
 
 ### record PendingProps
 new(Element Fallback, Element Child)
@@ -4124,6 +4314,12 @@ Type EditorType { get; }
 new()
 Render() → Element
 
+### static class PropertyGridDefaults
+ArrayItemTemplate(int index, string summary, bool isExpanded, Action<bool> onExpandedChanged, Action onMoveUp, Action onMoveDown, Action onRemove) → Element
+ArrayToolbarTemplate(string propertyName, int count, Func<Task> onAdd) → Element
+PropertyLabelTemplate(FieldDescriptor descriptor, int indentLevel) → Element
+PropertyRowTemplate(FieldDescriptor descriptor, Element label, Element editor, int indentLevel) → Element
+
 ### record PropertyGridElement
 Action<object> OnRootChanged { get; init; }
 ArrayItemTemplate ArrayItemTemplate { get; init; }
@@ -4151,6 +4347,10 @@ int Order { get; }
 ### class PropertyReadOnlyAttribute
 new()
 
+### static class PseudoLocalizer
+MissingKeyMarker(MessageKey key) → string
+Transform(string input) → string
+
 ### class QueryCache
 new()
 Action<Action> DispatcherPost { get; set; }
@@ -4169,7 +4369,7 @@ Unsubscribe(string key) → int
 event Action<string> EntryChanged
 
 ### record RadioButtonElement
-new(string Label, Optional<bool> IsChecked = null, Action<bool> OnIsCheckedChanged = null, string GroupName = null)
+new(string Label, Optional<bool> IsChecked = default, Action<bool> OnIsCheckedChanged = null, string GroupName = null)
 Action<bool> OnIsCheckedChanged { get; init; }
 Optional<bool> IsChecked { get; init; }
 string GroupName { get; init; }
@@ -4182,7 +4382,7 @@ GetHashCode() → int
 ToString() → string
 
 ### record RadioButtonsElement
-new(string[] Items, Optional<int> SelectedIndex = null, Action<int> OnSelectedIndexChanged = null)
+new(string[] Items, Optional<int> SelectedIndex = default, Action<int> OnSelectedIndexChanged = null)
 Action<int> OnSelectedIndexChanged { get; init; }
 Optional<int> SelectedIndex { get; init; }
 string Header { get; init; }
@@ -4210,7 +4410,7 @@ GetHashCode() → int
 ToString() → string
 
 ### record RatingControlElement
-new(Optional<double> Value = null, Action<double> OnValueChanged = null)
+new(Optional<double> Value = default, Action<double> OnValueChanged = null)
 Action<double> OnValueChanged { get; init; }
 Optional<double> Value { get; init; }
 bool IsReadOnly { get; init; }
@@ -4225,6 +4425,33 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
+### static class ReactorApp
+DispatcherQueue UIDispatcher { get; }
+ILogger AppLogger { get; set; }
+IReadOnlyList<ReactorTrayIcon> TrayIcons { get; }
+IReadOnlyList<ReactorWindow> Windows { get; }
+IWindowPersistenceStore WindowPersistenceStore { get; set; }
+ReactorWindow PrimaryWindow { get; }
+ShutdownPolicy ShutdownPolicy { get; set; }
+bool DevtoolsEnabled { get; }
+Exit(int exitCode = 0) → void
+FindTrayIcon(WindowKey key) → ReactorTrayIcon
+FindWindow(WindowKey key) → ReactorWindow
+OpenTrayIcon(TrayIconSpec spec) → ReactorTrayIcon
+OpenWindow(WindowSpec spec, Func<Component> root, Action<ReactorHost> configure = null) → ReactorWindow
+OpenWindow(WindowSpec spec, Func<RenderContext, Element> render, Action<ReactorHost> configure = null) → ReactorWindow
+RegisterAllBuiltIns() → void
+RegisterControlAssembly(Assembly assembly) → void
+RegisterControlAssembly(IXamlMetadataProvider provider) → void
+Run(Action<ReactorAppContext> startup) → void
+Run(string title, Func<RenderContext, Element> rootRender, double? width = null, double? height = null, bool fullScreen = false, Action<ReactorHost> configure = null) → void
+Run<TRoot>(string title = "Reactor App", double? width = null, double? height = null, bool fullScreen = false, Action<ReactorHost> configure = null) → void
+TryRegisterControlAssembly(Assembly assembly) → bool
+event EventHandler<ReactorTrayIcon> TrayIconClosed
+event EventHandler<ReactorTrayIcon> TrayIconOpened
+event EventHandler<ReactorWindow> WindowClosed
+event EventHandler<ReactorWindow> WindowOpened
+
 ### class ReactorAppContext
 LaunchActivation LaunchActivation { get; }
 
@@ -4237,6 +4464,11 @@ GetXamlType(Type type) → IXamlType
 GetXamlType(string fullName) → IXamlType
 GetXmlnsDefinitions() → XmlnsDefinition[]
 InitializeComponent() → void
+
+### static class ReactorBinding
+ShouldSuppressEcho(UIElement target) → bool
+WriteSuppressed(UIElement target, Action mutate) → void
+WriteSuppressed<T>(T target, Action<T> mutate) → void
 
 ### struct ReactorBinding<TElement>
 FrameworkElement Control { get; }
@@ -4277,6 +4509,19 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
+### static class ReactorDevtoolsBootstrap
+Register(IReactorDevtoolsHost host) → void
+
+### static class ReactorDiagnostics
+IReadOnlyList<KeyedListDiagnostic> RecentKeyedListWarnings { get; }
+ClearRecentKeyedListWarnings() → void
+
+### static class ReactorDisplay
+DisplayInfo Primary { get; }
+IReadOnlyList<DisplayInfo> Displays { get; }
+NearestTo(double dipX, double dipY) → DisplayInfo
+event EventHandler DisplayLayoutChanged
+
 ### struct ReactorEvent
 new(int EventId, string EventName, EventLevel Level, EventKeywords Keywords, DateTime TimestampUtc, int ThreadId, IReadOnlyList<object> Payload, IReadOnlyList<string> PayloadNames)
 DateTime TimestampUtc { get; init; }
@@ -4292,6 +4537,12 @@ Equals(ReactorEvent other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
+
+### static class ReactorFeatureFlags
+bool FocusRevalidation { get; set; }
+bool HighlightReconcileChanges { get; set; }
+bool UseHookBasedPaging { get; set; }
+bool WarnLayoutFootguns { get; set; }
 
 ### class ReactorHost
 new(Window window, ILogger logger = null)
@@ -4318,6 +4569,9 @@ Dispose() → void
 Mount(Component component) → void
 Mount(Func<RenderContext, Element> renderFunc) → void
 
+### static class ReactorTrace
+Subscribe(Action<ReactorEvent> onEvent, EventLevel level = EventLevel.Verbose, EventKeywords keywords = EventKeywords.All) → IDisposable
+
 ### class ReactorTrayIcon
 TrayIconSpec Spec { get; }
 WindowIcon Icon { get; set; }
@@ -4340,7 +4594,6 @@ ReactorHost Host { get; }
 TaskbarItem TaskbarItem { get; }
 TaskbarOverlay Overlay { get; }
 TaskbarProgress Progress { get; }
-UInt32 Dpi { get; }
 ValueTuple<double, double> Position { get; }
 Window NativeWindow { get; }
 WindowKey? Key { get; }
@@ -4351,6 +4604,7 @@ bool IsActive { get; }
 bool IsVisible { get; }
 double DipScale { get; }
 string Id { get; }
+uint Dpi { get; }
 Activate() → void
 BeginDragMove() → void
 CenterOnScreen() → void
@@ -4373,12 +4627,12 @@ Update(WindowSpec next) → void
 event EventHandler Activated
 event EventHandler Closed
 event EventHandler Deactivated
-event EventHandler<UInt32> DpiChanged
 event EventHandler<WindowClosingEventArgs> Closing
 event EventHandler<WindowDipPositionChangedEventArgs> PositionChanged
 event EventHandler<WindowDipSizeChangedEventArgs> SizeChanged
 event EventHandler<WindowState> StateChanged
 event EventHandler<WindowZOrderChangedEventArgs> ZOrderChanged
+event EventHandler<uint> DpiChanged
 
 ### class Reconciler
 new(ILogger logger = null)
@@ -4427,6 +4681,10 @@ ToString() → string
 ### class Ref<T>
 new(T initial)
 T Current { get; set; }
+
+### static class ReflectionTypeMetadataProvider
+CreateDescriptor(PropertyInfo property, int defaultOrder) → FieldDescriptor
+CreateMetadata(Type type) → TypeMetadata
 
 ### record RefreshContainerElement
 new(Element Content)
@@ -4490,7 +4748,7 @@ UseCommand(Command command) → Command
 UseCommand<T>(Command<T> command) → Command<T>
 UseContext<T>(Context<T> context) → T
 UseDisplays() → IReadOnlyList<DisplayInfo>
-UseDpi() → UInt32
+UseDpi() → uint
 UseEffect(Action effect, object[] dependencies) → void
 UseEffect(Func<Action> effectWithCleanup, object[] dependencies) → void
 UseEffect<T1, T2, T3>(Action effect, T1 d1, T2 d2, T3 d3) → void
@@ -4524,7 +4782,7 @@ UsePersisted<T>(string key, T initialValue, PersistedScope scope) → ValueTuple
 UseReducedMotion() → bool
 UseReducer<T>(T initialValue, bool threadSafe = false) → ValueTuple<T, Action<Func<T, T>>>
 UseReducer<TState, TAction>(Func<TState, TAction, TState> reducer, TState initialValue, bool threadSafe = false) → ValueTuple<TState, Action<TAction>>
-UseRef<T>(T initialValue = null) → Ref<T>
+UseRef<T>(T initialValue = default) → Ref<T>
 UseState<T>(T initialValue, bool threadSafe = false) → ValueTuple<T, Action<T>>
 UseSystemBackButton<TRoute>(NavigationHandle<TRoute> nav, Window window) → void
 UseTrayIcon(TrayIconSpec spec) → ReactorTrayIcon
@@ -4600,7 +4858,7 @@ new(string defaultLocale = "en-US", string stringsBasePath = null)
 GetString(string locale, string ns, string key) → string
 
 ### record RichEditBoxElement
-new(Optional<string> Text = null)
+new(Optional<string> Text = default)
 Action<string> OnTextChanged { get; init; }
 Optional<string> Text { get; init; }
 SolidColorBrush SelectionHighlightColor { get; init; }
@@ -4768,10 +5026,10 @@ ToString() → string
 
 ### class RouteArgs
 Get<T>(string name) → T
-GetOrDefault<T>(string name, T defaultValue = null) → T
+GetOrDefault<T>(string name, T defaultValue = default) → T
 GetString(string name) → string
 GetWildcard() → string
-Query<T>(string name, T defaultValue = null) → T
+Query<T>(string name, T defaultValue = default) → T
 QueryString(string name) → string
 
 ### struct RowKey
@@ -4782,6 +5040,9 @@ Equals(RowKey other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
+
+### static class RtlHelper
+IsRtlLocale(string locale) → bool
 
 ### record ScaleTransition
 new(float From)
@@ -4982,7 +5243,7 @@ GetHashCode() → int
 ToString() → string
 
 ### record SliderElement
-new(Optional<double> Value = null, double Min = 0, double Max = 100, Action<double> OnValueChanged = null)
+new(Optional<double> Value = default, double Min = 0, double Max = 100, Action<double> OnValueChanged = null)
 Action<double> OnValueChanged { get; init; }
 Optional<double> Value { get; init; }
 Orientation Orientation { get; init; }
@@ -5087,6 +5348,40 @@ Equals(StaggerConfig other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
+
+### static class StandardCommand
+Backward(Action execute, bool canExecute = true) → Command
+Backward(Func<Task> executeAsync, bool canExecute = true) → Command
+Close(Action execute, bool canExecute = true) → Command
+Close(Func<Task> executeAsync, bool canExecute = true) → Command
+Copy(Action execute, bool canExecute = true) → Command
+Copy(Func<Task> executeAsync, bool canExecute = true) → Command
+Cut(Action execute, bool canExecute = true) → Command
+Cut(Func<Task> executeAsync, bool canExecute = true) → Command
+Delete(Action execute, bool canExecute = true) → Command
+Delete(Func<Task> executeAsync, bool canExecute = true) → Command
+Forward(Action execute, bool canExecute = true) → Command
+Forward(Func<Task> executeAsync, bool canExecute = true) → Command
+Open(Action execute, bool canExecute = true) → Command
+Open(Func<Task> executeAsync, bool canExecute = true) → Command
+Paste(Action execute, bool canExecute = true) → Command
+Paste(Func<Task> executeAsync, bool canExecute = true) → Command
+Pause(Action execute, bool canExecute = true) → Command
+Pause(Func<Task> executeAsync, bool canExecute = true) → Command
+Play(Action execute, bool canExecute = true) → Command
+Play(Func<Task> executeAsync, bool canExecute = true) → Command
+Redo(Action execute, bool canExecute = true) → Command
+Redo(Func<Task> executeAsync, bool canExecute = true) → Command
+Save(Action execute, bool canExecute = true) → Command
+Save(Func<Task> executeAsync, bool canExecute = true) → Command
+SelectAll(Action execute, bool canExecute = true) → Command
+SelectAll(Func<Task> executeAsync, bool canExecute = true) → Command
+Share(Action execute, bool canExecute = true) → Command
+Share(Func<Task> executeAsync, bool canExecute = true) → Command
+Stop(Action execute, bool canExecute = true) → Command
+Stop(Func<Task> executeAsync, bool canExecute = true) → Command
+Undo(Action execute, bool canExecute = true) → Command
+Undo(Func<Task> executeAsync, bool canExecute = true) → Command
 
 ### record SuppressTransition
 new()
@@ -5443,7 +5738,7 @@ GetHashCode() → int
 ToString() → string
 
 ### record TextBoxElement
-new(Optional<string> Value = null, Action<string> OnChanged = null, string PlaceholderText = null)
+new(Optional<string> Value = default, Action<string> OnChanged = null, string PlaceholderText = null)
 Action<string, int, int> OnSelectionChanged { get; init; }
 Action<string> OnChanged { get; init; }
 CharacterCasing CharacterCasing { get; init; }
@@ -5466,6 +5761,9 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
+### static class Theme
+Ref(string resourceKey) → ThemeRef
+
 ### struct ThemeRef
 new(string ResourceKey)
 string ResourceKey { get; init; }
@@ -5475,6 +5773,13 @@ Equals(object obj) → bool
 GetHashCode() → int
 Resolve(string resourceKey, bool isDark) → Brush
 ToString() → string
+
+### static class ThemeResource
+Brush(string key) → Brush
+CornerRadius(string key) → CornerRadius
+Double(string key) → double
+Get<T>(string key, T defaultValue = default) → T
+Thickness(string key) → Thickness
 
 ### record ThemeTransitions
 new()
@@ -5501,7 +5806,7 @@ GetHashCode() → int
 ToString() → string
 
 ### record TimePickerElement
-new(Optional<TimeSpan> Time = null, Action<TimeSpan> OnTimeChanged = null)
+new(Optional<TimeSpan> Time = default, Action<TimeSpan> OnTimeChanged = null)
 Action<TimeSpan> OnTimeChanged { get; init; }
 Optional<TimeSpan> Time { get; init; }
 int ClockIdentifier { get; init; }
@@ -5566,7 +5871,7 @@ GetHashCode() → int
 ToString() → string
 
 ### record ToggleSplitButtonElement
-new(string Label, Optional<bool> IsChecked = null, Action<bool> OnIsCheckedChanged = null, Element Flyout = null)
+new(string Label, Optional<bool> IsChecked = default, Action<bool> OnIsCheckedChanged = null, Element Flyout = null)
 Action<bool> OnIsCheckedChanged { get; init; }
 Command Command { get; init; }
 Element Flyout { get; init; }
@@ -5580,7 +5885,7 @@ GetHashCode() → int
 ToString() → string
 
 ### record ToggleSwitchElement
-new(Optional<bool> IsOn = null, Action<bool> OnIsOnChanged = null, string OnContent = null, string OffContent = null)
+new(Optional<bool> IsOn = default, Action<bool> OnIsOnChanged = null, string OnContent = null, string OffContent = null)
 Action<bool> OnIsOnChanged { get; init; }
 Optional<bool> IsOn { get; init; }
 string Header { get; init; }
@@ -5599,7 +5904,7 @@ Equals(Transition other) → bool
 Equals(object obj) → bool
 Exit(Transition exit) → Transition
 GetHashCode() → int
-Scale(float from = 0.85) → Transition
+Scale(float from = 0.85f) → Transition
 Slide(Edge edge = Edge.Bottom) → Transition
 ToString() → string
 
@@ -5680,8 +5985,43 @@ RegisterFormatter<T>(Func<object, string> formatter) → TypeRegistry
 Resolve(Type type) → TypeMetadata
 ResolveEditor(Type type, EditorTier tier) → Func<object, Action<object>, Element>
 
+### static class TypedElementRef
+Create<T>() → ElementRef<T>
+
 ### class UIThreadOnlyAttribute
 new()
+
+### static class UseAnnounceExtensions
+Component.UseAnnounce() → AnnounceHandle
+
+### static class UseElementFocusExtensions
+Component.UseElementFocus(FocusState state = FocusState.Programmatic) → ValueTuple<ElementRef, Action>
+
+### static class UseElementRefExtensions
+Component.UseElementRef<T>() → ElementRef<T>
+
+### static class UseFocusExtensions
+Component.UseFocus() → FocusManager
+
+### static class UseFocusTrapExtensions
+Component.UseFocusTrap(bool isActive) → FocusTrapHandle
+
+### static class Validate
+Email(string message = null) → IValidator
+EqualTo<T>(T otherValue, string message = null) → IValidator
+Match(string regex, string message = null) → IValidator
+MaxLength(int n, string message = null) → IValidator
+MinLength(int n, string message = null) → IValidator
+Must<T>(Func<T, bool> predicate, string message) → IValidator
+MustAsync<T>(Func<T, Task<bool>> predicate, string message) → IAsyncValidator
+MustBeTrue(string message = null) → IValidator
+Range(double min, double max, string message = null) → IValidator
+Required(string message = null) → IValidator
+Url(string message = null) → IValidator
+
+### static class ValidateExtensions
+ValidationAttached.RunAsyncValidators(object value, CancellationToken cancellationToken = default) → Task<IReadOnlyList<ValidationMessage>>
+ValidationAttached.RunValidators(object value) → IReadOnlyList<ValidationMessage>
 
 ### record ValidationAttached
 new(string FieldName, IValidator[] Validators, IAsyncValidator[] AsyncValidators)
@@ -5724,6 +6064,10 @@ Reset(string field) → object
 ResetAll() → IReadOnlyDictionary<string, object>
 SetInitialValue(string field, object value) → void
 
+### static class ValidationContextComponentExtensions
+Component.UseChildValidationContext() → ValueTuple<ValidationContext, ValidationContext>
+Component.UseValidationContext() → ValidationContext
+
 ### record ValidationMessage
 new(string Field, string Text, Severity Severity = Severity.Error, string Code = null)
 Severity Severity { get; init; }
@@ -5735,6 +6079,16 @@ Equals(ValidationMessage other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
+
+### static class ValidationReconciler
+EvaluateRules(ValidationContext ctx, ValidationRuleElement[] rules) → void
+ValidateAttached(ValidationContext ctx, ValidationAttached attached, object value) → void
+ValidateField(ValidationContext ctx, string fieldName, object value, IValidator[] validators) → void
+ValidateFieldAsync(ValidationContext ctx, string fieldName, object value, IAsyncValidator[] asyncValidators, CancellationToken cancellationToken = default) → Task
+
+### static class ValidationRuleDsl
+ValidationRule(Func<bool> predicate, string message, string field, Severity severity = Severity.Error) → ValidationRuleElement
+ValidationRuleAsync(Func<Task<bool>> asyncPredicate, string message, string field, Severity severity = Severity.Error) → ValidationRuleElement
 
 ### record ValidationRuleElement
 new(string Field, Func<bool> Predicate, string Message, Severity Severity = Severity.Error)
@@ -5749,6 +6103,10 @@ Equals(ValidationRuleElement other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
+
+### static class ValidationVisualizerDsl
+ValidationVisualizer(Func<IReadOnlyList<ValidationMessage>, Element> render, Element content, Severity? severityFilter = null, ShowWhen showWhen = ShowWhen.Always) → ValidationVisualizerElement
+ValidationVisualizer(VisualizerStyle style, Element content, string title = null, Severity? severityFilter = null, ShowWhen showWhen = ShowWhen.Always) → ValidationVisualizerElement
 
 ### record ValidationVisualizerElement
 new(VisualizerStyle Style, Element Content)
@@ -5959,6 +6317,9 @@ Equals(XamlHostElement other) → bool
 Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
+
+### static class XamlInterop
+Register(Reconciler reconciler) → void
 
 ### class XamlMetaDataProvider
 new()

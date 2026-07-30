@@ -16,12 +16,14 @@ namespace Microsoft.UI.Reactor.Tests.AnalyzerTests;
 /// Cross-source consistency tests for <see cref="PoolResetSetAnalyzer"/>
 /// (<c>REACTOR_POOL_001</c>). Catches drift between three files:
 ///
-///   1. <c>src/Reactor/Core/ElementPool.cs</c> — the FE-prop reset list in
-///      <c>CleanElement(FrameworkElement)</c>.
+///   1. <c>src/Reactor/Core/ElementPool.cs</c> — the reset list in
+///      <c>CleanElement(FrameworkElement)</c>, covering both the FE instance
+///      properties and the attached properties it clears.
 ///   2. <c>src/Reactor/Elements/ElementExtensions.cs</c> — the modifier methods
 ///      that survive pool reset.
-///   3. <c>src/Reactor.Analyzers/PoolResetSetAnalyzer.cs</c> —
-///      the <c>TrappedProperties</c> dictionary.
+///   3. <c>src/Reactor.Analyzers/ModifierTable.cs</c> — the pool-reset half of
+///      <c>Properties</c> (surfaced as <c>TrappedProperties</c>) and
+///      <c>AttachedProperties</c> (surfaced as <c>TrappedAttachedProperties</c>).
 ///
 /// The bug we're guarding against: someone adds a new property reset to
 /// <c>CleanElement</c> (because pooled controls were leaking that prop into
@@ -177,6 +179,195 @@ class C
         PoolResetSetAnalyzer.TrappedProperties
             .Select(kvp => new object[] { kvp.Key, kvp.Value });
 
+    // ── Attached properties ──────────────────────────────────────────────────
+
+    [Fact]
+    public void Every_TrappedAttachedProperty_Is_Reset_In_CleanElement()
+    {
+        var resetAttached = ReadResetAttachedProperties();
+
+        foreach (var key in PoolResetSetAnalyzer.TrappedAttachedProperties.Keys)
+        {
+            Assert.True(
+                resetAttached.Contains(key),
+                $"'{key}' is in ModifierTable.AttachedProperties but is NOT cleared in " +
+                "ElementPool.CleanElement's FE-common block. REACTOR_POOL_001 claims the " +
+                "write is lost on pool return; if it isn't, the diagnostic is wrong. Either " +
+                "drop the entry or add the ClearValue for it in CleanElement.");
+        }
+    }
+
+    [Fact]
+    public void Every_Reset_Attached_Property_Is_Classified()
+    {
+        // The attached half of the load-bearing invariant, and the reason this file no longer
+        // filters AutomationProperties.* / FlexPanel.* out of the reset scan.
+        //
+        // Stronger than the instance version, which only demands a decision when a same-named
+        // modifier exists: attached modifiers are routinely renamed (LandmarkType ->
+        // .Landmark, FlexPanel.Grow -> .Flex(grow:)), so a name-matching filter would let a
+        // new reset slip through unnoticed. Every attached ClearValue must be classified.
+        var resetAttached = ReadResetAttachedProperties();
+        var tracked = PoolResetSetAnalyzer.TrappedAttachedProperties.Keys;
+
+        var missing = resetAttached
+            .Where(key => !tracked.Contains(key))
+            .Where(key => !ModifierTable.DeliberatelyExcludedAttached.ContainsKey(key))
+            .OrderBy(key => key, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            missing.Count == 0,
+            "These attached properties are cleared in ElementPool.CleanElement but are in " +
+            "neither ModifierTable.AttachedProperties nor DeliberatelyExcludedAttached: " +
+            $"[{string.Join(", ", missing)}]. " +
+            "Either map them (so REACTOR_POOL_001 fires on '.Set(fe => Owner.SetPROP(fe, ...))'), " +
+            "or exclude them with a documented reason.");
+    }
+
+    [Fact]
+    public void Attached_Reset_Scan_Sees_Every_Owner_The_Table_Names()
+    {
+        // Guards the scan itself, not the table. ReadResetAttachedProperties is a regex over
+        // ElementPool.cs, and a change to how the owners are qualified there (an added alias,
+        // a using directive that drops the prefix) could quietly stop matching a whole owner —
+        // which would make Every_Reset_Attached_Property_Is_Classified pass vacuously.
+        var scanned = ReadResetAttachedProperties()
+            .Select(key => key.Substring(0, key.IndexOf('.')))
+            .ToHashSet(StringComparer.Ordinal);
+
+        var expected = ModifierTable.AttachedProperties.Values
+            .Select(info => info.Owner)
+            .Concat(ModifierTable.DeliberatelyExcludedAttached.Keys
+                .Select(key => key.Substring(0, key.IndexOf('.'))))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(owner => owner, StringComparer.Ordinal)
+            .ToList();
+
+        var unseen = expected.Where(owner => !scanned.Contains(owner)).ToList();
+
+        Assert.True(
+            unseen.Count == 0,
+            "The CleanElement attached-reset scan found no ClearValue at all for these owners: " +
+            $"[{string.Join(", ", unseen)}]. Either the resets were removed (drop the table " +
+            "entries) or ReadResetAttachedProperties' regex no longer matches how they are " +
+            "written in ElementPool.cs.");
+    }
+
+    [Fact]
+    public void Every_ClearValue_In_CleanElement_Is_Recognized_By_The_Reset_Scan()
+    {
+        // Both reset scans are regexes over the literal `RECEIVER.ClearValue(OWNER.PROPProperty)`
+        // shape. A reset written any other way — `var dp = X.YProperty; fe.ClearValue(dp);`, or
+        // a helper — is invisible to them, and an invisible reset makes
+        // Every_Reset_Attached_Property_Is_Classified pass vacuously for the property it
+        // clears. Counting is the cheap way to notice: the scan must account for every
+        // ClearValue in the block, not just the ones it happens to parse.
+        var commonBlock = ReadCleanElementCommonBlock(out _);
+
+        var total = Regex.Matches(commonBlock, @"\.ClearValue\s*\(").Count;
+        var recognized = Regex.Matches(commonBlock,
+            @"\b\w+\.ClearValue\(\s*(?:[\w.]+\.)?(\w+)\.(\w+)Property\s*\)").Count;
+
+        Assert.True(
+            total > 0,
+            "No ClearValue calls found in CleanElement's FE-common block — the block boundary " +
+            "detection in ReadCleanElementCommonBlock has probably drifted.");
+
+        Assert.True(
+            total == recognized,
+            $"CleanElement's FE-common block has {total} ClearValue call(s) but the reset scan " +
+            $"only recognizes {recognized}. A reset written in a shape the regex does not match " +
+            "(a local dependency-property alias, a helper method) is silently excluded from the " +
+            "REACTOR_POOL_001 consistency invariants. Either write it in the " +
+            "'receiver.ClearValue(Owner.PropProperty)' form, or teach ReadResetProperties / " +
+            "ReadResetAttachedProperties about the new shape.");
+    }
+
+    /// <summary>
+    /// Table-driven exercise of every entry in
+    /// <see cref="PoolResetSetAnalyzer.TrappedAttachedProperties"/>: for each, prove the
+    /// analyzer fires on <c>.Set(fe =&gt; Owner.SetPROP(fe, value))</c>. Each owner is stubbed
+    /// in its <em>real</em> namespace, so this also pins the namespace check positively — the
+    /// negative half lives in <c>PoolResetSetAnalyzerTests</c>.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AllTrappedAttachedProperties))]
+    public async Task Analyzer_Fires_For_Every_TrappedAttachedProperty(string key, string modifierName)
+    {
+        _ = modifierName; // pinned by ModifierTableIntegrityTests against the real DSL.
+        var info = ModifierTable.AttachedProperties[key];
+        var source = BuildAttachedStubs() + $@"
+class C
+{{
+    void M()
+    {{
+        var el = new FakeElement();
+        {{|REACTOR_POOL_001:el.Set(fe => {info.OwnerNamespace}.{info.Owner}.{info.Setter}(fe, ""v""))|}};
+    }}
+}}";
+
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    public static IEnumerable<object[]> AllTrappedAttachedProperties() =>
+        PoolResetSetAnalyzer.TrappedAttachedProperties
+            .Select(kvp => new object[] { kvp.Key, kvp.Value });
+
+    /// <summary>
+    /// Stub preamble declaring every attached owner named by
+    /// <c>ModifierTable.AttachedProperties</c> in its real namespace, with an
+    /// <c>object</c>-typed two-argument setter per entry. The analyzer matches on syntax plus
+    /// the owner's containing namespace, so this is sufficient — and generating the setters
+    /// from the table means a wrong <c>Setter</c> name would produce a stub the test source
+    /// cannot call.
+    /// </summary>
+    private static string BuildAttachedStubs()
+    {
+        var owners = ModifierTable.AttachedProperties.Values
+            .GroupBy(info => info.OwnerNamespace + "." + info.Owner, StringComparer.Ordinal)
+            .OrderBy(group => group.Key, StringComparer.Ordinal);
+
+        var declarations = string.Join("\n", owners.Select(group =>
+        {
+            var first = group.First();
+            var setters = string.Join(
+                "\n        ",
+                group.Select(info => info.Setter)
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(setter => setter, StringComparer.Ordinal)
+                    .Select(setter => $"public static void {setter}(object target, object value) {{ }}"));
+
+            return $@"
+namespace {first.OwnerNamespace}
+{{
+    public static class {first.Owner}
+    {{
+        {setters}
+    }}
+}}";
+        }));
+
+        return $@"
+using System;
+using Microsoft.UI.Reactor;
+
+#nullable enable
+
+namespace Microsoft.UI.Reactor
+{{
+    public class FakeElement
+    {{
+        public FakeElement Set(Action<FakeElement> configure) {{ configure(this); return this; }}
+    }}
+}}
+{declarations}
+";
+    }
+
     // ── Source-scanning helpers ─────────────────────────────────────────
 
     /// <summary>
@@ -187,6 +378,69 @@ class C
     /// <c>RECEIVER.ClearValue((FrameworkElement|UIElement|Control).PROPProperty)</c> calls.
     /// </summary>
     private static HashSet<string> ReadResetProperties()
+    {
+        var commonBlock = ReadCleanElementCommonBlock(out var paramName);
+
+        // ClearValue() is a method call caught separately by the second regex;
+        // filter it out of the direct-assignment match set.
+        var escapedParam = Regex.Escape(paramName);
+        var directAssignments = Regex.Matches(commonBlock, $@"\b{escapedParam}\.(\w+)\s*=")
+            .Cast<Match>()
+            .Select(m => m.Groups[1].Value)
+            .Where(name => name != "ClearValue");
+
+        // ClearValue(OWNER.PROPProperty) resets. Receiver is `\w+` (not pinned to
+        // the captured param) because some resets run on a narrowed cast — e.g.
+        // `if (fe is Control c) c.ClearValue(Control.IsTabStopProperty)` (issue #162).
+        // The owner is restricted to the DependencyObject base types that actually
+        // back FrameworkElement instance properties (FrameworkElement / UIElement /
+        // Control); attached-property owners are captured separately by
+        // ReadResetAttachedProperties, owner-qualified, because their bare names
+        // collide with instance properties (AutomationProperties.Name vs
+        // FrameworkElement.Name).
+        var clearValueProps = Regex.Matches(commonBlock,
+                @"\b\w+\.ClearValue\(\s*(?:FrameworkElement|UIElement|Control)\.(\w+)Property\s*\)")
+            .Cast<Match>()
+            .Select(m => m.Groups[1].Value);
+
+        return new HashSet<string>(directAssignments.Concat(clearValueProps), StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// Extract the <c>Owner.Property</c> names of the <em>attached</em> properties reset in
+    /// the FE-common block of <c>ElementPool.CleanElement</c> — every
+    /// <c>RECEIVER.ClearValue(...OWNER.PROPProperty)</c> whose owner is not one of the
+    /// instance-property base types handled by <see cref="ReadResetProperties"/>.
+    /// </summary>
+    /// <remarks>
+    /// The owner may be written with any amount of qualification in the source
+    /// (<c>Microsoft.UI.Xaml.Automation.AutomationProperties</c>, <c>WinUI.ToolTipService</c>,
+    /// <c>Layout.FlexPanel</c>), so only the rightmost segment before the property is kept —
+    /// which is exactly how <c>ModifierTable.AttachedProperties</c> is keyed, and how the
+    /// analyzer sees the owner at a call site.
+    /// </remarks>
+    private static HashSet<string> ReadResetAttachedProperties()
+    {
+        var commonBlock = ReadCleanElementCommonBlock(out _);
+
+        var attached = Regex.Matches(commonBlock,
+                @"\b\w+\.ClearValue\(\s*(?:[\w.]+\.)?(\w+)\.(\w+)Property\s*\)")
+            .Cast<Match>()
+            .Where(m => !InstancePropertyOwners.Contains(m.Groups[1].Value))
+            .Select(m => m.Groups[1].Value + "." + m.Groups[2].Value);
+
+        return new HashSet<string>(attached, StringComparer.Ordinal);
+    }
+
+    private static readonly HashSet<string> InstancePropertyOwners =
+        new(StringComparer.Ordinal) { "FrameworkElement", "UIElement", "Control" };
+
+    /// <summary>
+    /// The FE-common block of <c>ElementPool.CleanElement</c> — from the method's opening
+    /// brace up to (but not including) the <c>switch (fe)</c> that begins type-specific
+    /// cleanup — plus the name of the method's parameter.
+    /// </summary>
+    private static string ReadCleanElementCommonBlock(out string paramName)
     {
         var root = RepoRootFinder.FindRepoRoot();
         Assert.NotNull(root);
@@ -207,7 +461,7 @@ class C
             @"static\s+void\s+CleanElement\s*\(\s*FrameworkElement\s+(\w+)\s*\)");
         Assert.True(sigMatch.Success,
             "Could not locate CleanElement(FrameworkElement) signature in ElementPool.cs — has it been removed or had its type changed?");
-        var paramName = sigMatch.Groups[1].Value;
+        paramName = sigMatch.Groups[1].Value;
 
         var braceStart = source.IndexOf('{', sigMatch.Index + sigMatch.Length);
         Assert.True(braceStart > sigMatch.Index, "CleanElement opening brace not found");
@@ -219,30 +473,7 @@ class C
         Assert.True(switchMatch.Success,
             $"CleanElement layout changed — could not find 'switch ({paramName})' boundary after the opening brace.");
 
-        var commonBlock = source.Substring(braceStart, switchMatch.Index - braceStart);
-
-        // ClearValue() is a method call caught separately by the second regex;
-        // filter it out of the direct-assignment match set.
-        var escapedParam = Regex.Escape(paramName);
-        var directAssignments = Regex.Matches(commonBlock, $@"\b{escapedParam}\.(\w+)\s*=")
-            .Cast<Match>()
-            .Select(m => m.Groups[1].Value)
-            .Where(name => name != "ClearValue");
-
-        // ClearValue(OWNER.PROPProperty) resets. Receiver is `\w+` (not pinned to
-        // the captured param) because some resets run on a narrowed cast — e.g.
-        // `if (fe is Control c) c.ClearValue(Control.IsTabStopProperty)` (issue #162).
-        // The owner is restricted to the DependencyObject base types that actually
-        // back FrameworkElement instance properties (FrameworkElement / UIElement /
-        // Control); this deliberately excludes attached-property owners like
-        // AutomationProperties.* and Layout.FlexPanel.* — those are not per-element
-        // FrameworkElement properties and have never been part of this reset set.
-        var clearValueProps = Regex.Matches(commonBlock,
-                @"\b\w+\.ClearValue\(\s*(?:FrameworkElement|UIElement|Control)\.(\w+)Property\s*\)")
-            .Cast<Match>()
-            .Select(m => m.Groups[1].Value);
-
-        return new HashSet<string>(directAssignments.Concat(clearValueProps), StringComparer.Ordinal);
+        return source.Substring(braceStart, switchMatch.Index - braceStart);
     }
 
     /// <summary>

@@ -2,6 +2,7 @@ using Microsoft.UI.Reactor;
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using static Microsoft.UI.Reactor.Factories;
 using static WinUIGalleryReactor.SamplePageHost;
 
@@ -45,7 +46,21 @@ ToggleSwitch(false).ToolTip(""Toggle dark mode"")"),
                     @"Button(""Rich Tooltip"").WithToolTip(
     VStack(4,
         TextBlock(""Title"").Bold(),
-        TextBlock(""Description"").FontSize(12)))")
+        TextBlock(""Description"").FontSize(12)))"),
+
+                SampleCard("ToolTip Placement",
+                    HStack(16,
+                        Button("Left").ToolTip("Opens to the left", PlacementMode.Left),
+                        Button("Right").ToolTip("Opens to the right", PlacementMode.Right),
+                        Button("Bottom").ToolTip("Opens below", PlacementMode.Bottom),
+                        Button("Follows Mouse").ToolTip("Tracks the pointer", PlacementMode.Mouse)
+                    ),
+                    @"Button(""Left"").ToolTip(""Opens to the left"", PlacementMode.Left)
+Button(""Follows Mouse"").ToolTip(""Tracks the pointer"", PlacementMode.Mouse)
+
+// Placement also composes with a rich tooltip:
+Button(""Info"")
+    .WithToolTip(VStack(TextBlock(""Title"").Bold()), PlacementMode.Right)")
             ).Margin(36, 24, 36, 36)
         );
     }

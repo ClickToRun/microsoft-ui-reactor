@@ -221,7 +221,15 @@ check before dereferencing.
 ## .Set() escape hatch
 
 `.Set()` gives you direct access to the underlying WinUI control. Use
-it for the properties Reactor doesn't expose as modifiers:
+it for the properties Reactor doesn't expose as modifiers — and only
+those. Check for a fluent modifier first: tooltips are `.ToolTip("…")`
+(or `.WithToolTip(element)` for rich content, plus
+`.ToolTipPlacement(...)` / `.ToolTipPlacementTarget(...)` for the two
+`ToolTipService` positioning properties), not a hand-rolled
+`ToolTipService.SetToolTip` inside `.Set()`. Padding, text wrapping,
+character spacing, and selection all have modifiers too. Anything you
+route through `.Set()` sits outside the property diff, so prefer the
+modifier whenever one exists:
 
 ```csharp
 class SetEscapeHatchDemo : Component
@@ -230,15 +238,12 @@ class SetEscapeHatchDemo : Component
     {
         return VStack(12,
             SubHeading(".Set() Escape Hatch"),
+            // Tooltip and padding are first-class modifiers — reach for those
+            // first. ClickMode has no modifier, so it needs the escape hatch.
             Button("Custom Tooltip", () => { })
+                .ToolTip("This is a native tooltip")
                 .Padding(20, 10, 20, 10)
-                .Set(btn =>
-                {
-                    // ToolTipService is an attached property — no modifier exists,
-                    // so this is a genuine .Set() use.
-                    Microsoft.UI.Xaml.Controls.ToolTipService
-                        .SetToolTip(btn, "This is a native tooltip");
-                }),
+                .Set(btn => btn.ClickMode = ClickMode.Press),
             TextBlock("Styled via .Set()")
                 .TextWrapping(TextWrapping.WrapWholeWords)
                 .CharacterSpacing(80)

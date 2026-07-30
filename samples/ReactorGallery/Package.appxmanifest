@@ -1,0 +1,78 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <!--
+    Manifest for the OPT-IN packaged flavour of the gallery:
+        dotnet build samples/ReactorGallery -p:Platform=x64 -p:GalleryPackaged=true
+    The default build stays unpackaged (WindowsPackageType=None) and never sees this
+    file — see ReactorGallery.csproj.
+
+    Publisher must match the subject (CN=...) of the signing certificate. The value
+    below is a placeholder so a fresh clone builds unsigned; set
+    /p:AppxPackageSigningEnabled=true /p:PackageCertificateKeyFile=<path.pfx> and
+    update Publisher to produce a deployable MSIX.
+  -->
+  <Identity
+    Name="Microsoft.UI.ReactorGallery"
+    Publisher="CN=ReactorGallery"
+    Version="1.0.0.0" />
+
+  <Properties>
+    <DisplayName>WinUI Gallery (Reactor)</DisplayName>
+    <PublisherDisplayName>Microsoft.UI.Reactor</PublisherDisplayName>
+    <Logo>Images\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="App"
+                 Executable="$targetnametoken$.exe"
+                 EntryPoint="$targetentrypoint$">
+      <uap:VisualElements
+        DisplayName="WinUI Gallery (Reactor)"
+        Description="Every WinUI 3 control, rebuilt with the Reactor declarative C# DSL."
+        BackgroundColor="transparent"
+        Square150x150Logo="Images\Square150x150Logo.png"
+        Square44x44Logo="Images\Square44x44Logo.png">
+        <uap:DefaultTile
+          ShortName="Reactor Gallery"
+          Square71x71Logo="Images\Square71x71Logo.png"
+          Wide310x150Logo="Images\Wide310x150Logo.png" />
+        <uap:SplashScreen Image="Images\SplashScreen.png" />
+      </uap:VisualElements>
+
+      <Extensions>
+        <!--
+          Deep linking, packaged flavour. Declaring the scheme here is what makes the
+          packaged build differ from the unpackaged one: Windows registers
+          `reactor-gallery://` at install time and removes it at uninstall, so
+          GalleryProtocol's runtime HKCU registration (and the Settings toggle that
+          drives it) are correctly inert here. Keep the name in sync with
+          GalleryRoutes.Scheme.
+        -->
+        <uap:Extension Category="windows.protocol">
+          <uap:Protocol Name="reactor-gallery">
+            <uap:Logo>Images\Square44x44Logo.png</uap:Logo>
+            <uap:DisplayName>WinUI Gallery (Reactor)</uap:DisplayName>
+          </uap:Protocol>
+        </uap:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+
+</Package>
