@@ -226,7 +226,9 @@ internal static class SelfTestFixtureRegistry
         "OverlayTeardown_Popup_Unmount_RunsChildCleanup",
         // Flyout placement guard — Reactor must never write FlyoutPlacementMode.Auto
         // onto a WinUI FlyoutBase (WinUI's show-time validator rejects it and
-        // fail-fasts the process). These fixtures actually open the flyout.
+        // fail-fasts the process). The Flyout/ContentFlyout/fresh-create fixtures
+        // actually open the flyout, which is the only thing that catches the crash;
+        // the button-slot and CommandBarFlyout ones pin the DP value only.
         "FlyoutPlacement_Flyout_DefaultPlacement_Opens",
         "FlyoutPlacement_Flyout_ExplicitPlacement_ReachesTheControl",
         "FlyoutPlacement_Flyout_PlacementUpdate_NeverWritesAuto",

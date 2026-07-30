@@ -200,7 +200,18 @@ public class FlyoutPlacementGuardTests
 
     private readonly record struct PlacementWrite(string File, int Line, string Text);
 
-    private static List<string> CoreSourceFiles()
+    // Four [Fact]s consume these; walking src/Reactor and Roslyn-parsing every file once per
+    // test is pure overhead. Lazy also caches the assertion failure, so a broken repo-root
+    // lookup reports identically in every test instead of racing. Mirrors the memoization in
+    // AnalyzerTests/SetEventSubscriptionConsistencyTests.
+    private static readonly Lazy<List<string>> s_coreSourceFiles = new(FindCoreSourceFiles);
+    private static readonly Lazy<List<PlacementWrite>> s_placementWrites = new(ScanCore);
+
+    private static List<string> CoreSourceFiles() => s_coreSourceFiles.Value;
+
+    private static List<PlacementWrite> ScanCoreForFlyoutPlacementWrites() => s_placementWrites.Value;
+
+    private static List<string> FindCoreSourceFiles()
     {
         var root = RepoRootFinder.FindRepoRoot();
         Assert.NotNull(root);
@@ -215,7 +226,7 @@ public class FlyoutPlacementGuardTests
             .ToList();
     }
 
-    private static List<PlacementWrite> ScanCoreForFlyoutPlacementWrites()
+    private static List<PlacementWrite> ScanCore()
     {
         var writes = new List<PlacementWrite>();
         foreach (var file in CoreSourceFiles())
