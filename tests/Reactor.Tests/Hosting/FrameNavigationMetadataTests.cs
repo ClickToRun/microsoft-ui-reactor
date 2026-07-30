@@ -5,6 +5,13 @@ using Xunit;
 
 namespace Microsoft.UI.Reactor.Tests.Hosting;
 
+// A two-level app-defined hierarchy over a WinUI base. Never instantiated — only its
+// Type metadata is walked — but WinUI-derived types must still be `partial` for the
+// CsWinRT ABI analyzer, which CI promotes to an error.
+internal partial class ProbeAppDefinedBasePage : Microsoft.UI.Xaml.Controls.Page { }
+
+internal sealed partial class ProbeDerivedFromAppBasePage : ProbeAppDefinedBasePage { }
+
 /// <summary>
 /// Headless coverage for the metadata-publishing layer that makes
 /// <c>Frame.Navigate</c> survive a code-only <c>Page</c> type.
@@ -161,16 +168,12 @@ public sealed class FrameNavigationMetadataTests
         // app-defined intermediate. Only Type metadata is touched — nothing is activated,
         // so this stays headless-safe.
         var forDerived = Assert.IsType<ReactorSystemBaseXamlType>(
-            ReactorSystemBaseXamlType.ForNearestFrameworkAncestor(typeof(DerivedFromAppBase)));
+            ReactorSystemBaseXamlType.ForNearestFrameworkAncestor(typeof(ProbeDerivedFromAppBasePage)));
         Assert.Equal(typeof(Microsoft.UI.Xaml.Controls.Page).FullName, forDerived.FullName);
         Assert.Equal(typeof(Microsoft.UI.Xaml.Controls.Page), forDerived.UnderlyingType);
         Assert.False(forDerived.IsConstructible);
         Assert.False(forDerived.IsLocalType);
     }
-
-    // Never instantiated — only its Type metadata is walked.
-    private class AppDefinedBase : Microsoft.UI.Xaml.Controls.Page { }
-    private sealed class DerivedFromAppBase : AppDefinedBase { }
 
     // ── Navigation gate ─────────────────────────────────────────────────────
 
