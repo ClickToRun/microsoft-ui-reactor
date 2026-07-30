@@ -20,6 +20,15 @@ namespace Microsoft.UI.Reactor.Core;
 /// default of <c>FlyoutBase.Placement</c> is <see cref="WinPrim.FlyoutPlacementMode.Top"/>.
 /// </para>
 /// <para>
+/// Provenance, since these two internals are undocumented and could change between Windows
+/// App SDK versions: the <c>0..12</c> validator range and the <c>GetEffectivePlacement</c>
+/// fall-through were established by disassembling <c>Microsoft.UI.Xaml.dll</c> under a
+/// debugger with public symbols during the ReactorGallery bug hunt. The enum value and the
+/// <c>Top</c> default come from the published API reference. The resulting crash is pinned
+/// by the <c>FlyoutPlacement*</c> selftest fixtures, which open a default-placement flyout
+/// for real — remove any <see cref="Apply"/> call below and they fail.
+/// </para>
+/// <para>
 /// Reactor's element records default to <c>Auto</c>, which means "no opinion — let the
 /// platform decide". That is expressed by leaving the DP untouched rather than by writing
 /// <c>Auto</c> to it. Consequently an update from an explicit placement back to <c>Auto</c>
