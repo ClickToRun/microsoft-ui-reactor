@@ -4993,7 +4993,7 @@ public sealed partial class Reconciler : IDisposable
                 // Type changed — remount content
                 flyout.Content = Mount(newCf.Content, requestRerender);
             }
-            flyout.Placement = newCf.Placement;
+            FlyoutPlacement.Apply(flyout, newCf.Placement);
             return;
         }
 
@@ -5002,8 +5002,7 @@ public sealed partial class Reconciler : IDisposable
         {
             menuFlyout.Items.Clear();
             foreach (var item in newMf.Items) menuFlyout.Items.Add(MenuCommandFactory.CreateMenuFlyoutItem(item));
-            if (newMf.Placement != WinPrim.FlyoutPlacementMode.Auto)
-                menuFlyout.Placement = newMf.Placement;
+            FlyoutPlacement.Apply(menuFlyout, newMf.Placement);
             return;
         }
 
@@ -5120,14 +5119,17 @@ public sealed partial class Reconciler : IDisposable
             case ContentFlyoutElement cf:
             {
                 var content = Mount(cf.Content, requestRerender);
-                return content is not null ? new WinUI.Flyout { Content = content, Placement = cf.Placement } : null;
+                if (content is null) return null;
+                var contentFlyout = new WinUI.Flyout { Content = content };
+                FlyoutPlacement.Apply(contentFlyout, cf.Placement);
+                return contentFlyout;
             }
             case MenuFlyoutContentElement mf:
             {
                 var menuFlyout = new WinUI.MenuFlyout();
-                // Only set Placement if explicitly specified (Auto can cause assertions on MenuFlyout)
-                if (mf.Placement != WinPrim.FlyoutPlacementMode.Auto)
-                    menuFlyout.Placement = mf.Placement;
+                // Placement is routed through FlyoutPlacement so Auto is never written
+                // (WinUI's FlyoutBase validator rejects it — see FlyoutPlacement).
+                FlyoutPlacement.Apply(menuFlyout, mf.Placement);
                 foreach (var item in mf.Items) menuFlyout.Items.Add(MenuCommandFactory.CreateMenuFlyoutItem(item));
                 return menuFlyout;
             }
