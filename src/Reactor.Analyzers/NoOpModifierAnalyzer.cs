@@ -328,7 +328,10 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
     /// </para>
     /// <para>
     /// Bails on an ambiguous element (two <c>Set</c> overloads naming different controls) and on an
-    /// element with none, so an unknown control never produces a diagnostic.
+    /// element with none, so an unknown control never produces a diagnostic. The <c>Set</c> must be
+    /// declared <b>for this exact element type</b>: an element record derived from a wrapped one
+    /// inherits the base's <c>Set</c>, but nothing stops it being registered against a different
+    /// control, so the inherited signature is not evidence about what it mounts.
     /// </para>
     /// </remarks>
     private static bool TryGetMountedControl(
@@ -341,13 +344,18 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
 
         foreach (var symbol in model.LookupSymbols(position, receiver, SetMethodName, includeReducedExtensionMethods: true))
         {
-            if (symbol is not IMethodSymbol { MethodKind: MethodKind.ReducedExtension, Parameters.Length: 1 } method)
+            if (symbol is not IMethodSymbol { MethodKind: MethodKind.ReducedExtension, Parameters.Length: 1 } method
+                || method.ReducedFrom is not { } declared)
                 continue;
 
-            var declaringNamespace = (method.ReducedFrom ?? method).ContainingType?.ContainingNamespace?.ToDisplayString();
+            var declaringNamespace = declared.ContainingType?.ContainingNamespace?.ToDisplayString();
             if (declaringNamespace is null
                 || (declaringNamespace != ReactorNamespace
                     && !declaringNamespace.StartsWith(ReactorNamespace + ".", System.StringComparison.Ordinal)))
+                continue;
+
+            // Declared for this exact element, not inherited from a base element.
+            if (!SymbolEqualityComparer.Default.Equals(declared.Parameters[0].Type, receiver))
                 continue;
 
             if (method.Parameters[0].Type is not INamedTypeSymbol { Name: "Action", TypeArguments.Length: 1 } action
@@ -448,7 +456,7 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
 
             if (overloads.Any(overload =>
                     overload.Parameters.Length == positional.Count
-                    && ParametersMatch(overload, method)))
+                    && SignaturesMatch(overload, method)))
             {
                 replacement = candidate;
                 argumentKind = RenameArgument;
@@ -460,6 +468,7 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
                 && method.Parameters[0].Type.SpecialType == SpecialType.System_String
                 && overloads.Any(overload =>
                     overload.Parameters.Length == 1
+                    && SymbolEqualityComparer.Default.Equals(overload.ReturnType, method.ReturnType)
                     && SetLambdaHelpers.InheritsFrom(overload.Parameters[0].Type, BrushTypeName, XamlMediaNamespace)))
             {
                 replacement = candidate;
@@ -471,10 +480,21 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
         return replacement is not null;
     }
 
-    /// <summary>The two reduced methods take exactly the same parameter types, in order.</summary>
-    private static bool ParametersMatch(IMethodSymbol replacement, IMethodSymbol original)
+    /// <summary>
+    /// The two reduced methods take exactly the same parameter types, in order, and return the same
+    /// type.
+    /// </summary>
+    /// <remarks>
+    /// The return-type check keeps the fluent chain intact. The generic modifier returns the
+    /// receiver's own type, while a replacement declared on a base element returns that base — so
+    /// rewriting <c>Derived().Background(b)</c> to <c>Derived().Fill(b)</c> would narrow the
+    /// expression to the base type and break a subsequent derived-only modifier, or a method whose
+    /// declared return type is the derived element.
+    /// </remarks>
+    private static bool SignaturesMatch(IMethodSymbol replacement, IMethodSymbol original)
     {
-        if (replacement.Parameters.Length != original.Parameters.Length)
+        if (replacement.Parameters.Length != original.Parameters.Length
+            || !SymbolEqualityComparer.Default.Equals(replacement.ReturnType, original.ReturnType))
             return false;
 
         for (var i = 0; i < replacement.Parameters.Length; i++)

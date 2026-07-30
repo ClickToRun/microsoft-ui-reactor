@@ -120,9 +120,13 @@ namespace Microsoft.UI.Reactor.Core
     [GenerateReactorDescriptor(typeof(WinShapes.Path))]
     public record PathElement : Element { }
 
-    // A user-defined element derived from a wrapped one: the inherited registration mounts the
-    // base's control, so the base's attribute is the authority.
+    // A user-defined element derived from a wrapped one. It declares no Set of its own, so the
+    // inherited signature says nothing authoritative about what it mounts.
     public record RoundedRectangleElement : RectangleElement { }
+
+    // Derived AND declares its own Set, so the mounted control is known — but the only Fill it can
+    // reach returns the base type, so a rename would narrow the chain.
+    public record TintedRectangleElement : RectangleElement { }
 
     [GenerateReactorDescriptor(typeof(WinUI.Border))]
     public record BorderElement : Element { }
@@ -165,6 +169,7 @@ namespace Microsoft.UI.Reactor.Core
         public static LineElement Line() => new();
         public static PathElement Path() => new();
         public static RoundedRectangleElement RoundedRectangle() => new();
+        public static TintedRectangleElement TintedRectangle() => new();
         public static BorderElement Border() => new();
         public static StackPanelElement VStack() => new();
         public static GridElement Grid() => new();
@@ -201,6 +206,8 @@ namespace Microsoft.UI.Reactor
         public static EllipseElement Set(this EllipseElement el, Action<WinShapes.Ellipse> configure) => el;
         public static LineElement Set(this LineElement el, Action<WinShapes.Line> configure) => el;
         public static PathElement Set(this PathElement el, Action<WinShapes.Path> configure) => el;
+        public static TintedRectangleElement Set(this TintedRectangleElement el, Action<WinShapes.Rectangle> configure) => el;
+        public static TintedRectangleElement Tint(this TintedRectangleElement el, double amount) => el;
         public static BorderElement Set(this BorderElement el, Action<WinUI.Border> configure) => el;
         public static StackPanelElement Set(this StackPanelElement el, Action<WinUI.StackPanel> configure) => el;
         public static GridElement Set(this GridElement el, Action<WinUI.Grid> configure) => el;
@@ -394,15 +401,26 @@ namespace TestApp
     }
 
     [Fact]
-    public async Task Fires_For_A_Derived_Element_Through_The_Base_Set_Overload()
+    public async Task Fires_For_A_Derived_Element_With_Its_Own_Set_But_Offers_No_Narrowing_Fix()
     {
-        // RoundedRectangleElement declares no Set of its own; the base's Set(RectangleElement,
-        // Action<Rectangle>) is applicable to it, which is also how the inherited registration
-        // mounts it.
+        // TintedRectangleElement declares its own Set, so the mounted control IS known. But the
+        // only Fill it can reach is the base's, which returns RectangleElement — applying it would
+        // narrow the expression and break `.Tint(...)` further down the chain, so the diagnostic
+        // reports the replacement without offering a rewrite.
         var body = App(@"
-        internal static Element M() => RoundedRectangle().{|REACTOR_MOD_003:Background|}(""#FF6B6B"");");
+        internal static Element M() => TintedRectangle().{|#0:Background|}(""#FF6B6B"").Tint(1);");
 
-        await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
+        var test = MakeAnalyzerTest(body);
+        test.ExpectedDiagnostics.Add(
+            AnalyzerVerifier.Diagnostic(NoOpModifierAnalyzer.DiagnosticId)
+                .WithLocation(0)
+                .WithArguments(
+                    "Background",
+                    "TintedRectangleElement",
+                    "Panel, Control, or Border",
+                    ". Rectangle is a Shape, which is painted with 'Fill'"));
+
+        await test.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -630,6 +648,19 @@ namespace TestApp
         // analysis has no ground truth and must stay silent.
         var body = App(@"
         internal static Element M() => Card().Background(""#FF6B6B"");");
+
+        await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Does_Not_Fire_For_A_Derived_Element_That_Only_Inherits_Set()
+    {
+        // RoundedRectangleElement declares no Set of its own. Inheriting the base's
+        // Set(RectangleElement, Action<Rectangle>) is NOT evidence about what it mounts — nothing
+        // stops a derived element being registered against a different control — so the analysis
+        // has no ground truth and stays silent.
+        var body = App(@"
+        internal static Element M() => RoundedRectangle().Background(""#FF6B6B"");");
 
         await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
     }
