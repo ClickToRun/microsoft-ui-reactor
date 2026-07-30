@@ -49,7 +49,12 @@ class TabViewPage : Component
                             setBasicIdx(SelectionAfterClose(basicIdx, i, remaining.Length));
                         },
                     }).Height(200),
-                    @"var (tabs, setTabs) = UseState(UseMemo(() => new[] { ""Home"", ""Document"", ""Settings"" }));
+                    @"// Where the selection lands after a close: closing a tab left of the
+// selected one shifts it down, then clamp into the shorter list.
+static int SelectionAfterClose(int selected, int closed, int remaining) =>
+    remaining == 0 ? -1 : Math.Clamp(closed < selected ? selected - 1 : selected, 0, remaining - 1);
+
+var (tabs, setTabs) = UseState(UseMemo(() => new[] { ""Home"", ""Document"", ""Settings"" }));
 var (idx, setIdx) = UseState(0);
 
 TabView(tabs.Select(t => Tab(t, TextBlock($""{t} content""))).ToArray()) with
@@ -98,7 +103,11 @@ TabView(tabs.Select(t => Tab(t, TextBlock($""{t} content""))).ToArray()) with
                             })
                         )
                     ),
-                    @"var (tabs, setTabs) = UseState(UseMemo(() => new[] { ""Tab 1"", ""Tab 2"", ""Tab 3"" }));
+                    @"// Same clamp helper as the Basic card above.
+static int SelectionAfterClose(int selected, int closed, int remaining) =>
+    remaining == 0 ? -1 : Math.Clamp(closed < selected ? selected - 1 : selected, 0, remaining - 1);
+
+var (tabs, setTabs) = UseState(UseMemo(() => new[] { ""Tab 1"", ""Tab 2"", ""Tab 3"" }));
 var (idx, setIdx) = UseState(0);
 var (nextId, setNextId) = UseState(4);   // ids, not a count, so titles stay unique
 

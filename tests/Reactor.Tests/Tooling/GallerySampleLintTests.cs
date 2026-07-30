@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Text;
 using Xunit;
 
 namespace Microsoft.UI.Reactor.Tests.Tooling;
@@ -350,23 +351,27 @@ public sealed class GallerySampleLintTests
 
         foreach (var (path, root) in Pages())
         {
-            foreach (var assetPath in MsAppxLiteral.Matches(root.ToFullString())
-                         .Select(m => m.Groups["path"].Value))
+            foreach (var (assetPath, offset) in MsAppxLiteral.Matches(root.ToFullString())
+                         .Select(m => (m.Groups["path"].Value, m.Index)))
             {
                 inspectedAssets++;
+
+                // A regex match has no syntax node, so map its offset back through the tree
+                // to report file:line like the other two facts in this file do.
+                var at = $"{Rel(path)}:{root.SyntaxTree.GetLineSpan(new TextSpan(offset, 1), TestContext.Current.CancellationToken).StartLinePosition.Line + 1}";
 
                 // A composed / interpolated URI cannot be resolved statically, so it would
                 // silently escape this lint — fail instead of quietly skipping it.
                 if (assetPath.Contains('{') || assetPath.Contains(')'))
                 {
-                    offenders.Add($"{Rel(path)}: ms-appx:///{assetPath} is composed at runtime, so this lint cannot " +
+                    offenders.Add($"{at}: ms-appx:///{assetPath} is composed at runtime, so this lint cannot " +
                                   "verify the asset ships. Use a literal ms-appx:/// path in gallery pages.");
                     continue;
                 }
 
                 if (!File.Exists(Path.Join(GalleryDir(), assetPath.Replace('/', Path.DirectorySeparatorChar))))
                 {
-                    offenders.Add($"{Rel(path)}: ms-appx:///{assetPath} does not exist under samples/ReactorGallery — " +
+                    offenders.Add($"{at}: ms-appx:///{assetPath} does not exist under samples/ReactorGallery — " +
                                   "the Image renders blank with no error.");
                     continue;
                 }
@@ -377,7 +382,7 @@ public sealed class GallerySampleLintTests
 
                 if (!covered)
                 {
-                    offenders.Add($"{Rel(path)}: ms-appx:///{assetPath} exists in the repo but no " +
+                    offenders.Add($"{at}: ms-appx:///{assetPath} exists in the repo but no " +
                                   "<Content Include=...> item copies it to the output folder, so it is missing at runtime.");
                 }
             }
