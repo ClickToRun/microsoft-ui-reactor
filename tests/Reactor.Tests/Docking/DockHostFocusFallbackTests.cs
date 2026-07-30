@@ -98,7 +98,8 @@ public sealed class DockHostFocusFallbackTests
     /// so the <see cref="ArgumentException"/> was never surfaced. Both halves of
     /// the outcome must now be observed: the synchronous throw (a catch handler
     /// around the focus work) and the asynchronous fault (a continuation on the
-    /// returned operation), each reported through <c>DiagnosticLog</c>.
+    /// returned operation), each routed through <c>ReportFocusFailure</c> to
+    /// <c>ReactorEventSource</c>'s <c>SwallowedError</c> event.
     /// </summary>
     [Fact]
     public void Announcer_observes_focus_failures_instead_of_discarding_them()
