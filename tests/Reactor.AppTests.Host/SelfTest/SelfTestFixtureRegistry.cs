@@ -982,7 +982,7 @@ internal static class SelfTestFixtureRegistry
         "SelectionEvt_TabView",
         "SelectionEvt_Pivot",
         "SelectionEvt_NavigationView",
-        "SelectionEvt_NavigationViewProgrammaticIsNotInvoke",
+        "SelectionEvt_NavigationViewProgrammaticIsNotInvoked",
 
         // NavigationView pane-state round-trip (issue #916)
         "NavPane_OpenChangedFires",
@@ -2549,7 +2549,7 @@ internal static class SelfTestFixtureRegistry
         "SelectionEvt_TabView" => new SelectionEventFixtures.TabViewSelectionFires(harness),
         "SelectionEvt_Pivot" => new SelectionEventFixtures.PivotSelectionFires(harness),
         "SelectionEvt_NavigationView" => new SelectionEventFixtures.NavigationViewSelectionFires(harness),
-        "SelectionEvt_NavigationViewProgrammaticIsNotInvoke" => new SelectionEventFixtures.NavigationViewProgrammaticSelectionIsNotAnInvoke(harness),
+        "SelectionEvt_NavigationViewProgrammaticIsNotInvoked" => new SelectionEventFixtures.NavigationViewProgrammaticSelectionIsNotAnInvoke(harness),
 
         // NavigationView pane-state round-trip (issue #916)
         "NavPane_OpenChangedFires" => new NavigationViewPaneFixtures.PaneOpenChangedFires(harness),

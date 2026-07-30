@@ -80,7 +80,7 @@ overwrites the back target with the destination.
 `OnItemInvoked` is user-only, so every navigation source (nav items, control cards, the
 Home page, Back, and deep links) funnels through one `NavigateTo` helper and no echo can
 reach it. The behaviour difference is pinned by the
-`SelectionEvt_NavigationViewProgrammaticIsNotInvoke` selftest fixture.
+`SelectionEvt_NavigationViewProgrammaticIsNotInvoked` selftest fixture.
 
 ### Packaged vs. unpackaged registration
 
