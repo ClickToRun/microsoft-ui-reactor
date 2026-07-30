@@ -415,10 +415,11 @@ internal static class CommandBarFlyoutWiringFixtures
                 return VStack([Button("CbfKeyGo", () => set(phase + 1)), .. children]);
             });
 
-            static string? PrimaryLabel(Button? b) =>
-                (b?.Flyout as CommandBarFlyout)?.PrimaryCommands.Count == 1
-                    ? ((b.Flyout as CommandBarFlyout)!.PrimaryCommands[0] as AppBarButton)?.Label
-                    : null;
+            static string? PrimaryLabel(Button? b)
+            {
+                if (b?.Flyout is not CommandBarFlyout f || f.PrimaryCommands.Count != 1) return null;
+                return (f.PrimaryCommands[0] as AppBarButton)?.Label;
+            }
 
             await Harness.Render();
             H.Check("CbfKeyed_MountA", PrimaryLabel(H.FindButton("cbfk-a")) == "cbfk-a-cut");
