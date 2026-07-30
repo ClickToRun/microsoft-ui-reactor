@@ -91,14 +91,7 @@ internal static class SetLambdaHelpers
     /// </summary>
     internal static ImmutableArray<AssignmentExpressionSyntax> GetLambdaAssignments(ExpressionSyntax lambdaExpr)
     {
-        SyntaxNode? exprOrBlock = lambdaExpr switch
-        {
-            SimpleLambdaExpressionSyntax simple => (SyntaxNode?)simple.ExpressionBody ?? simple.Block,
-            ParenthesizedLambdaExpressionSyntax paren => (SyntaxNode?)paren.ExpressionBody ?? paren.Block,
-            _ => null,
-        };
-
-        switch (exprOrBlock)
+        switch (GetLambdaBody(lambdaExpr))
         {
             case AssignmentExpressionSyntax a:
                 return ImmutableArray.Create(a);
@@ -123,78 +116,313 @@ internal static class SetLambdaHelpers
     }
 
     /// <summary>
-    /// Extract the assignments from a <c>.Set(...)</c> lambda when — and only when — the
-    /// entire body can be replaced by a modifier chain: every statement is a simple
-    /// assignment whose receiver is the lambda parameter itself.
+    /// The expression body or block body of a lambda, or <c>null</c> when the node is not a
+    /// lambda at all.
+    /// </summary>
+    private static SyntaxNode? GetLambdaBody(ExpressionSyntax lambdaExpr) =>
+        lambdaExpr switch
+        {
+            SimpleLambdaExpressionSyntax simple => (SyntaxNode?)simple.ExpressionBody ?? simple.Block,
+            ParenthesizedLambdaExpressionSyntax paren => (SyntaxNode?)paren.ExpressionBody ?? paren.Block,
+            _ => null,
+        };
+
+    /// <summary>
+    /// All top-level invocation expressions in a <c>.Set(...)</c> lambda body — the
+    /// expression body (<c>fe =&gt; Owner.SetX(fe, v)</c>) or every top-level expression
+    /// statement in a block body.
+    /// </summary>
+    /// <remarks>
+    /// The invocation counterpart of <see cref="GetLambdaAssignments"/>, and deliberately
+    /// scoped the same way: top-level statements only. An attached write nested inside an
+    /// <c>if</c> or a loop is equally lost on pool reuse, but matching those would report a
+    /// diagnostic on a body no code fix can convert, and the enclosing statement is where a
+    /// reader would look anyway.
+    /// </remarks>
+    internal static ImmutableArray<InvocationExpressionSyntax> GetLambdaInvocations(ExpressionSyntax lambdaExpr)
+    {
+        switch (GetLambdaBody(lambdaExpr))
+        {
+            case InvocationExpressionSyntax invocation:
+                return ImmutableArray.Create(invocation);
+            case BlockSyntax block:
+            {
+                var builder = ImmutableArray.CreateBuilder<InvocationExpressionSyntax>();
+                foreach (var invocation in block.Statements
+                    .OfType<ExpressionStatementSyntax>()
+                    .Select(statement => statement.Expression)
+                    .OfType<InvocationExpressionSyntax>())
+                {
+                    builder.Add(invocation);
+                }
+                return builder.ToImmutable();
+            }
+            default:
+                return ImmutableArray<InvocationExpressionSyntax>.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Matches an attached-property setter call whose target is the <c>.Set</c> lambda's own
+    /// parameter — <c>Owner.SetPROP(&lt;paramName&gt;, value)</c>. Returns <c>false</c> for
+    /// any other shape.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The target check is the load-bearing one, and the invocation-shape mirror of what
+    /// <see cref="GetAssignedMemberAccess"/> does for the assignment shape. Without it,
+    /// <c>.Set(panel =&gt; Grid.SetRow(panel.Children[0], 1))</c> and
+    /// <c>.Set(fe =&gt; AutomationProperties.SetName(captured, "x"))</c> would both report —
+    /// neither writes to the pooled control the <c>.Set</c> configures.
+    /// </para>
+    /// <para>
+    /// Parentheses and casts around the target are seen through: <c>(UIElement)c</c> is still
+    /// <c>c</c>, and the cast is common because the WinUI setters are typed on
+    /// <c>DependencyObject</c>/<c>UIElement</c>. Nothing else is unwrapped — a conditional or
+    /// a method call could name a different object.
+    /// </para>
+    /// <para>
+    /// Purely syntactic; the caller pins <paramref name="ownerName"/> to its expected
+    /// namespace through the semantic model, because a user type may share the simple name.
+    /// </para>
+    /// </remarks>
+    internal static bool TryMatchAttachedSetterCall(
+        InvocationExpressionSyntax invocation,
+        string paramName,
+        out string ownerName,
+        out string setterName,
+        out ExpressionSyntax value)
+    {
+        ownerName = null!;
+        setterName = null!;
+        value = null!;
+
+        // Owner.SetPROP(target, value) — an unqualified SetPROP(...) has no owner to key on,
+        // and a deeper qualification (Microsoft.UI.Xaml.Automation.AutomationProperties) is
+        // handled by taking the rightmost name.
+        if (invocation.Expression is not MemberAccessExpressionSyntax access)
+            return false;
+
+        var owner = access.Expression switch
+        {
+            IdentifierNameSyntax id => id.Identifier.Text,
+            MemberAccessExpressionSyntax qualified => qualified.Name.Identifier.Text,
+            AliasQualifiedNameSyntax aliased => aliased.Name.Identifier.Text,
+            _ => null,
+        };
+        if (owner is null)
+            return false;
+
+        var arguments = invocation.ArgumentList.Arguments;
+        if (arguments.Count != 2)
+            return false;
+
+        // Named or ref/out arguments would break the positional target/value reading below.
+        if (arguments.Any(argument =>
+            argument.NameColon is not null || !argument.RefKindKeyword.IsKind(SyntaxKind.None)))
+        {
+            return false;
+        }
+
+        if (!IsLambdaParameterReference(arguments[0].Expression, paramName))
+            return false;
+
+        ownerName = owner;
+        setterName = access.Name.Identifier.Text;
+        value = arguments[1].Expression;
+        return true;
+    }
+
+    /// <summary>
+    /// True when <paramref name="expression"/> is the lambda parameter, looking through
+    /// parentheses and casts (which do not change which object is being written to).
+    /// </summary>
+    private static bool IsLambdaParameterReference(ExpressionSyntax expression, string paramName)
+    {
+        while (true)
+        {
+            switch (expression)
+            {
+                case ParenthesizedExpressionSyntax parenthesized:
+                    expression = parenthesized.Expression;
+                    continue;
+                case CastExpressionSyntax cast:
+                    expression = cast.Expression;
+                    continue;
+                default:
+                    return expression is IdentifierNameSyntax id
+                        && string.Equals(id.Identifier.Text, paramName, StringComparison.Ordinal);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Confirms an attached setter really belongs to <paramref name="expectedNamespace"/>.
+    /// </summary>
+    /// <remarks>
+    /// The simple owner name is not enough on its own: a user type called
+    /// <c>AutomationProperties</c> with a two-argument <c>SetName</c> would otherwise be
+    /// rewritten to a Reactor modifier that has nothing to do with it. Resolved through the
+    /// semantic model only after the syntactic gates pass, for the same cost reason
+    /// <see cref="IsReactorSetInvocation"/> is resolved lazily.
+    /// </remarks>
+    internal static bool IsAttachedSetterInNamespace(
+        InvocationExpressionSyntax invocation,
+        string expectedOwner,
+        string expectedNamespace,
+        SemanticModel semanticModel,
+        CancellationToken cancellationToken)
+    {
+        if (semanticModel.GetSymbolInfo(invocation, cancellationToken).Symbol is not IMethodSymbol method)
+            return false;
+        if (!method.IsStatic)
+            return false;
+
+        var owner = method.ContainingType;
+        return owner is not null
+            && string.Equals(owner.Name, expectedOwner, StringComparison.Ordinal)
+            && owner.ContainingNamespace?.ToDisplayString() == expectedNamespace;
+    }
+
+    /// <summary>
+    /// One write inside a <c>.Set(...)</c> body: either an instance-property assignment
+    /// (<c>fe.PROP = v</c>) or an attached-property setter call
+    /// (<c>Owner.SetPROP(fe, v)</c>). Exactly one of the two is non-null.
+    /// </summary>
+    internal readonly struct SetBodyWrite
+    {
+        private SetBodyWrite(
+            AssignmentExpressionSyntax? assignment,
+            InvocationExpressionSyntax? attachedCall,
+            string key,
+            ExpressionSyntax value)
+        {
+            Assignment = assignment;
+            AttachedCall = attachedCall;
+            Key = key;
+            Value = value;
+        }
+
+        public AssignmentExpressionSyntax? Assignment { get; }
+
+        public InvocationExpressionSyntax? AttachedCall { get; }
+
+        /// <summary>
+        /// How the analyzer named this write in its diagnostic: the bare property name for an
+        /// assignment, <c>Owner.Property</c> for an attached call. Matched against the
+        /// analyzer's reported/fixable property bags.
+        /// </summary>
+        public string Key { get; }
+
+        /// <summary>The value being written — the modifier's argument after rewriting.</summary>
+        public ExpressionSyntax Value { get; }
+
+        /// <summary>The statement or expression the write's trivia hangs off.</summary>
+        public SyntaxNode Node => (SyntaxNode?)Assignment ?? AttachedCall!;
+
+        public static SetBodyWrite FromAssignment(AssignmentExpressionSyntax assignment) =>
+            new(assignment,
+                null,
+                ((MemberAccessExpressionSyntax)assignment.Left).Name.Identifier.Text,
+                assignment.Right);
+
+        public static SetBodyWrite FromAttachedCall(
+            InvocationExpressionSyntax invocation, string key, ExpressionSyntax value) =>
+            new(null, invocation, key, value);
+    }
+
+    /// <summary>
+    /// Extract the writes from a <c>.Set(...)</c> lambda when — and only when — the entire
+    /// body can be replaced by a modifier chain: every statement is either a simple
+    /// assignment whose receiver is the lambda parameter itself, or an attached-property
+    /// setter call whose target is that parameter.
     /// Returns empty when the body is not fully convertible.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Deliberately stricter than <see cref="GetLambdaAssignments"/>, which exists for
-    /// <em>detection</em> and may ignore statements it cannot classify. A code fix cannot
-    /// ignore them: it replaces the whole invocation, so anything unaccounted for is silently
-    /// deleted rather than left behind. Two shapes must be rejected:
+    /// Deliberately stricter than <see cref="GetLambdaAssignments"/> /
+    /// <see cref="GetLambdaInvocations"/>, which exist for <em>detection</em> and may ignore
+    /// statements they cannot classify. A code fix cannot ignore them: it replaces the whole
+    /// invocation, so anything unaccounted for is silently deleted rather than left behind.
+    /// Three shapes must be rejected:
     /// </para>
     /// <list type="bullet">
-    /// <item><description>A non-assignment statement (<c>c.Focus();</c>, an <c>if</c>, a local
-    /// declaration). Invisible to a filter over assignments, and destroyed by the
+    /// <item><description>A statement that is neither shape (<c>c.Focus();</c>, an <c>if</c>, a
+    /// local declaration). Invisible to a filter over assignments, and destroyed by the
     /// rewrite.</description></item>
     /// <item><description>An assignment to a different receiver (<c>other.IsEnabled = true</c>).
     /// The analyzer only reports writes to the lambda parameter, but it reports them by
     /// property <em>name</em> — so a same-named write to a captured variable would otherwise
     /// be folded into the chain and lost.</description></item>
+    /// <item><description>An attached setter call against a different target
+    /// (<c>Grid.SetRow(panel.Children[0], 1)</c>), for the same reason.</description></item>
     /// </list>
     /// <para>
-    /// Comments inside the block body are not carried over; trivia around the invocation is.
+    /// Whether each write's <em>property</em> is convertible is the caller's job — this only
+    /// establishes that every statement is accounted for. Comments inside the block body are
+    /// not carried over; trivia around the invocation is.
     /// </para>
     /// </remarks>
-    internal static ImmutableArray<AssignmentExpressionSyntax> GetFullyConvertibleLambdaBody(
+    internal static ImmutableArray<SetBodyWrite> GetFullyConvertibleLambdaBody(
         ExpressionSyntax lambdaExpr)
     {
         string paramName;
-        SyntaxNode? exprOrBlock;
         switch (lambdaExpr)
         {
             case SimpleLambdaExpressionSyntax simple:
                 paramName = simple.Parameter.Identifier.Text;
-                exprOrBlock = (SyntaxNode?)simple.ExpressionBody ?? simple.Block;
                 break;
             case ParenthesizedLambdaExpressionSyntax paren
                 when paren.ParameterList.Parameters.Count == 1:
                 paramName = paren.ParameterList.Parameters[0].Identifier.Text;
-                exprOrBlock = (SyntaxNode?)paren.ExpressionBody ?? paren.Block;
                 break;
             default:
-                return ImmutableArray<AssignmentExpressionSyntax>.Empty;
+                return ImmutableArray<SetBodyWrite>.Empty;
         }
 
-        switch (exprOrBlock)
+        switch (GetLambdaBody(lambdaExpr))
         {
-            case AssignmentExpressionSyntax single:
-                return IsConvertibleAssignment(single, paramName)
-                    ? ImmutableArray.Create(single)
-                    : ImmutableArray<AssignmentExpressionSyntax>.Empty;
+            case ExpressionSyntax single:
+                return TryGetConvertibleWrite(single, paramName) is { } write
+                    ? ImmutableArray.Create(write)
+                    : ImmutableArray<SetBodyWrite>.Empty;
 
             case BlockSyntax block:
             {
-                var builder = ImmutableArray.CreateBuilder<AssignmentExpressionSyntax>(block.Statements.Count);
+                var builder = ImmutableArray.CreateBuilder<SetBodyWrite>(block.Statements.Count);
                 foreach (var statement in block.Statements)
                 {
                     if (statement is not ExpressionStatementSyntax expressionStatement
-                        || expressionStatement.Expression is not AssignmentExpressionSyntax assignment
-                        || !IsConvertibleAssignment(assignment, paramName))
+                        || TryGetConvertibleWrite(expressionStatement.Expression, paramName) is not { } statementWrite)
                     {
-                        return ImmutableArray<AssignmentExpressionSyntax>.Empty;
+                        return ImmutableArray<SetBodyWrite>.Empty;
                     }
-                    builder.Add(assignment);
+                    builder.Add(statementWrite);
                 }
                 return builder.Count == 0
-                    ? ImmutableArray<AssignmentExpressionSyntax>.Empty
+                    ? ImmutableArray<SetBodyWrite>.Empty
                     : builder.ToImmutable();
             }
 
             default:
-                return ImmutableArray<AssignmentExpressionSyntax>.Empty;
+                return ImmutableArray<SetBodyWrite>.Empty;
+        }
+    }
+
+    private static SetBodyWrite? TryGetConvertibleWrite(ExpressionSyntax expression, string paramName)
+    {
+        switch (expression)
+        {
+            case AssignmentExpressionSyntax assignment when IsConvertibleAssignment(assignment, paramName):
+                return SetBodyWrite.FromAssignment(assignment);
+
+            case InvocationExpressionSyntax invocation
+                when TryMatchAttachedSetterCall(invocation, paramName, out var owner, out var setter, out var value)
+                    && !ReferencesIdentifier(value, paramName):
+                return SetBodyWrite.FromAttachedCall(invocation, owner + "." + setter, value);
+
+            default:
+                return null;
         }
     }
 

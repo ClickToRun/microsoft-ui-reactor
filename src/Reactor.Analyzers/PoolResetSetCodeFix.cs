@@ -16,8 +16,10 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// <summary>
 /// Code fix for REACTOR_POOL_001 / REACTOR_MOD_002: rewrites
 /// <c>x.Set(fe =&gt; fe.PROP = VALUE)</c> to <c>x.PROP(VALUE)</c> using the corresponding
-/// Reactor modifier. Block-body lambdas are handled too, including multi-statement ones —
-/// <c>fe =&gt; { fe.A = 1; fe.B = 2; }</c> becomes <c>.A(1).B(2)</c>.
+/// Reactor modifier. Attached-property writes take the same route —
+/// <c>x.Set(b =&gt; ToolTipService.SetToolTip(b, "Save"))</c> becomes <c>x.ToolTip("Save")</c>.
+/// Block-body lambdas are handled too, including multi-statement and mixed ones —
+/// <c>fe =&gt; { fe.A = 1; Owner.SetB(fe, 2); }</c> becomes <c>.A(1).B(2)</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -25,6 +27,8 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// translates the RHS into the modifier's expected shape (see <c>Margin</c>
 /// below). When no safe translation exists, the codefix is suppressed —
 /// the analyzer still reports the trap, the developer just has to fix by hand.
+/// For attached properties that decision is the analyzer's
+/// (<c>FixablePropertiesKey</c>), because part of it is semantic.
 /// </para>
 /// <para>
 /// Multi-statement bodies are converted all-or-nothing; see
@@ -71,7 +75,9 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
             if (args.Count != 1) continue;
 
             // Only the properties the analyzer actually reported are safe to convert — it
-            // applied the receiver gates, this fix does not repeat them.
+            // applied the receiver gates, this fix does not repeat them. The fixable subset is
+            // narrower still: several attached properties are worth diagnosing but have no
+            // mechanical rewrite (see FixablePropertiesKey).
             if (!diagnostic.Properties.TryGetValue(PoolResetSetAnalyzer.ReportedPropertiesKey, out var packed)
                 || string.IsNullOrEmpty(packed))
             {
@@ -79,18 +85,23 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
             }
             var reported = new HashSet<string>(packed!.Split(','), StringComparer.Ordinal);
 
+            diagnostic.Properties.TryGetValue(PoolResetSetAnalyzer.FixablePropertiesKey, out var packedFixable);
+            var fixable = string.IsNullOrEmpty(packedFixable)
+                ? new HashSet<string>(StringComparer.Ordinal)
+                : new HashSet<string>(packedFixable!.Split(','), StringComparer.Ordinal);
+
             // Fully-convertible only: every statement must be accounted for, or the rewrite
             // would delete the ones it did not recognise.
-            var assignments = SetLambdaHelpers.GetFullyConvertibleLambdaBody(args[0].Expression);
-            if (assignments.IsDefaultOrEmpty) continue;
+            var writes = SetLambdaHelpers.GetFullyConvertibleLambdaBody(args[0].Expression);
+            if (writes.IsDefaultOrEmpty) continue;
 
-            var steps = TryBuildChain(assignments, reported);
+            var steps = TryBuildChain(writes, reported, fixable);
             if (steps is null) continue; // Mixed or untranslatable body — leave the diagnostic unfixed.
 
             if (ReceiverAlreadyApplies(memberAccess.Expression, steps))
                 continue; // Rewriting would invert precedence — see the method's remarks.
 
-            var carriedTrivia = TryBuildCarriedTrivia(args[0].Expression, assignments);
+            var carriedTrivia = TryBuildCarriedTrivia(args[0].Expression, writes);
             if (carriedTrivia is null) continue; // A comment with nowhere safe to go.
 
             var title = steps.Count == 1
@@ -169,9 +180,9 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
     /// </remarks>
     private static List<(SyntaxTriviaList Preceding, SyntaxTriviaList Own)>? TryBuildCarriedTrivia(
         ExpressionSyntax lambda,
-        ImmutableArray<AssignmentExpressionSyntax> assignments)
+        ImmutableArray<SetLambdaHelpers.SetBodyWrite> writes)
     {
-        var perStatement = new List<(SyntaxTriviaList Preceding, SyntaxTriviaList Own)>(assignments.Length);
+        var perStatement = new List<(SyntaxTriviaList Preceding, SyntaxTriviaList Own)>(writes.Length);
 
         // Spans must be gathered from the ORIGINAL attached lists. A list rebuilt with AddRange
         // is detached and its positions restart at zero, so spans taken from a combined list
@@ -180,8 +191,8 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
 
         // Block bodies hang their trivia off the statement; an expression body has none
         // of its own worth carrying (it is on the invocation, which keeps it).
-        foreach (var owner in assignments.Select(assignment =>
-            assignment.Parent is ExpressionStatementSyntax statement ? (SyntaxNode)statement : assignment))
+        foreach (var owner in writes.Select(write =>
+            write.Node.Parent is ExpressionStatementSyntax statement ? (SyntaxNode)statement : write.Node))
         {
             // The preceding token's trailing trivia matters as much as the statement's own
             // leading trivia: it holds the line break (and any same-line trailing comment) that
@@ -241,32 +252,50 @@ public sealed class PoolResetSetCodeFix : CodeFixProvider
     /// mixed body keeps its diagnostic and gets no automatic fix.
     /// </para>
     /// <para>
-    /// Assumes <paramref name="assignments"/> came from
+    /// Assumes <paramref name="writes"/> came from
     /// <see cref="SetLambdaHelpers.GetFullyConvertibleLambdaBody"/>, which has already
-    /// established that they are simple assignments to the lambda parameter and that they
-    /// account for every statement in the body.
+    /// established that they target the lambda parameter and that they account for every
+    /// statement in the body.
     /// </para>
     /// </remarks>
     private static List<(string Modifier, ArgumentListSyntax Arguments)>? TryBuildChain(
-        ImmutableArray<AssignmentExpressionSyntax> assignments,
-        HashSet<string> reported)
+        ImmutableArray<SetLambdaHelpers.SetBodyWrite> writes,
+        HashSet<string> reported,
+        HashSet<string> fixable)
     {
         var steps = new List<(string Modifier, ArgumentListSyntax Arguments)>();
 
-        foreach (var assignment in assignments)
+        foreach (var write in writes)
         {
-            var propName = ((MemberAccessExpressionSyntax)assignment.Left).Name.Identifier.Text;
-
             // Not reported means the analyzer gated it out (wrong control type for the
-            // modifier, or no modifier at all). Converting it would be the silent no-op the
-            // gate exists to prevent.
-            if (!reported.Contains(propName)) return null;
-            if (!ModifierTable.Properties.TryGetValue(propName, out var info)) return null;
+            // modifier, or no modifier at all). Not fixable means it is a real diagnostic with
+            // no mechanical rewrite. Converting either would be the silent no-op — or the
+            // uncompilable call — the gates exist to prevent.
+            if (!reported.Contains(write.Key)) return null;
+            if (!fixable.Contains(write.Key)) return null;
 
-            var modifierArgs = TryBuildModifierArguments(propName, assignment.Right);
+            string modifier;
+            ArgumentListSyntax? modifierArgs;
+
+            if (write.AttachedCall is not null)
+            {
+                if (!ModifierTable.AttachedBySetter.TryGetValue(write.Key, out var attached)) return null;
+                modifier = attached.Modifier;
+                // Every auto-fixable attached entry passes its value straight through; the
+                // ones needing a translation are marked AutoFix: false in the table.
+                modifierArgs = SyntaxFactory.ArgumentList(
+                    SyntaxFactory.SingletonSeparatedList(SyntaxFactory.Argument(write.Value)));
+            }
+            else
+            {
+                if (!ModifierTable.Properties.TryGetValue(write.Key, out var info)) return null;
+                modifier = info.Modifier;
+                modifierArgs = TryBuildModifierArguments(write.Key, write.Value);
+            }
+
             if (modifierArgs is null) return null;
 
-            steps.Add((info.Modifier, modifierArgs));
+            steps.Add((modifier, modifierArgs));
         }
 
         return steps.Count == 0 ? null : steps;

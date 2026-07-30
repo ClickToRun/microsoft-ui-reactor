@@ -232,6 +232,206 @@ public class ModifierTableIntegrityTests
         return prop is not null && prop.CanWrite;
     }
 
+    // ── Attached-property integrity ──────────────────────────────────────────
+
+    /// <summary>
+    /// Owner types <see cref="ModifierTable.AttachedProperties"/> is allowed to name, with
+    /// the reflection probes used to verify each entry against the real type.
+    /// </summary>
+    /// <remarks>
+    /// Hand-listed rather than resolved from the entry's namespace string via
+    /// <c>Type.GetType</c>, so the checks stay statically analyzable (IL2057) and so adding a
+    /// new owner to the table is a deliberate two-place edit rather than a silent widening.
+    /// Reflection only reads metadata; no WinUI object is constructed.
+    /// </remarks>
+    private static readonly Dictionary<string, (Func<string, bool> HasSetter, Func<string, bool> HasDependencyProperty)>
+        KnownAttachedOwners = new(StringComparer.Ordinal)
+        {
+            ["Microsoft.UI.Xaml.Automation.AutomationProperties"] = (
+                setter => HasStaticTwoArgMethod(typeof(Microsoft.UI.Xaml.Automation.AutomationProperties), setter),
+                prop => HasDependencyPropertyField(typeof(Microsoft.UI.Xaml.Automation.AutomationProperties), prop)),
+            ["Microsoft.UI.Xaml.Controls.ToolTipService"] = (
+                setter => HasStaticTwoArgMethod(typeof(Microsoft.UI.Xaml.Controls.ToolTipService), setter),
+                prop => HasDependencyPropertyField(typeof(Microsoft.UI.Xaml.Controls.ToolTipService), prop)),
+            ["Microsoft.UI.Xaml.Controls.TitleBar"] = (
+                setter => HasStaticTwoArgMethod(typeof(Microsoft.UI.Xaml.Controls.TitleBar), setter),
+                prop => HasDependencyPropertyField(typeof(Microsoft.UI.Xaml.Controls.TitleBar), prop)),
+            ["Microsoft.UI.Reactor.Layout.FlexPanel"] = (
+                setter => HasStaticTwoArgMethod(typeof(Microsoft.UI.Reactor.Layout.FlexPanel), setter),
+                prop => HasDependencyPropertyField(typeof(Microsoft.UI.Reactor.Layout.FlexPanel), prop)),
+        };
+
+    [Fact]
+    public void Every_Attached_Entry_Matches_A_Real_Setter_And_DependencyProperty()
+    {
+        // The attached analog of Every_Entry_Names_A_Modifier_That_Exists, and stricter
+        // because an attached entry carries three names that can each be wrong independently:
+        // the owner, the static setter the analyzer matches at the call site, and the
+        // dependency property PoolResetSetConsistencyTests scans CleanElement for. A typo in
+        // the setter makes the rule silently stop firing; a typo in the property makes the
+        // consistency invariant pass vacuously.
+        var broken = new List<string>();
+
+        foreach (var (key, info) in ModifierTable.AttachedProperties)
+        {
+            Assert.Equal(info.Owner + "." + info.Property, key);
+
+            var ownerKey = info.OwnerNamespace + "." + info.Owner;
+            if (!KnownAttachedOwners.TryGetValue(ownerKey, out var probes))
+            {
+                broken.Add($"{key}: unknown owner type '{ownerKey}' — add it to KnownAttachedOwners");
+                continue;
+            }
+
+            if (!probes.HasSetter(info.Setter))
+                broken.Add($"{key}: '{ownerKey}.{info.Setter}(_, _)' does not exist");
+
+            if (!probes.HasDependencyProperty(info.Property))
+                broken.Add($"{key}: '{ownerKey}.{info.Property}Property' is not a DependencyProperty field");
+        }
+
+        Assert.True(
+            broken.Count == 0,
+            "These ModifierTable.AttachedProperties entries do not match the real type: " +
+            $"[{string.Join("; ", broken)}].");
+    }
+
+    [Fact]
+    public void Every_Attached_Entry_Names_A_Generic_Modifier_That_Exists()
+    {
+        // Same guarantee as the instance table's version — a wrong modifier name makes
+        // PoolResetSetCodeFix emit a call that does not compile — but resolved by reflection
+        // over the built assembly rather than by scanning ElementExtensions*.cs, because
+        // .Flex(...) lives in FlexExtensions.cs, which that source glob does not cover.
+        var broken = ModifierTable.AttachedProperties
+            .Where(pair => !DeclaredGenericModifiers.Value.Contains(pair.Value.Modifier))
+            .Select(pair => $"{pair.Key} -> .{pair.Value.Modifier}()")
+            .OrderBy(text => text, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            broken.Count == 0,
+            "These attached entries name a modifier that no Reactor extension class declares " +
+            "as 'public static T Name<T>(this T el, ...)', so the suggestion — and any code " +
+            $"fix built from it — would not compile: [{string.Join(", ", broken)}].");
+    }
+
+    [Fact]
+    public void No_Attached_Property_Is_Both_Mapped_And_Excluded()
+    {
+        var overlap = ModifierTable.AttachedProperties.Keys
+            .Where(ModifierTable.DeliberatelyExcludedAttached.ContainsKey)
+            .ToList();
+
+        Assert.True(
+            overlap.Count == 0,
+            "These attached properties appear in BOTH ModifierTable.AttachedProperties and " +
+            $"DeliberatelyExcludedAttached, which is contradictory: [{string.Join(", ", overlap)}].");
+    }
+
+    [Fact]
+    public void Every_Attached_Exclusion_Carries_A_Reason()
+    {
+        var blank = ModifierTable.DeliberatelyExcludedAttached
+            .Where(kvp => string.IsNullOrWhiteSpace(kvp.Value))
+            .Select(kvp => kvp.Key)
+            .ToList();
+
+        Assert.True(
+            blank.Count == 0,
+            $"These attached exclusions have no documented reason: [{string.Join(", ", blank)}]. " +
+            "An unexplained exclusion is indistinguishable from an oversight.");
+    }
+
+    [Fact]
+    public void Attached_Setter_Lookup_Covers_Every_Entry()
+    {
+        // AttachedBySetter is what the analyzer actually queries; AttachedProperties is what
+        // the consistency test scans. A property/setter pair that collapses to the same
+        // Owner.Setter key on two entries would silently drop one of them from the rule.
+        Assert.Equal(ModifierTable.AttachedProperties.Count, ModifierTable.AttachedBySetter.Count);
+
+        foreach (var (key, info) in ModifierTable.AttachedProperties)
+        {
+            Assert.True(
+                ModifierTable.AttachedBySetter.TryGetValue(info.Owner + "." + info.Setter, out var viaSetter),
+                $"'{key}' is missing from ModifierTable.AttachedBySetter.");
+            Assert.Same(info, viaSetter);
+        }
+    }
+
+    /// <summary>
+    /// Names of every <c>public static T Name&lt;T&gt;(this T el, ...)</c> modifier declared
+    /// by Reactor's extension classes. Restricted to the classes that actually hold them so
+    /// the reflection stays targeted (and trim-analyzable); a modifier added to a third class
+    /// fails <see cref="Every_Attached_Entry_Names_A_Generic_Modifier_That_Exists"/> until
+    /// that class is listed here.
+    /// </summary>
+    private static readonly Lazy<HashSet<string>> DeclaredGenericModifiers = new(() =>
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        CollectGenericModifiers(typeof(Microsoft.UI.Reactor.ElementExtensions), names);
+        CollectGenericModifiers(typeof(Microsoft.UI.Reactor.FlexExtensions), names);
+        return names;
+    });
+
+    private static void CollectGenericModifiers(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods)] Type type,
+        HashSet<string> names)
+    {
+        foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static))
+        {
+            if (!method.IsGenericMethodDefinition)
+                continue;
+            var typeArguments = method.GetGenericArguments();
+            var parameters = method.GetParameters();
+            // The fluent shape: one type parameter, and the receiver is that parameter.
+            if (typeArguments.Length != 1 || parameters.Length == 0)
+                continue;
+            if (parameters[0].ParameterType != typeArguments[0])
+                continue;
+            names.Add(method.Name);
+        }
+    }
+
+    // Type parameter + annotation rather than a generic type argument: the extension classes
+    // are static, and a static type cannot be used as a type argument (CS0718).
+    private static bool HasStaticTwoArgMethod(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods)] Type type,
+        string name)
+    {
+        foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static))
+        {
+            if (string.Equals(method.Name, name, StringComparison.Ordinal)
+                && method.GetParameters().Length == 2)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool HasDependencyPropertyField(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields
+            | DynamicallyAccessedMemberTypes.PublicProperties)] Type type,
+        string propertyName)
+    {
+        const BindingFlags Flags =
+            BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy;
+
+        // Reactor's own attached properties are `public static readonly DependencyProperty`
+        // fields; the WinRT projection surfaces WinUI's as static *properties* instead. Accept
+        // either — what matters is that the DP identifier CleanElement clears really exists
+        // under this exact name.
+        var field = type.GetField(propertyName + "Property", Flags);
+        if (field is not null)
+            return field.FieldType == typeof(Microsoft.UI.Xaml.DependencyProperty);
+
+        var property = type.GetProperty(propertyName + "Property", Flags);
+        return property is not null
+            && property.PropertyType == typeof(Microsoft.UI.Xaml.DependencyProperty);
+    }
+
     // ── Drift against the runtime authority ──────────────────────────────────
 
     [Fact]

@@ -9,18 +9,29 @@ using Microsoft.CodeAnalysis.Diagnostics;
 namespace Microsoft.UI.Reactor.Analyzers;
 
 /// <summary>
-/// REACTOR_POOL_001: Detects <c>.Set(fe =&gt; fe.PROP = ...)</c> patterns where
-/// <c>PROP</c> is a FrameworkElement property that <c>ElementPool.CleanElement</c>
-/// resets on pool return (or that the reconciler clears between renders), and a
-/// Reactor modifier exists that survives the reset. Suggests the fluent modifier.
+/// REACTOR_POOL_001: Detects <c>.Set(fe =&gt; fe.PROP = ...)</c> and
+/// <c>.Set(fe =&gt; Owner.SetPROP(fe, ...))</c> patterns where <c>PROP</c> is a property
+/// <c>ElementPool.CleanElement</c> resets on pool return (or that the reconciler clears
+/// between renders), and a Reactor modifier exists that survives the reset. Suggests the
+/// fluent modifier.
 /// Also reports REACTOR_VIS_001 for the closely-related imperative
 /// <c>.Set(c =&gt; c.Visibility = ...)</c> case (see <see cref="VisibilityDiagnosticId"/>).
 /// </summary>
 /// <remarks>
+/// <para>
 /// The pool reset is intentional — it's how Reactor guarantees a clean rental.
 /// But it makes <c>.Set(...)</c> writes to these properties silently disappear
 /// on re-render. The modifier path (stored on <c>Element.Modifiers</c>) is
 /// re-applied by the reconciler every render and so survives pool reuse.
+/// </para>
+/// <para>
+/// Two syntactic shapes, one id. An instance-property write is an assignment
+/// (<c>fe.Margin = …</c>); an attached-property write is a static call
+/// (<c>AutomationProperties.SetName(fe, …)</c>). The failure is identical — the value is
+/// cleared on pool return — so they share <see cref="DiagnosticId"/> and differ only in how
+/// they are matched and in whether a mechanical rewrite exists
+/// (<see cref="AttachedModifierInfo.AutoFix"/>).
+/// </para>
 /// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
@@ -58,6 +69,24 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
     {
         var map = new Dictionary<string, string>(System.StringComparer.Ordinal);
         foreach (var pair in ModifierTable.Properties.Where(pair => pair.Value.PoolReset))
+            map[pair.Key] = pair.Value.Modifier;
+        return map;
+    }
+
+    /// <summary>
+    /// <c>Owner.Property</c> → modifier name for the attached half of the pool-reset set, the
+    /// attached counterpart of <see cref="TrappedProperties"/>. Every entry is pool-reset by
+    /// construction; the authoritative table, including the setter names and which entries
+    /// have a mechanical rewrite, is <see cref="ModifierTable.AttachedProperties"/>.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string> TrappedAttachedProperties =
+        BuildTrappedAttachedProperties();
+
+    private static IReadOnlyDictionary<string, string> BuildTrappedAttachedProperties()
+    {
+        var map = new Dictionary<string, string>(
+            ModifierTable.AttachedProperties.Count, System.StringComparer.Ordinal);
+        foreach (var pair in ModifierTable.AttachedProperties)
             map[pair.Key] = pair.Value.Modifier;
         return map;
     }
@@ -107,9 +136,12 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
         description: VisibilityDescription);
 
     /// <summary>
-    /// Diagnostic-property key carrying the comma-separated names of <em>every</em> WinUI
-    /// property reported on this <c>.Set(...)</c>, so <see cref="PoolResetSetCodeFix"/> knows
-    /// exactly which assignments passed the gates.
+    /// Diagnostic-property key carrying the comma-separated identifiers of <em>every</em>
+    /// write reported on this <c>.Set(...)</c>, so <see cref="PoolResetSetCodeFix"/> knows
+    /// exactly which ones passed the gates. An instance-property write is identified by its
+    /// bare property name (<c>Margin</c>); an attached one by
+    /// <c>Owner.Setter</c> (<c>AutomationProperties.SetName</c>) — the form both sides can
+    /// recover syntactically.
     /// <para>
     /// Load-bearing for multi-statement bodies. A block can mix an assignment that was
     /// reported with one the analyzer deliberately skipped (a gated property on the wrong
@@ -126,6 +158,21 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
     /// </para>
     /// </summary>
     internal const string ReportedPropertiesKey = "ReactorReportedProperties";
+
+    /// <summary>
+    /// Diagnostic-property key carrying the subset of <see cref="ReportedPropertiesKey"/>
+    /// that is safe to rewrite automatically, in the same identifier form.
+    /// </summary>
+    /// <remarks>
+    /// Reported and fixable diverge for the attached shape: several attached properties are
+    /// worth diagnosing but have no mechanical rewrite — a different arity
+    /// (<c>SetPositionInSet(fe, 2)</c> vs <c>.PositionInSet(position, size)</c>), a different
+    /// parameter type, or an N:1 mapping (<c>FlexPanel.*</c> → <c>.Flex(...)</c>). The
+    /// decision lives here rather than in the fix because part of it is semantic — whether
+    /// <c>ToolTipService.SetToolTip</c>'s <c>object</c> argument really is a <c>string</c> —
+    /// and the analyzer is the side that already holds a <c>SemanticModel</c>.
+    /// </remarks>
+    internal const string FixablePropertiesKey = "ReactorFixableProperties";
 
     private static readonly LocalizableString ModifierAvailableTitle =
         "Use the Reactor modifier instead of .Set";
@@ -169,24 +216,40 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
 
         var lambdaExpr = invocation.ArgumentList.Arguments[0].Expression;
 
-        // Detection considers every assignment in the body, not just a lone one: a
-        // modifier-backed write is no less wrong for sharing a block with other statements.
-        // This is deliberately wider than the fix, which converts a body only when EVERY
-        // statement is convertible (SetLambdaHelpers.GetFullyConvertibleLambdaBody) — so a
-        // mixed body is reported here and left unfixed rather than partially rewritten.
-        var assignments = SetLambdaHelpers.GetLambdaAssignments(lambdaExpr);
-        if (assignments.IsDefaultOrEmpty)
-            return;
-
-        // Both arms require the assignment target to be the .Set lambda's own parameter
-        // ('fe.X = v', not 'captured.X = v') so the modifier rewrite applies to the pooled
-        // control the .Set configures rather than some other captured object.
+        // Both arms require the write's target to be the .Set lambda's own parameter
+        // ('fe.X = v' / 'Owner.SetX(fe, v)', not 'captured.X = v') so the modifier rewrite
+        // applies to the pooled control the .Set configures rather than some other object.
         var lambdaParam = SetLambdaHelpers.GetSingleLambdaParameter(lambdaExpr);
         if (lambdaParam is null)
+            return;
+        var paramName = lambdaParam.Identifier.Text;
+
+        // Detection considers every write in the body, not just a lone one: a modifier-backed
+        // write is no less wrong for sharing a block with other statements. This is
+        // deliberately wider than the fix, which converts a body only when EVERY statement is
+        // convertible (SetLambdaHelpers.GetFullyConvertibleLambdaBody) — so a mixed body is
+        // reported here and left unfixed rather than partially rewritten.
+        var assignments = SetLambdaHelpers.GetLambdaAssignments(lambdaExpr);
+        var invocations = SetLambdaHelpers.GetLambdaInvocations(lambdaExpr);
+        if (assignments.IsDefaultOrEmpty && invocations.IsDefaultOrEmpty)
             return;
 
         var isReactorSet = false;
         var reactorSetChecked = false;
+
+        // Guard against an unrelated user-defined '.Set' helper with the same shape: only
+        // Reactor's own .Set setters map to the Reactor modifiers these diagnostics/fixes
+        // assume. Resolved lazily and once — it is the most expensive check here.
+        bool IsReactorSet()
+        {
+            if (!reactorSetChecked)
+            {
+                isReactorSet = SetLambdaHelpers.IsReactorSetInvocation(
+                    invocation, context.SemanticModel, context.CancellationToken);
+                reactorSetChecked = true;
+            }
+            return isReactorSet;
+        }
 
         // Explicit filter (CodeQL cs/linq/missed-where): only simple assignments are
         // candidates here. '+=' on an event is REACTOR_EVENT_001's job, and a numeric
@@ -194,51 +257,118 @@ public sealed class PoolResetSetAnalyzer : DiagnosticAnalyzer
         var simpleAssignments = assignments
             .Where(assignment => assignment.IsKind(SyntaxKind.SimpleAssignmentExpression));
 
-        // Two passes. The first classifies every assignment; the second reports, stamping each
+        // Two passes. The first classifies every write; the second reports, stamping each
         // diagnostic with the complete reported set. The code fix needs the whole set to decide
         // whether a block body is convertible in full, and cannot rely on being handed its
         // siblings (see ReportedPropertiesKey).
-        var reportable = new List<(MemberAccessExpressionSyntax Left, ModifierInfo Info, string PropName)>();
+        var reportable = new List<(int Position, string Id, string Subject, string Modifier, bool PoolReset, bool Fixable)>();
 
         foreach (var assignment in simpleAssignments)
         {
-            var leftAccess = SetLambdaHelpers.GetAssignedMemberAccess(assignment, lambdaParam.Identifier.Text);
+            var leftAccess = SetLambdaHelpers.GetAssignedMemberAccess(assignment, paramName);
             if (leftAccess is null)
                 continue;
 
-            // Guard against an unrelated user-defined '.Set' helper with the same shape: only
-            // Reactor's own .Set setters map to the Reactor modifiers these diagnostics/fixes
-            // assume. Resolved lazily and once — it is the most expensive check here.
-            if (!reactorSetChecked)
-            {
-                isReactorSet = SetLambdaHelpers.IsReactorSetInvocation(
-                    invocation, context.SemanticModel, context.CancellationToken);
-                reactorSetChecked = true;
-            }
-            if (!isReactorSet)
+            if (!IsReactorSet())
                 return;
 
             var classified = ClassifyAssignment(context, invocation, memberAccess, leftAccess, assignment);
             if (classified is { } hit)
-                reportable.Add((leftAccess, hit.Info, hit.PropName));
+            {
+                reportable.Add((
+                    assignment.SpanStart, hit.PropName, hit.PropName, hit.Info.Modifier,
+                    hit.Info.PoolReset, Fixable: true));
+            }
+        }
+
+        foreach (var attachedCall in invocations)
+        {
+            if (!SetLambdaHelpers.TryMatchAttachedSetterCall(
+                    attachedCall, paramName, out var owner, out var setter, out var value))
+            {
+                continue;
+            }
+
+            if (!ModifierTable.AttachedBySetter.TryGetValue(owner + "." + setter, out var info))
+                continue;
+
+            if (!IsReactorSet())
+                return;
+
+            if (!ClassifyAttachedCall(context, attachedCall, info, value, out var fixable))
+                continue;
+
+            reportable.Add((
+                attachedCall.SpanStart, owner + "." + setter, info.Key, info.Modifier,
+                PoolReset: true, fixable));
         }
 
         if (reportable.Count == 0)
             return;
 
-        var reportedProperties = ImmutableDictionary<string, string?>.Empty.Add(
-            ReportedPropertiesKey,
-            string.Join(",", reportable.Select(r => r.PropName)));
+        // Source order, so a mixed body reports (and packs) in the order a reader sees.
+        reportable.Sort(static (left, right) => left.Position.CompareTo(right.Position));
 
-        foreach (var (_, info, propName) in reportable)
+        var reportedProperties = ImmutableDictionary<string, string?>.Empty
+            .Add(ReportedPropertiesKey, string.Join(",", reportable.Select(r => r.Id)))
+            .Add(FixablePropertiesKey, string.Join(",", reportable.Where(r => r.Fixable).Select(r => r.Id)));
+
+        foreach (var (_, _, subject, modifier, poolReset, _) in reportable)
         {
             context.ReportDiagnostic(Diagnostic.Create(
-                info.PoolReset ? Rule : ModifierAvailableRule,
+                poolReset ? Rule : ModifierAvailableRule,
                 invocation.GetLocation(),
                 properties: reportedProperties,
-                propName,
-                info.Modifier));
+                subject,
+                modifier));
         }
+    }
+
+    /// <summary>
+    /// Decide whether an attached-property setter call inside a <c>.Set(...)</c> body should
+    /// be reported, and whether the code fix may rewrite it.
+    /// </summary>
+    private static bool ClassifyAttachedCall(
+        SyntaxNodeAnalysisContext context,
+        InvocationExpressionSyntax attachedCall,
+        AttachedModifierInfo info,
+        ExpressionSyntax value,
+        out bool fixable)
+    {
+        fixable = false;
+
+        // The simple owner name is not enough — a user type called AutomationProperties with a
+        // two-argument SetName would otherwise be rewritten to an unrelated Reactor modifier.
+        if (!SetLambdaHelpers.IsAttachedSetterInNamespace(
+                attachedCall, info.Owner, info.OwnerNamespace, context.SemanticModel, context.CancellationToken))
+        {
+            return false;
+        }
+
+        // Same reasoning as the assignment arm: ApplyModifiers skips a null modifier value, so
+        // suggesting the modifier for an explicit null write would change behaviour.
+        if (IsNullOrDefault(value))
+            return false;
+
+        fixable = info.AutoFix;
+        if (fixable && info.FixValueType is { } requiredType)
+        {
+            // The setter is typed more loosely than the modifier (SetToolTip takes object,
+            // .ToolTip takes string), so the rewrite only compiles for the narrower type.
+            var valueType = context.SemanticModel.GetTypeInfo(value, context.CancellationToken).Type;
+            fixable = MatchesType(valueType, requiredType);
+        }
+
+        return true;
+    }
+
+    private static bool MatchesType(ITypeSymbol? type, string fullyQualifiedName)
+    {
+        if (type is null)
+            return false;
+        var ns = type.ContainingNamespace?.ToDisplayString();
+        var name = string.IsNullOrEmpty(ns) ? type.Name : ns + "." + type.Name;
+        return string.Equals(name, fullyQualifiedName, System.StringComparison.Ordinal);
     }
 
     /// <summary>
