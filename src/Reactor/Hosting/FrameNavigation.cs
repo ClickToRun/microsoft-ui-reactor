@@ -38,6 +38,15 @@ internal static class FrameNavigation
         // "genuine fail-safe-to-default behavior", and this method's contract is "true only if
         // definitively resolvable". Any failure to answer means we cannot confirm, and the safe
         // default is to refuse the navigation rather than risk the access violation.
+        //
+        // If you are about to replace this with a type list, the argument you need is: the usual
+        // case for propagating is that swallowing changes the outcome — you continue in a state
+        // you should not be in. That does not hold here. The navigation is refused either way,
+        // so propagating buys no correctness and costs a crash; it would only convert a
+        // third-party provider's bug into a render-loop error. Expected throws are COMException
+        // at the WinRT boundary, InvalidOperationException / ArgumentException from a
+        // hand-written provider, and TypeLoadException / FileNotFoundException from an
+        // unloadable assembly — but the list is not what makes this safe, the identical outcome is.
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException) { return false; }
     }
 
