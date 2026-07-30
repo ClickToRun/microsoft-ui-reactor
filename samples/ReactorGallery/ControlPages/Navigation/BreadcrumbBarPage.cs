@@ -30,8 +30,10 @@ class BreadcrumbBarPage : Component
                             item => setClicked(item.Label)),
                         TextBlock($"Last clicked: {clicked}").Foreground(Theme.SecondaryText)
                     ),
-                    @"BreadcrumbBar(
-    new[] { Breadcrumb(""Home""), Breadcrumb(""Documents""), Breadcrumb(""Reports"") },
+                    @"var (path, setPath) = UseState(new[] { ""Home"", ""Documents"", ""Reports"" });
+
+BreadcrumbBar(
+    path.Select(p => Breadcrumb(p)).ToArray(),
     item => setClicked(item.Label))"),
 
                 SampleCard("Dynamic Breadcrumb",
