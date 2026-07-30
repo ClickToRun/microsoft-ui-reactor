@@ -102,7 +102,7 @@ DataGrid(
     editMode: EditMode.Cell,
     onRowChanged: (key, item) =>          // called inline on the UI thread by UseMutation
     {
-        setLastCellEdit($""row {key.Value}: {item.Name}"");
+        setLastCellEdit($""row {key.Value} → {item.Name} / {item.Category} / {item.Price:C2}"");
         return Task.CompletedTask;
     },
     rowHeight: 36)

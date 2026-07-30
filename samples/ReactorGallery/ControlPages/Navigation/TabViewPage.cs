@@ -57,7 +57,7 @@ static int SelectionAfterClose(int selected, int closed, int remaining) =>
 var (tabs, setTabs) = UseState(UseMemo(() => new[] { ""Home"", ""Document"", ""Settings"" }));
 var (idx, setIdx) = UseState(0);
 
-TabView(tabs.Select(t => Tab(t, TextBlock($""{t} content""))).ToArray()) with
+TabView(tabs.Select(t => Tab(t, TextBlock($""{t} content"").Padding(16))).ToArray()) with
 {
     SelectedIndex = idx,
     OnSelectedIndexChanged = i => setIdx(i),
@@ -111,7 +111,7 @@ var (tabs, setTabs) = UseState(UseMemo(() => new[] { ""Tab 1"", ""Tab 2"", ""Tab
 var (idx, setIdx) = UseState(0);
 var (nextId, setNextId) = UseState(4);   // ids, not a count, so titles stay unique
 
-TabView(tabs.Select(t => Tab(t, TextBlock($""Content of {t}""))).ToArray()) with
+TabView(tabs.Select(t => Tab(t, TextBlock($""Content of {t}"").Padding(16))).ToArray()) with
 {
     SelectedIndex = idx,
     OnSelectedIndexChanged = i => setIdx(i),
