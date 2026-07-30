@@ -90,12 +90,16 @@ internal static class FrameNavigation
         }
     }
 
+    // Deliberately does NOT suggest ReactorApp.RegisterPageType / RegisterControlAssembly:
+    // both feed ReactorApplication.GetXamlType, which is exactly the chain that is not
+    // running in the only case that reaches this message.
     private static string BuildUnresolvableMessage(Type pageType)
         => $"Frame navigation to '{pageType.FullName}' was refused: the WinUI XAML metadata chain " +
            "cannot resolve the type, and calling Frame.Navigate anyway terminates the process with " +
-           "an access violation. This happens when Application.Current is not a ReactorApplication " +
-           "(for example a Reactor tree hosted inside a stock WinUI app) and the host application's " +
-           "own generated XAML metadata does not include the page. Give the page a .xaml file in the " +
-           "host project, or register its assembly's metadata provider with " +
-           "ReactorApp.RegisterControlAssembly.";
+           "an access violation. Reactor publishes navigation targets itself, so this only happens " +
+           "when Application.Current is not a ReactorApplication — for example a Reactor tree hosted " +
+           "inside a stock WinUI app via ReactorHostControl. In that case the host application owns " +
+           "type resolution: give the page a .xaml file in the host project so its XAML compiler " +
+           "emits the type into the host's generated metadata, or make the host's Application " +
+           "implement IXamlMetadataProvider and resolve the type itself.";
 }
