@@ -317,7 +317,26 @@ public sealed class GallerySampleLintTests
 
     // ── ms-appx assets must exist AND be copied to the output folder ─────────
 
-    static readonly Regex MsAppxLiteral = new(@"ms-appx:///(?<path>[^""'\s\\]+)", RegexOptions.Compiled);
+    /// <summary>
+    /// An <c>ms-appx:///</c> reference and whatever literal text follows it. The alternation's
+    /// second arm matches an <em>empty</em> path when the scheme is immediately followed by a
+    /// quote — i.e. <c>"ms-appx:///" + relative</c>, where nothing after the scheme is literal.
+    /// Without it that form matches nothing at all and escapes the lint entirely. Prose mentions
+    /// in comments are followed by a space, so they still match neither arm.
+    /// </summary>
+    static readonly Regex MsAppxLiteral = new(@"ms-appx:///(?<path>[^""'\s\\]+|(?=[""']))", RegexOptions.Compiled);
+
+    /// <summary>
+    /// True when the captured text cannot be a whole asset path, so the lint must say so rather
+    /// than go looking for a file. Each arm is a real composition form: an interpolation hole,
+    /// a capture that ran past the closing quote, a trailing <c>/</c> left by
+    /// <c>"ms-appx:///Assets/" + name</c>, and an empty capture from <c>"ms-appx:///" + path</c>.
+    /// </summary>
+    static bool IsComposedAssetPath(string assetPath) =>
+        assetPath.Length == 0
+        || assetPath.Contains('{')
+        || assetPath.Contains(')')
+        || assetPath.EndsWith('/');
 
     /// <summary>
     /// Directory prefixes / exact files the gallery csproj copies next to the executable.
@@ -362,7 +381,7 @@ public sealed class GallerySampleLintTests
 
                 // A composed / interpolated URI cannot be resolved statically, so it would
                 // silently escape this lint — fail instead of quietly skipping it.
-                if (assetPath.Contains('{') || assetPath.Contains(')'))
+                if (IsComposedAssetPath(assetPath))
                 {
                     offenders.Add($"{at}: ms-appx:///{assetPath} is composed at runtime, so this lint cannot " +
                                   "verify the asset ships. Use a literal ms-appx:/// path in gallery pages.");
@@ -391,5 +410,33 @@ public sealed class GallerySampleLintTests
         Assert.True(inspectedAssets > 0,
             "no ms-appx:/// asset literals were inspected — the lint would pass vacuously.");
         Assert.True(offenders.Count == 0, string.Join("\n", offenders));
+    }
+
+    /// <summary>
+    /// The regex and the composed-path classifier together decide whether a reference is checked,
+    /// reported as unverifiable, or skipped entirely — so each composition form is pinned against
+    /// a source line. <c>expected</c> is <c>null</c> when nothing should match at all, which is the
+    /// correct answer only for a prose mention of the scheme in a comment.
+    /// </summary>
+    [Theory]
+    [InlineData(@"Image(""ms-appx:///Assets/SampleImages/Landscape.png"")", "Assets/SampleImages/Landscape.png", false)]
+    [InlineData(@"Image(""""ms-appx:///Assets/SampleImages/Landscape.png"""")", "Assets/SampleImages/Landscape.png", false)]
+    [InlineData(@"Image($""ms-appx:///Assets/{name}.png"")", "Assets/{name}.png", true)]
+    [InlineData(@"Image(""ms-appx:///Assets/"" + fileName)", "Assets/", true)]
+    [InlineData(@"Image(""ms-appx:///"" + relative)", "", true)]
+    [InlineData("// what ms-appx:/// resolves against, next to the executable", null, false)]
+    public void MsAppxDetection_ClassifiesEveryCompositionForm(string source, string? expected, bool composed)
+    {
+        var match = MsAppxLiteral.Match(source);
+
+        if (expected is null)
+        {
+            Assert.False(match.Success, $"prose mention should not match: {source}");
+            return;
+        }
+
+        Assert.True(match.Success, $"no ms-appx match in: {source}");
+        Assert.Equal(expected, match.Groups["path"].Value);
+        Assert.Equal(composed, IsComposedAssetPath(match.Groups["path"].Value));
     }
 }
