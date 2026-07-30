@@ -342,8 +342,8 @@ internal static class SelectionEventFixtures
             NavigationViewItem? target = null;
             if (nv is not null)
             {
-                foreach (var item in nv.MenuItems.OfType<NavigationViewItem>())
-                    if ((item.Tag as string) == "about") { target = item; break; }
+                target = nv.MenuItems.OfType<NavigationViewItem>()
+                    .FirstOrDefault(item => (item.Tag as string) == "about");
             }
             H.Check("NavViewEcho_TargetItemFound", target is not null);
 

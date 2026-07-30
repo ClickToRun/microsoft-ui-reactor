@@ -261,9 +261,8 @@ public sealed class GalleryDeepLinkTests
         // Surrounding whitespace is trimmed, not folded into leading/trailing hyphens.
         Assert.Equal("basic-input", GalleryRoutes.CategorySlug("  Basic Input  "));
 
-        foreach (var category in ControlRegistry.Categories)
+        foreach (var slug in ControlRegistry.Categories.Select(GalleryRoutes.CategorySlug))
         {
-            var slug = GalleryRoutes.CategorySlug(category);
             Assert.DoesNotContain(" ", slug, StringComparison.Ordinal);
             Assert.Equal(slug.ToLowerInvariant(), slug);
         }
