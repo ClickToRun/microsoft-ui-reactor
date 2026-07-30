@@ -124,7 +124,8 @@ public static class FlyoutPlacementFixtures
 
     // ────────────────────────────────────────────────────────────────────
     //  Update path: an explicit placement lands on the already-mounted flyout,
-    //  and going back to Auto never writes Auto (it keeps the last real value).
+    //  and going back to Auto clears the DP so it returns to the platform default
+    //  rather than leaving a stale local value behind (see issue #952).
     // ────────────────────────────────────────────────────────────────────
     internal class Flyout_PlacementUpdate_NeverWritesAuto(Harness h) : SelfTestFixtureBase(h)
     {
@@ -160,13 +161,16 @@ public static class FlyoutPlacementFixtures
             H.Check("FlyoutPlacement_Update_ExplicitApplied",
                 flyout?.Placement == WinPrim.FlyoutPlacementMode.Left);
 
-            // Left → Auto: documented no-reset semantic — the last real value stays,
-            // and crucially Auto is never written back onto the DP.
+            // Left → Auto: the DP is cleared, so it returns to the platform default
+            // rather than retaining Left as a stale local value — and crucially Auto
+            // itself is still never written onto the DP.
             H.ClickButton("AdvancePlacement");
             await Harness.WaitFor(() => H.FindText("PlacementStep=2") is not null);
             H.Check("FlyoutPlacement_Update_Step2Rendered", H.FindText("PlacementStep=2") is not null);
-            H.Check("FlyoutPlacement_Update_AutoDoesNotOverwrite",
-                flyout?.Placement == WinPrim.FlyoutPlacementMode.Left);
+            H.Check("FlyoutPlacement_Update_AutoResetsToPlatformDefault",
+                flyout?.Placement == new WinUI.Flyout().Placement);
+            H.Check("FlyoutPlacement_Update_AutoNeverWritesAuto",
+                flyout?.Placement != WinPrim.FlyoutPlacementMode.Auto);
 
             H.ClickButton("UpdatePlacementTarget");
             await Harness.WaitFor(() => flyout?.IsOpen == true);

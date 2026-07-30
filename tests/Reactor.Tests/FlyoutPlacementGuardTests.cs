@@ -184,18 +184,19 @@ public class FlyoutPlacementGuardTests
     }
 
     [Fact]
-    public void Scanner_Detects_The_Write_Inside_FlyoutPlacement()
+    public void Scanner_Detects_The_Writes_Inside_FlyoutPlacement()
     {
         // Anti-vacuity: a detector that never matches anything would make the test above
-        // pass unconditionally. Prove it finds the one legitimate write.
-        var writes = ScanCoreForFlyoutPlacementWrites();
-
-        var inHelper = writes
+        // pass unconditionally. Prove it finds both legitimate writes in the choke point —
+        // the explicit assignment and the ClearValue that handles Auto.
+        var inHelper = ScanCoreForFlyoutPlacementWrites()
             .Where(w => string.Equals(Path.GetFileName(w.File), HelperFileName, StringComparison.Ordinal))
+            .Select(w => w.Text)
             .ToList();
 
-        var single = Assert.Single(inHelper);
-        Assert.Contains("Placement", single.Text, StringComparison.Ordinal);
+        Assert.Equal(2, inHelper.Count);
+        Assert.Contains(inHelper, t => t.Contains("flyout.Placement = placement", StringComparison.Ordinal));
+        Assert.Contains(inHelper, t => t.Contains("ClearValue", StringComparison.Ordinal));
     }
 
     [Fact]

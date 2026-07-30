@@ -30,27 +30,29 @@ namespace Microsoft.UI.Reactor.Core;
 /// </para>
 /// <para>
 /// Reactor's element records default to <c>Auto</c>, which means "no opinion — let the
-/// platform decide". That is expressed by leaving the DP untouched rather than by writing
-/// <c>Auto</c> to it. Note that "untouched" is not the same as "<c>Auto</c>": the DP's own
-/// default is <c>Top</c> (measured, see the <c>Platform_FlyoutBase_PlacementDefault</c>
-/// selftest), so skipping the write pins the flyout to <c>Top</c> and lets WinUI reposition
-/// from there.
+/// platform decide". That is expressed by <b>clearing</b> the DP rather than by writing
+/// <c>Auto</c> to it. Note that cleared is not the same as <c>Auto</c>: the DP's own default
+/// is <c>Top</c> (measured, see the <c>Platform_FlyoutBase_PlacementDefault</c> selftest), so
+/// a cleared property leaves the flyout at <c>Top</c> and lets WinUI reposition from there.
 /// </para>
 /// <para>
-/// <c>CommandBarFlyout</c>'s three placement sites are guarded by
-/// <c>Reconciler.ApplyFlyoutPlacement</c> instead of by this helper — they are owned by the
-/// change that fixed <c>CommandBarFlyout</c> never opening from its target, and that change
-/// guards them itself. <c>CommandBarFlyout</c> is affected by the same crash: it simply never
-/// reached the validator beforehand, because the flyout was installed as <c>AttachedFlyout</c>
-/// metadata that nothing ever called <c>ShowAttachedFlyout</c> on. A latent crash masked by a
-/// separate defect reads exactly like a working code path.
+/// Clearing rather than merely skipping the write matters on an update from an explicit
+/// placement back to <c>Auto</c>. Skipping would leave the previous explicit value behind as a
+/// <b>local</b> DP value, which outranks any <c>Style</c> setter for the same property — so the
+/// element could never get its styled placement back, and "no opinion" would silently mean
+/// "whatever I last said". That is the same dependency-property precedence defect tracked in
+/// issue #952 for the common modifiers. Clearing also makes an update idempotent with a fresh
+/// mount of the same element.
 /// </para>
 /// <para>
-/// The two helpers differ only on an update back to <c>Auto</c>: this one leaves the previously
-/// written value in place, matching the pre-existing <c>MenuFlyout</c> guard it generalizes,
-/// while <c>ApplyFlyoutPlacement</c> clears the DP so it returns to the platform default.
-/// Converging on one of them is a worthwhile follow-up; clearing is arguably the better
-/// semantic, since it makes an update idempotent with a fresh mount.
+/// <c>CommandBarFlyout</c>'s three placement sites are guarded by the equivalent
+/// <c>Reconciler.ApplyFlyoutPlacement</c>, introduced by the change that fixed
+/// <c>CommandBarFlyout</c> never opening from its target. The two now behave identically;
+/// folding them into one helper is a mechanical follow-up. <c>CommandBarFlyout</c> is affected
+/// by the same crash: it simply never reached the validator beforehand, because the flyout was
+/// installed as <c>AttachedFlyout</c> metadata that nothing ever called
+/// <c>ShowAttachedFlyout</c> on. A latent crash masked by a separate defect reads exactly like
+/// a working code path.
 /// </para>
 /// </remarks>
 internal static class FlyoutPlacement
@@ -64,12 +66,17 @@ internal static class FlyoutPlacement
         => placement != WinPrim.FlyoutPlacementMode.Auto;
 
     /// <summary>
-    /// Applies an element's placement to a live flyout, skipping
-    /// <see cref="WinPrim.FlyoutPlacementMode.Auto"/> and redundant writes.
+    /// Applies an element's placement to a live flyout: clears the property for
+    /// <see cref="WinPrim.FlyoutPlacementMode.Auto"/> so it falls back to the platform
+    /// default, and otherwise writes the value, skipping redundant writes.
     /// </summary>
     internal static void Apply(WinPrim.FlyoutBase flyout, WinPrim.FlyoutPlacementMode placement)
     {
-        if (!ShouldApply(placement)) return;
+        if (!ShouldApply(placement))
+        {
+            flyout.ClearValue(WinPrim.FlyoutBase.PlacementProperty);
+            return;
+        }
         if (flyout.Placement != placement) flyout.Placement = placement;
     }
 }

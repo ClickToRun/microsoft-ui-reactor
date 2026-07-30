@@ -5274,12 +5274,12 @@ public record FlyoutElement(
     /// <summary>
     /// Preferred position of the flyout relative to its target. Defaults to
     /// <see cref="FlyoutPlacementMode.Auto"/>, which means "no opinion — let WinUI decide":
-    /// Reactor leaves <c>FlyoutBase.Placement</c> at the control's own default
-    /// (<see cref="FlyoutPlacementMode.Top"/>) instead of writing <c>Auto</c>, because
-    /// WinUI's show-time validator rejects <c>Auto</c> and terminates the process.
-    /// Since nothing is written, changing an already-mounted flyout from an explicit
-    /// placement back to <see cref="FlyoutPlacementMode.Auto"/> keeps the last explicit
-    /// value rather than resetting it.
+    /// Reactor clears <c>FlyoutBase.Placement</c> so it falls back to the control's own
+    /// default (<see cref="FlyoutPlacementMode.Top"/>) instead of writing <c>Auto</c>,
+    /// because WinUI's show-time validator rejects <c>Auto</c> and terminates the process.
+    /// Changing an already-mounted flyout from an explicit placement back to
+    /// <see cref="FlyoutPlacementMode.Auto"/> therefore returns it to that default, rather
+    /// than leaving a stale local value that would outrank a <c>Style</c> setter.
     /// </summary>
     public FlyoutPlacementMode Placement { get; init; } = FlyoutPlacementMode.Auto;
     public Action? OnOpened { get; init; }
@@ -5303,12 +5303,12 @@ public record ContentFlyoutElement(Element Content) : Element
     /// <summary>
     /// Preferred position of the flyout relative to its target. Defaults to
     /// <see cref="FlyoutPlacementMode.Auto"/>, which means "no opinion — let WinUI decide":
-    /// Reactor leaves <c>FlyoutBase.Placement</c> at the control's own default
-    /// (<see cref="FlyoutPlacementMode.Top"/>) instead of writing <c>Auto</c>, because
-    /// WinUI's show-time validator rejects <c>Auto</c> and terminates the process.
-    /// Since nothing is written, changing an already-mounted flyout from an explicit
-    /// placement back to <see cref="FlyoutPlacementMode.Auto"/> keeps the last explicit
-    /// value rather than resetting it.
+    /// Reactor clears <c>FlyoutBase.Placement</c> so it falls back to the control's own
+    /// default (<see cref="FlyoutPlacementMode.Top"/>) instead of writing <c>Auto</c>,
+    /// because WinUI's show-time validator rejects <c>Auto</c> and terminates the process.
+    /// Changing an already-mounted flyout from an explicit placement back to
+    /// <see cref="FlyoutPlacementMode.Auto"/> therefore returns it to that default, rather
+    /// than leaving a stale local value that would outrank a <c>Style</c> setter.
     /// </summary>
     public FlyoutPlacementMode Placement { get; init; } = FlyoutPlacementMode.Auto;
 }
@@ -5322,12 +5322,12 @@ public record MenuFlyoutContentElement(MenuFlyoutItemBase[] Items) : Element
     /// <summary>
     /// Preferred position of the flyout relative to its target. Defaults to
     /// <see cref="FlyoutPlacementMode.Auto"/>, which means "no opinion — let WinUI decide":
-    /// Reactor leaves <c>FlyoutBase.Placement</c> at the control's own default
-    /// (<see cref="FlyoutPlacementMode.Top"/>) instead of writing <c>Auto</c>, because
-    /// WinUI's show-time validator rejects <c>Auto</c> and terminates the process.
-    /// Since nothing is written, changing an already-mounted flyout from an explicit
-    /// placement back to <see cref="FlyoutPlacementMode.Auto"/> keeps the last explicit
-    /// value rather than resetting it.
+    /// Reactor clears <c>FlyoutBase.Placement</c> so it falls back to the control's own
+    /// default (<see cref="FlyoutPlacementMode.Top"/>) instead of writing <c>Auto</c>,
+    /// because WinUI's show-time validator rejects <c>Auto</c> and terminates the process.
+    /// Changing an already-mounted flyout from an explicit placement back to
+    /// <see cref="FlyoutPlacementMode.Auto"/> therefore returns it to that default, rather
+    /// than leaving a stale local value that would outrank a <c>Style</c> setter.
     /// </summary>
     public FlyoutPlacementMode Placement { get; init; } = FlyoutPlacementMode.Auto;
 }

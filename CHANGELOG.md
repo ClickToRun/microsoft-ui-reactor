@@ -107,7 +107,8 @@ Conventions for contributors:
   open from its target at all — before that it never reached the validator,
   because nothing ever showed it. Explicit placements are unaffected
   everywhere; a guarded flyout whose placement changes from an explicit value
-  back to `Auto` keeps the last explicit value rather than resetting.
+  back to `Auto` returns to that default, rather than leaving a stale local value
+  that would outrank a `Style` setter.
 
 - **`NavigationView` pane state no longer desyncs when the control moves its own
   pane (issue #916).** `IsPaneOpen` could be written but had no change
