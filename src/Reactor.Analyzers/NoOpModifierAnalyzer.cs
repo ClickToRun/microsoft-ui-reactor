@@ -354,8 +354,12 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
                     && !declaringNamespace.StartsWith(ReactorNamespace + ".", System.StringComparison.Ordinal)))
                 continue;
 
-            // Declared for this exact element, not inherited from a base element.
-            if (!SymbolEqualityComparer.Default.Equals(declared.Parameters[0].Type, receiver))
+            // Declared for this exact element, not inherited from a base element. Compared on the
+            // original definitions: ReducedFrom does not carry the type arguments inferred during
+            // reduction, so `Set<T>(this ItemsViewElement<T>, …)` reduced against
+            // `ItemsViewElement<Foo>` still reports `ItemsViewElement<T>` as its receiver.
+            if (!SymbolEqualityComparer.Default.Equals(
+                    declared.Parameters[0].Type.OriginalDefinition, receiver.OriginalDefinition))
                 continue;
 
             if (method.Parameters[0].Type is not INamedTypeSymbol { Name: "Action", TypeArguments.Length: 1 } action

@@ -149,6 +149,11 @@ namespace Microsoft.UI.Reactor.Core
     [GenerateReactorDescriptor(typeof(WinUI.Image))]
     public record ImageElement : Element { }
 
+    // Generic element: its Set is declared as Set<T>(this TemplatedListElement<T>, ...), so the
+    // declared receiver only matches the constructed one on the original definitions.
+    [GenerateReactorDescriptor(typeof(WinUI.Image))]
+    public record TemplatedListElement<T> : Element { }
+
     [GenerateReactorDescriptor(typeof(global::Microsoft.UI.Reactor.Layout.FlexPanel))]
     public record FlexElement : Element { }
 
@@ -177,6 +182,7 @@ namespace Microsoft.UI.Reactor.Core
         public static TextBlockElement Text(string s) => new();
         public static RichTextBlockElement RichTextBlock() => new();
         public static ImageElement Image(string s) => new();
+        public static TemplatedListElement<T> TemplatedList<T>() => new();
         public static FlexElement Flex() => new();
         public static AmbiguousElement Ambiguous() => new();
         public static XamlHostElement XamlHost() => new();
@@ -215,6 +221,7 @@ namespace Microsoft.UI.Reactor
         public static TextBlockElement Set(this TextBlockElement el, Action<WinUI.TextBlock> configure) => el;
         public static RichTextBlockElement Set(this RichTextBlockElement el, Action<WinUI.RichTextBlock> configure) => el;
         public static ImageElement Set(this ImageElement el, Action<WinUI.Image> configure) => el;
+        public static TemplatedListElement<T> Set<T>(this TemplatedListElement<T> el, Action<WinUI.Image> configure) => el;
         public static FlexElement Set(this FlexElement el, Action<global::Microsoft.UI.Reactor.Layout.FlexPanel> configure) => el;
         public static AmbiguousElement Set(this AmbiguousElement el, Action<WinUI.Grid> configure) => el;
         public static AmbiguousElement Set(this AmbiguousElement el, Action<WinUI.Border> configure) => el;
@@ -398,6 +405,19 @@ namespace TestApp
                     ". Path is a Shape, which is painted with 'StrokeThickness' — did you mean '.StrokeThickness(...)'?"));
 
         await test.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_For_A_Generic_Element_Whose_Set_Is_Declared_Generically()
+    {
+        // `Set<T>(this TemplatedListElement<T>, Action<Image>)` reduced against
+        // TemplatedListElement<string> reports `TemplatedListElement<T>` as its declared receiver,
+        // because ReducedFrom drops the type arguments inferred during reduction. Comparing the
+        // original definitions is what keeps generic elements in scope.
+        var body = App(@"
+        internal static Element M() => TemplatedList<string>().{|REACTOR_MOD_003:CornerRadius|}(4);");
+
+        await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
