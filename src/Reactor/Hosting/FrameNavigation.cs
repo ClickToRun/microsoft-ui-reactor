@@ -90,16 +90,23 @@ internal static class FrameNavigation
         }
     }
 
-    // Deliberately does NOT suggest ReactorApp.RegisterPageType / RegisterControlAssembly:
-    // both feed ReactorApplication.GetXamlType, which is exactly the chain that is not
-    // running in the only case that reaches this message.
+    // Deliberately does NOT suggest ReactorApp.RegisterPageType / RegisterControlAssembly for
+    // the hosting case: both feed ReactorApplication.GetXamlType, which is exactly the chain
+    // that is not running when a non-Reactor Application owns type resolution.
     private static string BuildUnresolvableMessage(Type pageType)
-        => $"Frame navigation to '{pageType.FullName}' was refused: the WinUI XAML metadata chain " +
-           "cannot resolve the type, and calling Frame.Navigate anyway terminates the process with " +
-           "an access violation. Reactor publishes navigation targets itself, so this only happens " +
-           "when Application.Current is not a ReactorApplication — for example a Reactor tree hosted " +
-           "inside a stock WinUI app via ReactorHostControl. In that case the host application owns " +
-           "type resolution: give the page a .xaml file in the host project so its XAML compiler " +
-           "emits the type into the host's generated metadata, or make the host's Application " +
-           "implement IXamlMetadataProvider and resolve the type itself.";
+    {
+        // FullName is null for generic parameters and some constructed types, and WinUI keys
+        // its lookup on it — so print something identifiable rather than an empty string.
+        var name = pageType.FullName ?? pageType.Name;
+        return $"Frame navigation to '{name}' was refused: the WinUI XAML metadata chain cannot " +
+               "resolve the type, and calling Frame.Navigate anyway terminates the process with an " +
+               "access violation. Either the target cannot be published as a navigation target — " +
+               "open generics and types without a full name are skipped because WinUI could never " +
+               "activate them, so use a concrete, closed, named Page type — or Application.Current " +
+               "is not a ReactorApplication (for example a Reactor tree hosted inside a stock WinUI " +
+               "app via ReactorHostControl), in which case the host application owns type " +
+               "resolution: give the page a .xaml file in the host project so its XAML compiler " +
+               "emits the type into the host's generated metadata, or make the host's Application " +
+               "implement IXamlMetadataProvider and resolve the type itself.";
+    }
 }
