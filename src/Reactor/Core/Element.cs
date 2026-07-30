@@ -7000,10 +7000,9 @@ public partial record FrameElement() : Element
 
     private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<FrameElement, WinUI.Frame> Customize(
         global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<FrameElement, WinUI.Frame> d)
-    {
-        d.AfterChildrenMount = static (in global::Microsoft.UI.Reactor.Core.V1Protocol.MountContext _, FrameElement el, WinUI.Frame frame)
-            => NavigateOnMount(frame, el);
-        return d
+        => d
+            .WithAfterChildrenMount(static (in global::Microsoft.UI.Reactor.Core.V1Protocol.MountContext _, FrameElement el, WinUI.Frame frame)
+                => NavigateOnMount(frame, el))
             .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.FrameEventPayload, global::Microsoft.UI.Xaml.Navigation.NavigatedEventHandler>(
                 subscribe: static (c, h) => c.Navigated += h,
                 callbackPresent: static el => el.OnNavigated,
@@ -7022,7 +7021,6 @@ public partial record FrameElement() : Element
                 trampoline: s_navigationFailedTrampoline,
                 slotIsNull: static p => p.NavigationFailedTrampoline is null,
                 setSlot: static (p, h) => p.NavigationFailedTrampoline = h);
-    }
 }
 
 // ════════════════════════════════════════════════════════════════════════

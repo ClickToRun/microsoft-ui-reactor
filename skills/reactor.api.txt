@@ -1721,7 +1721,7 @@ T DefaultValue { get; }
 
 ### class ControlDescriptor<TElement, TControl>
 new()
-AfterChildrenMountCallback<TElement, TControl> AfterChildrenMount { get; set; }
+AfterChildrenMountCallback<TElement, TControl> AfterChildrenMount { get; init; }
 ChildrenStrategy<TElement, TControl> Children { get; set; }
 Func<TControl> Factory { get; init; }
 Func<TElement, Action<TControl>[]> GetSetters { get; init; }
@@ -1744,6 +1744,7 @@ OneWayConditional<TValue>(Func<TElement, TValue> get, Action<TControl, TValue> s
 Reference(Func<TElement, ElementRef> get, Action<TControl, FrameworkElement> set) → ControlDescriptor<TElement, TControl>
 Reference<TTarget>(Func<TElement, ElementRef<TTarget>> get, Action<TControl, TTarget> set) → ControlDescriptor<TElement, TControl>
 ReferenceList<TTarget>(Func<TElement, IReadOnlyList<ElementRef<TTarget>>> get, Action<TControl, IReadOnlyList<TTarget>> apply) → ControlDescriptor<TElement, TControl>
+WithAfterChildrenMount(AfterChildrenMountCallback<TElement, TControl> callback) → ControlDescriptor<TElement, TControl>
 
 ### record Curve
 Ease(int durationMs, Easing easing = null) → Curve

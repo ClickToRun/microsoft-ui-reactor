@@ -23,6 +23,7 @@ namespace Microsoft.UI.Reactor.Hosting;
 [global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(Frame))]
 [global::Microsoft.UI.Reactor.Wrappers.WrapDecorator(nameof(CreateFrame), OnUpdate = nameof(UpdateFrame), OnUnmount = nameof(TeardownFrame))]
 public partial record XamlPageElement(
+    [param: DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
     [property: DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] Type PageType,
     object? Parameter = null) : Element
 {

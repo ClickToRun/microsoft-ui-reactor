@@ -51,6 +51,9 @@ internal sealed partial class SelfTestFrameThrowingPage : Page
         => throw new global::System.InvalidOperationException(FailureMessage);
 }
 
+/// <summary>Never navigated to, so it must never appear in the metadata chain.</summary>
+internal sealed partial class SelfTestFrameNeverNavigatedPage : Page { }
+
 internal static class FrameNavigationFixtures
 {
     // ════════════════════════════════════════════════════════════════════════
@@ -157,6 +160,156 @@ internal static class FrameNavigationFixtures
             var frame = H.FindControl<Frame>(_ => true);
             H.Check("FrameNavFail_FrameStillMounted", frame is not null);
             H.Check("FrameNavFail_ContentLeftEmpty", frame?.Content is null);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  4. Navigation is mount-only: an update must not re-navigate.
+    // ════════════════════════════════════════════════════════════════════════
+
+    internal class UpdateDoesNotRenavigate(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var navigatedTo = new List<Type>();
+
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (swapped, setSwapped) = ctx.UseState(false);
+                return VStack(
+                    // No .WithKey: the same Frame control is reconciled in place, so a
+                    // re-navigation would have to come from the descriptor, not a remount.
+                    // The page type is a `typeof` in each branch rather than state-held, so
+                    // the PublicParameterlessConstructor annotation on Frame(...) is
+                    // satisfied under trim/AOT analysis.
+                    Frame(swapped ? typeof(SelfTestFrameOtherPage) : typeof(SelfTestFramePage))
+                        .Navigated(navigatedTo.Add).Height(120),
+                    Button("Swap", () => setSwapped(true)));
+            });
+
+            await Harness.Render();
+            var frameBefore = H.FindControl<Frame>(_ => true);
+            H.Check("FrameNavUpdate_NavigatedOnceOnMount", navigatedTo.Count == 1);
+
+            H.ClickButton("Swap");
+            await Harness.Render();
+
+            var frameAfter = H.FindControl<Frame>(_ => true);
+
+            // Guards the premise: if the control were remounted the "no re-navigation"
+            // assertion below would be measuring the wrong thing.
+            H.Check("FrameNavUpdate_SameFrameInstanceReused", ReferenceEquals(frameBefore, frameAfter));
+
+            // Navigation is mount-only by design (spec 058 §15 P5.6) — re-running it on
+            // every record-`with` would re-navigate on unrelated state changes.
+            H.Check("FrameNavUpdate_NoSecondNavigation", navigatedTo.Count == 1);
+            H.Check("FrameNavUpdate_ContentUnchanged", frameAfter?.Content is SelfTestFramePage);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  5. Without an OnNavigationFailed handler the failure is NOT marked handled.
+    // ════════════════════════════════════════════════════════════════════════
+
+    internal class ThrowingPageWithoutHandlerSurfacesError(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            // Same throwing page as fixture 3, but with no .NavigationFailed(...) wired.
+            // The agreed semantic is that the failure then surfaces as an ordinary managed
+            // exception rather than being silently swallowed — ReactorHost's render guard
+            // turns it into the standard error fallback instead of a process kill (which is
+            // what an unguarded Frame.Navigate to an unresolvable type used to produce).
+            var host = H.CreateHost();
+            host.Mount(_ => VStack(
+                Frame(typeof(SelfTestFrameThrowingPage)).Height(120)));
+
+            await Harness.Render();
+
+            // ReactorHost.ShowErrorFallback renders "Render error: {Type}: {Message}".
+            // Matching on the page's own message proves the failure propagated out of mount
+            // AND that the reported exception is the page's, not Activator's wrapper.
+            var errorHeader = H.FindControl<Microsoft.UI.Xaml.Controls.TextBlock>(
+                tb => tb.Text.StartsWith("Render error:", StringComparison.Ordinal)
+                      && tb.Text.Contains(SelfTestFrameThrowingPage.FailureMessage, StringComparison.Ordinal));
+            H.Check("FrameNavNoHandler_ErrorFallbackReportsPageException", errorHeader is not null);
+
+            // The differential against fixture 3: with a handler wired the Frame stays in the
+            // tree (content null) and no error fallback appears; without one the mount was
+            // abandoned, so the Frame never reached the tree at all.
+            H.Check("FrameNavNoHandler_FrameNeverReachedTree",
+                H.FindControl<Frame>(_ => true) is null);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  6. The synthesized metadata is reachable through Application.Current.
+    // ════════════════════════════════════════════════════════════════════════
+
+    internal class MetadataChainResolvesRegisteredPageOnly(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var provider = Application.Current as Microsoft.UI.Xaml.Markup.IXamlMetadataProvider;
+            H.Check("FrameNavMeta_AppIsMetadataProvider", provider is not null);
+
+            // Before anything is published, a code-only page is invisible — this is the
+            // pre-fix state that made Frame.Navigate fault.
+            H.Check("FrameNavMeta_UnpublishedTypeUnresolved",
+                provider?.GetXamlType(typeof(SelfTestFrameNeverNavigatedPage)) is null);
+
+            var host = H.CreateHost();
+            host.Mount(_ => VStack(Frame(typeof(SelfTestFramePage)).Height(120)));
+            await Harness.Render();
+
+            // Mounting the Frame published its target, and the publication is reachable
+            // through the real chain WinUI consults — by Type and by full name.
+            var byType = provider?.GetXamlType(typeof(SelfTestFramePage));
+            H.Check("FrameNavMeta_PublishedTypeResolvesByType", byType is not null);
+            H.Check("FrameNavMeta_ResolvedTypeIsTheRequestedOne",
+                byType?.UnderlyingType == typeof(SelfTestFramePage));
+            H.Check("FrameNavMeta_PublishedTypeIsConstructible", byType?.IsConstructible == true);
+            H.Check("FrameNavMeta_PublishedTypeResolvesByName",
+                provider?.GetXamlType(typeof(SelfTestFramePage).FullName!) is not null);
+
+            // Publishing one page must not turn the provider into a blanket resolver.
+            H.Check("FrameNavMeta_StillUnresolvedForUnpublishedType",
+                provider?.GetXamlType(typeof(SelfTestFrameNeverNavigatedPage)) is null);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  7. XamlPageElement goes through the same guarded navigation.
+    // ════════════════════════════════════════════════════════════════════════
+
+    internal class XamlPageHostsCodeOnlyPage(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (swapped, setSwapped) = ctx.UseState(false);
+                return VStack(
+                    new Microsoft.UI.Reactor.Hosting.XamlPageElement(
+                        swapped ? typeof(SelfTestFrameOtherPage) : typeof(SelfTestFramePage)),
+                    Button("Swap", () => setSwapped(true)));
+            });
+
+            await Harness.Render();
+
+            var frame = H.FindControl<Frame>(_ => true);
+            H.Check("XamlPage_FrameMounted", frame is not null);
+            H.Check("XamlPage_ContentIsRequestedPage", frame?.Content is SelfTestFramePage);
+
+            // Unlike FrameElement, XamlPageElement re-navigates on update when the page
+            // type changes — exercise that arm of the guarded path too.
+            H.ClickButton("Swap");
+            await Harness.Render();
+
+            var frameAfter = H.FindControl<Frame>(_ => true);
+            H.Check("XamlPage_ContentSwappedOnUpdate", frameAfter?.Content is SelfTestFrameOtherPage);
         }
     }
 }

@@ -92,9 +92,28 @@ public sealed class ControlDescriptor<TElement, TControl>
     /// imperative work that must run strictly after the prop loop AND the event
     /// subscriptions (FrameElement's mount-time navigation, which would otherwise
     /// complete before its own Navigated/NavigationFailed handlers exist).
-    /// Settable — like <see cref="Children"/> — so a generated descriptor's
-    /// <c>Customize</c> hook can install it. Defaults to <c>null</c> (no hook).</summary>
-    public AfterChildrenMountCallback<TElement, TControl>? AfterChildrenMount { get; set; }
+    /// Defaults to <c>null</c> (no hook). Set it from an object initializer, or —
+    /// from a generated descriptor's <c>Customize</c> hook, which receives an
+    /// already-constructed descriptor — via
+    /// <see cref="WithAfterChildrenMount"/>.</summary>
+    public AfterChildrenMountCallback<TElement, TControl>? AfterChildrenMount
+    {
+        get => _afterChildrenMount;
+        init => _afterChildrenMount = value;
+    }
+
+    private AfterChildrenMountCallback<TElement, TControl>? _afterChildrenMount;
+
+    /// <summary>Fluent form of <see cref="AfterChildrenMount"/>, for authors whose
+    /// descriptor is already constructed by the time they can customize it (the
+    /// <c>[WrapManual]</c> <c>Customize</c> hook is handed a built descriptor, so
+    /// the init-only property is out of reach there).</summary>
+    public ControlDescriptor<TElement, TControl> WithAfterChildrenMount(
+        AfterChildrenMountCallback<TElement, TControl> callback)
+    {
+        _afterChildrenMount = callback ?? throw new ArgumentNullException(nameof(callback));
+        return this;
+    }
 
     /// <summary><c>Setters</c> selector — the descriptor needs an opaque way
     /// to pull the element's <c>Action&lt;TControl&gt;[]</c> setters chain

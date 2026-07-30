@@ -327,6 +327,21 @@ through the application's XAML metadata, which normally only covers pages the
 XAML compiler saw; Reactor publishes the type you pass to `Frame(...)` into that
 metadata itself, so a plain `class MyPage : Page` written entirely in C# works.
 
+Because Reactor activates the page reflectively, `Frame(...)`'s `sourcePageType`
+carries `[DynamicallyAccessedMembers(PublicParameterlessConstructor)]`. Passing a
+`typeof(MyPage)` literal always satisfies it. If you keep the page type in a
+variable, a field, or hook state, carry the same annotation there — otherwise a
+trimmed or NativeAOT publish reports `IL2077` and could drop the constructor:
+
+```csharp
+[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
+Type _current = typeof(HomePage);
+```
+
+If you navigate a `Frame` imperatively instead — `Frame().Set(f => f.Navigate(typeof(MyPage)))` —
+Reactor never sees the target, so publish it yourself first with
+`ReactorApp.RegisterPageType(typeof(MyPage))`.
+
 Wiring `.NavigationFailed(...)` also marks the failure handled, so a page whose
 constructor throws is reported to your handler instead of tearing the
 application down. Leave it unwired and the failure surfaces as an ordinary

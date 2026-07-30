@@ -325,12 +325,12 @@ rather than lightweight property changes.
 | WinUI Feature | Status | Reactor Surface | Notes |
 |---|---|---|---|
 | **NavigationView** | Exposed | NavigationViewElement | Control works; pane, back button, settings, selection, display modes |
-| **Frame + Page navigation** | Blocked | — | Page subclasses require XAML code-behind files; cannot define Pages in pure Reactor. Component state switching is a workaround but lacks transitions, parameter passing, and lifecycle hooks |
+| **Frame + Page navigation** | Exposed | FrameElement | Reactor publishes the target type into the WinUI XAML metadata chain, so a code-only `Page` subclass navigates without any `.xaml` file (see [spec 011](011-navigation-design.md) §"Why WinUI Frame is not the answer"). Frame still gives no Reactor-native back stack, transitions, or lifecycle hooks — use `UseNavigation` / `NavigationHost` for those |
 | **Back stack management** | Missing | — | No Reactor equivalent; no automatic back stack, no history, no forward/back. Apps must build their own navigation state management |
 | **TabView** | Exposed | TabViewElement | Full tab management with selection |
 | **BreadcrumbBar** | Exposed | BreadcrumbBarElement | Click handler per item |
 | **SelectorBar** | Exposed | SelectorBarElement | View switching |
-| **Frame.Navigate(typeof(Page))** | Blocked | FrameElement exists but requires XAML Pages | Frame element can be mounted but is unusable without XAML-defined Page types |
+| **Frame.Navigate(typeof(Page))** | Exposed | FrameElement | Works with pure-C# `Page` subclasses. Previously this terminated the process with an access violation because the type was absent from the app's XAML metadata |
 
 **Verdict: Navigation is generally broken.** While the navigation *controls* (NavigationView,
 TabView, BreadcrumbBar) work as UI elements, the core navigation *scenario* — Frame/Page
@@ -339,6 +339,12 @@ require XAML files. The component-state-switching workaround (`currentPage == "h
 is functional but loses automatic back-stack management, navigation transitions, and the
 standard WinUI navigation lifecycle. A Reactor-native navigation system (router, history stack,
 transition coordination) is needed to close this gap.
+
+> **Update.** The "Page subclasses require XAML files" half of this verdict no longer holds:
+> Reactor publishes a `Frame` navigation target into the WinUI XAML metadata chain, so a
+> pure-C# `Page` works. The rest stands — Frame still brings no Reactor-native back stack,
+> transitions, or lifecycle hooks, which is what [spec 011](011-navigation-design.md)'s
+> developer-owned navigation system provides.
 
 ---
 
