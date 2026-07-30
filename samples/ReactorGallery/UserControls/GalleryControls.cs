@@ -19,7 +19,11 @@ internal sealed class CopyToClipboardButton : Component<string>
     public override Element Render()
     {
         var text = Props;
-        var (copied, setCopied) = UseState(false, threadSafe: true);
+        // Default (non-threadSafe) UseState: the Task.Delay continuation below runs on a
+        // thread-pool thread, and the default setter marshals the write and the re-render
+        // back onto the UI dispatcher. `threadSafe: true` applies in place with no UI hop,
+        // which is the wrong tool here.
+        var (copied, setCopied) = UseState(false);
         // Per-click generation token: only the latest click is allowed to
         // flip the label back, so rapid clicks can't reset early.
         var generation = UseRef(0);
@@ -80,7 +84,11 @@ internal sealed class CopyDeepLinkButton : Component<string>
     public override Element Render()
     {
         var uri = Props;
-        var (copied, setCopied) = UseState(false, threadSafe: true);
+        // Default (non-threadSafe) UseState: the Task.Delay continuation below runs on a
+        // thread-pool thread, and the default setter marshals the write *and* the
+        // re-render back onto the UI dispatcher. `threadSafe: true` would do the opposite
+        // — apply in place with no UI-thread hop — and fire the re-render off-thread.
+        var (copied, setCopied) = UseState(false);
         // Same transient-label bookkeeping as CopyToClipboardButton: a per-click
         // generation token so rapid clicks can't reset the glyph early, and a mounted
         // flag so the delayed reset can't touch a torn-down RenderContext.

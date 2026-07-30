@@ -108,7 +108,13 @@ public static partial class GalleryProtocol
     /// </remarks>
     public static bool EnsureRegistered() => IsPackaged || Register();
 
-    /// <summary>Write the current-user registration. No-op when packaged.</summary>
+    /// <summary>
+    /// Write the current-user registration. No-op when packaged.
+    /// </summary>
+    /// <returns>
+    /// Whether the scheme is registered to this app afterwards. See
+    /// <see cref="Unregister"/> for the shared contract.
+    /// </returns>
     public static bool Register()
     {
         if (IsPackaged) return true;
@@ -131,6 +137,16 @@ public static partial class GalleryProtocol
     }
 
     /// <summary>Remove the current-user registration. No-op when packaged.</summary>
+    /// <returns>
+    /// Whether the registration state the caller asked for holds afterwards — <b>not</b>
+    /// "did a registry write happen". So both methods return <c>true</c> only when the
+    /// scheme ends up in the requested state: <see cref="Register"/> returns <c>true</c>
+    /// when packaged (the package already registered it), and this returns <c>false</c>
+    /// when packaged, because an app cannot revoke a manifest-declared protocol and the
+    /// scheme is still handled. Reporting success there would be a lie. Callers that only
+    /// need the current state should read <see cref="IsRegistered"/> instead, which is
+    /// what the Settings toggle does.
+    /// </returns>
     /// <remarks>
     /// Removes the registration for the <em>currently running</em> executable.
     /// <see cref="ActivationRegistrationManager"/> derives its handler ProgId from the

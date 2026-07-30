@@ -366,6 +366,56 @@ public sealed class GalleryDeepLinkTests
     }
 
     [Fact]
+    public void Resolve_NeverThrows_OnHostileInput()
+    {
+        // TryResolve is the boundary for strings the Windows shell hands the process, and
+        // callers treat `false` as "show Home" — a throw would turn a malformed link into
+        // a crash on launch. Each of these is either malformed percent-encoding, a lone
+        // surrogate, a control character, or pathologically long.
+        string[] hostile =
+        [
+            "reactor-gallery:///item/%ZZ",
+            "reactor-gallery:///item/%",
+            "reactor-gallery:///category/%E0%A4%A",
+            "reactor-gallery:///search?q=%GG",
+            "reactor-gallery:///item/\uD800",
+            "reactor-gallery:///item/\0\u0001\u001f",
+            "reactor-gallery:///item/" + new string('a', 200_000),
+            "reactor-gallery:///" + new string('/', 5_000),
+            "reactor-gallery:///search?" + string.Join("&", Enumerable.Repeat("q=x", 2_000)),
+            "reactor-gallery://///////item/button",
+            "\uFEFFreactor-gallery:///item/button",
+        ];
+
+        foreach (var input in hostile)
+        {
+            var resolved = GalleryRoutes.TryResolve(input, out var route);
+            // Whatever the verdict, it must be a *verdict* — and a miss must hand back
+            // Home rather than a half-built route.
+            if (!resolved) Assert.Equal(GalleryRoutes.HomeRoute, route);
+            Assert.Equal(resolved ? route : GalleryRoutes.HomeRoute, GalleryRoutes.ResolveOrHome(input));
+        }
+
+        // Differential: the same shape without the mangling still resolves, so the loop
+        // above is not passing merely because everything returns false.
+        Assert.True(GalleryRoutes.TryResolve($"{Prefix}item/{AnyControlTag}", out _));
+    }
+
+    [Fact]
+    public void UriBuilders_NeverThrow_OnHostileInput()
+    {
+        // These take the shell's own selected tag and search text, but both originate in
+        // resolved links, so keep them total too.
+        foreach (var input in new[] { "%ZZ", "\uD800", new string('a', 100_000), "\0" })
+        {
+            Assert.StartsWith(GalleryRoutes.UriPrefix, GalleryRoutes.UriForTag(input), StringComparison.Ordinal);
+            Assert.StartsWith(GalleryRoutes.UriPrefix, GalleryRoutes.UriForSearch(input), StringComparison.Ordinal);
+            Assert.StartsWith(GalleryRoutes.UriPrefix, GalleryRoutes.UriForCurrentView(input, input), StringComparison.Ordinal);
+            Assert.Equal(GalleryRoutes.CategorySlug(input), GalleryRoutes.CategorySlug(input));
+        }
+    }
+
+    [Fact]
     public void Scheme_MatchesThePackageManifestDeclaration()
     {
         // The packaged flavour declares the scheme in Package.appxmanifest and the

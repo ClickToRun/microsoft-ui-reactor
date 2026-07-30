@@ -32,8 +32,8 @@ class GalleryShell : Component
         // view. UseState only reads its initial value on the first render, so links
         // that arrive later go through the RouteActivated subscription below.
         var initialRoute = GalleryActivation.InitialRoute;
-        var (selectedTag, setSelectedTag) = UseState(initialRoute?.Tag ?? GalleryRoutes.HomeTag, threadSafe: true);
-        var (searchQuery, setSearchQuery) = UseState(SearchTextFor(initialRoute), threadSafe: true);
+        var (selectedTag, setSelectedTag) = UseState(initialRoute?.Tag ?? GalleryRoutes.HomeTag);
+        var (searchQuery, setSearchQuery) = UseState(SearchTextFor(initialRoute));
         var (isDark, setIsDark) = UseState(false);
         var (isPaneOpen, setIsPaneOpen) = UseState(true);
         var (prevTag, setPrevTag) = UseState<string?>(null);

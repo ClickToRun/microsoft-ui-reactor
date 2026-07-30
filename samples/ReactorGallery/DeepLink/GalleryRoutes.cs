@@ -117,23 +117,40 @@ public static class GalleryRoutes
         if (string.IsNullOrWhiteSpace(uriOrPath))
             return false;
 
-        if (!TryNormalize(uriOrPath!, out var path))
-            return false;
-
-        var result = Map.Resolve(path);
-        if (!result.Matched || result.Routes.Length == 0)
-            return false;
-
-        var candidate = result.Routes[^1];
-        switch (candidate.Kind)
+        // Total by construction. Everything below runs on a string the Windows shell
+        // handed us, and callers treat a `false` as "show Home" — so a throw here would
+        // turn a malformed link into a crash on startup. Nothing in the current path is
+        // known to throw (Uri.TryCreate and Uri.UnescapeDataString both tolerate garbage
+        // on .NET, the latter passing invalid escapes such as "%ZZ" through unchanged),
+        // and that is exactly why the guard is here: it keeps the no-throw contract from
+        // depending on the internals of whatever this method calls next.
+        try
         {
-            case GalleryRouteKind.Control when !ControlTags.Contains(candidate.Tag):
-            case GalleryRouteKind.Category when !CategorySlugs.Contains(candidate.Tag):
+            if (!TryNormalize(uriOrPath!, out var path))
                 return false;
-        }
 
-        route = candidate;
-        return true;
+            var result = Map.Resolve(path);
+            if (!result.Matched || result.Routes.Length == 0)
+                return false;
+
+            var candidate = result.Routes[^1];
+            switch (candidate.Kind)
+            {
+                case GalleryRouteKind.Control when !ControlTags.Contains(candidate.Tag):
+                case GalleryRouteKind.Category when !CategorySlugs.Contains(candidate.Tag):
+                    return false;
+            }
+
+            route = candidate;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            global::System.Diagnostics.Debug.WriteLine(
+                $"[Gallery] deep-link parse failed: {ex.GetType().Name}: {ex.Message}");
+            route = HomeRoute;
+            return false;
+        }
     }
 
     /// <summary>
