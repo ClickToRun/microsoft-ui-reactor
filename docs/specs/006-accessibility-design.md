@@ -4,19 +4,29 @@
 
 **Proposal** — pending review.
 
+> **Superseded in part (2026-07-29).** Much of what this spec proposes has since shipped:
+> `.HelpText()`, `.HeadingLevel()`, `.Landmark()`, `.LiveRegion()`, `.AccessibilityView()`,
+> `.Required()`, `.LabeledBy()` (both the `ElementRef` and by-`AutomationId` overloads), and
+> `.AccessibilityHidden()` all exist today, alongside the `REACTOR_A11Y_001`–`004` analyzers.
+> The **Problem Statement** and **Current Surface** table below describe the state *before* that
+> work landed and are kept as historical context for the design rationale — they are no longer
+> an accurate description of the framework. For current coverage see
+> [`002-winui3-gap-analysis.md`](002-winui3-gap-analysis.md) §16, which is re-verified against
+> the API index. Custom `AutomationPeer` for components remains the one genuine blocker.
+
 ---
 
 ## Problem Statement
 
-The [gap analysis](002-winui3-gap-analysis.md) §16 identifies accessibility as **"the largest
-gap for production apps."** Today, only `AutomationProperties.Name` and
-`AutomationProperties.AutomationId` have first-class Microsoft.UI.Reactor (Reactor) modifiers. Nine WinUI accessibility
-features are **Missing**, one is **Blocked** (custom `AutomationPeer`), and everything else
-requires the `.Set()` escape hatch. This blocks WCAG AA compliance for any production Reactor
+The [gap analysis](002-winui3-gap-analysis.md) §16 *at the time this spec was written*
+identified accessibility as **"the largest gap for production apps."** Only
+`AutomationProperties.Name` and
+`AutomationProperties.AutomationId` had first-class Microsoft.UI.Reactor (Reactor) modifiers. Nine WinUI accessibility
+features were **Missing**, one was **Blocked** (custom `AutomationPeer`), and everything else
+required the `.Set()` escape hatch. This blocked WCAG AA compliance for any production Reactor
 application.
 
 ### Current Surface (before this spec)
-
 | WinUI Feature | Reactor Status | Reactor API |
 |---|---|---|
 | `AutomationProperties.Name` | **Exposed** | `.AutomationName("label")` |
@@ -188,7 +198,7 @@ the existing `AutomationName` / `AutomationId` section:
 /// Sets AutomationProperties.HelpText — supplemental text read by screen readers
 /// after the Name. Analogous to SwiftUI's .accessibilityHint() or Compose's stateDescription.
 /// </summary>
-/// <example>TextField(email, setEmail).HelpText("Enter your work email address")</example>
+/// <example>TextBox(email, setEmail).HelpText("Enter your work email address")</example>
 public static T HelpText<T>(this T el, string text) where T : Element =>
     Modify(el, new ElementModifiers { HelpText = text });
 
@@ -238,7 +248,7 @@ public static T AccessibilityHidden<T>(this T el) where T : Element =>
 /// <summary>
 /// Sets AutomationProperties.IsRequiredForForm. Screen readers announce "required".
 /// </summary>
-/// <example>TextField(name, setName).Required()</example>
+/// <example>TextBox(name, setName).Required()</example>
 public static T Required<T>(this T el) where T : Element =>
     Modify(el, new ElementModifiers { IsRequiredForForm = true });
 
@@ -269,7 +279,7 @@ public static T ItemStatus<T>(this T el, string status) where T : Element =>
 /// </summary>
 /// <example>
 /// Text("Email address").AutomationId("EmailLabel")
-/// TextField(email, setEmail).LabeledBy("EmailLabel")
+/// TextBox(email, setEmail).LabeledBy("EmailLabel")
 /// </example>
 public static T LabeledBy<T>(this T el, string labelAutomationId) where T : Element =>
     Modify(el, new ElementModifiers { LabeledBy = labelAutomationId });
@@ -490,7 +500,7 @@ Reactor already has `UseRef<T>()`. Add a `.Ref()` convenience modifier that capt
 var submitRef = UseRef<FrameworkElement>();
 
 return VStack(
-    TextField(email, setEmail),
+    TextBox(email, setEmail),
     Button("Submit", () =>
     {
         if (!Validate(email))
@@ -601,7 +611,7 @@ of concrete brushes on interactive controls. `Theme.Accent`, `Theme.PrimaryText`
 automatically re-resolve in HC mode.
 
 **Enforcement:** A runtime diagnostic (Layer 6) warns when concrete brushes are applied to
-interactive controls (`Button`, `TextField`, etc.), suggesting `ThemeRef` alternatives.
+interactive controls (`Button`, `TextBox`, etc.), suggesting `ThemeRef` alternatives.
 
 ---
 
@@ -674,9 +684,9 @@ ReactorApp.Run<MyApp>("App", configure: host =>
 |----|-------|----------|-------------|
 | `A11Y_001` | Missing name on icon-only Button | Warning | `ButtonElement` with no text content and no `.AutomationName()` |
 | `A11Y_002` | Missing name on Image | Warning | `ImageElement` without `.AutomationName()` or `.AccessibilityHidden()` |
-| `A11Y_003` | Form field without label | Warning | `TextField` / `NumberBox` etc. without `header:`, `.AutomationName()`, or `.LabeledBy()` |
+| `A11Y_003` | Form field without label | Warning | `TextBox` / `NumberBox` etc. without `header:`, `.AutomationName()`, or `.LabeledBy()` |
 | `A11Y_004` | Heading without HeadingLevel | Info | `Text` styled as heading but no `.HeadingLevel()` set |
-| `A11Y_005` | Concrete brush on interactive control | Warning | `.Background("#color")` on Button/TextField (breaks high contrast) |
+| `A11Y_005` | Concrete brush on interactive control | Warning | `.Background("#color")` on Button/TextBox (breaks high contrast) |
 | `A11Y_006` | Missing landmark on root layout | Info | Top-level layout container without `.Landmark(Main)` |
 | `A11Y_007` | TabIndex gaps | Info | Non-sequential `TabIndex` values that may confuse keyboard navigation |
 | `A11Y_008` | Unresolved LabeledBy | Warning | `.LabeledBy("id")` references an `AutomationId` not found in the tree |
@@ -747,7 +757,7 @@ A source generator / Roslyn analyzer that catches issues at compile time:
 |---|---|---|
 | `REACTOR_A11Y_001` | `Button(iconElement, onClick)` without `.AutomationName()` | Icon-only buttons need an accessible name |
 | `REACTOR_A11Y_002` | `Image(uri)` without `.AutomationName()` or `.AccessibilityHidden()` | Images need alt text or explicit decoration marking |
-| `REACTOR_A11Y_003` | `TextField(...)` without `header:` parameter or `.AutomationName()` | Form fields need labels |
+| `REACTOR_A11Y_003` | `TextBox(...)` without `header:` parameter or `.AutomationName()` | Form fields need labels |
 
 These are **warnings**, not errors — allowing gradual adoption.
 
@@ -820,7 +830,7 @@ A higher-level factory that wires up label + input + error + required + help tex
 ```csharp
 FormField(
     label: "Email address",
-    input: TextField(email, setEmail),
+    input: TextBox(email, setEmail),
     error: emailError,          // null when valid, string when invalid
     required: true,
     helpText: "We'll never share your email"
@@ -832,7 +842,7 @@ FormField(
 ```csharp
 VStack(
     Text("Email address").AutomationId($"lbl_{uniqueId}"),
-    TextField(email, setEmail)
+    TextBox(email, setEmail)
         .LabeledBy($"lbl_{uniqueId}")
         .Required()
         .HelpText("We'll never share your email"),

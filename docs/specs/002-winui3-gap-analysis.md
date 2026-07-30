@@ -69,7 +69,7 @@ hidden, or blocked by the Microsoft.UI.Reactor (Reactor) framework design.
 | **HyperlinkButton** | Exposed | `HyperlinkButton(label, uri)` | HyperlinkButtonElement |
 | **RepeatButton** | Exposed | `RepeatButton(label, onClick)` | RepeatButtonElement |
 | **ToggleButton** | Exposed | `ToggleButton(content, isChecked, onToggled)` | ToggleButtonElement |
-| **CheckBox** | Exposed | `CheckBox(label, isChecked, onChanged)` | Tri-state via `.Set()` |
+| **CheckBox** | Exposed | `CheckBox(isChecked, onChanged, label)` | `Optional<bool?>` value; tri-state via `ThreeStateCheckBox(checkedState, onCheckedStateChanged, label)` |
 | **RadioButton** | Exposed | `RadioButton(label, isChecked, onChecked)` | RadioButtonElement |
 | **RadioButtons** | Exposed | `RadioButtons(items, selectedIndex)` | RadioButtonsElement |
 | **ToggleSwitch** | Exposed | `ToggleSwitch(isOn, onChanged)` | ToggleSwitchElement |
@@ -89,12 +89,12 @@ callback-based event handling replacing XAML event bindings.
 |---|---|---|---|
 | **TextBlock** | Augmented | `Text("content")` | Also: `Heading()`, `SubHeading()`, `Caption()` convenience factories; implicit string-to-TextElement conversion |
 | **RichTextBlock** | Exposed | `RichTextBlock(...)` | RichTextBlockElement |
-| **TextBox** | Augmented | `TextField(text, onChanged)` | Renamed for clarity; TextFieldElement |
+| **TextBox** | Exposed | `TextBox(value, onChanged, placeholderText, header)` | TextBoxElement; `Optional<string>` value for controlled-input authority (spec 050) |
 | **RichEditBox** | Exposed | `RichEditBox(...)` | RichEditBoxElement |
 | **PasswordBox** | Exposed | `PasswordBox(password, onChanged)` | PasswordBoxElement |
 | **AutoSuggestBox** | Exposed | `AutoSuggestBox(text, items, onChanged, onQuery)` | AutoSuggestBoxElement |
 
-**Verdict: 6/6 exposed (2 augmented).** Text system is one of Reactor's strengths — convenience
+**Verdict: 6/6 exposed (1 augmented).** Text is one of Reactor's strengths — convenience
 factories (`Heading`, `Caption`) and implicit string conversion add ergonomics on top of full
 WinUI text control coverage.
 
@@ -118,7 +118,7 @@ NavigationViewItem, CommandBar, etc.
 |---|---|---|---|
 | **ListView** | Augmented | `ListView(items, template)` + `LazyVStack<T>(items, template)` | Virtualized; also TemplatedListViewElement\<T\> for typed templates |
 | **GridView** | Augmented | `GridView(items, template)` + `LazyHStack<T>` | TemplatedGridViewElement\<T\> available |
-| **ItemsView** | Exposed | `ItemsView<T>(items, template)` | ItemsViewElement\<T\>; `viewBuilder` must return an `ItemContainer(...)` root — enforced at mount by `GuardedViewBuilder` |
+| **ItemsView** | Exposed | `ItemsView<T>(items, keySelector, viewBuilder)` | ItemsViewElement\<T\>; `keySelector` is **required** here (unlike ListView/GridView/ItemsRepeater, which also have a keyless overload). `viewBuilder` must return an `ItemContainer(...)` root — enforced at mount by `GuardedViewBuilder` |
 | **ItemsRepeater** | Exposed | `ItemsRepeater<T>(items, viewBuilder)` | ItemsRepeaterElement\<T\>, with a keyed overload; also drives LazyVStack/LazyHStack internally |
 | **FlipView** | Exposed | `FlipView(items, template)` | TemplatedFlipViewElement\<T\> available |
 | **TreeView** | Exposed | `TreeView(items)` | TreeViewElement with drag support |
@@ -258,7 +258,7 @@ so `.Background()` on a shape is silently dropped (see §24).
 | Category | Total | Exposed | Augmented | Replaced | Passthrough | Missing |
 |---|---|---|---|---|---|---|
 | 1.1 Basic Input | 17 | 17 | — | — | — | — |
-| 1.2 Text | 6 | 4 | 2 | — | — | — |
+| 1.2 Text | 6 | 5 | 1 | — | — | — |
 | 1.3 Icons | 6 | 6 | — | — | — | — |
 | 1.4 Collections | 6 | 4 | 2 | — | — | — |
 | 1.5 Date/Time | 4 | 4 | — | — | — | — |
@@ -270,7 +270,7 @@ so `.Background()` on a shape is silently dropped (see §24).
 | 1.11 Scrolling | 4 | 3 | — | — | 1 | — |
 | 1.12 Containers | 6 | 4 | 1 | — | — | 1 |
 | 1.13 Title Bar | 1 | 1 | — | — | — | — |
-| **Totals** | **86** | **74** | **5** | **1** | **1** | **5** |
+| **Totals** | **86** | **75** | **4** | **1** | **1** | **5** |
 
 **Overall control coverage: 81/86 (94%) accessible, 5 missing (InkCanvas, InkToolbar,
 CaptureElement, TwoPaneView, full ToolTip).** The ToolTip row drops to 4 missing once #946
@@ -390,13 +390,14 @@ merges, prefer `NavigationHost` and treat `Frame` as XAML-interop only. See §24
 | **{Binding}** | Replaced | UseObservable hook | Bridges INotifyPropertyChanged to re-renders |
 | **OneTime mode** | Replaced | Constant values in render | A non-state value is effectively one-time |
 | **OneWay mode** | Replaced | UseState + render | State changes trigger re-render, updating all outputs |
-| **TwoWay mode** | Replaced | UseState + OnChanged callback | `TextField(text, t => setText(t))` is two-way |
+| **TwoWay mode** | Replaced | UseState + OnChanged callback | `TextBox(text, t => setText(t))` is two-way |
 | **INotifyPropertyChanged** | Replaced | UseObservable hook | `UseObservable(viewModel)` subscribes to changes |
 | **ObservableCollection** | Replaced | UseCollection hook | `UseCollection(items)` re-renders on add/remove |
 | **IValueConverter** | Replaced | Inline C# expressions | `Text($"${price:F2}")` — no converter classes needed |
 | **Function bindings** | Replaced | Inline C# functions | `Text(FormatDate(date))` — just call the function |
 | **FallbackValue/TargetNullValue** | Replaced | Null-coalescing / conditional | `Text(value ?? "N/A")` |
 | **DataTemplate {x:DataType}** | Replaced | Lambda templates | `ListView(items, item => Text(item.Name))` |
+| **DataContext inheritance** | Replaced | `Context<T>` + `.Provide(context, value)` + `UseContext(context)` | Ambient values flow down the element tree explicitly and type-safely, instead of an untyped `object DataContext` that any descendant may silently re-bind |
 
 **Verdict: Entirely replaced.** Reactor eliminates the entire binding subsystem in favor of
 React-style unidirectional data flow. This removes an entire category of runtime errors
@@ -572,13 +573,14 @@ What is genuinely still open:
 // Reactor equivalent:
 var (isHovered, setHovered) = UseState(false);
 return Rectangle()
-    .Background(isHovered ? "#0078D4" : "#CCCCCC")
+    .Fill(BrushHelper.Parse(isHovered ? "#0078D4" : "#CCCCCC"))
     .OpacityTransition()
-    .Set(r => {
-        r.PointerEntered += (_, _) => setHovered(true);
-        r.PointerExited += (_, _) => setHovered(false);
-    });
+    .OnPointerEntered((_, _) => setHovered(true))
+    .OnPointerExited((_, _) => setHovered(false));
 ```
+
+(Shapes take `.Fill()` / `.Stroke()`, not `.Background()` — see §1.9. Pointer events have
+first-class modifiers, so the `.Set()` escape hatch this example used to need is gone.)
 
 The trade-off: VSM transitions are declarative and run on the composition thread; Reactor's
 approach requires a full re-render cycle for state changes. Implicit transitions mitigate
@@ -692,7 +694,7 @@ remain visual-layer concerns applied via `.Set()`.
 | Event Type | Status | Reactor Surface | Notes |
 |---|---|---|---|
 | Button.Click | Exposed | `OnClick` callback | All 7 button types |
-| TextBox.TextChanged | Exposed | `OnTextChanged` callback | TextField, AutoSuggestBox |
+| TextBox.TextChanged | Exposed | `OnTextChanged` callback | TextBox, AutoSuggestBox |
 | CheckBox.Checked/Unchecked | Exposed | `OnChanged(bool)` callback | Simplified to single callback |
 | Slider.ValueChanged | Exposed | `OnChanged(double)` callback | |
 | ToggleSwitch.Toggled | Exposed | `OnChanged(bool)` callback | |
@@ -780,7 +782,7 @@ The one genuine remaining hole is the **manipulation** family (`ManipulationMode
 | **ICommand (interop)** | Augmented | `CommandInterop.FromCommand(ICommand, label, …)` → `Command` (and a `Command<T>` overload) | **One direction only:** adopts an existing MVVM / CommunityToolkit `ICommand` as a Reactor `Command`, for gradual migration. There is no adapter the other way |
 | **Command with parameter** | Replaced | `Command<T>` | Typed parameter instead of `object` |
 | **XamlUICommand** | Replaced | `Command` | Label + icon + accelerator + description are fields on the same record |
-| **StandardUICommand** | Missing | — | No pre-built Cut/Copy/Paste/Undo command set; you declare your own |
+| **StandardUICommand** | Replaced | `StandardCommand.Cut/Copy/Paste/Undo/Redo/Delete/SelectAll/Save/Open/Close/Share/Play/Pause/Stop/Forward/Backward(execute)` | 16 pre-labelled commands, each with sync and `Func<Task>` overloads plus a `canExecute` flag. Most carry a conventional `Icon` and `Accelerator`, but not uniformly — `SelectAll` and `Close` have no icon, and the media commands (`Share`, `Play`, `Pause`, `Stop`, `Forward`, `Backward`) have no accelerator |
 | **Command property on controls** | Exposed | `Button(command)`, `AppBarButton(command)`, `MenuItem(command)`, `HyperlinkButton(command)`, `RepeatButton(command)`, `ToggleButton(command)`, `SplitButton(command)`, `ToggleSplitButton(command)` | A command binds to many controls; they all reflect its state |
 | **CanExecute / auto-disable** | Exposed | `Command.IsEnabled` = `CanExecute && !IsExecuting && !IsDebouncing` | Bound controls set `IsEnabled` automatically — no per-control `.IsEnabled(!condition)` wiring |
 | **CanExecuteChanged** | Replaced | Re-render | The command record is rebuilt with a new `CanExecute` during render; every bound control updates in the same pass. No event subscription, no leak |
@@ -794,11 +796,9 @@ enable/disable state propagates automatically to every control bound to it, whic
 what the original text said had no equivalent. The async and debounce states are additions
 over `ICommand`.
 
-Two things are deliberately *not* replicated: there is **no** `StandardUICommand` catalogue of
-pre-built Cut/Copy/Paste/Undo commands — you declare the ones your app needs — and Reactor's
-`Command` is **not** an `ICommand`. Interop is one-way: `CommandInterop.FromCommand` adopts an
-existing `ICommand` into Reactor, but there is no adapter for handing a Reactor `Command` to a
-surface that demands an `ICommand`.
+One thing is deliberately *not* replicated: Reactor's `Command` is **not** an `ICommand`.
+Interop is one-way — `CommandInterop.FromCommand` adopts an existing `ICommand` into Reactor,
+but there is no adapter for handing a Reactor `Command` to a surface that demands an `ICommand`.
 
 ---
 
@@ -814,7 +814,7 @@ surface that demands an `ICommand`.
 | **AutomationProperties.AccessibilityView** | Exposed | `.AccessibilityView(AccessibilityView)` | |
 | **AutomationProperties.HeadingLevel** | Exposed | `.HeadingLevel(AutomationHeadingLevel)` | |
 | **AutomationProperties.LandmarkType** | Exposed | `.Landmark(AutomationLandmarkType)` | |
-| **AutomationProperties.IsRequiredForForm** | Exposed | `IsRequiredForForm` element property | |
+| **AutomationProperties.IsRequiredForForm** | Exposed | `.Required()` | Sets the `IsRequiredForForm` element property |
 | **Live Regions** | Exposed | `.LiveRegion(...)` | Announcement on content change |
 | **Keyboard accessibility** | Exposed | `.IsTabStop()`, `.TabIndex()`, `.XYFocus*()`, `.AccessKey()`, `UseElementFocus()` | See §14.7 |
 | **Custom AutomationPeer** | Blocked | — | Reactor components are not `Control` subclasses, so `OnCreateAutomationPeer` cannot be overridden. Reactor supplies its own peers where it must (e.g. `SemanticPanelAutomationPeer`), but an app cannot author one for a component |
@@ -961,10 +961,10 @@ the two `Partially replaced` rows in §10.
 
 | # | Feature Area | Exposed | Augmented | Replaced | Passthrough | Missing | Blocked |
 |---|---|---|---|---|---|---|---|
-| 1 | Built-in Controls | 74 | 5 | 1 | 1 | 5 | — |
+| 1 | Built-in Controls | 75 | 4 | 1 | 1 | 5 | — |
 | 2 | Layout System | 5 | 2 | 2 | 7 | 1 | — |
 | 3 | Navigation | 6 | 1 | 3 | — | — | — |
-| 4 | Data Binding | — | — | 11 | — | — | — |
+| 4 | Data Binding | — | — | 12 | — | — | — |
 | 5 | Dependency Properties | — | 1 | 2 | 2 | — | 1 |
 | 6 | XAML Markup | — | — | 10 | — | — | 3 |
 | 7 | Resources | 2 | — | — | 4 | — | — |
@@ -975,7 +975,7 @@ the two `Partially replaced` rows in §10.
 | 12 | Composition Layer | 1 | — | — | 5 | — | — |
 | 13 | Materials/Effects | 3 | — | — | 5 | — | — |
 | 14 | Input Handling | 26 | 3 | 1 | 6 | 2 | — |
-| 15 | Commands | 2 | 4 | 4 | — | 1 | — |
+| 15 | Commands | 2 | 4 | 5 | — | — | — |
 | 16 | Accessibility | 11 | 1 | — | 1 | — | 1 |
 | 17 | Threading | 1 | — | — | 5 | — | — |
 | 18 | Windowing | 8 | 2 | — | 2 | — | — |
@@ -1021,7 +1021,6 @@ document's own history stays auditable.
 | **P2** | App-level resource dictionary DSL | Merged/theme dictionaries still need `.Set()` on `Application.Resources` | Medium |
 | **P3** | TwoPaneView | Dual-screen / list-detail layout | Low — add element + descriptor |
 | **P3** | InkCanvas / InkToolbar / CaptureElement | Blocks inking and capture apps | Medium — stateful controls, non-trivial diffing |
-| **P3** | `StandardUICommand` catalogue | Every app re-declares Cut/Copy/Paste/Undo | Low — a static set of `Command` values |
 | **P3** | Clipboard and printing wrappers | Convenience; not blocking | Medium — new `Reactor.Services` surface |
 | **P3** | `IsAccessKeyScope` | Scoped Alt-key mnemonics | Low — add modifier |
 
@@ -1048,6 +1047,12 @@ Rows above describe **`main`**. This section lists work that is written and unde
 yet merged, so that the affected rows can be flipped in one pass when each PR lands. Nothing here
 should be treated as available yet.
 
+**This section is expected to shrink to nothing.** Delete each row as its PR merges (after
+applying the flips it names); when the table is empty, delete the section and its TOC entry. If
+a row is still here long after its PR closed, the PR was abandoned — drop the row and, if the
+gap is real, promote it to the §23 gap table instead. Only the re-verification checklist at the
+end is meant to be permanent.
+
 **Do not pre-apply these.** §1.6's ToolTip row in particular is edited by #946 on its own
 branch; changing it here as well would only create a merge conflict.
 
@@ -1055,7 +1060,7 @@ branch; changing it here as well would only create a merge conflict.
 
 | PR | Change | Rows to flip on merge |
 |---|---|---|
-| **#946** | `.ToolTipPlacement(PlacementMode)`, `.ToolTipPlacementTarget(ElementRef)`, plus placement overloads of `.ToolTip()` / `.WithToolTip()` | §1.6 ToolTip → **Exposed** (verdict 7/7); Controls Summary 1.6 missing → 0 and totals → 75 exposed / 4 missing; §1 headline → "4 missing"; §23 scorecard row 1 → 75 exposed / 4 missing; §23 P1 ToolTip row → Shipped. **This PR already contains the §1.6 edit** |
+| **#946** | `.ToolTipPlacement(PlacementMode)`, `.ToolTipPlacementTarget(ElementRef)`, plus placement overloads of `.ToolTip()` / `.WithToolTip()` | §1.6 ToolTip → **Exposed** (verdict 7/7); Controls Summary row 1.6 → 7 exposed / 0 missing and Totals → **76 exposed / 4 missing**; §1 headline → "4 missing"; §23 scorecard row 1 → 76 exposed / 4 missing; §23 P1 ToolTip row → Shipped. **This PR already contains the §1.6 edit** |
 | **#945** | Synthesizes the XAML metadata a code-only `Page` needs, chains a `ReactorPageXamlMetadataProvider` into `ReactorApplication.GetXamlType`, and makes `FrameNavigation.TryNavigate` refuse to navigate to an unresolvable type instead of faulting. Adds `ReactorApp.RegisterPageType(...)` | §3 — delete the "Caveat" paragraph; `Frame.Navigate(typeof(Page))` becomes usable for code-only Pages. §19 UnhandledException note about uncatchable AVs can be softened |
 | **#947** | `REACTOR_MOD_003` — flags common modifiers the reconciler silently drops (e.g. `.Background()` on a `Shape`, which should be `.Fill()`) | §5 and §9 — the "silently dropped on a shape" footgun gains a build-time guardrail; §23 top-gap P1 row narrows to the theming half |
 | **#936** | `REACTOR_ITEMS_002` — promotes `ItemsViewElement<T>.GuardedViewBuilder`'s mount-time throw to a build-time diagnostic with a code fix | §1.4 — the ItemContainer-root requirement becomes compile-time enforced |
@@ -1067,10 +1072,10 @@ branch; changing it here as well would only create a merge conflict.
 | **#941** | Fixes 12 ReactorGallery sample defects (G1–G11, R8) | Several are the *symptoms* this document's footguns predict — G2 is `.Background()` on a `Rectangle` (§5/§9), G1 is the ItemsView container guard (§1.4). Useful as evidence when re-verifying |
 | **#943** | `CommandBarFlyout` now wires through `SetFlyoutOnControl` instead of `SetAttachedFlyout`, so it actually opens | §1.6 already says CommandBarFlyout is Exposed; this makes that true in practice |
 | **#939** | Never writes `FlyoutPlacementMode.Auto` to a WinUI `FlyoutBase` (it is out of the validator's 0–12 range and fail-fasts) | Same — §1.6's "Exposed" was optimistic for default-placement flyouts |
-| **#940** | Documents and tests the edge-triggered contract for natively-mutated declared bools (`InfoBar.IsOpen`) | Clarifies §22's controlled-property model; no status change |
+| **#940** | Documents and tests the edge-triggered contract for natively-mutated declared bools (`InfoBar.IsOpen`) | Clarifies the controlled-property model in `docs/guide/extending-reactor-controls.md` and spec 050; no status change here |
 | **#944** | `reactor-gallery://` deep linking, dogfooding `DeepLinkMap` / `LaunchActivation` / `LaunchKind.Protocol` | Working proof of the §3 and §19 deep-link rows |
 | **#935** | API index now includes public static classes, so `ControlRegistry` and `ReactorApp` are discoverable | This document's ground truth is `skills/reactor.api.txt`; until this merges, §2.2's `ControlRegistry.Register*` cannot be verified from the index alone |
-| **#812** | Re-renders context consumers behind reference-stable child skips | Correctness of the §4 `UseContext` row |
+| **#812** | Re-renders context consumers behind reference-stable child skips | Correctness of the `UseContext` hook named in §4's verdict; no status change |
 | **#621** | `TableView` as a first-class Reactor control + 36 gallery pages | Draft / proof-of-concept, samples-only and gated off in CI. **Do not add to §1** until it graduates out of `samples/` |
 | **#451** | `mur find` + sample catalogue (spec 043) | Tooling, not framework coverage |
 
