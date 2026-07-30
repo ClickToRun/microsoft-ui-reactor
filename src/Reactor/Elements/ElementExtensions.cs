@@ -549,9 +549,14 @@ public static partial class ElementExtensions
     /// <summary>
     /// Sets <c>ToolTipService.Placement</c> — which side of the element the tooltip
     /// opens on. Pairs with either <see cref="ToolTip{T}(T, string)"/> or
-    /// <see cref="WithToolTip{T}(T, Element)"/>. WinUI's ToolTip honors
-    /// <c>Top</c>, <c>Bottom</c>, <c>Left</c>, <c>Right</c> and <c>Mouse</c>; the
-    /// edge-aligned <c>PlacementMode</c> values are FlyoutBase-only.
+    /// <see cref="WithToolTip{T}(T, Element)"/>.
+    /// <para>
+    /// <c>PlacementMode</c> is the tooltip-specific enum and has exactly five members —
+    /// <c>Top</c>, <c>Bottom</c>, <c>Left</c>, <c>Right</c>, <c>Mouse</c>. The
+    /// edge-aligned placements (<c>TopEdgeAlignedLeft</c> and friends) live on the
+    /// separate <c>FlyoutPlacementMode</c> enum and are not expressible for tooltips —
+    /// use a flyout if you need them.
+    /// </para>
     /// </summary>
     public static T ToolTipPlacement<T>(this T el, Microsoft.UI.Xaml.Controls.Primitives.PlacementMode placement) where T : Element =>
         Modify(el, new ElementModifiers { ToolTipPlacement = placement });

@@ -1889,9 +1889,9 @@ public record ElementModifiers
     /// <summary>
     /// <c>ToolTipService.Placement</c> — which side of the element the tooltip
     /// opens on. Applies to both <see cref="ToolTip"/> and <see cref="RichToolTip"/>.
-    /// WinUI's ToolTip honors <c>Top</c>, <c>Bottom</c>, <c>Left</c>, <c>Right</c>
-    /// and <c>Mouse</c>; the edge-aligned <c>PlacementMode</c> values are
-    /// FlyoutBase-only and fall back to the default.
+    /// <c>PlacementMode</c> has exactly five members (<c>Top</c>, <c>Bottom</c>,
+    /// <c>Left</c>, <c>Right</c>, <c>Mouse</c>); the edge-aligned placements belong to
+    /// the separate <c>FlyoutPlacementMode</c> enum and are not expressible here.
     /// </summary>
     public Microsoft.UI.Xaml.Controls.Primitives.PlacementMode? ToolTipPlacement { get; init; }
     /// <summary>

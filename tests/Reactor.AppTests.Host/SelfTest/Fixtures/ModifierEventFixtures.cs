@@ -180,7 +180,15 @@ internal static class ModifierEventFixtures
                 var (phase, set) = ctx.UseState(0);
                 return VStack(
                     Button("UpdPlacement", () => set(phase + 1)),
-                    TextBlock("PlacementAnchor").Ref(anchor),
+                    // At phase 3 the ref MOVES from one live anchor to another. Both
+                    // stay mounted, so this isolates the ref-cell change without
+                    // depending on unmount/remount ordering.
+                    phase >= 3
+                        ? TextBlock("PlacementAnchor")
+                        : TextBlock("PlacementAnchor").Ref(anchor),
+                    phase >= 3
+                        ? TextBlock("PlacementAnchorB").Ref(anchor)
+                        : TextBlock("PlacementAnchorB"),
                     phase switch
                     {
                         0 => TextBlock("PlacementTarget")
@@ -221,6 +229,24 @@ internal static class ModifierEventFixtures
                 target!.ReadLocalValue(ToolTipService.PlacementProperty) == DependencyProperty.UnsetValue);
             H.Check("TipPlacement_TooltipSurvivesPlacementClear",
                 ToolTipService.GetToolTip(target!)?.ToString() == "Tip");
+
+            // Phase 3 — the reference edge must have been UNWIRED when the target
+            // was dropped at phase 1, not merely cleared once. Re-key the anchor so
+            // it remounts as a different control and the ref cell raises
+            // CurrentChanged. A stale subscription would re-apply the new anchor as
+            // a placement target on an element that no longer asks for one.
+            var anchorBefore = anchor.Current;
+            H.ClickButton("UpdPlacement");
+            await Harness.Render();
+            target = H.FindText("PlacementTarget");
+            var anchorAfter = anchor.Current;
+            // Load-bearing precondition: if the re-key did not actually swap the
+            // control, CurrentChanged never fired and the assertion below is vacuous.
+            H.Check("TipPlacementTarget_AnchorActuallyChanged",
+                anchorBefore is not null && anchorAfter is not null
+                && !ReferenceEquals(anchorBefore, anchorAfter));
+            H.Check("TipPlacementTarget_StaysClearedAfterAnchorChange",
+                target!.ReadLocalValue(ToolTipService.PlacementTargetProperty) == DependencyProperty.UnsetValue);
         }
     }
 
@@ -250,9 +276,18 @@ internal static class ModifierEventFixtures
             {
                 var (phase, set) = ctx.UseState(0);
                 return VStack(
-                    TextBlock("TipPoolAnchor").Ref(anchor),
+                    // At phase 3 the ref MOVES from one live anchor to another; both
+                    // stay mounted so the ref-cell change is isolated from
+                    // unmount/remount ordering.
+                    phase >= 3
+                        ? TextBlock("TipPoolAnchor")
+                        : TextBlock("TipPoolAnchor").Ref(anchor),
+                    phase >= 3
+                        ? TextBlock("TipPoolAnchorB").Ref(anchor)
+                        : TextBlock("TipPoolAnchorB"),
                     Button("DropTipPool", () => set(1)),
                     Button("RemountTipPool", () => set(2)),
+                    Button("SwapTipPoolAnchor", () => set(3)),
                     phase switch
                     {
                         0 => TextBlock("tip-pool-carrier")
@@ -294,6 +329,23 @@ internal static class ModifierEventFixtures
             H.Check("TipPool_Phase2_PlacementTargetCleared",
                 second is not null
                 && second.ReadLocalValue(ToolTipService.PlacementTargetProperty) == DependencyProperty.UnsetValue);
+
+            // Phase 3 — the reference edge must have been torn down when the carrier
+            // UNMOUNTED (a different path from the in-place unwire covered by
+            // TooltipPlacementModifier). Swap the anchor for a new control: a stale
+            // CurrentChanged subscription surviving the unmount would re-apply a
+            // placement target onto the recycled carrier.
+            var anchorBefore = anchor.Current;
+            H.ClickButton("SwapTipPoolAnchor");
+            await Harness.Render();
+            var carrier = H.FindText("tip-pool-carrier-2");
+            var anchorAfter = anchor.Current;
+            H.Check("TipPool_Phase3_AnchorActuallyChanged",
+                anchorBefore is not null && anchorAfter is not null
+                && !ReferenceEquals(anchorBefore, anchorAfter));
+            H.Check("TipPool_Phase3_PlacementTargetStaysCleared",
+                carrier is not null
+                && carrier.ReadLocalValue(ToolTipService.PlacementTargetProperty) == DependencyProperty.UnsetValue);
         }
     }
 
