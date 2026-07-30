@@ -62,6 +62,11 @@ Spec §6.7.4 worry-threshold for `Propagate` is 20; we're at 12.
 > per-file entry and note that the counter does not yet include it, as the
 > `FrameNavigation.cs` section does. The entries are the record; the counts are downstream.
 >
+> That `17` is itself a derived number, so here is its rule rather than an assertion: every
+> row of a per-file table below this block whose **verdict** cell matches `Keep`. Re-derive it
+> before relying on it — a figure in a warning about unverifiable figures has no business
+> being taken on trust.
+>
 > The prose immediately below is a **historical** statement about what audit pass 2 produced.
 > Its figures are correctly frozen at that point and drift from the table above by design —
 > do not "fix" them to match.
@@ -176,10 +181,11 @@ the inventory in §3.3 of the task doc.
 > **Not yet reflected in the verdict-distribution table above.** These two sites are
 > deliberately left out of the counter pending reconciliation once the concurrent PRs
 > touching this file have landed. The counter's derivation rule is not a plain row count
-> (the `Keep` row reads 8 while ~15 rows carry a `Keep` verdict, so it tracks a
-> subcategory and/or collapses multi-site rows), so incrementing it from a branch would
-> risk writing a confidently wrong number into the one figure this audit exists to make
-> trustworthy. The entries below are the load-bearing record; the count is derived from them.
+> (the `Keep` row reads 8 while **17** rows across this document carry a `Keep` verdict —
+> 15 of them predating this entry — so it tracks a subcategory and/or collapses multi-site
+> rows), so incrementing it from a branch would risk writing a confidently wrong number
+> into the one figure this audit exists to make trustworthy. The entries below are the
+> load-bearing record; the count is derived from them.
 
 Both sites are new with that fix and are **fail-safe-to-default** per §6.7.2, not
 sibling-independence. They are deliberately broad and the code comments say so —
