@@ -246,7 +246,7 @@ internal static class CommandBarFlyoutWiringFixtures
             H.Check("CbfAuto_FlyoutInstalled", flyout is not null);
             // Auto is never written through; WinUI's own Placement default stands.
             // (`is CommandBarFlyout` so a null flyout can't pass this by accident.)
-            H.Check("CbfAuto_PlacementNotAuto",
+            H.Check($"CbfAuto_PlacementNotAuto[{flyout?.Placement}]",
                 flyout is CommandBarFlyout { Placement: not WinPrim.FlyoutPlacementMode.Auto });
 
             H.ClickButton("CbfAutoGo");
@@ -339,7 +339,11 @@ internal static class CommandBarFlyoutWiringFixtures
             await Harness.Render();
             H.Check("CbfReset_AutoRestoresDefaultPlacement",
                 flyout is CommandBarFlyout && flyout.Placement == freshDefault);
-            H.Check("CbfReset_DefaultIsNotAuto", freshDefault != WinPrim.FlyoutPlacementMode.Auto);
+            // Value embedded in the TAP name (house style) so the resolved default is a
+            // recorded measurement, not an assumption — this is the exact value an unset
+            // CommandBarFlyout placement lands on.
+            H.Check($"CbfReset_DefaultIsNotAuto[{freshDefault}]",
+                freshDefault != WinPrim.FlyoutPlacementMode.Auto);
         }
     }
 
