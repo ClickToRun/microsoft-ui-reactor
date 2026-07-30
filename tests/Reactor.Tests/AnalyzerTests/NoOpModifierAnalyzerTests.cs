@@ -303,12 +303,22 @@ namespace Other
 }
 ";
 
+    // Both helpers verify compiler errors rather than suppressing them. That is deliberate and
+    // it is the opposite of what the did-you-mean analyzer tests in this folder do
+    // (FuzzyFactoryName, MissingFactoryArgument, StringForElementArgument, …), which set
+    // CompilerDiagnostics.None because their whole job is diagnosing code that does NOT compile.
+    // REACTOR_MOD_003 is the other kind: it only ever fires on code that compiles and type-checks
+    // — that is the entire premise of the rule, a call that binds fine and is then silently
+    // dropped at runtime. So a snippet here that fails to compile makes its test meaningless:
+    // "no diagnostic reported" would mean "nothing bound", not "the analyzer stayed silent".
+    // This was not hypothetical — a `Background(default)` case was passing that way (CS0121,
+    // never bound) until it was caught. Leave these as Errors.
     private static CSharpAnalyzerTest<NoOpModifierAnalyzer, DefaultVerifier> MakeAnalyzerTest(string body)
     {
         var test = new CSharpAnalyzerTest<NoOpModifierAnalyzer, DefaultVerifier>
         {
             TestCode = Stubs + body,
-            CompilerDiagnostics = CompilerDiagnostics.None,
+            CompilerDiagnostics = CompilerDiagnostics.Errors,
         };
         test.DisabledDiagnostics.Add("CS1591");
         return test;
@@ -321,7 +331,7 @@ namespace Other
         {
             TestCode = Stubs + body,
             FixedCode = Stubs + fixedBody,
-            CompilerDiagnostics = CompilerDiagnostics.None,
+            CompilerDiagnostics = CompilerDiagnostics.Errors,
         };
         test.DisabledDiagnostics.Add("CS1591");
         return test;
@@ -936,16 +946,15 @@ namespace TestApp
         // Every line must be a *typed* constant null. A bare `.Background(null)` or
         // `.Background(default)` is ambiguous across the string/Brush/ThemeRef overloads (CS0121)
         // and never binds to the Reactor modifier at all — asserting "no diagnostic" on one of
-        // those would pass for the wrong reason. CompilerDiagnostics.Errors below is what stops
-        // this test going vacuous that way: if any line stops compiling, the test fails.
+        // those would pass for the wrong reason. MakeAnalyzerTest verifies compiler errors (see
+        // the note on it), which is what stops this test going vacuous that way: if any line here
+        // stops compiling, the test fails instead of silently proving nothing.
         var body = App(@"
         internal static Element Cast() => Rectangle().Background((Brush)null);
         internal static Element TypedBrush() => Rectangle().Background(default(Brush));
         internal static Element TypedString() => Rectangle().Background(default(string));");
 
-        var test = MakeAnalyzerTest(body);
-        test.CompilerDiagnostics = CompilerDiagnostics.Errors;
-        await test.RunAsync(TestContext.Current.CancellationToken);
+        await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -954,14 +963,13 @@ namespace TestApp
         // Pins the premise of the test above: these two spellings are overload-ambiguous, so they
         // never reach the analyzer. Recorded as a compiler expectation so that if the DSL ever
         // gains a disambiguating overload, this fails and the constant-null coverage above gets
-        // revisited rather than quietly losing two cases.
+        // revisited rather than quietly losing two cases. It also fails if MakeAnalyzerTest ever
+        // stops verifying compiler errors, since an expected CS0121 would then go unmatched.
         var body = App(@"
         internal static Element Bare() => Rectangle().{|CS0121:Background|}(null);
         internal static Element Def() => Rectangle().{|CS0121:Background|}(default);");
 
-        var test = MakeAnalyzerTest(body);
-        test.CompilerDiagnostics = CompilerDiagnostics.Errors;
-        await test.RunAsync(TestContext.Current.CancellationToken);
+        await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]

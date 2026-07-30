@@ -62,10 +62,13 @@
 ;
 ; The 3 Rectangle hits are the sample bug this rule was written to prevent; they are fixed
 ; in a separate PR that owns CanvasPage.cs — drop that path from the list when it lands.
-; The 62 TextBlock Padding hits are a different question: WinUI declares Padding on
-; TextBlock, so the narrow Control/Border/StackPanel gate in ApplyModifiers may be the
-; thing that is wrong rather than the call sites. Widening it is a reconciler change,
-; deliberately not made here.
+; The 62 TextBlock Padding hits are a different question, now tracked as issue #950: the
+; modifier is wired through to RichTextBlock (Element.cs, its Customize hook maps Padding
+; to RichTextBlock.PaddingProperty) but not to TextBlock, so the narrow
+; Control/Border/StackPanel gate in ApplyModifiers looks like the thing that is wrong
+; rather than the call sites. Widening it is a reconciler change, deliberately not made
+; here. If #950 is fixed by widening, this rule simply stops firing on TextBlockElement and
+; those 62 hits disappear without touching a single sample.
 
 [*.cs]
 dotnet_diagnostic.REACTOR_THEME_001.severity = suggestion
