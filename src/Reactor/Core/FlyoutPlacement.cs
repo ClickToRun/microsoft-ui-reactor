@@ -32,16 +32,24 @@ namespace Microsoft.UI.Reactor.Core;
 /// Reactor's element records default to <c>Auto</c>, which means "no opinion — let the
 /// platform decide". That is expressed by leaving the DP untouched rather than by writing
 /// <c>Auto</c> to it. Note that "untouched" is not the same as "<c>Auto</c>": the DP's own
-/// default is <c>Top</c>, so skipping the write pins the flyout to <c>Top</c> and lets WinUI
-/// reposition from there. That is the right outcome only for flyout types whose validator
-/// rejects <c>Auto</c> — <c>Flyout</c> and <c>MenuFlyout</c>. <c>CommandBarFlyout</c>
-/// resolves <c>Auto</c> itself and is deliberately <b>not</b> routed through this helper,
-/// because suppressing its write would stop it auto-positioning and pin it to <c>Top</c>.
+/// default is <c>Top</c> (measured, see the <c>Platform_FlyoutBase_PlacementDefault</c>
+/// selftest), so skipping the write pins the flyout to <c>Top</c> and lets WinUI reposition
+/// from there.
 /// </para>
 /// <para>
-/// Consequently an update from an explicit placement back to <c>Auto</c> intentionally
-/// leaves the previously written value in place; this matches the pre-existing
-/// <c>MenuFlyout</c> guard that this helper generalizes.
+/// <c>CommandBarFlyout</c>'s three placement sites are <b>not</b> routed through this helper.
+/// That is a merge boundary, not an exemption on the merits: those methods are being rewritten
+/// by the companion change that fixes <c>CommandBarFlyout</c> never opening, and that change
+/// guards them itself. <c>CommandBarFlyout</c> is affected by the same crash — it simply never
+/// reached the validator, because the flyout was installed as <c>AttachedFlyout</c> metadata
+/// that nothing ever called <c>ShowAttachedFlyout</c> on. A latent crash masked by a separate
+/// defect reads exactly like a working code path.
+/// </para>
+/// <para>
+/// An update from an explicit placement back to <c>Auto</c> intentionally leaves the previously
+/// written value in place; this matches the pre-existing <c>MenuFlyout</c> guard that this
+/// helper generalizes. The companion change instead clears the DP, which resets to the platform
+/// default — the two should converge on one behaviour once both have landed.
 /// </para>
 /// </remarks>
 internal static class FlyoutPlacement

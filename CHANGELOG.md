@@ -103,11 +103,11 @@ Conventions for contributors:
   its own documented default of `Top` and WinUI repositions from there. Applies
   to `Flyout(...)`, `ContentFlyout(...)` / `.WithFlyout(...)` /
   `.WithContextFlyout(...)` and `MenuItems(...)`. `CommandBarFlyout(...)` is
-  deliberately unchanged: it resolves `Auto` itself and positions automatically,
-  so suppressing its write would have pinned it to `Top`. Explicit placements are
-  unaffected everywhere; a guarded flyout whose placement changes from an
-  explicit value back to `Auto` keeps the last explicit value rather than
-  resetting.
+  affected by the same defect but is fixed separately, alongside the change that
+  makes it open from its target at all — until that lands it never reaches the
+  validator, because nothing ever shows it. Explicit placements are unaffected
+  everywhere; a guarded flyout whose placement changes from an explicit value
+  back to `Auto` keeps the last explicit value rather than resetting.
 
 - **`NavigationView` pane state no longer desyncs when the control moves its own
   pane (issue #916).** `IsPaneOpen` could be written but had no change

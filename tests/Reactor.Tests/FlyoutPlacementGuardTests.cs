@@ -107,20 +107,40 @@ public class FlyoutPlacementGuardTests
     private const string HelperFileName = "FlyoutPlacement.cs";
 
     /// <summary>
-    /// Methods whose flyout deliberately keeps <see cref="FlyoutPlacementMode.Auto"/>, so a
-    /// raw <c>Placement</c> write there is correct rather than a bypass.
+    /// Other single-purpose helpers that own a flyout placement write. A write inside one of
+    /// these is the choke point, not a bypass.
     /// </summary>
     /// <remarks>
-    /// Only <c>CommandBarFlyout</c> qualifies. Suppressing the write is <b>not</b> neutral:
-    /// <c>FlyoutBase.Placement</c> defaults to <see cref="FlyoutPlacementMode.Top"/>, so
-    /// "don't write" means the flyout pins to <c>Top</c>. That is the right outcome for
-    /// <c>Flyout</c>/<c>MenuFlyout</c>, whose show-time validator rejects <c>Auto</c>
-    /// outright — but <c>CommandBarFlyout</c> resolves <c>Auto</c> itself and positions
-    /// automatically today, so guarding it would silently pin it to <c>Top</c> and change
-    /// where a working control appears. Keyed by method name (not file or line) so it
-    /// survives the in-flight rewrite of these two methods.
+    /// <c>ApplyFlyoutPlacement</c> is the sibling helper introduced alongside the
+    /// <c>CommandBarFlyout</c> wiring fix. Listing it here keeps this guard meaningful across
+    /// that change instead of firing on a legitimate choke point; the two are expected to
+    /// converge on one helper afterwards.
     /// </remarks>
-    private static readonly string[] AutoTolerantFlyoutMethods =
+    private static readonly string[] PlacementHelperMethods =
+    [
+        "ApplyFlyoutPlacement",
+    ];
+
+    /// <summary>
+    /// Methods owned by the <c>CommandBarFlyout</c> wiring fix rather than by this change.
+    /// This guard takes no position on what they do with placement.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// These three sites are left byte-identical to <c>main</c> here purely to avoid
+    /// conflicting with that in-flight work — <b>not</b> because <c>CommandBarFlyout</c> is
+    /// unaffected by the crash. It is affected: it simply never reached the validator,
+    /// because the flyout was installed as <c>AttachedFlyout</c> metadata that nothing ever
+    /// called <c>ShowAttachedFlyout</c> on. Once that wiring is fixed, a default
+    /// <see cref="FlyoutPlacementMode.Auto"/> reaches <c>ShowAtCore</c> and fail-fasts
+    /// exactly as it did for <c>Flyout</c>.
+    /// </para>
+    /// <para>
+    /// Keyed by method name so it holds whether those methods still write placement directly
+    /// or have been routed through a helper.
+    /// </para>
+    /// </remarks>
+    private static readonly string[] MethodsOwnedElsewhere =
     [
         "MountCommandBarFlyout",
         "UpdateCommandBarFlyout",
@@ -133,7 +153,8 @@ public class FlyoutPlacementGuardTests
 
         var bypasses = writes
             .Where(w => !string.Equals(Path.GetFileName(w.File), HelperFileName, StringComparison.Ordinal))
-            .Where(w => !AutoTolerantFlyoutMethods.Contains(w.Method, StringComparer.Ordinal))
+            .Where(w => !PlacementHelperMethods.Contains(w.Method, StringComparer.Ordinal))
+            .Where(w => !MethodsOwnedElsewhere.Contains(w.Method, StringComparer.Ordinal))
             .Select(w => $"{Path.GetFileName(w.File)}({w.Line}) in {w.Method}: {w.Text}")
             .OrderBy(s => s, StringComparer.Ordinal)
             .ToList();
@@ -144,20 +165,21 @@ public class FlyoutPlacementGuardTests
             "FlyoutPlacement.Apply, which lets FlyoutPlacementMode.Auto reach WinUI's validator " +
             "and terminate the process when the flyout is shown: " +
             $"[{string.Join("; ", bypasses)}]. Route the write through FlyoutPlacement.Apply, or " +
-            "— if the flyout type genuinely tolerates Auto, as CommandBarFlyout does — add the " +
-            $"enclosing method to {nameof(AutoTolerantFlyoutMethods)} with a comment explaining why.");
+            $"— if it is itself a placement helper — add the method to {nameof(PlacementHelperMethods)}.");
     }
 
     [Fact]
-    public void CommandBarFlyout_Is_Deliberately_Left_Unguarded()
+    public void CommandBarFlyout_Sites_Are_Left_To_The_Wiring_Fix()
     {
-        // Pins the asymmetry so a later "consistency" cleanup cannot quietly guard
-        // CommandBarFlyout — which would stop it auto-positioning and pin it to Top.
+        // Documents the partition rather than asserting a behaviour: whatever the
+        // CommandBarFlyout methods do with placement, this guard must not flag it, and this
+        // change must not be the thing that guards them. Deliberately tolerates both states
+        // — direct writes today, helper-routed once the wiring fix lands — so neither PR
+        // breaks the other regardless of merge order.
         var exempt = ScanCoreForFlyoutPlacementWrites()
-            .Where(w => AutoTolerantFlyoutMethods.Contains(w.Method, StringComparer.Ordinal))
+            .Where(w => MethodsOwnedElsewhere.Contains(w.Method, StringComparer.Ordinal))
             .ToList();
 
-        Assert.NotEmpty(exempt);
         Assert.All(exempt, w => Assert.Contains("CommandBarFlyout", w.Method, StringComparison.Ordinal));
     }
 
@@ -202,9 +224,11 @@ public class FlyoutPlacementGuardTests
                     var f = new WinUI.Flyout { Content = null, Placement = Placement };
                     existing.SetValue(WinPrim.FlyoutBase.PlacementProperty, Placement);
                     existing.SetCurrentValue(FlyoutBase.PlacementProperty, Placement);
+                    existing.ClearValue(WinPrim.FlyoutBase.PlacementProperty);
                     var e = new SomeElement { Placement = Placement };
                     var t = new TeachingTip { PreferredPlacement = Placement };
                     existing.SetValue(TeachingTip.PreferredPlacementProperty, Placement);
+                    existing.ClearValue(TeachingTip.PreferredPlacementProperty);
                     var read = existing.Placement;
                 }
             }
@@ -214,11 +238,12 @@ public class FlyoutPlacementGuardTests
             .Select(w => w.Text)
             .ToList();
 
-        Assert.Equal(4, hits.Count);
+        Assert.Equal(5, hits.Count);
         Assert.Contains(hits, h => h.StartsWith("existing.Placement", StringComparison.Ordinal));
         Assert.Contains(hits, h => h.Contains("new WinUI.Flyout", StringComparison.Ordinal));
         Assert.Contains(hits, h => h.Contains("SetValue(WinPrim.FlyoutBase.PlacementProperty", StringComparison.Ordinal));
         Assert.Contains(hits, h => h.Contains("SetCurrentValue(FlyoutBase.PlacementProperty", StringComparison.Ordinal));
+        Assert.Contains(hits, h => h.Contains("ClearValue(WinPrim.FlyoutBase.PlacementProperty", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -246,8 +271,9 @@ public class FlyoutPlacementGuardTests
             .ToDictionary(w => w.Method, w => w);
 
         Assert.Equal(2, byMethod.Count);
-        Assert.Contains("MountCommandBarFlyout", AutoTolerantFlyoutMethods);
-        Assert.DoesNotContain("MountFlyout", AutoTolerantFlyoutMethods);
+        Assert.Contains("MountCommandBarFlyout", MethodsOwnedElsewhere);
+        Assert.DoesNotContain("MountFlyout", MethodsOwnedElsewhere);
+        Assert.DoesNotContain("MountFlyout", PlacementHelperMethods);
         Assert.Equal("MountCommandBarFlyout", byMethod["MountCommandBarFlyout"].Method);
         Assert.Equal("MountFlyout", byMethod["MountFlyout"].Method);
     }
@@ -338,14 +364,15 @@ public class FlyoutPlacementGuardTests
         };
 
     /// <summary>
-    /// Matches <c>x.SetValue(&lt;anything&gt;FlyoutBase.PlacementProperty, v)</c> and the
-    /// <c>SetCurrentValue</c> sibling, regardless of how <c>FlyoutBase</c> is qualified.
+    /// Matches <c>x.SetValue(&lt;anything&gt;FlyoutBase.PlacementProperty, v)</c>, the
+    /// <c>SetCurrentValue</c> sibling, and <c>x.ClearValue(...PlacementProperty)</c>,
+    /// regardless of how <c>FlyoutBase</c> is qualified.
     /// </summary>
     private static bool IsPlacementDpWrite(InvocationExpressionSyntax invocation)
     {
         if (invocation.Expression is not MemberAccessExpressionSyntax
-            { Name.Identifier.Text: "SetValue" or "SetCurrentValue" }) return false;
-        if (invocation.ArgumentList.Arguments.Count < 2) return false;
+            { Name.Identifier.Text: "SetValue" or "SetCurrentValue" or "ClearValue" }) return false;
+        if (invocation.ArgumentList.Arguments.Count < 1) return false;
 
         var dp = invocation.ArgumentList.Arguments[0].Expression;
         return dp is MemberAccessExpressionSyntax
