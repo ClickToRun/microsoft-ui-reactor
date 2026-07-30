@@ -94,9 +94,11 @@ DataGrid(
     {
         Column<Product>(""Id"", p => p.Id, width: 60),                   // read-only
         Column<Product>(""Name"", p => p.Name, editable: true, displayName: ""Product"", width: 200),
+        Column<Product>(""Category"", p => p.Category, editable: true, width: 140),
         Column<Product>(""Price"", p => p.Price, editable: true, format: ""C2"", width: 100),
+        Column<Product>(""InStock"", p => p.InStock, displayName: ""In stock"", width: 90),
     },
-    selectionMode: SelectionMode.Single,
+    selectionMode: selection,             // driven by the Options combo below
     onSelectionChanged: keys => setSelectedCount(keys.Count),
     editable: true,                       // grid-level opt-in; columns opt in individually
     editMode: EditMode.Cell,
