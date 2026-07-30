@@ -910,14 +910,35 @@ namespace TestApp
         // becomes Optional.Of(null), an explicit set-to-null that CLEARS the brush. Reporting here
         // would name the wrong cause and offer a behaviour-changing fix.
         //
-        // A bare `.Background(null)` is not tested because it does not compile — null is ambiguous
-        // across the string/Brush/ThemeRef overloads (CS0121), so it can never reach the analyzer.
+        // Every line must be a *typed* constant null. A bare `.Background(null)` or
+        // `.Background(default)` is ambiguous across the string/Brush/ThemeRef overloads (CS0121)
+        // and never binds to the Reactor modifier at all — asserting "no diagnostic" on one of
+        // those would pass for the wrong reason. CompilerDiagnostics.Errors below is what stops
+        // this test going vacuous that way: if any line stops compiling, the test fails.
         var body = App(@"
         internal static Element Cast() => Rectangle().Background((Brush)null);
-        internal static Element Typed() => Rectangle().Background(default(Brush));
-        internal static Element Bare() => Rectangle().Background(default);");
+        internal static Element TypedBrush() => Rectangle().Background(default(Brush));
+        internal static Element TypedString() => Rectangle().Background(default(string));");
 
-        await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
+        var test = MakeAnalyzerTest(body);
+        test.CompilerDiagnostics = CompilerDiagnostics.Errors;
+        await test.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Bare_Null_And_Default_Do_Not_Bind_The_Modifier_At_All()
+    {
+        // Pins the premise of the test above: these two spellings are overload-ambiguous, so they
+        // never reach the analyzer. Recorded as a compiler expectation so that if the DSL ever
+        // gains a disambiguating overload, this fails and the constant-null coverage above gets
+        // revisited rather than quietly losing two cases.
+        var body = App(@"
+        internal static Element Bare() => Rectangle().{|CS0121:Background|}(null);
+        internal static Element Def() => Rectangle().{|CS0121:Background|}(default);");
+
+        var test = MakeAnalyzerTest(body);
+        test.CompilerDiagnostics = CompilerDiagnostics.Errors;
+        await test.RunAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
