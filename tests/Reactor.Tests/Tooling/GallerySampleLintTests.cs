@@ -117,6 +117,31 @@ public sealed class GallerySampleLintTests
         _ => -1,
     };
 
+    /// <summary>
+    /// Strip parentheses and casts from an argument so <c>(Func&lt;T,int,Element&gt;)((i, n) =&gt; ...)</c>
+    /// is still recognised as the lambda it is. Without this the lint fails closed on legal code.
+    /// </summary>
+    static ExpressionSyntax UnwrapArgument(ExpressionSyntax expression) => expression switch
+    {
+        ParenthesizedExpressionSyntax paren => UnwrapArgument(paren.Expression),
+        CastExpressionSyntax cast => UnwrapArgument(cast.Expression),
+        _ => expression,
+    };
+
+    /// <summary>
+    /// The <c>(item, index) =&gt; Element</c> view-builder lambdas of an <c>ItemsView(...)</c> call.
+    /// Selected by parameter count rather than position: <c>ItemsViewElement&lt;T&gt;</c> has exactly one
+    /// two-parameter delegate (<c>ViewBuilder</c>) — <c>KeySelector</c>, <c>OnItemInvoked</c> and
+    /// <c>OnSelectionChanged</c> all take one — so the count is unambiguous, while picking "the last
+    /// lambda" would grab the key selector whenever the builder is passed as a method group.
+    /// </summary>
+    static IReadOnlyList<AnonymousFunctionExpressionSyntax> ViewBuilders(InvocationExpressionSyntax invocation) =>
+        invocation.ArgumentList.Arguments
+            .Select(a => UnwrapArgument(a.Expression))
+            .OfType<AnonymousFunctionExpressionSyntax>()
+            .Where(l => ParameterCount(l) == 2)
+            .ToList();
+
     /// <summary>Every expression a lambda can hand back, flattening conditional branches.</summary>
     static IEnumerable<ExpressionSyntax> ReturnedExpressions(AnonymousFunctionExpressionSyntax lambda)
     {
@@ -168,20 +193,15 @@ public sealed class GallerySampleLintTests
             {
                 if (InvokedName(invocation) != "ItemsView") continue;
 
-                // The view builder is the (item, index) => Element lambda. Select it by
-                // parameter count rather than position: picking "the last lambda" would
-                // grab the keySelector if the builder were passed as a method group, and
-                // then report a bogus failure against the wrong argument.
-                var lambdas = invocation.ArgumentList.Arguments
-                    .Select(a => a.Expression)
-                    .OfType<AnonymousFunctionExpressionSyntax>()
-                    .Where(l => ParameterCount(l) == 2)
-                    .ToList();
+                // The view builder is the (item, index) => Element lambda.
+                var lambdas = ViewBuilders(invocation);
 
                 if (lambdas.Count == 0)
                 {
                     offenders.Add($"{Where(path, invocation)}: the ItemsView view builder is not a two-parameter " +
-                                  "lambda, so this lint cannot verify its root. Pass it inline as (item, index) => ItemContainer(...).");
+                                  "lambda, so this lint cannot verify its root. Pass it inline as " +
+                                  "(item, index) => ItemContainer(...) rather than as a method group or a " +
+                                  "parameterless delegate { } form.");
                     continue;
                 }
 
@@ -203,6 +223,31 @@ public sealed class GallerySampleLintTests
         Assert.True(checkedBuilders > 0,
             "no ItemsView view-builder roots were inspected — the lint would pass vacuously.");
         Assert.True(offenders.Count == 0, string.Join("\n", offenders));
+    }
+
+    /// <summary>
+    /// The builder selection above decides whether the lint checks a call or fails it closed, so its
+    /// own behaviour is pinned here against synthetic source. A cast- or parenthesis-wrapped lambda is
+    /// legal C# that converts to <c>Func&lt;T,int,Element&gt;</c>; before <c>UnwrapArgument</c> existed
+    /// those were seen as non-lambdas and the lint reported a bogus offender against correct code.
+    /// </summary>
+    [Theory]
+    [InlineData("ItemsView(items, i => i.Key, (i, n) => ItemContainer(Text(i.Name)))", 1)]
+    [InlineData("ItemsView(items, i => i.Key, ((i, n) => ItemContainer(Text(i.Name))))", 1)]
+    [InlineData("ItemsView(items, i => i.Key, (Func<Item, int, Element>)((i, n) => ItemContainer(Text(i.Name))))", 1)]
+    [InlineData("ItemsView(items, i => i.Key, BuildRow)", 0)]
+    [InlineData("ItemsView(items, i => i.Key, i => ItemContainer(Text(i.Name)))", 0)]
+    public void ViewBuilderSelection_FindsWrappedLambdas_AndIgnoresOneParameterArguments(string call, int expected)
+    {
+        var invocation = CSharpSyntaxTree
+            .ParseText($"class C {{ void M() {{ var x = {call}; }} }}",
+                cancellationToken: TestContext.Current.CancellationToken)
+            .GetRoot(TestContext.Current.CancellationToken)
+            .DescendantNodes()
+            .OfType<InvocationExpressionSyntax>()
+            .First(i => InvokedName(i) == "ItemsView");
+
+        Assert.Equal(expected, ViewBuilders(invocation).Count);
     }
 
     // ── Shapes are painted with Fill, not Background ─────────────────────────
