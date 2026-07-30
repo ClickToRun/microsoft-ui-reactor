@@ -23,6 +23,42 @@ public static class FlyoutPlacementFixtures
     private static WinUI.Flyout? FlyoutOn(Harness h, string buttonLabel)
         => h.FindButton(buttonLabel)?.Flyout as WinUI.Flyout;
 
+    // ────────────────────────────────────────────────────────────────────
+    //  The load-bearing platform assumption, measured rather than assumed.
+    //
+    //  The whole fix is "don't write Auto, leave the DP alone". That is only
+    //  safe because the DP's own default is a value the show-time validator
+    //  accepts. If a future Windows App SDK shipped FlyoutBase.Placement
+    //  defaulting to Auto, skipping the write would silently stop protecting
+    //  anything and the crash would come back — with every other test in this
+    //  file still green, because they all assert "!= Auto" against a DP that
+    //  would now BE Auto. So pin the platform default directly.
+    // ────────────────────────────────────────────────────────────────────
+    internal class Platform_FlyoutBase_PlacementDefault(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var flyout = new WinUI.Flyout();
+            var menuFlyout = new WinUI.MenuFlyout();
+            var commandBarFlyout = new WinUI.CommandBarFlyout();
+
+            // Emitted as TAP comments so the measured values are in the log even
+            // when the assertions pass — a future SDK bump shows up as a diff here.
+            Console.WriteLine($"# measured Flyout.Placement default          = {flyout.Placement}");
+            Console.WriteLine($"# measured MenuFlyout.Placement default      = {menuFlyout.Placement}");
+            Console.WriteLine($"# measured CommandBarFlyout.Placement default = {commandBarFlyout.Placement}");
+
+            H.Check("FlyoutPlacement_Platform_FlyoutDefaultIsTop",
+                flyout.Placement == WinPrim.FlyoutPlacementMode.Top);
+            H.Check("FlyoutPlacement_Platform_MenuFlyoutDefaultIsTop",
+                menuFlyout.Placement == WinPrim.FlyoutPlacementMode.Top);
+            H.Check("FlyoutPlacement_Platform_DefaultIsValidatorAccepted",
+                (int)flyout.Placement is >= 0 and <= 12);
+
+            await Harness.Render();
+        }
+    }
+
     /// <summary>
     /// Closes a flyout and waits for the close to land. Returning while a light-dismiss
     /// overlay is still up would leak it into the next in-process fixture.

@@ -230,6 +230,7 @@ internal static class SelfTestFixtureRegistry
         // fixtures actually open the flyout, which is the only thing that catches the
         // crash; the button-slot one pins the DP value only. CommandBarFlyout is
         // deliberately excluded from the guard — see its fixture for why.
+        "FlyoutPlacement_Platform_FlyoutBase_PlacementDefault",
         "FlyoutPlacement_Flyout_DefaultPlacement_Opens",
         "FlyoutPlacement_Flyout_ExplicitPlacement_ReachesTheControl",
         "FlyoutPlacement_Flyout_PlacementUpdate_NeverWritesAuto",
@@ -1824,6 +1825,7 @@ internal static class SelfTestFixtureRegistry
         "OverlayTeardown_Flyout_Unmount_RunsPassThroughCleanup" => new OverlayTeardownFixtures.Flyout_Unmount_RunsPassThroughCleanup(harness),
         "OverlayTeardown_Popup_Unmount_RunsChildCleanup" => new OverlayTeardownFixtures.Popup_Unmount_RunsChildCleanup(harness),
         // Flyout placement guard — Auto must never reach FlyoutBase.Placement.
+        "FlyoutPlacement_Platform_FlyoutBase_PlacementDefault" => new FlyoutPlacementFixtures.Platform_FlyoutBase_PlacementDefault(harness),
         "FlyoutPlacement_Flyout_DefaultPlacement_Opens" => new FlyoutPlacementFixtures.Flyout_DefaultPlacement_Opens(harness),
         "FlyoutPlacement_Flyout_ExplicitPlacement_ReachesTheControl" => new FlyoutPlacementFixtures.Flyout_ExplicitPlacement_ReachesTheControl(harness),
         "FlyoutPlacement_Flyout_PlacementUpdate_NeverWritesAuto" => new FlyoutPlacementFixtures.Flyout_PlacementUpdate_NeverWritesAuto(harness),
