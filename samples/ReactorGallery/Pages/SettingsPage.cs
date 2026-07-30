@@ -171,7 +171,7 @@ class DeepLinkSettingsCard : Component
                     : "Not registered — reactor-gallery:// links won't open this app until you turn this back on or restart the gallery.")
                     .Foreground(Theme.SecondaryText)
                     .FontSize(12)
-                    .Set(tb => tb.TextWrapping = TextWrapping.Wrap)
+                    .TextWrapping(TextWrapping.Wrap)
             );
 
         var children = new List<Element>
@@ -187,10 +187,10 @@ class DeepLinkSettingsCard : Component
             TextBlock("Any page in the gallery has a shareable link. Use the link button in the title bar to copy the link for the page you're on.")
                 .Foreground(Theme.SecondaryText)
                 .FontSize(13)
-                .Set(tb => tb.TextWrapping = TextWrapping.Wrap),
+                .TextWrapping(TextWrapping.Wrap),
 
             (TextBlock(exampleUri) with { IsTextSelectionEnabled = true })
-                .Set(tb => tb.FontFamily = new FontFamily("Cascadia Code, Consolas, monospace"))
+                .FontFamily("Cascadia Code, Consolas, monospace")
                 .Foreground(Theme.PrimaryText)
                 .FontSize(12),
         };
