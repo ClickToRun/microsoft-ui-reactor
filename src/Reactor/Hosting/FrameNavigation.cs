@@ -103,9 +103,15 @@ internal static class FrameNavigation
         }
     }
 
-    // Deliberately does NOT suggest ReactorApp.RegisterPageType / RegisterControlAssembly for
-    // the hosting case: both feed ReactorApplication.GetXamlType, which is exactly the chain
-    // that is not running when a non-Reactor Application owns type resolution.
+    // Neither refusal reason is helped by the registration APIs, but for different reasons,
+    // and the distinction is the useful part:
+    //   • Host-app case — ReactorApp.RegisterPageType / RegisterControlAssembly both feed
+    //     ReactorApplication.GetXamlType, which is exactly the chain that is NOT running when a
+    //     non-Reactor Application owns type resolution. Registering would be a no-op there.
+    //   • Non-activatable case — publishing is refused by design (see
+    //     ReactorPageTypeRegistry.Register): WinUI could never activate an open generic or a
+    //     type with no full name, so registering harder changes nothing. The fix is the type.
+    // Hence the message below sends each case somewhere genuinely different.
     private static string BuildUnresolvableMessage(Type pageType)
     {
         // FullName is null for generic parameters and some constructed types, and WinUI keys
