@@ -6713,13 +6713,11 @@ public record CommandBarFlyoutElement(
     public bool IsOpen { get; init; }
     /// <summary>
     /// Preferred position of the flyout relative to its target. Defaults to
-    /// <see cref="FlyoutPlacementMode.Auto"/>, which means "no opinion — let WinUI decide":
-    /// Reactor leaves <c>FlyoutBase.Placement</c> at the control's own default instead of
-    /// writing <c>Auto</c>, matching the other flyout elements (WinUI's show-time
-    /// validator rejects <c>Auto</c>). Since nothing is written, changing an
-    /// already-mounted flyout from an explicit placement back to
-    /// <see cref="FlyoutPlacementMode.Auto"/> keeps the last explicit value rather than
-    /// resetting it.
+    /// <see cref="FlyoutPlacementMode.Auto"/>, and — unlike the other flyout elements —
+    /// <c>Auto</c> <b>is</b> written through to <c>CommandBarFlyout.Placement</c>.
+    /// <c>CommandBarFlyout</c> resolves <c>Auto</c> itself and positions automatically, so
+    /// suppressing the write would leave the property at its <c>FlyoutBase</c> default of
+    /// <see cref="FlyoutPlacementMode.Top"/> and pin the flyout there instead.
     /// </summary>
     public FlyoutPlacementMode Placement { get; init; } = FlyoutPlacementMode.Auto;
     internal Action<WinUI.CommandBarFlyout>[] Setters { get; init; } = [];

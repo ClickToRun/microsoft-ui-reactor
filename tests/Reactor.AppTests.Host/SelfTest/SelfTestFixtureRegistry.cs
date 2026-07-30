@@ -225,17 +225,18 @@ internal static class SelfTestFixtureRegistry
         "OverlayTeardown_Flyout_Unmount_RunsPassThroughCleanup",
         "OverlayTeardown_Popup_Unmount_RunsChildCleanup",
         // Flyout placement guard — Reactor must never write FlyoutPlacementMode.Auto
-        // onto a WinUI FlyoutBase (WinUI's show-time validator rejects it and
-        // fail-fasts the process). The Flyout/ContentFlyout/fresh-create fixtures
-        // actually open the flyout, which is the only thing that catches the crash;
-        // the button-slot and CommandBarFlyout ones pin the DP value only.
+        // onto a WinUI FlyoutBase whose validator rejects it (Flyout, MenuFlyout),
+        // because that fail-fasts the process. The Flyout/ContentFlyout/fresh-create
+        // fixtures actually open the flyout, which is the only thing that catches the
+        // crash; the button-slot one pins the DP value only. CommandBarFlyout is
+        // deliberately excluded from the guard — see its fixture for why.
         "FlyoutPlacement_Flyout_DefaultPlacement_Opens",
         "FlyoutPlacement_Flyout_ExplicitPlacement_ReachesTheControl",
         "FlyoutPlacement_Flyout_PlacementUpdate_NeverWritesAuto",
         "FlyoutPlacement_ContentFlyout_DefaultPlacement_Opens",
         "FlyoutPlacement_MenuFlyout_ContextFlyout_DefaultPlacement",
         "FlyoutPlacement_ButtonFlyoutSlots_DefaultPlacement",
-        "FlyoutPlacement_CommandBarFlyout_DefaultPlacement_NotAuto",
+        "FlyoutPlacement_CommandBarFlyout_KeepsAuto_Unguarded",
         "FlyoutPlacement_Flyout_TargetTypeChange_FreshFlyoutNotAuto",
         // Issue #480 — InlineUIContainer rich-text inline (Route A + Route B + unmount)
         "InlineUI_RouteA_ReactorChild",
@@ -1829,7 +1830,7 @@ internal static class SelfTestFixtureRegistry
         "FlyoutPlacement_ContentFlyout_DefaultPlacement_Opens" => new FlyoutPlacementFixtures.ContentFlyout_DefaultPlacement_Opens(harness),
         "FlyoutPlacement_MenuFlyout_ContextFlyout_DefaultPlacement" => new FlyoutPlacementFixtures.MenuFlyout_ContextFlyout_DefaultPlacement(harness),
         "FlyoutPlacement_ButtonFlyoutSlots_DefaultPlacement" => new FlyoutPlacementFixtures.ButtonFlyoutSlots_DefaultPlacement(harness),
-        "FlyoutPlacement_CommandBarFlyout_DefaultPlacement_NotAuto" => new FlyoutPlacementFixtures.CommandBarFlyout_DefaultPlacement_NotAuto(harness),
+        "FlyoutPlacement_CommandBarFlyout_KeepsAuto_Unguarded" => new FlyoutPlacementFixtures.CommandBarFlyout_KeepsAuto_Unguarded(harness),
         "FlyoutPlacement_Flyout_TargetTypeChange_FreshFlyoutNotAuto" => new FlyoutPlacementFixtures.Flyout_TargetTypeChange_FreshFlyoutNotAuto(harness),
         // Issue #480 — InlineUIContainer rich-text inline.
         "InlineUI_RouteA_ReactorChild" => new InlineUIContainerFixtures.InlineUI_RouteA_ReactorChild(harness),

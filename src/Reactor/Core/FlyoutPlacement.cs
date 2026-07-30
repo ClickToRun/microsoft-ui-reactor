@@ -31,10 +31,17 @@ namespace Microsoft.UI.Reactor.Core;
 /// <para>
 /// Reactor's element records default to <c>Auto</c>, which means "no opinion — let the
 /// platform decide". That is expressed by leaving the DP untouched rather than by writing
-/// <c>Auto</c> to it. Consequently an update from an explicit placement back to <c>Auto</c>
-/// intentionally leaves the previously written value in place; this matches the pre-existing
-/// <c>MenuFlyout</c> guard this helper generalizes, and avoids disturbing controls such as
-/// <c>CommandBarFlyout</c> that resolve <c>Auto</c> themselves.
+/// <c>Auto</c> to it. Note that "untouched" is not the same as "<c>Auto</c>": the DP's own
+/// default is <c>Top</c>, so skipping the write pins the flyout to <c>Top</c> and lets WinUI
+/// reposition from there. That is the right outcome only for flyout types whose validator
+/// rejects <c>Auto</c> — <c>Flyout</c> and <c>MenuFlyout</c>. <c>CommandBarFlyout</c>
+/// resolves <c>Auto</c> itself and is deliberately <b>not</b> routed through this helper,
+/// because suppressing its write would stop it auto-positioning and pin it to <c>Top</c>.
+/// </para>
+/// <para>
+/// Consequently an update from an explicit placement back to <c>Auto</c> intentionally
+/// leaves the previously written value in place; this matches the pre-existing
+/// <c>MenuFlyout</c> guard that this helper generalizes.
 /// </para>
 /// </remarks>
 internal static class FlyoutPlacement

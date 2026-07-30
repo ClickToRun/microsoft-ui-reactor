@@ -283,71 +283,50 @@ public static class FlyoutPlacementFixtures
     }
 
     // ────────────────────────────────────────────────────────────────────
-    //  CommandBarFlyout — mount + the update branch that re-creates the flyout
-    //  because the target's element type changed (so no attached flyout exists).
-    //  CommandBarFlyout tolerates Auto today, so this pins consistency, not a crash.
+    //  CommandBarFlyout is DELIBERATELY excluded from the guard.
+    //  Suppressing the write is not neutral: FlyoutBase.Placement defaults to Top,
+    //  so "don't write" means the flyout pins to Top. Flyout/MenuFlyout want that
+    //  (their validator rejects Auto outright), but CommandBarFlyout resolves Auto
+    //  itself and auto-positions today — guarding it would silently move it to Top.
+    //  This fixture pins the asymmetry so a later "consistency" cleanup cannot
+    //  regress it, and so the DP is observably Auto rather than merely unguarded.
     // ────────────────────────────────────────────────────────────────────
-    internal class CommandBarFlyout_DefaultPlacement_NotAuto(Harness h) : SelfTestFixtureBase(h)
+    internal class CommandBarFlyout_KeepsAuto_Unguarded(Harness h) : SelfTestFixtureBase(h)
     {
         public override async Task RunAsync()
         {
             var host = H.CreateHost();
-            host.Mount(ctx =>
-            {
-                var (swapped, setSwapped) = ctx.UseState(false);
-                return VStack(
-                    Button("SwapCbfTarget", () => setSwapped(true)),
-                    CommandBarFlyout(
-                        swapped
-                            ? Border(TextBlock("CbfBorderTarget"))
-                            : (Element)Button("CbfButtonTarget", () => { }),
-                        primaryCommands: [AppBarButton("Bold")]),
-                    // Differential sibling: same mount + re-create arms, explicit placement.
-                    CommandBarFlyout(
-                        swapped
-                            ? Border(TextBlock("CbfPinnedBorderTarget"))
-                            : (Element)Button("CbfPinnedButtonTarget", () => { }),
-                        primaryCommands: [AppBarButton("Italic")])
-                        with { Placement = WinPrim.FlyoutPlacementMode.BottomEdgeAlignedLeft });
-            });
+            host.Mount(_ => VStack(
+                CommandBarFlyout(
+                    Button("CbfButtonTarget", () => { }),
+                    primaryCommands: [AppBarButton("Bold")]),
+                // Differential sibling: an explicit placement must still land verbatim.
+                CommandBarFlyout(
+                    Button("CbfPinnedButtonTarget", () => { }),
+                    primaryCommands: [AppBarButton("Italic")])
+                    with { Placement = WinPrim.FlyoutPlacementMode.BottomEdgeAlignedLeft }));
             await Harness.Render();
 
             var cbfButton = H.FindButton("CbfButtonTarget");
             H.Check("FlyoutPlacement_CommandBarFlyout_TargetMounted", cbfButton is not null);
-            // CommandBarFlyout attaches via FlyoutBase.SetAttachedFlyout, not Button.Flyout.
-            var mounted = cbfButton is null
-                ? null
-                : WinPrim.FlyoutBase.GetAttachedFlyout(cbfButton) as WinUI.CommandBarFlyout;
+
+            var mounted = CommandBarFlyoutOn(cbfButton);
             H.Check("FlyoutPlacement_CommandBarFlyout_MountAttached", mounted is not null);
-            H.Check("FlyoutPlacement_CommandBarFlyout_MountDpIsNotAuto",
-                mounted is not null && mounted.Placement != WinPrim.FlyoutPlacementMode.Auto);
+            H.Check("FlyoutPlacement_CommandBarFlyout_KeepsAuto",
+                mounted?.Placement == WinPrim.FlyoutPlacementMode.Auto);
 
-            var pinnedButton = H.FindButton("CbfPinnedButtonTarget");
-            H.Check("FlyoutPlacement_CommandBarFlyout_MountAppliesExplicit",
-                pinnedButton is not null
-                && (WinPrim.FlyoutBase.GetAttachedFlyout(pinnedButton) as WinUI.CommandBarFlyout)?.Placement
-                    == WinPrim.FlyoutPlacementMode.BottomEdgeAlignedLeft);
-
-            // Target type change → UpdateCommandBarFlyout's "no existing flyout" branch.
-            H.ClickButton("SwapCbfTarget");
-            await Harness.WaitFor(() => AttachedCommandBarFlyout(H, "CbfBorderTarget") is not null);
-            var recreated = AttachedCommandBarFlyout(H, "CbfBorderTarget");
-            H.Check("FlyoutPlacement_CommandBarFlyout_RecreatedAttached", recreated is not null);
-            H.Check("FlyoutPlacement_CommandBarFlyout_RecreatedDpIsNotAuto",
-                recreated is not null && recreated.Placement != WinPrim.FlyoutPlacementMode.Auto);
-            H.Check("FlyoutPlacement_CommandBarFlyout_RecreatedAppliesExplicit",
-                AttachedCommandBarFlyout(H, "CbfPinnedBorderTarget")?.Placement
+            H.Check("FlyoutPlacement_CommandBarFlyout_ExplicitStillApplies",
+                CommandBarFlyoutOn(H.FindButton("CbfPinnedButtonTarget"))?.Placement
                     == WinPrim.FlyoutPlacementMode.BottomEdgeAlignedLeft);
         }
 
-        private static WinUI.CommandBarFlyout? AttachedCommandBarFlyout(Harness h, string markerText)
-        {
-            var border = h.FindControl<Microsoft.UI.Xaml.Controls.Border>(
-                b => b.Child is Microsoft.UI.Xaml.Controls.TextBlock tb && tb.Text == markerText);
-            return border is null
+        // Reads both attachment slots: CommandBarFlyout uses SetAttachedFlyout today, but
+        // that is being reworked to SetFlyoutOnControl — checking both keeps this fixture
+        // valid across that change instead of failing for an unrelated reason.
+        private static WinUI.CommandBarFlyout? CommandBarFlyoutOn(Microsoft.UI.Xaml.Controls.Button? button)
+            => button is null
                 ? null
-                : WinPrim.FlyoutBase.GetAttachedFlyout(border) as WinUI.CommandBarFlyout;
-        }
+                : (button.Flyout ?? WinPrim.FlyoutBase.GetAttachedFlyout(button)) as WinUI.CommandBarFlyout;
     }
 
     // ────────────────────────────────────────────────────────────────────

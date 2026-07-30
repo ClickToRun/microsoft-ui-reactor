@@ -98,14 +98,16 @@ Conventions for contributors:
   (`FlyoutBase::ValidateAndSetParameters`) only accepts placements `0..12`, so
   `Auto` (13) failed with `E_INVALIDARG` and the resulting stowed
   `ArgumentException` killed the app the first time the flyout was shown —
-  reproducible from the gallery's Dialogs and Flyouts → Flyout page. `Auto` now
-  means "Reactor has no opinion — let the platform decide" and is expressed by
-  leaving the dependency property at WinUI's own default (`Top`) instead of
-  writing `Auto` to it. Applies to `Flyout(...)`, `ContentFlyout(...)` /
-  `.WithFlyout(...)` / `.WithContextFlyout(...)`, `MenuItems(...)` and
-  `CommandBarFlyout(...)`. Explicit placements are unaffected; a flyout whose
-  placement changes from an explicit value back to `Auto` keeps the last
-  explicit value rather than resetting.
+  reproducible from the gallery's Dialogs and Flyouts → Flyout page. Reactor now
+  leaves the dependency property alone when the element says `Auto`, so it keeps
+  its own documented default of `Top` and WinUI repositions from there. Applies
+  to `Flyout(...)`, `ContentFlyout(...)` / `.WithFlyout(...)` /
+  `.WithContextFlyout(...)` and `MenuItems(...)`. `CommandBarFlyout(...)` is
+  deliberately unchanged: it resolves `Auto` itself and positions automatically,
+  so suppressing its write would have pinned it to `Top`. Explicit placements are
+  unaffected everywhere; a guarded flyout whose placement changes from an
+  explicit value back to `Auto` keeps the last explicit value rather than
+  resetting.
 
 - **`NavigationView` pane state no longer desyncs when the control moves its own
   pane (issue #916).** `IsPaneOpen` could be written but had no change

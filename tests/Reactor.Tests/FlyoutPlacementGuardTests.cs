@@ -107,12 +107,24 @@ public class FlyoutPlacementGuardTests
     private const string HelperFileName = "FlyoutPlacement.cs";
 
     /// <summary>
-    /// Files allowed to write a <c>Placement</c> member that is provably NOT a WinUI
-    /// <c>FlyoutBase.Placement</c> dependency property. Empty today — the scan is
-    /// syntactic, so a future non-flyout <c>Placement</c> setter is expected to land here
-    /// as a deliberate, reviewed edit rather than silently widening the matcher.
+    /// Methods whose flyout deliberately keeps <see cref="FlyoutPlacementMode.Auto"/>, so a
+    /// raw <c>Placement</c> write there is correct rather than a bypass.
     /// </summary>
-    private static readonly string[] NonFlyoutPlacementWriteFiles = [];
+    /// <remarks>
+    /// Only <c>CommandBarFlyout</c> qualifies. Suppressing the write is <b>not</b> neutral:
+    /// <c>FlyoutBase.Placement</c> defaults to <see cref="FlyoutPlacementMode.Top"/>, so
+    /// "don't write" means the flyout pins to <c>Top</c>. That is the right outcome for
+    /// <c>Flyout</c>/<c>MenuFlyout</c>, whose show-time validator rejects <c>Auto</c>
+    /// outright — but <c>CommandBarFlyout</c> resolves <c>Auto</c> itself and positions
+    /// automatically today, so guarding it would silently pin it to <c>Top</c> and change
+    /// where a working control appears. Keyed by method name (not file or line) so it
+    /// survives the in-flight rewrite of these two methods.
+    /// </remarks>
+    private static readonly string[] AutoTolerantFlyoutMethods =
+    [
+        "MountCommandBarFlyout",
+        "UpdateCommandBarFlyout",
+    ];
 
     [Fact]
     public void No_Flyout_Placement_Write_Bypasses_FlyoutPlacement()
@@ -121,8 +133,8 @@ public class FlyoutPlacementGuardTests
 
         var bypasses = writes
             .Where(w => !string.Equals(Path.GetFileName(w.File), HelperFileName, StringComparison.Ordinal))
-            .Where(w => !NonFlyoutPlacementWriteFiles.Contains(Path.GetFileName(w.File), StringComparer.Ordinal))
-            .Select(w => $"{Path.GetFileName(w.File)}({w.Line}): {w.Text}")
+            .Where(w => !AutoTolerantFlyoutMethods.Contains(w.Method, StringComparer.Ordinal))
+            .Select(w => $"{Path.GetFileName(w.File)}({w.Line}) in {w.Method}: {w.Text}")
             .OrderBy(s => s, StringComparer.Ordinal)
             .ToList();
 
@@ -132,8 +144,21 @@ public class FlyoutPlacementGuardTests
             "FlyoutPlacement.Apply, which lets FlyoutPlacementMode.Auto reach WinUI's validator " +
             "and terminate the process when the flyout is shown: " +
             $"[{string.Join("; ", bypasses)}]. Route the write through FlyoutPlacement.Apply, or " +
-            "— if this is genuinely not a WinUI FlyoutBase.Placement write — add the file to " +
-            $"{nameof(NonFlyoutPlacementWriteFiles)} with a comment explaining why.");
+            "— if the flyout type genuinely tolerates Auto, as CommandBarFlyout does — add the " +
+            $"enclosing method to {nameof(AutoTolerantFlyoutMethods)} with a comment explaining why.");
+    }
+
+    [Fact]
+    public void CommandBarFlyout_Is_Deliberately_Left_Unguarded()
+    {
+        // Pins the asymmetry so a later "consistency" cleanup cannot quietly guard
+        // CommandBarFlyout — which would stop it auto-positioning and pin it to Top.
+        var exempt = ScanCoreForFlyoutPlacementWrites()
+            .Where(w => AutoTolerantFlyoutMethods.Contains(w.Method, StringComparer.Ordinal))
+            .ToList();
+
+        Assert.NotEmpty(exempt);
+        Assert.All(exempt, w => Assert.Contains("CommandBarFlyout", w.Method, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -196,9 +221,40 @@ public class FlyoutPlacementGuardTests
         Assert.Contains(hits, h => h.Contains("SetCurrentValue(FlyoutBase.PlacementProperty", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void Scanner_Scopes_The_Exemption_To_The_Enclosing_Method()
+    {
+        // The CommandBarFlyout carve-out is keyed by method name, so prove two identical
+        // writes are classified differently purely by which method they sit in — otherwise
+        // the exemption could silently swallow a real bypass elsewhere in the same file.
+        const string source = """
+            class Sample
+            {
+                void MountCommandBarFlyout()
+                {
+                    var flyout = new WinUI.CommandBarFlyout { Placement = cbf.Placement };
+                }
+
+                void MountFlyout()
+                {
+                    var flyout = new WinUI.Flyout { Placement = flyEl.Placement };
+                }
+            }
+            """;
+
+        var byMethod = FindPlacementWrites("synthetic.cs", source)
+            .ToDictionary(w => w.Method, w => w);
+
+        Assert.Equal(2, byMethod.Count);
+        Assert.Contains("MountCommandBarFlyout", AutoTolerantFlyoutMethods);
+        Assert.DoesNotContain("MountFlyout", AutoTolerantFlyoutMethods);
+        Assert.Equal("MountCommandBarFlyout", byMethod["MountCommandBarFlyout"].Method);
+        Assert.Equal("MountFlyout", byMethod["MountFlyout"].Method);
+    }
+
     // ── scanning helpers ────────────────────────────────────────────
 
-    private readonly record struct PlacementWrite(string File, int Line, string Text);
+    private readonly record struct PlacementWrite(string File, int Line, string Method, string Text);
 
     // Four [Fact]s consume these; walking src/Reactor and Roslyn-parsing every file once per
     // test is pure overhead. Lazy also caches the assertion failure, so a broken repo-root
@@ -307,7 +363,33 @@ public class FlyoutPlacementGuardTests
     };
 
     private static PlacementWrite Write(string file, SyntaxNode node, string text)
-        => new(file, node.GetLocation().GetLineSpan().StartLinePosition.Line + 1, text);
+        => new(file,
+               node.GetLocation().GetLineSpan().StartLinePosition.Line + 1,
+               EnclosingMethodName(node),
+               text);
+
+    /// <summary>
+    /// Nearest enclosing method/accessor/local-function name, used to scope the
+    /// <see cref="AutoTolerantFlyoutMethods"/> exemption to a stable identifier rather
+    /// than to a file or a line number.
+    /// </summary>
+    private static string EnclosingMethodName(SyntaxNode node)
+    {
+        for (var n = node.Parent; n is not null; n = n.Parent)
+        {
+            switch (n)
+            {
+                case MethodDeclarationSyntax m: return m.Identifier.Text;
+                case LocalFunctionStatementSyntax lf: return lf.Identifier.Text;
+                case ConstructorDeclarationSyntax c: return c.Identifier.Text;
+                case AccessorDeclarationSyntax a
+                    when a.Parent?.Parent is PropertyDeclarationSyntax p:
+                    return p.Identifier.Text;
+                case PropertyDeclarationSyntax p2: return p2.Identifier.Text;
+            }
+        }
+        return "<none>";
+    }
 
     private static bool IsFlyoutObjectInitializer(AssignmentExpressionSyntax assignment)
     {
