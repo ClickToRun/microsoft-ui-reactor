@@ -82,7 +82,7 @@ Here is what each piece does:
 | `NavigationView(items, content)` | element | Sidebar shell. Use `.SelectedTagChanged(handler)` for selection events and `.IsPaneOpen(value, handler)` to drive the pane from state. |
 | `TabView(tabs)` | element | Parallel workspaces; tabs keep their own state. |
 | `BreadcrumbBar(items)` | element | Trail of ancestor routes for drill-down nav. |
-| `Frame(...)` | element | Raw WinUI Frame for XAML-page interop; `.Navigating`, `.Navigated`, `.NavigationFailed`. Works with code-only `Page` subclasses — Reactor publishes the target to the XAML metadata chain. |
+| `Frame(...)` | element | Raw WinUI Frame, for interop with pages that already have a `.xaml` file; `.Navigating`, `.Navigated`, `.NavigationFailed`. Not for navigation inside a Reactor app — see below. |
 | `DeepLinkMap<TRoute>` | type | URI pattern → route factory. `.Resolve(uri)` returns the matched route and back-stack. |
 | `NavigationDiagnostics` | static | Static events for tracing: `NavigationRequested`, `NavigationCompleted`, `NavigationCancelled`, cache and transition events. |
 
@@ -322,37 +322,36 @@ The fluent extensions drop the leading `On` — see
 [spec 039](https://github.com/microsoft/microsoft-ui-reactor/blob/main/docs/specs/039-property-and-event-scrub.md) §0.1 for the C# naming
 constraint that drove that convention.
 
-The target does **not** need a `.xaml` file. WinUI resolves a navigation target
-through the application's XAML metadata, which normally only covers pages the
-XAML compiler saw; Reactor publishes the type you pass to `Frame(...)` into that
-metadata itself, so a plain `class MyPage : Page` written entirely in C# works.
+### The target must have a `.xaml` file
 
-Because Reactor activates the page reflectively, `Frame(...)`'s `sourcePageType`
-carries `[DynamicallyAccessedMembers(PublicParameterlessConstructor)]`. Passing a
-`typeof(MyPage)` literal always satisfies it. If you keep the page type in a
-variable, a field, or hook state, carry the same annotation there — otherwise a
-trimmed or NativeAOT publish reports `IL2077` and could drop the constructor:
+`Frame` is WinUI's navigation control, and WinUI resolves the target type through
+the XAML type metadata the XAML compiler generates. A `Page` declared only in C#
+never reaches that metadata, so WinUI cannot resolve it — and calling
+`Frame.Navigate` on an unresolvable type terminates the process with an access
+violation rather than throwing, which no `try`/`catch` and no
+`Application.UnhandledException` handler can intercept.
+
+Reactor checks first and refuses, reporting through `.NavigationFailed(...)`:
 
 ```csharp
-[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
-Type _current = typeof(HomePage);
+Frame(typeof(MyCodeOnlyPage))          // no .xaml → refused, not fatal
+    .NavigationFailed((t, ex) => Log(ex.Message));
 ```
 
-If you navigate a `Frame` imperatively instead — `Frame().Set(f => f.Navigate(typeof(MyPage)))` —
-Reactor never sees the target, so publish it yourself first with
-`ReactorApp.RegisterPageType(typeof(MyPage))`.
+**This is a deliberate boundary, not a gap.** Reactor's navigation system is
+`UseNavigation<TRoute>` + `NavigationHost` — it needs no XAML, no `Page`
+subclass, and no parameterless constructor, and it gives you a typed back stack,
+lifecycle hooks, transitions and deep linking that `Frame` cannot. `Frame` exists
+for apps that already have XAML pages and want to host them inside a Reactor
+tree. See [spec 011](https://github.com/microsoft/microsoft-ui-reactor/blob/main/docs/specs/011-navigation-design.md)
+§"Why WinUI Frame is not the answer" for the three further `Frame` constraints
+(the `IPage` hard-cast, parameterless-constructor activation, and the absence of
+extension points) that make it unsuitable as Reactor's navigation model.
 
-!!! note "Known follow-up"
-    The annotation requirement is a wart, not a design goal. A generic
-    `Frame<TPage>() where TPage : Page, new()` overload would remove it entirely — the
-    `new()` constraint tells the trimmer what it needs with no attribute and no burden on
-    the caller, the same way `ReactorApp.Run<TRoot>` already works. It was left out of the
-    fix that introduced the annotation to keep that change scoped to the crash it repaired.
-
-Wiring `.NavigationFailed(...)` also marks the failure handled, so a page whose
-constructor throws is reported to your handler instead of tearing the
-application down. Leave it unwired and the failure surfaces as an ordinary
-managed exception you can break on.
+Wiring `.NavigationFailed(...)` also marks the failure handled, so a refused
+navigation is reported to your handler instead of tearing the render pass down.
+Leave it unwired and the failure surfaces as an ordinary managed exception you
+can break on.
 
 ## NavigationView.SelectedTagChanged
 

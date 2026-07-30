@@ -1726,23 +1726,15 @@ public static partial class Factories
 
     /// <summary>
     /// A WinUI <c>Frame</c> that navigates to <paramref name="sourcePageType"/> once on mount.
-    /// The page type is published to the XAML metadata chain so code-only <c>Page</c>
-    /// subclasses (the norm in a Reactor app, which has no XAML) resolve correctly.
+    ///
+    /// <para><c>Frame</c> is for interop with pages that already have a <c>.xaml</c> file. A
+    /// <c>Page</c> declared only in C# is absent from the XAML metadata the compiler generates,
+    /// so WinUI cannot resolve it; Reactor refuses such a navigation and reports it through
+    /// <c>.NavigationFailed(...)</c> rather than letting it fault. For navigation inside a
+    /// Reactor app use <c>UseNavigation&lt;TRoute&gt;</c> with <c>NavigationHost</c>.</para>
     /// </summary>
-    // The DynamicallyAccessedMembers annotation is load-bearing: Reactor activates the page
-    // reflectively, so without it a trimmed / NativeAOT publish can drop the constructor.
-    // It does impose a cost on callers — a `typeof(MyPage)` literal satisfies it, but a page
-    // type held in a variable or hook state needs the same annotation or the caller gets
-    // IL2077. The gallery's own `UseState<Type>` navigation pattern hits this.
-    //
-    // KNOWN FOLLOW-UP: a generic `Frame<TPage>(object? navigationParameter = null)
-    // where TPage : Page, new()` overload would remove the tax entirely — the `new()`
-    // constraint gives the trimmer what it needs with no attribute and no caller burden,
-    // the way ReactorApp.Run<TRoot> already does. Deliberately out of scope of the crash
-    // fix that introduced this; see docs/guide/navigation.md for the caller-side workaround.
-    // See https://github.com/microsoft/microsoft-ui-reactor/issues/955.
     public static FrameElement Frame(
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] Type? sourcePageType = null,
+        Type? sourcePageType = null,
         object? navigationParameter = null)
     {
         return new() { SourcePageType = sourcePageType, NavigationParameter = navigationParameter };

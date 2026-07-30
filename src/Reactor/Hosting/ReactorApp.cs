@@ -313,27 +313,6 @@ public static partial class ReactorApp
     internal static IXamlMetadataProvider[] RegisteredControlAssemblyProviders
         => Volatile.Read(ref _registeredXamlMetadataProviders);
 
-    /// <summary>
-    /// Publishes a <c>Page</c>-derived type to the WinUI XAML metadata chain so
-    /// <c>Frame.Navigate</c> can resolve it.
-    ///
-    /// <para>WinUI resolves a custom navigation target through
-    /// <c>Application.Current</c>'s XAML metadata; a type that is absent from it makes
-    /// <c>Frame.Navigate</c> terminate the process with an access violation rather than
-    /// throw. A Reactor app has no <c>.xaml</c> files, so the XAML compiler generates no
-    /// metadata for it and no app-defined page is present by default.</para>
-    ///
-    /// <para><see cref="Microsoft.UI.Reactor.Core.FrameElement"/> and
-    /// <c>XamlPageElement</c> call this for you. Call it yourself only when you navigate a
-    /// <c>Frame</c> imperatively — for example from
-    /// <c>Frame(...).Set(f =&gt; f.Navigate(typeof(MyPage)))</c> — which bypasses Reactor's
-    /// guarded navigation path. Idempotent and thread-safe.</para>
-    /// </summary>
-    /// <param name="pageType">The navigation target. Must have a public parameterless constructor.</param>
-    public static void RegisterPageType(
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] global::System.Type pageType)
-        => Hosting.ReactorPageTypeRegistry.Register(pageType);
-
     // Session-scoped flag. True iff the process was launched with a devtools
     // subverb (--devtools app / --devtools run) and the binary was built with
     // Reactor.DevtoolsSupport enabled. Frozen after startup; read by UseDevtools()
@@ -1190,11 +1169,6 @@ public partial class ReactorApplication : Application, IXamlMetadataProvider
             t = p.GetXamlType(type);
             if (t is not null) return t;
         }
-        // App-defined page types Reactor published for Frame.Navigate. Last real chance
-        // before the schema-only core provider — a compiler-generated provider, if the app
-        // has one, always wins.
-        t = Hosting.ReactorPageXamlMetadataProvider.Instance.GetXamlType(type);
-        if (t is not null) return t;
         return CoreProvider.GetXamlType(type)!;
     }
 
@@ -1209,8 +1183,6 @@ public partial class ReactorApplication : Application, IXamlMetadataProvider
             t = p.GetXamlType(fullName);
             if (t is not null) return t;
         }
-        t = Hosting.ReactorPageXamlMetadataProvider.Instance.GetXamlType(fullName);
-        if (t is not null) return t;
         return CoreProvider.GetXamlType(fullName)!;
     }
 

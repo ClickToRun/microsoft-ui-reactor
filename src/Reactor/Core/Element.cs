@@ -6934,11 +6934,10 @@ public partial record FrameElement() : Element
     /// The <see cref="WinUI.Page"/>-derived type to navigate to on mount.
     /// </summary>
     /// <remarks>
-    /// Annotated so trimming/AOT keeps the page's parameterless constructor: Reactor
-    /// publishes this type to the WinUI XAML metadata chain and activates it reflectively,
-    /// exactly as the XAML compiler's generated <c>XamlTypeInfo</c> would.
+    /// Must be a <c>Page</c> the XAML metadata chain can resolve — in practice one with a
+    /// <c>.xaml</c> file, since that is what makes the XAML compiler emit it. A code-only
+    /// <c>Page</c> is refused and reported through <see cref="OnNavigationFailed"/>.
     /// </remarks>
-    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
     public Type? SourcePageType { get; init; }
 
     public object? NavigationParameter { get; init; }
