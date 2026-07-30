@@ -13,8 +13,8 @@ namespace Microsoft.UI.Reactor.Hosting.Persistence;
 /// <remarks>
 /// <para>Constructing this store from an unpackaged process throws on first
 /// access (the WinRT API requires package identity). Callers must check
-/// <c>Windows.ApplicationModel.Package.Current</c> before instantiating, or
-/// fall back to <see cref="JsonFileStore"/>.</para>
+/// <see cref="IsAvailable"/> before instantiating, or fall back to
+/// <see cref="JsonFileStore"/>.</para>
 /// <para>All read failures (missing key, type mismatch) return <c>false</c>;
 /// write failures are swallowed with a stderr diagnostic.</para>
 /// </remarks>
@@ -112,18 +112,5 @@ public sealed class PackagedSettingsStore : IWindowPersistenceStore
     /// context still works at construction time; this static check lets
     /// auto-detection logic pick the right default.
     /// </summary>
-    public static bool IsAvailable()
-    {
-        try
-        {
-            // Touching Package.Current throws InvalidOperationException
-            // (HRESULT 0x80073D54) under unpackaged contexts.
-            _ = global::Windows.ApplicationModel.Package.Current;
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
+    public static bool IsAvailable() => Shell.PackageRuntime.IsPackaged;
 }

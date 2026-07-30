@@ -1,4 +1,5 @@
 using Microsoft.UI.Reactor.Hosting.Persistence;
+using Microsoft.UI.Reactor.Hosting.Shell;
 using Xunit;
 
 namespace Microsoft.UI.Reactor.Tests;
@@ -13,6 +14,7 @@ namespace Microsoft.UI.Reactor.Tests;
 /// tests pin that the catch-all paths return false / swallow without
 /// bubbling exceptions to the caller.
 /// </summary>
+[Collection("PackageIdentityProbe")]
 public class PackagedSettingsStoreTests
 {
     // ══════════════════════════════════════════════════════════════
@@ -92,5 +94,44 @@ public class PackagedSettingsStoreTests
         // over PackagedSettingsStore at app bring-up; a regression that
         // throw'd here would crash the bring-up before the store choice.
         Assert.False(PackagedSettingsStore.IsAvailable());
+    }
+
+    [Fact]
+    public void IsAvailable_DetectsIdentity_WithoutRaisingAFirstChanceException()
+    {
+        // IsAvailable() used to answer the identity question by touching
+        // Windows.ApplicationModel.Package.Current inside a try/catch, so every
+        // unpackaged bring-up (ReactorApp picks the store through this call) raised a
+        // first-chance InvalidOperationException 0x80073D54 into the debugger and into
+        // any crash telemetry the host wires up. It now shares PackageRuntime's
+        // non-throwing Win32 probe. Reset the shared cache first so the probe genuinely
+        // runs inside the capture window.
+        PackageRuntime.ResetForTests();
+
+        bool available = true;
+        var observed = FirstChanceExceptionProbe.Capture(
+            () => available = PackagedSettingsStore.IsAvailable());
+
+        Assert.False(available);
+        Assert.True(
+            observed.Count == 0,
+            "PackagedSettingsStore.IsAvailable() must detect package identity without throwing. Observed: "
+                + FirstChanceExceptionProbe.Describe(observed));
+    }
+
+    [Fact]
+    public void IsAvailable_TracksPackageRuntime_InBothDirections()
+    {
+        // Pins the delegation itself. The unpackaged test host can only ever produce
+        // `false` from a live probe, so force the packaged verdict: an IsAvailable() that
+        // hard-coded a result, or that went back to probing WinRT on its own, would not
+        // follow PackageRuntime here.
+        using (PackageIdentityCache.Force(packaged: true))
+        {
+            Assert.True(PackagedSettingsStore.IsAvailable());
+
+            PackageRuntime.ResetForTests();
+            Assert.False(PackagedSettingsStore.IsAvailable());
+        }
     }
 }

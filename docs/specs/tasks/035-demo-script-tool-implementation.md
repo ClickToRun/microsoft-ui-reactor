@@ -15,7 +15,11 @@ Conventions:
 - The unpackaged head (`App/DemoScriptTool.csproj`) is the F5 default; the
   packaged head (`Package/DemoScriptTool.Package.wapproj`) builds the MSIX.
 - Component code must not branch on packaged vs. unpackaged via `#if`; runtime
-  detection through `Windows.ApplicationModel.Package.Current` only.
+  detection through the non-throwing Win32 `GetCurrentPackageFullName` probe
+  (`APPMODEL_ERROR_NO_PACKAGE` ⇒ unpackaged), mirroring Reactor's own
+  `Hosting.Shell.PackageRuntime`. Never probe
+  `Windows.ApplicationModel.Package.Current`: it reports "unpackaged" by
+  throwing, so it raises a first-chance exception on every unpackaged launch.
 - Selftest fixtures live under `tests/Reactor.AppTests.Host/SelfTest/Fixtures/`
   matching existing samples; UI-driver tests under `tests/Reactor.AppTests/`.
 - Public services expose `IDisposable` / cancellation tokens — every long-lived
@@ -375,7 +379,7 @@ A task is "done" only when:
 
 - [ ] `F5` against `Package/DemoScriptTool.Package.wapproj` launches the packaged app under MSIX deployment.
 - [ ] Verify Mica still renders in the packaged head (Mica-on-MSIX is a known-working but worth-confirming combo).
-- [ ] Verify `Windows.ApplicationModel.Package.Current` works in packaged mode and throws/returns null in unpackaged mode (try/catch as spec §Run modes prescribes — record the exact behavior in a comment).
+- [ ] Verify the `GetCurrentPackageFullName` probe reports package identity in packaged mode and `APPMODEL_ERROR_NO_PACKAGE` in unpackaged mode, and that neither raises a first-chance exception.
 - [ ] Smoke test: install via `build/install.ps1` on a clean Windows 11 VM and confirm "Demo Script Tool" appears in Start, launches, opens a folder, and runs a step.
 
 ---
