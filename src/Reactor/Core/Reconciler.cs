@@ -610,7 +610,8 @@ public sealed partial class Reconciler : IDisposable
         if (m is null) return false;
         if (m.Ref is not null
             || m.XYFocusUpRef is not null || m.XYFocusDownRef is not null
-            || m.XYFocusLeftRef is not null || m.XYFocusRightRef is not null)
+            || m.XYFocusLeftRef is not null || m.XYFocusRightRef is not null
+            || m.ToolTipPlacementTargetRef is not null)
             return true;
 
         var a = m.Accessibility;
@@ -3738,6 +3739,11 @@ public sealed partial class Reconciler : IDisposable
         else if (m.RichToolTip is null && m.ToolTip is null && (oldM?.RichToolTip is not null || oldM?.ToolTip is not null))
             fe.ClearValue(WinUI.ToolTipService.ToolTipProperty);
 
+        if (m.ToolTipPlacement.HasValue && m.ToolTipPlacement != oldM?.ToolTipPlacement)
+            WinUI.ToolTipService.SetPlacement(fe, m.ToolTipPlacement.Value);
+        else if (!m.ToolTipPlacement.HasValue && oldM?.ToolTipPlacement.HasValue == true)
+            fe.ClearValue(WinUI.ToolTipService.PlacementProperty);
+
         if (m.AttachedFlyout is not null)
             ApplyFlyoutAttachment(fe, oldM?.AttachedFlyout, m.AttachedFlyout, requestRerender);
 
@@ -4022,6 +4028,19 @@ public sealed partial class Reconciler : IDisposable
             m.XYFocusRightRef,
             oldM?.XYFocusRightRef,
             static (c, target) => c.XYFocusRight = target);
+
+        // ToolTipService.PlacementTarget takes a UIElement, so an unset target
+        // has to go through ClearValue rather than a null assignment.
+        WireModifierScalarReference(
+            fe,
+            ReferenceSlots.ModifierRef_ToolTipPlacementTarget,
+            m.ToolTipPlacementTargetRef,
+            oldM?.ToolTipPlacementTargetRef,
+            static (c, target) =>
+            {
+                if (target is not null) WinUI.ToolTipService.SetPlacementTarget(c, target);
+                else c.ClearValue(WinUI.ToolTipService.PlacementTargetProperty);
+            });
     }
 
     private static void WireModifierScalarReference(

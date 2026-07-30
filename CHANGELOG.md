@@ -71,6 +71,17 @@ Conventions for contributors:
   `NavigationViewElement.SettingsTag` sentinel lets `SelectedTag` select the
   built-in settings item, and `.WithNavigation()` now routes it.
 
+- **ToolTip positioning is declarative (spec 002 §1.6).** `.ToolTipPlacement(mode)`
+  and `.ToolTipPlacementTarget(elementRef)` expose the two `ToolTipService`
+  attached properties that previously had no modifier, so positioning a tooltip
+  no longer needs a `.Set(fe => ToolTipService.SetPlacement(fe, …))` escape hatch.
+  Paired overloads `.ToolTip(text, placement)` and
+  `.WithToolTip(element, placement)` cover the common case in one call. The
+  placement target rides the same deferred reference-edge machinery as the
+  XYFocus refs, so the target does not have to mount first. This completes the
+  `ToolTipService` surface — §1.6 now reads 7/7 exposed. (WinUI has no tooltip
+  show/hide delay knobs; `InitialShowDelay`/`BetweenShowDelay` are WPF-only.)
+
 ### Changed
 
 - **`WithNavigation` gained an optional `settingsRoute` argument (binary-breaking,
@@ -109,6 +120,13 @@ Conventions for contributors:
   everywhere; a guarded flyout whose placement changes from an explicit value
   back to `Auto` returns to that default, rather than leaving a stale local value
   that would outrank a `Style` setter.
+
+- **Pooled controls no longer inherit a stale tooltip (spec 002 §1.6).**
+  `ElementPool.CleanElement` never cleared the `ToolTipService` attached
+  properties. The in-place update path clears them on a set → unset transition,
+  but a full unmount does not, so a recycled control carried the previous
+  element's tooltip — and now its placement and placement target — into the next
+  unrelated renter.
 
 - **`NavigationView` pane state no longer desyncs when the control moves its own
   pane (issue #916).** `IsPaneOpen` could be written but had no change

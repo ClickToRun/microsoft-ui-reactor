@@ -79,15 +79,12 @@ class SetEscapeHatchDemo : Component
     {
         return VStack(12,
             SubHeading(".Set() Escape Hatch"),
+            // Tooltip and padding are first-class modifiers — reach for those
+            // first. ClickMode has no modifier, so it needs the escape hatch.
             Button("Custom Tooltip", () => { })
+                .ToolTip("This is a native tooltip")
                 .Padding(20, 10, 20, 10)
-                .Set(btn =>
-                {
-                    // ToolTipService is an attached property — no modifier exists,
-                    // so this is a genuine .Set() use.
-                    Microsoft.UI.Xaml.Controls.ToolTipService
-                        .SetToolTip(btn, "This is a native tooltip");
-                }),
+                .Set(btn => btn.ClickMode = ClickMode.Press),
             TextBlock("Styled via .Set()")
                 .TextWrapping(TextWrapping.WrapWholeWords)
                 .CharacterSpacing(80)

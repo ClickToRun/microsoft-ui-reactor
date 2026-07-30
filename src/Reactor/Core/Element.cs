@@ -1164,6 +1164,8 @@ public abstract record Element
         return a.IsEnabled == b.IsEnabled
             && a.ElementSoundMode == b.ElementSoundMode
             && a.ToolTip == b.ToolTip
+            && a.ToolTipPlacement == b.ToolTipPlacement
+            && ReferenceEquals(a.ToolTipPlacementTargetRef, b.ToolTipPlacementTargetRef)
             && a.AutomationName == b.AutomationName
             && a.AutomationId == b.AutomationId
             && a.FontSize == b.FontSize
@@ -1884,6 +1886,21 @@ public record ElementModifiers
     }
     public string? ToolTip { get; init; }
     public Element? RichToolTip { get; init; }
+    /// <summary>
+    /// <c>ToolTipService.Placement</c> — which side of the element the tooltip
+    /// opens on. Applies to both <see cref="ToolTip"/> and <see cref="RichToolTip"/>.
+    /// <c>PlacementMode</c> has exactly five members (<c>Top</c>, <c>Bottom</c>,
+    /// <c>Left</c>, <c>Right</c>, <c>Mouse</c>); the edge-aligned placements belong to
+    /// the separate <c>FlyoutPlacementMode</c> enum and are not expressible here.
+    /// </summary>
+    public Microsoft.UI.Xaml.Controls.Primitives.PlacementMode? ToolTipPlacement { get; init; }
+    /// <summary>
+    /// <c>ToolTipService.PlacementTarget</c> — position the tooltip relative to a
+    /// different element than the one it is attached to. Resolved through the same
+    /// deferred reference-edge machinery as the XYFocus refs, so the target does not
+    /// have to be mounted before this element.
+    /// </summary>
+    public Microsoft.UI.Reactor.Input.ElementRef? ToolTipPlacementTargetRef { get; init; }
     public Element? AttachedFlyout { get; init; }
     public Element? ContextFlyout { get; init; }
     public Brush? Background
@@ -2062,6 +2079,8 @@ public record ElementModifiers
             Visual = mergedVisual,
             ToolTip = other.ToolTip ?? ToolTip,
             RichToolTip = other.RichToolTip ?? RichToolTip,
+            ToolTipPlacement = other.ToolTipPlacement ?? ToolTipPlacement,
+            ToolTipPlacementTargetRef = other.ToolTipPlacementTargetRef ?? ToolTipPlacementTargetRef,
             AttachedFlyout = other.AttachedFlyout ?? AttachedFlyout,
             ContextFlyout = other.ContextFlyout ?? ContextFlyout,
             IsEnabled = other.IsEnabled ?? IsEnabled,

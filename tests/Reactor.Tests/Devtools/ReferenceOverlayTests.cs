@@ -57,6 +57,7 @@ public class ReferenceOverlayTests
     [InlineData(200_011, "XYFocusDown")]
     [InlineData(200_012, "XYFocusLeft")]
     [InlineData(200_013, "XYFocusRight")]
+    [InlineData(200_020, "ToolTipPlacementTarget")]
     [InlineData(0, "reference#0")]
     [InlineData(2, "reference#2")]
     [InlineData(100_000, "binding#0")]

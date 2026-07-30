@@ -710,6 +710,9 @@ T.Stagger<T>(TimeSpan delay, Curve curve = null) → T
 T.TabIndex<T>(int index) → T
 T.TabNavigation<T>(KeyboardNavigationMode mode) → T
 T.ToolTip<T>(string tip) → T
+T.ToolTip<T>(string tip, PlacementMode placement) → T
+T.ToolTipPlacement<T>(PlacementMode placement) → T
+T.ToolTipPlacementTarget<T>(ElementRef target) → T
 T.Transition<T>(Transition transition, Curve curve = null) → T
 T.Translation<T>(float x, float y, float z) → T
 T.TranslationTransition<T>(Vector3Transition transition = null) → T
@@ -730,6 +733,7 @@ T.WithFlyout<T>(Element flyout) → T
 T.WithKey<T, TKey>(TKey item) → T
 T.WithKey<T>(string key) → T
 T.WithToolTip<T>(Element tooltip) → T
+T.WithToolTip<T>(Element tooltip, PlacementMode placement) → T
 T.WithTransitions<T>(Transition[] transitions) → T
 T.WrapGridColumnSpan<T>(int columnSpan) → T
 T.WrapGridRowSpan<T>(int rowSpan) → T
@@ -2264,6 +2268,7 @@ Element AttachedFlyout { get; init; }
 Element ContextFlyout { get; init; }
 Element RichToolTip { get; init; }
 ElementRef Ref { get; init; }
+ElementRef ToolTipPlacementTargetRef { get; init; }
 ElementRef XYFocusDownRef { get; init; }
 ElementRef XYFocusLeftRef { get; init; }
 ElementRef XYFocusRightRef { get; init; }
@@ -2278,6 +2283,7 @@ LayoutModifiers Layout { get; init; }
 LongPressGestureConfig LongPress { get; init; }
 PanGestureConfig Pan { get; init; }
 PinchGestureConfig Pinch { get; init; }
+PlacementMode? ToolTipPlacement { get; init; }
 RotateGestureConfig Rotate { get; init; }
 Thickness? BorderInlineStart { get; init; }
 Thickness? BorderThickness { get; init; }

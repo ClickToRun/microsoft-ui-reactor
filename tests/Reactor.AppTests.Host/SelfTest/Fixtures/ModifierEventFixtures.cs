@@ -3,6 +3,7 @@ using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Reactor.AppTests.Host.SelfTest;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using static Microsoft.UI.Reactor.Factories;
 
 namespace Microsoft.UI.Reactor.AppTests.Host.SelfTest.Fixtures;
@@ -158,6 +159,193 @@ internal static class ModifierEventFixtures
             target = H.FindText("TipTarget");
             tip = ToolTipService.GetToolTip(target!);
             H.Check("Tooltip_Updated", tip is not null && tip.ToString() == "Tip2");
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  ToolTipService.Placement / PlacementTarget modifiers
+    //  Exercises ApplyModifiers' ToolTipPlacement arm + the
+    //  ModifierRef_ToolTipPlacementTarget reference edge.
+    // ════════════════════════════════════════════════════════════════════
+
+    internal class TooltipPlacementModifier(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            var anchor = new Microsoft.UI.Reactor.Input.ElementRef();
+
+            host.Mount(ctx =>
+            {
+                var (phase, set) = ctx.UseState(0);
+                return VStack(
+                    Button("UpdPlacement", () => set(phase + 1)),
+                    // At phase 3 the ref MOVES from one live anchor to another. Both
+                    // stay mounted, so this isolates the ref-cell change without
+                    // depending on unmount/remount ordering.
+                    phase >= 3
+                        ? TextBlock("PlacementAnchor")
+                        : TextBlock("PlacementAnchor").Ref(anchor),
+                    phase >= 3
+                        ? TextBlock("PlacementAnchorB").Ref(anchor)
+                        : TextBlock("PlacementAnchorB"),
+                    phase switch
+                    {
+                        0 => TextBlock("PlacementTarget")
+                                .ToolTip("Tip", PlacementMode.Right)
+                                .ToolTipPlacementTarget(anchor),
+                        1 => TextBlock("PlacementTarget")
+                                .ToolTip("Tip", PlacementMode.Left),
+                        _ => TextBlock("PlacementTarget")
+                                .ToolTip("Tip"),
+                    }
+                );
+            });
+
+            await Harness.Render();
+            var target = H.FindText("PlacementTarget");
+            H.Check("TipPlacement_Initial",
+                target is not null && ToolTipService.GetPlacement(target) == PlacementMode.Right);
+            H.Check("TipPlacementTarget_Wired",
+                target is not null
+                && ReferenceEquals(ToolTipService.GetPlacementTarget(target), H.FindText("PlacementAnchor")));
+
+            // Phase 1 — placement changes, placement target goes away.
+            H.ClickButton("UpdPlacement");
+            await Harness.Render();
+            target = H.FindText("PlacementTarget");
+            H.Check("TipPlacement_Updated",
+                ToolTipService.GetPlacement(target!) == PlacementMode.Left);
+            H.Check("TipPlacementTarget_Cleared",
+                target!.ReadLocalValue(ToolTipService.PlacementTargetProperty) == DependencyProperty.UnsetValue);
+
+            // Phase 2 — placement itself goes unset: the local value must be
+            // cleared so WinUI's own default takes over again, not left pinned
+            // at the last explicit placement.
+            H.ClickButton("UpdPlacement");
+            await Harness.Render();
+            target = H.FindText("PlacementTarget");
+            H.Check("TipPlacement_Cleared",
+                target!.ReadLocalValue(ToolTipService.PlacementProperty) == DependencyProperty.UnsetValue);
+            H.Check("TipPlacement_TooltipSurvivesPlacementClear",
+                ToolTipService.GetToolTip(target!)?.ToString() == "Tip");
+
+            // Phase 3 — the reference edge must have been UNWIRED when the target
+            // was dropped at phase 1, not merely cleared once. Re-key the anchor so
+            // it remounts as a different control and the ref cell raises
+            // CurrentChanged. A stale subscription would re-apply the new anchor as
+            // a placement target on an element that no longer asks for one.
+            var anchorBefore = anchor.Current;
+            H.ClickButton("UpdPlacement");
+            await Harness.Render();
+            target = H.FindText("PlacementTarget");
+            var anchorAfter = anchor.Current;
+            // Load-bearing precondition: if the re-key did not actually swap the
+            // control, CurrentChanged never fired and the assertion below is vacuous.
+            H.Check("TipPlacementTarget_AnchorActuallyChanged",
+                anchorBefore is not null && anchorAfter is not null
+                && !ReferenceEquals(anchorBefore, anchorAfter));
+            H.Check("TipPlacementTarget_StaysClearedAfterAnchorChange",
+                target!.ReadLocalValue(ToolTipService.PlacementTargetProperty) == DependencyProperty.UnsetValue);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  ToolTipService attached props must not survive a pool round-trip.
+    //  ApplyModifiers only clears them on a set → unset *update*; a full
+    //  unmount returns the control to ElementPool with the attached props
+    //  still on it, so ElementPool.CleanElement has to clear all three or
+    //  the next renter inherits a phantom tooltip.
+    //
+    //  The carrier is the LAST child of the root VStack, so dropping and
+    //  re-adding it is a pure tail add/remove: exactly one TextBlock is
+    //  returned to the pool and exactly one is rented back, which makes the
+    //  instance-identity check deterministic — and that check is what keeps
+    //  the "cleared" assertions non-vacuous (a freshly-constructed control
+    //  would trivially have no tooltip).
+    // ════════════════════════════════════════════════════════════════════
+
+    internal class TooltipPoolCleanOnRent(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            var anchor = new Microsoft.UI.Reactor.Input.ElementRef();
+
+            host.Mount(ctx =>
+            {
+                var (phase, set) = ctx.UseState(0);
+                return VStack(
+                    // At phase 3 the ref MOVES from one live anchor to another; both
+                    // stay mounted so the ref-cell change is isolated from
+                    // unmount/remount ordering.
+                    phase >= 3
+                        ? TextBlock("TipPoolAnchor")
+                        : TextBlock("TipPoolAnchor").Ref(anchor),
+                    phase >= 3
+                        ? TextBlock("TipPoolAnchorB").Ref(anchor)
+                        : TextBlock("TipPoolAnchorB"),
+                    Button("DropTipPool", () => set(1)),
+                    Button("RemountTipPool", () => set(2)),
+                    Button("SwapTipPoolAnchor", () => set(3)),
+                    phase switch
+                    {
+                        0 => TextBlock("tip-pool-carrier")
+                                .ToolTip("leaky tip", PlacementMode.Right)
+                                .ToolTipPlacementTarget(anchor),
+                        1 => Empty(),
+                        // Remounted with no tooltip modifiers at all.
+                        _ => TextBlock("tip-pool-carrier-2"),
+                    }
+                );
+            });
+
+            await Harness.Render();
+            var first = H.FindText("tip-pool-carrier");
+            H.Check("TipPool_Phase0_ToolTipSet",
+                first is not null && ToolTipService.GetToolTip(first)?.ToString() == "leaky tip");
+            H.Check("TipPool_Phase0_PlacementSet",
+                first is not null && ToolTipService.GetPlacement(first) == PlacementMode.Right);
+            H.Check("TipPool_Phase0_PlacementTargetSet",
+                first is not null && ToolTipService.GetPlacementTarget(first) is not null);
+
+            H.ClickButton("DropTipPool");
+            await Harness.Render();
+            H.Check("TipPool_Phase1_Returned", H.FindText("tip-pool-carrier") is null);
+
+            H.ClickButton("RemountTipPool");
+            await Harness.Render();
+            var second = H.FindText("tip-pool-carrier-2");
+            // Load-bearing: without instance reuse the "cleared" checks below would
+            // pass trivially on a freshly-constructed control.
+            H.Check("TipPool_Phase2_ReusedInstance",
+                first is not null && ReferenceEquals(first, second));
+            H.Check("TipPool_Phase2_ToolTipCleared",
+                second is not null
+                && second.ReadLocalValue(ToolTipService.ToolTipProperty) == DependencyProperty.UnsetValue);
+            H.Check("TipPool_Phase2_PlacementCleared",
+                second is not null
+                && second.ReadLocalValue(ToolTipService.PlacementProperty) == DependencyProperty.UnsetValue);
+            H.Check("TipPool_Phase2_PlacementTargetCleared",
+                second is not null
+                && second.ReadLocalValue(ToolTipService.PlacementTargetProperty) == DependencyProperty.UnsetValue);
+
+            // Phase 3 — the reference edge must have been torn down when the carrier
+            // UNMOUNTED (a different path from the in-place unwire covered by
+            // TooltipPlacementModifier). Swap the anchor for a new control: a stale
+            // CurrentChanged subscription surviving the unmount would re-apply a
+            // placement target onto the recycled carrier.
+            var anchorBefore = anchor.Current;
+            H.ClickButton("SwapTipPoolAnchor");
+            await Harness.Render();
+            var carrier = H.FindText("tip-pool-carrier-2");
+            var anchorAfter = anchor.Current;
+            H.Check("TipPool_Phase3_AnchorActuallyChanged",
+                anchorBefore is not null && anchorAfter is not null
+                && !ReferenceEquals(anchorBefore, anchorAfter));
+            H.Check("TipPool_Phase3_PlacementTargetStaysCleared",
+                carrier is not null
+                && carrier.ReadLocalValue(ToolTipService.PlacementTargetProperty) == DependencyProperty.UnsetValue);
         }
     }
 
