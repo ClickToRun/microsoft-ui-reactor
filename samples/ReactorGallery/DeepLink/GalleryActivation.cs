@@ -137,7 +137,14 @@ public static class GalleryActivation
         try
         {
             var redirect = Task.Run(async () => await target.RedirectActivationToAsync(args));
-            redirect.Wait(RedirectTimeout);
+            if (!redirect.Wait(RedirectTimeout))
+            {
+                // The primary instance is wedged. We still exit — a second window is the
+                // wrong answer — but say so, otherwise the link just vanishes with no
+                // trace anywhere.
+                global::System.Diagnostics.Debug.WriteLine(
+                    $"[Gallery] activation redirect timed out after {RedirectTimeout.TotalSeconds:0}s; the link was dropped.");
+            }
         }
         catch (Exception ex)
         {

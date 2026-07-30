@@ -193,7 +193,8 @@ class DeepLinkSettingsCard : Component
                 .IsTextSelectionEnabled()
                 .FontFamily("Cascadia Code, Consolas, monospace")
                 .Foreground(Theme.PrimaryText)
-                .FontSize(12),        };
+                .FontSize(12),
+        };
 
         if (registration is not null)
             children.Add(registration);
