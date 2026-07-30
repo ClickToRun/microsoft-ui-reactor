@@ -1586,6 +1586,8 @@ internal static class SelfTestFixtureRegistry
         "CmdBarFlyout_SplitButtonTargetWiring",
         "CmdBarFlyout_PlacementExplicitToAutoResets",
         "CmdBarFlyout_UnmountDetachesFlyout",
+        "CmdBarFlyout_KeyedReorderKeepsSiblingFlyouts",
+        "CmdBarFlyout_TargetKeepsItsOwnCallbacks",
     ];
 
     public static SelfTestFixtureBase? Create(string name, Harness harness) => name switch
@@ -3112,6 +3114,8 @@ internal static class SelfTestFixtureRegistry
         "CmdBarFlyout_SplitButtonTargetWiring" => new CommandBarFlyoutWiringFixtures.SplitButtonTargetWiring(harness),
         "CmdBarFlyout_PlacementExplicitToAutoResets" => new CommandBarFlyoutWiringFixtures.PlacementExplicitToAutoResets(harness),
         "CmdBarFlyout_UnmountDetachesFlyout" => new CommandBarFlyoutWiringFixtures.UnmountDetachesFlyout(harness),
+        "CmdBarFlyout_KeyedReorderKeepsSiblingFlyouts" => new CommandBarFlyoutWiringFixtures.KeyedReorderKeepsSiblingFlyouts(harness),
+        "CmdBarFlyout_TargetKeepsItsOwnCallbacks" => new CommandBarFlyoutWiringFixtures.TargetKeepsItsOwnCallbacks(harness),
 
         _ => null,
     };

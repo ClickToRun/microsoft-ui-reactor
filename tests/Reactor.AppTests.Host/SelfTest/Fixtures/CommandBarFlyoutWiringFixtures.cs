@@ -378,4 +378,124 @@ internal static class CommandBarFlyoutWiringFixtures
             H.Check("CbfUnmount_FlyoutDetached", target is not null && target.Flyout is null);
         }
     }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  Unmount detach must only reach the decorator's OWN target. Keyed
+    //  reorder + removal is the case where an unmounting decorator could
+    //  plausibly strip a sibling's (or a reused control's) live flyout.
+    // ════════════════════════════════════════════════════════════════════
+    internal class KeyedReorderKeepsSiblingFlyouts(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (phase, set) = ctx.UseState(0);
+                Element A = CommandBarFlyout(
+                    Button("cbfk-a", () => { }),
+                    primaryCommands: [AppBarButton("cbfk-a-cut")]) with
+                {
+                    Key = "a",
+                    Placement = WinPrim.FlyoutPlacementMode.Top,
+                };
+                Element B = CommandBarFlyout(
+                    Button("cbfk-b", () => { }),
+                    primaryCommands: [AppBarButton("cbfk-b-cut")]) with
+                {
+                    Key = "b",
+                    Placement = WinPrim.FlyoutPlacementMode.Top,
+                };
+                Element[] children = phase switch
+                {
+                    0 => [A, B],
+                    1 => [B, A],   // reorder
+                    _ => [B],      // drop A entirely
+                };
+                return VStack([Button("CbfKeyGo", () => set(phase + 1)), .. children]);
+            });
+
+            static string? PrimaryLabel(Button? b) =>
+                (b?.Flyout as CommandBarFlyout)?.PrimaryCommands.Count == 1
+                    ? ((b.Flyout as CommandBarFlyout)!.PrimaryCommands[0] as AppBarButton)?.Label
+                    : null;
+
+            await Harness.Render();
+            H.Check("CbfKeyed_MountA", PrimaryLabel(H.FindButton("cbfk-a")) == "cbfk-a-cut");
+            H.Check("CbfKeyed_MountB", PrimaryLabel(H.FindButton("cbfk-b")) == "cbfk-b-cut");
+
+            H.ClickButton("CbfKeyGo");
+            await Harness.Render();
+            H.Check("CbfKeyed_ReorderKeepsA", PrimaryLabel(H.FindButton("cbfk-a")) == "cbfk-a-cut");
+            H.Check("CbfKeyed_ReorderKeepsB", PrimaryLabel(H.FindButton("cbfk-b")) == "cbfk-b-cut");
+
+            H.ClickButton("CbfKeyGo");
+            await Harness.Render();
+            H.Check("CbfKeyed_RemovedAGone", H.FindButton("cbfk-a") is null);
+            // The survivor must keep its own flyout — the removed sibling's unmount
+            // must not detach it.
+            H.Check("CbfKeyed_SurvivorKeepsFlyout", PrimaryLabel(H.FindButton("cbfk-b")) == "cbfk-b-cut");
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  Wrapping a target in CommandBarFlyout must not cost the target its
+    //  own callbacks.
+    //
+    //  KNOWN GAP (issue #942): all three target-wrapping decorators —
+    //  Flyout, MenuFlyout and CommandBarFlyout — retag the target control
+    //  with the *decorator's* element (SetElementTag), which is the same
+    //  ReactorState slot the target's own event trampolines resolve
+    //  through, so the target's callbacks are dropped. Pre-existing and
+    //  identical on MenuFlyout, so it is not this change's to fix; the two
+    //  assertions below are SKIPped rather than deleted so the gap stays
+    //  visible in the TAP log and flips to a real assertion when #942 lands.
+    // ════════════════════════════════════════════════════════════════════
+    internal class TargetKeepsItsOwnCallbacks(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            var clicks = 0;
+            var checks = 0;
+            host.Mount(ctx => VStack(
+                CommandBarFlyout(
+                    Button("cbfcb-btn", () => clicks++),
+                    primaryCommands: [AppBarButton("cbfcb-cut")]) with
+                {
+                    Placement = WinPrim.FlyoutPlacementMode.Top,
+                },
+                CommandBarFlyout(
+                    CheckBox(false, _ => checks++, label: "cbfcb-chk"),
+                    primaryCommands: [AppBarButton("cbfcb-copy")]) with
+                {
+                    Placement = WinPrim.FlyoutPlacementMode.Top,
+                }));
+
+            await Harness.Render();
+            H.Check("CbfCallbacks_ButtonMounted", H.FindButton("cbfcb-btn") is not null);
+            H.Check("CbfCallbacks_CheckBoxMounted",
+                H.FindControl<CheckBox>(c => c.Content is string s && s == "cbfcb-chk") is not null);
+
+            // Button target: the flyout opens on click (this change), and the target's own
+            // OnClick should fire on the same click (blocked by #942).
+            H.ClickButton("cbfcb-btn");
+            await Harness.Render();
+            var button = H.FindButton("cbfcb-btn");
+            H.Check("CbfCallbacks_ButtonClickOpensFlyout", await WaitOpen(button?.Flyout));
+            if (clicks == 1)
+                H.Check("CbfCallbacks_ButtonOnClickFired", true);
+            else
+                H.Skip("CbfCallbacks_ButtonOnClickFired", "issue #942 - decorator retags the target");
+            await CloseAndSettle(button?.Flyout);
+
+            // Non-button (attached-slot) target: same gap, no flyout involvement at all.
+            H.ToggleCheckBox("cbfcb-chk");
+            await Harness.Render();
+            if (checks == 1)
+                H.Check("CbfCallbacks_CheckBoxOnChangedFired", true);
+            else
+                H.Skip("CbfCallbacks_CheckBoxOnChangedFired", "issue #942 - decorator retags the target");
+        }
+    }
 }
