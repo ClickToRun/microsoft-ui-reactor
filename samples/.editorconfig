@@ -49,7 +49,32 @@
 ; reconciler silently drops is an invisible control, not a style preference — so it stays
 ; at `warning` across the sample tree, and a new one anywhere breaks the build. Its 90
 ; pre-existing hits are exempted by PATH instead, in the scoped section at the bottom of
-; this file, exactly as the REACTOR_HOOKS_* debt is. Breakdown:
+; this file, exactly as the REACTOR_HOOKS_* debt is.
+;
+; The 90 are NOT one problem, and that is why they are not simply fixed in the samples.
+; Triaged by who is actually wrong:
+;
+;   59  .Padding(...)    on TextBlockElement    framework — issue #950
+;   18  .Padding(...)    on FlexElement         framework — same class as #950
+;    1  .Foreground(...) on RichTextBlockElement framework — missing ThemeRef overload, #961
+;   12  everything else                          the samples — issue #961
+;
+; 78 of the 90 (87%) are a reconciler/DSL gap, not bad sample code. WinUI declares Padding
+; on TextBlock and FlexPanel has real padding semantics via Yoga, but the ApplyModifiers
+; gate is Control/Border/StackPanel, so both are dropped. Rewriting those 78 call sites
+; would be fixing the wrong layer and would have to be reverted when the gate is widened —
+; if #950 is fixed by widening, the rule simply stops firing on them and they disappear
+; without a single sample edit. The RichTextBlock one is the same shape one level up: the
+; sample correctly passes a theme token, and ElementExtensions has string and Brush
+; overloads but no ThemeRef one, so the call falls through to the gated generic modifier.
+;
+; The remaining 12 ARE genuine sample bugs — Grid/StackPanel/TextBlock/Rectangle/Border do
+; not declare the property at all, so no widening helps. They are enumerated with file:line
+; in #961. Their fix is structural (wrap in a Border), which makes a currently-invisible
+; modifier start rendering, so each needs a visual check rather than a mechanical rewrite.
+;
+; Full breakdown, re-measured after PR #941 merged, over the whole sample tree
+; (Reactor.slnx, Debug, severity flipped to `warning`), deduplicated on file:line:col:
 ;
 ;   59  .Padding(...)      on TextBlockElement
 ;   18  .Padding(...)      on FlexElement        (14 carry a .FlexPadding(...) auto-fix)
@@ -59,17 +84,9 @@
 ;    2  .Padding(...)      on GridElement
 ;    1  each: .CornerRadius on Rectangle/TextBlock, .Foreground on Border/RichTextBlock
 ;
-; Counts re-measured after PR #941 merged, over the whole sample tree (Reactor.slnx, Debug,
-; severity flipped to `warning`), deduplicated on file:line:col. The `.Background(...) on
-; RectangleElement` row that used to head this list — the Canvas gallery bug this rule was
-; written to prevent — is now GONE: #941 rewrote those call sites to .Fill(...).
-; The 59 TextBlock Padding hits are a different question, now tracked as issue #950: the
-; modifier is wired through to RichTextBlock (Element.cs, its Customize hook maps Padding
-; to RichTextBlock.PaddingProperty) but not to TextBlock, so the narrow
-; Control/Border/StackPanel gate in ApplyModifiers looks like the thing that is wrong
-; rather than the call sites. Widening it is a reconciler change, deliberately not made
-; here. If #950 is fixed by widening, this rule simply stops firing on TextBlockElement and
-; those 59 hits disappear without touching a single sample.
+; The `.Background(...) on RectangleElement` row that used to head this list — the Canvas
+; gallery bug this rule was written to prevent — is now GONE: #941 rewrote those call sites
+; to .Fill(...).
 
 [*.cs]
 dotnet_diagnostic.REACTOR_THEME_001.severity = suggestion
@@ -98,6 +115,11 @@ dotnet_diagnostic.REACTOR_HOOKS_013.severity = suggestion
 ; correctness rule, so a silent modifier drop in any other sample — or in a new one — must
 ; still break the build. Delete a path once its file is clean; delete the whole section once
 ; the list is empty.
+;
+; This list has two owners, both tracked (see the triage above): #950 covers the 78 hits
+; that are a reconciler/DSL gap and will clear WITHOUT editing any sample, and #961
+; enumerates the 12 genuine sample bugs with file:line. It is scheduled work, not a
+; standing exemption.
 ;
 ; Pruned once already: PR #941 rewrote CanvasPage.cs's Rectangle().Background(...) calls to
 ; .Fill(...), and ParallaxViewPage.cs came clean with it, so both paths are gone from the
