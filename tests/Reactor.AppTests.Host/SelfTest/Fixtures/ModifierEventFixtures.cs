@@ -196,11 +196,11 @@ internal static class ModifierEventFixtures
 
             await Harness.Render();
             var target = H.FindText("PlacementTarget");
-            H.Check("TipPlacement_Mounted", target is not null);
             H.Check("TipPlacement_Initial",
-                ToolTipService.GetPlacement(target!) == PlacementMode.Right);
+                target is not null && ToolTipService.GetPlacement(target) == PlacementMode.Right);
             H.Check("TipPlacementTarget_Wired",
-                ReferenceEquals(ToolTipService.GetPlacementTarget(target!), H.FindText("PlacementAnchor")));
+                target is not null
+                && ReferenceEquals(ToolTipService.GetPlacementTarget(target), H.FindText("PlacementAnchor")));
 
             // Phase 1 — placement changes, placement target goes away.
             H.ClickButton("UpdPlacement");
@@ -221,6 +221,79 @@ internal static class ModifierEventFixtures
                 target!.ReadLocalValue(ToolTipService.PlacementProperty) == DependencyProperty.UnsetValue);
             H.Check("TipPlacement_TooltipSurvivesPlacementClear",
                 ToolTipService.GetToolTip(target!)?.ToString() == "Tip");
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  ToolTipService attached props must not survive a pool round-trip.
+    //  ApplyModifiers only clears them on a set → unset *update*; a full
+    //  unmount returns the control to ElementPool with the attached props
+    //  still on it, so ElementPool.CleanElement has to clear all three or
+    //  the next renter inherits a phantom tooltip.
+    //
+    //  The carrier is the LAST child of the root VStack, so dropping and
+    //  re-adding it is a pure tail add/remove: exactly one TextBlock is
+    //  returned to the pool and exactly one is rented back, which makes the
+    //  instance-identity check deterministic — and that check is what keeps
+    //  the "cleared" assertions non-vacuous (a freshly-constructed control
+    //  would trivially have no tooltip).
+    // ════════════════════════════════════════════════════════════════════
+
+    internal class TooltipPoolCleanOnRent(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            var anchor = new Microsoft.UI.Reactor.Input.ElementRef();
+
+            host.Mount(ctx =>
+            {
+                var (phase, set) = ctx.UseState(0);
+                return VStack(
+                    TextBlock("TipPoolAnchor").Ref(anchor),
+                    Button("DropTipPool", () => set(1)),
+                    Button("RemountTipPool", () => set(2)),
+                    phase switch
+                    {
+                        0 => TextBlock("tip-pool-carrier")
+                                .ToolTip("leaky tip", PlacementMode.Right)
+                                .ToolTipPlacementTarget(anchor),
+                        1 => Empty(),
+                        // Remounted with no tooltip modifiers at all.
+                        _ => TextBlock("tip-pool-carrier-2"),
+                    }
+                );
+            });
+
+            await Harness.Render();
+            var first = H.FindText("tip-pool-carrier");
+            H.Check("TipPool_Phase0_ToolTipSet",
+                first is not null && ToolTipService.GetToolTip(first)?.ToString() == "leaky tip");
+            H.Check("TipPool_Phase0_PlacementSet",
+                first is not null && ToolTipService.GetPlacement(first) == PlacementMode.Right);
+            H.Check("TipPool_Phase0_PlacementTargetSet",
+                first is not null && ToolTipService.GetPlacementTarget(first) is not null);
+
+            H.ClickButton("DropTipPool");
+            await Harness.Render();
+            H.Check("TipPool_Phase1_Returned", H.FindText("tip-pool-carrier") is null);
+
+            H.ClickButton("RemountTipPool");
+            await Harness.Render();
+            var second = H.FindText("tip-pool-carrier-2");
+            // Load-bearing: without instance reuse the "cleared" checks below would
+            // pass trivially on a freshly-constructed control.
+            H.Check("TipPool_Phase2_ReusedInstance",
+                first is not null && ReferenceEquals(first, second));
+            H.Check("TipPool_Phase2_ToolTipCleared",
+                second is not null
+                && second.ReadLocalValue(ToolTipService.ToolTipProperty) == DependencyProperty.UnsetValue);
+            H.Check("TipPool_Phase2_PlacementCleared",
+                second is not null
+                && second.ReadLocalValue(ToolTipService.PlacementProperty) == DependencyProperty.UnsetValue);
+            H.Check("TipPool_Phase2_PlacementTargetCleared",
+                second is not null
+                && second.ReadLocalValue(ToolTipService.PlacementTargetProperty) == DependencyProperty.UnsetValue);
         }
     }
 

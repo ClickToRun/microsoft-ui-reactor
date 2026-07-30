@@ -33,8 +33,16 @@ public class ToolTipPlacementModifierTests
     [Fact]
     public void ToolTipPlacement_Preserves_Concrete_Element_Type()
     {
-        var el = Button("hover", () => { }).ToolTipPlacement(PlacementMode.Left);
-        Assert.IsType<ButtonElement>(el);
+        // Typed local, not Assert.IsType: this fails to COMPILE if the modifier's
+        // return type ever widens from T to Element. A runtime type check would
+        // still pass in that case, since the boxed instance stays a ButtonElement.
+        ButtonElement el = Button("hover", () => { }).ToolTipPlacement(PlacementMode.Left);
+        Assert.Equal(PlacementMode.Left, el.Modifiers?.ToolTipPlacement);
+
+        TextBlockElement text = TextBlock("hover")
+            .ToolTip("tip", PlacementMode.Right)
+            .ToolTipPlacementTarget(new ElementRef());
+        Assert.Equal(PlacementMode.Right, text.Modifiers?.ToolTipPlacement);
     }
 
     [Fact]
@@ -79,6 +87,27 @@ public class ToolTipPlacementModifierTests
         Assert.Same(content, el.Modifiers?.RichToolTip);
         Assert.Equal(PlacementMode.Top, el.Modifiers?.ToolTipPlacement);
         Assert.Null(el.Modifiers?.ToolTip);
+    }
+
+    [Fact]
+    public void WithToolTip_Placement_Overload_Round_Trips_Each_Value_Distinctly()
+    {
+        // Differential isolation, same as the text overload: a stub that ignored
+        // the argument and stored one constant would make these two equal.
+        var content = TextBlock("rich");
+        var left = Button("a", () => { }).WithToolTip(content, PlacementMode.Left);
+        var right = Button("a", () => { }).WithToolTip(content, PlacementMode.Right);
+
+        Assert.NotEqual(left.Modifiers?.ToolTipPlacement, right.Modifiers?.ToolTipPlacement);
+        Assert.Equal(PlacementMode.Left, left.Modifiers?.ToolTipPlacement);
+        Assert.Equal(PlacementMode.Right, right.Modifiers?.ToolTipPlacement);
+    }
+
+    [Fact]
+    public void WithToolTip_Without_Placement_Leaves_Placement_Unset()
+    {
+        var el = Button("hover", () => { }).WithToolTip(TextBlock("rich"));
+        Assert.Null(el.Modifiers?.ToolTipPlacement);
     }
 
     [Fact]
