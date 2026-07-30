@@ -167,6 +167,9 @@ namespace Microsoft.UI.Reactor.Core
     // Hand-written handler with no Set overload: the mounted control is unknown.
     public record CardElement : Element { }
 
+    // Its only Set comes from a look-alike extension class, not ElementExtensions.
+    public record LookAlikeElement : Element { }
+
     public static class Factories
     {
         public static RectangleElement Rectangle() => new();
@@ -187,6 +190,7 @@ namespace Microsoft.UI.Reactor.Core
         public static AmbiguousElement Ambiguous() => new();
         public static XamlHostElement XamlHost() => new();
         public static CardElement Card() => new();
+        public static LookAlikeElement LookAlike() => new();
     }
 }
 
@@ -264,6 +268,13 @@ namespace Microsoft.UI.Reactor
         public static PathElement Stroke(this PathElement el, Brush brush) => el;
         public static LineElement StrokeThickness(this LineElement el, double thickness) => el;
         public static PathElement StrokeThickness(this PathElement el, double thickness) => el;
+    }
+
+    // A user-defined extension class inside Reactor's namespace root, declaring a Set overload
+    // that looks exactly like the framework's.
+    public static class LookAlikeExtensions
+    {
+        public static LookAlikeElement Set(this LookAlikeElement el, Action<WinShapes.Rectangle> configure) => el;
     }
 }
 
@@ -657,6 +668,18 @@ namespace TestApp
     {
         var body = App(@"
         internal static Element M(Element el) => el.Background(""#FF6B6B"");");
+
+        await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Does_Not_Fire_When_Set_Comes_From_A_Look_Alike_Extension_Class()
+    {
+        // A user-defined Set helper under Microsoft.UI.Reactor.* is not the framework's
+        // control-type evidence, and it is not covered by the Set/descriptor guard either — so it
+        // must not be trusted.
+        var body = App(@"
+        internal static Element M() => LookAlike().Background(""#FF6B6B"");");
 
         await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
     }

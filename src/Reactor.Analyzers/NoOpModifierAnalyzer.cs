@@ -374,23 +374,36 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
     }
 
     /// <summary>
-    /// The <c>Set</c> overload is Reactor's and is declared for <paramref name="receiver"/> itself,
-    /// not inherited from a base element.
+    /// The <c>Set</c> overload is Reactor's own — declared on
+    /// <c>Microsoft.UI.Reactor.ElementExtensions</c> — and is declared for
+    /// <paramref name="receiver"/> itself, not inherited from a base element.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// The declaring type is pinned rather than just the namespace root, so a user-defined
+    /// <c>Set(this SomeElement, Action&lt;SomeControl&gt;)</c> helper that happens to live under
+    /// <c>Microsoft.UI.Reactor.*</c> cannot be mistaken for the framework's control-type evidence.
+    /// This is also exactly the surface
+    /// <c>ModifierTableIntegrityTests.Every_Element_Set_Overload_Names_The_Control_Its_Descriptor_Mounts</c>
+    /// cross-checks against the descriptors, so the analyzer trusts nothing that guard does not
+    /// verify. (The only other <c>Set</c> overloads in the framework are the three Win2D canvas ones
+    /// in <c>Reactor.Advanced</c>; their controls are <c>Control</c>-derived, so every gate passes
+    /// and they would never be reported anyway.)
+    /// </para>
+    /// <para>
     /// The receiver comparison runs on the original definitions: <c>ReducedFrom</c> does not carry
     /// the type arguments inferred during reduction, so <c>Set&lt;T&gt;(this ItemsViewElement&lt;T&gt;, …)</c>
     /// reduced against <c>ItemsViewElement&lt;Foo&gt;</c> still reports <c>ItemsViewElement&lt;T&gt;</c>.
     /// A base and a derived element still have different original definitions, so the
     /// inherited-only case stays excluded.
+    /// </para>
     /// </remarks>
     private static bool IsDeclaredByReactorForExactly(IMethodSymbol declared, INamedTypeSymbol receiver)
     {
-        var declaringNamespace = declared.ContainingType?.ContainingNamespace?.ToDisplayString();
+        var declaringType = declared.ContainingType;
 
-        return declaringNamespace is not null
-            && (declaringNamespace == ReactorNamespace
-                || declaringNamespace.StartsWith(ReactorNamespace + ".", System.StringComparison.Ordinal))
+        return declaringType is { Name: ElementExtensionsTypeName }
+            && declaringType.ContainingNamespace?.ToDisplayString() == ReactorNamespace
             && SymbolEqualityComparer.Default.Equals(
                 declared.Parameters[0].Type.OriginalDefinition, receiver.OriginalDefinition);
     }
