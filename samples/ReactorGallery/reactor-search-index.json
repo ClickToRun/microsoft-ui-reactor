@@ -963,7 +963,7 @@
         {
           "header": "Image from URI",
           "language": "csharp",
-          "code": "Image(\"ms-appx:///Assets/SampleImages/LandscapeSample.png\")\n    .Width(300).Height(300)\n// ms-appx:/// resolves against the app folder — the asset must be copied\n// to the output directory (a <Content Include=...> item in the csproj)."
+          "code": "Image(\"ms-appx:///Assets/SampleImages/LandscapeSample.png\")\n    .AutomationName(\"A stylised mountain lake at dusk\")   // alt text for screen readers\n    .Width(300).Height(300)\n// ms-appx:/// resolves against the app folder — the asset must be copied\n// to the output directory (a <Content Include=...> item in the csproj)."
         }
       ]
     },
