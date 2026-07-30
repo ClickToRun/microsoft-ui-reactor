@@ -210,7 +210,15 @@ class GalleryShell : Component
                 content: content
             ) with
             {
-                SelectedTag = selectedTag,
+                // NavigationView's built-in settings entry is the one item the control
+                // creates itself, so it can only be selected through the reserved
+                // sentinel — the gallery's own "settings" tag would select nothing and
+                // leave the pane with no highlight after a `/settings` deep link or a
+                // Back into settings. OnItemInvoked below translates the same pair in
+                // the opposite direction.
+                SelectedTag = selectedTag == GalleryRoutes.SettingsTag
+                    ? NavigationViewElement.SettingsTag
+                    : selectedTag,
                 IsPaneOpen = isPaneOpen,
                 OnItemInvoked = tag =>
                 {
