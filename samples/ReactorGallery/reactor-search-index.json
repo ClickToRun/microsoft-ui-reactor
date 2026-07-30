@@ -184,7 +184,7 @@
         {
           "header": "Basic BreadcrumbBar",
           "language": "csharp",
-          "code": "var (path, setPath) = UseState(UseMemo(() => new[] { \"Home\", \"Documents\", \"Reports\" }));\n\nBreadcrumbBar(\n    path.Select(p => Breadcrumb(p)).ToArray(),\n    item => setClicked(item.Label))"
+          "code": "// The trail is fixed, so it is a memoized constant rather than state.\nvar path = UseMemo(() => new[] { \"Home\", \"Documents\", \"Reports\" });\n\nBreadcrumbBar(\n    path.Select(p => Breadcrumb(p)).ToArray(),\n    item => setClicked(item.Label))"
         }
       ]
     },

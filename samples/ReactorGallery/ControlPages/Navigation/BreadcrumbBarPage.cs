@@ -11,14 +11,14 @@ class BreadcrumbBarPage : Component
 {
     public override Element Render()
     {
-        // Memoized so the seed arrays are allocated once rather than on every render
-        // (the REACTOR_HOOKS_013 pattern; the analyzer does not flag this shape, but it
-        // is the same allocation and the TabView sample was corrected for it).
-        var (path, setPath) = UseState(UseMemo(() => new[] { "Home", "Documents", "Reports" }));
+        // The basic card's trail never changes, so it is a memoized constant rather than
+        // state — a UseState whose setter is never called would misrepresent the card.
+        var path = UseMemo(() => new[] { "Home", "Documents", "Reports" });
         var (clicked, setClicked) = UseState("(none)");
 
-        // The dynamic card owns its own trail — sharing `path` with the basic card
-        // would make navigating here silently rewrite the card above.
+        // The dynamic card owns its own trail — sharing one array with the basic card
+        // would make navigating here silently rewrite the card above. Memoized seed so
+        // it is allocated once rather than on every render.
         var (dynamicPath, setDynamicPath) = UseState(UseMemo(() => new[] { "Home", "Documents", "Reports" }));
 
         return ScrollView(
@@ -33,7 +33,8 @@ class BreadcrumbBarPage : Component
                             item => setClicked(item.Label)),
                         TextBlock($"Last clicked: {clicked}").Foreground(Theme.SecondaryText)
                     ),
-                    @"var (path, setPath) = UseState(UseMemo(() => new[] { ""Home"", ""Documents"", ""Reports"" }));
+                    @"// The trail is fixed, so it is a memoized constant rather than state.
+var path = UseMemo(() => new[] { ""Home"", ""Documents"", ""Reports"" });
 
 BreadcrumbBar(
     path.Select(p => Breadcrumb(p)).ToArray(),
