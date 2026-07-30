@@ -47,28 +47,29 @@
 ;
 ; REACTOR_MOD_003 is NOT in the list below. It is a correctness rule — a modifier the
 ; reconciler silently drops is an invisible control, not a style preference — so it stays
-; at `warning` across the sample tree, and a new one anywhere breaks the build. Its 96
+; at `warning` across the sample tree, and a new one anywhere breaks the build. Its 90
 ; pre-existing hits are exempted by PATH instead, in the scoped section at the bottom of
 ; this file, exactly as the REACTOR_HOOKS_* debt is. Breakdown:
 ;
-;   62  .Padding(...)      on TextBlockElement
+;   59  .Padding(...)      on TextBlockElement
 ;   18  .Padding(...)      on FlexElement        (14 carry a .FlexPadding(...) auto-fix)
-;    3  .Background(...)   on RectangleElement   <- the Canvas gallery bug (G2/R6)
 ;    3  .CornerRadius(...) on StackElement
 ;    2  .Background(...)   on TextBlockElement
 ;    2  .CornerRadius(...) on GridElement
 ;    2  .Padding(...)      on GridElement
 ;    1  each: .CornerRadius on Rectangle/TextBlock, .Foreground on Border/RichTextBlock
 ;
-; The 3 Rectangle hits are the sample bug this rule was written to prevent; they are fixed
-; in a separate PR that owns CanvasPage.cs — drop that path from the list when it lands.
-; The 62 TextBlock Padding hits are a different question, now tracked as issue #950: the
+; Counts re-measured after PR #941 merged, over the whole sample tree (Reactor.slnx, Debug,
+; severity flipped to `warning`), deduplicated on file:line:col. The `.Background(...) on
+; RectangleElement` row that used to head this list — the Canvas gallery bug this rule was
+; written to prevent — is now GONE: #941 rewrote those call sites to .Fill(...).
+; The 59 TextBlock Padding hits are a different question, now tracked as issue #950: the
 ; modifier is wired through to RichTextBlock (Element.cs, its Customize hook maps Padding
 ; to RichTextBlock.PaddingProperty) but not to TextBlock, so the narrow
 ; Control/Border/StackPanel gate in ApplyModifiers looks like the thing that is wrong
 ; rather than the call sites. Widening it is a reconciler change, deliberately not made
 ; here. If #950 is fixed by widening, this rule simply stops firing on TextBlockElement and
-; those 62 hits disappear without touching a single sample.
+; those 59 hits disappear without touching a single sample.
 
 [*.cs]
 dotnet_diagnostic.REACTOR_THEME_001.severity = suggestion
@@ -92,14 +93,18 @@ dotnet_diagnostic.REACTOR_HOOKS_011.severity = suggestion
 dotnet_diagnostic.REACTOR_HOOKS_013.severity = suggestion
 
 
-; REACTOR_MOD_003 debt, scoped to the 38 files that already carry it. Deliberately a file
+; REACTOR_MOD_003 debt, scoped to the 36 files that already carry it. Deliberately a file
 ; list and not a `**/*.cs` glob, matching the REACTOR_HOOKS_* treatment above: this is a
 ; correctness rule, so a silent modifier drop in any other sample — or in a new one — must
 ; still break the build. Delete a path once its file is clean; delete the whole section once
-; the list is empty. ReactorGallery/ControlPages/Layout/CanvasPage.cs goes first: PR #941
-; rewrites those three Rectangle().Background(...) calls to .Fill(...), so drop that path
-; when #941 lands. (#941 also touches GridViewPage / NavigationViewPage / TabViewPage /
-; ParallaxViewPage, which are listed here for unrelated hits — re-run the sweep after it
-; merges and drop any other path that has gone clean.)
-[{apps/animated-list-demo/App.cs,apps/chat/Chat.UI/ChatTimeline.cs,apps/chat/Chat.UI/InputBar.cs,apps/chat/Chat.UI/LandingPage.cs,apps/chat/Chat.UI/Sidebar.cs,apps/command-palette-window/Program.cs,apps/demo-script-tool/App/Components/StepCard.cs,apps/demo-script-tool/App/DemoScriptShell.cs,apps/headtrax/HeadTrax/Components/EmployeeGrid.cs,apps/minesweeper/Components/StatusPanel.cs,apps/monaco-editor/App.cs,apps/regedit/Components/ValueList.cs,apps/widget-creator/WidgetCreatorShell.cs,CommandingDemo/App.cs,Reactor.TestApp/Demos/DataGridDemo.cs,Reactor.TestApp/Demos/IntegratedDataDemo.cs,Reactor.TestApp/Demos/SpecializedEditorsDemo.cs,Reactor.TestApp/Demos/TransitionsDemo.cs,ReactorCharting.Gallery/Program.cs,ReactorCharting.Gallery/Samples/MultiLineChart.cs,ReactorCharting.Gallery/Samples/WeeklyForecast.cs,ReactorGallery/ControlPages/Collections/GridViewPage.cs,ReactorGallery/ControlPages/Collections/RefreshContainerPage.cs,ReactorGallery/ControlPages/Collections/SemanticZoomPage.cs,ReactorGallery/ControlPages/DesignGuidance/SpacingPage.cs,ReactorGallery/ControlPages/DialogsAndFlyouts/FlyoutPage.cs,ReactorGallery/ControlPages/Layout/BorderPage.cs,ReactorGallery/ControlPages/Layout/CanvasPage.cs,ReactorGallery/ControlPages/Layout/GridPage.cs,ReactorGallery/ControlPages/Layout/RelativePanelPage.cs,ReactorGallery/ControlPages/Layout/ScrollViewPage.cs,ReactorGallery/ControlPages/Media/ParallaxViewPage.cs,ReactorGallery/ControlPages/Navigation/NavigationViewPage.cs,ReactorGallery/ControlPages/Navigation/PivotPage.cs,ReactorGallery/ControlPages/Navigation/TabViewPage.cs,ReactorGallery/ControlPages/Styles/AcrylicPage.cs,StylingGallery/App.cs,TodoApp/Program.cs}]
+; the list is empty.
+;
+; Pruned once already: PR #941 rewrote CanvasPage.cs's Rectangle().Background(...) calls to
+; .Fill(...), and ParallaxViewPage.cs came clean with it, so both paths are gone from the
+; list below. That was the whole of the `Background on RectangleElement` category — the bug
+; this rule was written to prevent no longer occurs anywhere in samples. Re-run the sweep
+; after any sample fix and drop whatever has gone clean; the remaining GridViewPage /
+; NavigationViewPage / TabViewPage entries were checked at the same time and are still dirty
+; for unrelated hits.
+[{apps/animated-list-demo/App.cs,apps/chat/Chat.UI/ChatTimeline.cs,apps/chat/Chat.UI/InputBar.cs,apps/chat/Chat.UI/LandingPage.cs,apps/chat/Chat.UI/Sidebar.cs,apps/command-palette-window/Program.cs,apps/demo-script-tool/App/Components/StepCard.cs,apps/demo-script-tool/App/DemoScriptShell.cs,apps/headtrax/HeadTrax/Components/EmployeeGrid.cs,apps/minesweeper/Components/StatusPanel.cs,apps/monaco-editor/App.cs,apps/regedit/Components/ValueList.cs,apps/widget-creator/WidgetCreatorShell.cs,CommandingDemo/App.cs,Reactor.TestApp/Demos/DataGridDemo.cs,Reactor.TestApp/Demos/IntegratedDataDemo.cs,Reactor.TestApp/Demos/SpecializedEditorsDemo.cs,Reactor.TestApp/Demos/TransitionsDemo.cs,ReactorCharting.Gallery/Program.cs,ReactorCharting.Gallery/Samples/MultiLineChart.cs,ReactorCharting.Gallery/Samples/WeeklyForecast.cs,ReactorGallery/ControlPages/Collections/GridViewPage.cs,ReactorGallery/ControlPages/Collections/RefreshContainerPage.cs,ReactorGallery/ControlPages/Collections/SemanticZoomPage.cs,ReactorGallery/ControlPages/DesignGuidance/SpacingPage.cs,ReactorGallery/ControlPages/DialogsAndFlyouts/FlyoutPage.cs,ReactorGallery/ControlPages/Layout/BorderPage.cs,ReactorGallery/ControlPages/Layout/GridPage.cs,ReactorGallery/ControlPages/Layout/RelativePanelPage.cs,ReactorGallery/ControlPages/Layout/ScrollViewPage.cs,ReactorGallery/ControlPages/Navigation/NavigationViewPage.cs,ReactorGallery/ControlPages/Navigation/PivotPage.cs,ReactorGallery/ControlPages/Navigation/TabViewPage.cs,ReactorGallery/ControlPages/Styles/AcrylicPage.cs,StylingGallery/App.cs,TodoApp/Program.cs}]
 dotnet_diagnostic.REACTOR_MOD_003.severity = suggestion
