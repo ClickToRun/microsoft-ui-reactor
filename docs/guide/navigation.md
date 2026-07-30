@@ -637,6 +637,13 @@ If you navigate a `Frame` imperatively instead — `Frame().Set(f => f.Navigate(
 Reactor never sees the target, so publish it yourself first with
 `ReactorApp.RegisterPageType(typeof(MyPage))`.
 
+!!! note "Known follow-up"
+    The annotation requirement is a wart, not a design goal. A generic
+    `Frame<TPage>() where TPage : Page, new()` overload would remove it entirely — the
+    `new()` constraint tells the trimmer what it needs with no attribute and no burden on
+    the caller, the same way `ReactorApp.Run<TRoot>` already works. It was left out of the
+    fix that introduced the annotation to keep that change scoped to the crash it repaired.
+
 Wiring `.NavigationFailed(...)` also marks the failure handled, so a page whose
 constructor throws is reported to your handler instead of tearing the
 application down. Leave it unwired and the failure surfaces as an ordinary
