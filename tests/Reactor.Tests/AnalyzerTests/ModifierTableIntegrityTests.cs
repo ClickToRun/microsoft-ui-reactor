@@ -593,6 +593,145 @@ public class ModifierTableIntegrityTests
     }
 
     /// <summary>
+    /// A generated descriptor's <c>Customize</c> hook may read a <b>common modifier</b> off the
+    /// element and write it to the control itself — <c>RichTextBlockElement</c> does exactly that
+    /// for <c>Padding</c>. On such an element <c>ApplyModifiers</c>' control gate is not the
+    /// authority: the value is applied even though the gate says it would be dropped, so
+    /// <see cref="NoOpModifierAnalyzer"/> must stay silent or it reports a false positive on correct
+    /// code. That exception list is hand-maintained, so pin it to the descriptors.
+    /// </summary>
+    [Fact]
+    public void Descriptor_Applied_Common_Modifiers_Match_The_Analyzer_Exception_List()
+    {
+        var (found, customizeHooks) = ReadDescriptorAppliedCommonModifiers();
+
+        // Self-validation: descriptor Customize hooks are everywhere in Element.cs; a collapse to
+        // zero means the reader stopped matching and the comparison below would pass vacuously.
+        Assert.True(
+            customizeHooks >= 20,
+            $"Only {customizeHooks} descriptor Customize hooks were parsed; expected 20+. The reader " +
+            "has probably stopped matching.");
+
+        var declared = new HashSet<string>(
+            NoOpModifierAnalyzer.DescriptorAppliedModifiers, StringComparer.Ordinal);
+
+        var missing = found.Except(declared, StringComparer.Ordinal).OrderBy(k => k, StringComparer.Ordinal).ToArray();
+        var stale = declared.Except(found, StringComparer.Ordinal).OrderBy(k => k, StringComparer.Ordinal).ToArray();
+
+        Assert.True(
+            missing.Length == 0,
+            "A descriptor now applies a gated common modifier itself, but NoOpModifierAnalyzer still " +
+            "treats ApplyModifiers' gate as the authority for it — REACTOR_MOD_003 would report a false " +
+            "positive on correct code. Add to NoOpModifierAnalyzer.DescriptorAppliedModifiers:\n  " +
+            string.Join("\n  ", missing));
+
+        Assert.True(
+            stale.Length == 0,
+            "NoOpModifierAnalyzer.DescriptorAppliedModifiers suppresses a modifier no descriptor applies " +
+            "any more, so a real silent drop is going unreported. Remove:\n  " +
+            string.Join("\n  ", stale));
+    }
+
+    /// <summary>
+    /// Scans every generated-descriptor <c>Customize</c> hook in <c>src/Reactor</c> for reads of a
+    /// gated common modifier off the element lambda parameter (e.g.
+    /// <c>get: static e =&gt; e.Padding…</c>), keyed as <c>Namespace.ElementType|Modifier</c>.
+    /// Returns the set plus the number of hooks inspected, for the non-vacuity floor.
+    /// </summary>
+    private static (HashSet<string> Keys, int CustomizeHooks) ReadDescriptorAppliedCommonModifiers()
+    {
+        var root = RepoRootFinder.FindRepoRoot();
+        Assert.NotNull(root);
+        var sourceDir = Path.Join(root!, "src", "Reactor");
+        Assert.True(Directory.Exists(sourceDir), $"src/Reactor not found at {sourceDir}");
+
+        // Only the modifiers REACTOR_MOD_003 reports on can produce a false positive.
+        var gated = new HashSet<string>(
+            ModifierTable.Properties.Where(p => p.Value.ControlGate is not null).Select(p => p.Key),
+            StringComparer.Ordinal);
+
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        var hooks = 0;
+
+        foreach (var file in Directory.GetFiles(sourceDir, "*.cs", SearchOption.AllDirectories))
+        {
+            var text = File.ReadAllText(file);
+            if (!text.Contains("Customize"))
+                continue;
+
+            var tree = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(text);
+            foreach (var method in tree.GetRoot()
+                .DescendantNodes()
+                .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.MethodDeclarationSyntax>()
+                .Where(m => m.Identifier.Text == "Customize"))
+            {
+                if (method.Parent is not Microsoft.CodeAnalysis.CSharp.Syntax.TypeDeclarationSyntax owner)
+                    continue;
+
+                hooks++;
+
+                var elementName = QualifiedTypeName(owner);
+
+                foreach (var access in method.DescendantNodes()
+                    .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.MemberAccessExpressionSyntax>())
+                {
+                    if (access.Expression is not Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax receiver
+                        || !gated.Contains(access.Name.Identifier.Text)
+                        || !IsLambdaParameter(access, receiver.Identifier.Text))
+                        continue;
+
+                    keys.Add(NoOpModifierAnalyzer.ElementModifierKey(elementName, access.Name.Identifier.Text));
+                }
+            }
+        }
+
+        return (keys, hooks);
+    }
+
+    /// <summary>Namespace-qualified name of the type declaration owning a member.</summary>
+    private static string QualifiedTypeName(Microsoft.CodeAnalysis.CSharp.Syntax.TypeDeclarationSyntax type)
+    {
+        for (Microsoft.CodeAnalysis.SyntaxNode? node = type.Parent; node is not null; node = node.Parent)
+        {
+            var ns = node switch
+            {
+                Microsoft.CodeAnalysis.CSharp.Syntax.FileScopedNamespaceDeclarationSyntax file => file.Name.ToString(),
+                Microsoft.CodeAnalysis.CSharp.Syntax.NamespaceDeclarationSyntax block => block.Name.ToString(),
+                _ => null,
+            };
+            if (ns is not null)
+                return ns + "." + type.Identifier.Text;
+        }
+
+        return type.Identifier.Text;
+    }
+
+    /// <summary>
+    /// True when <paramref name="name"/> is a parameter of some lambda enclosing
+    /// <paramref name="node"/> — i.e. the member access reads the descriptor's element/control
+    /// argument rather than an unrelated local of the same name.
+    /// </summary>
+    private static bool IsLambdaParameter(Microsoft.CodeAnalysis.SyntaxNode node, string name)
+    {
+        for (var current = node.Parent; current is not null; current = current.Parent)
+        {
+            switch (current)
+            {
+                case Microsoft.CodeAnalysis.CSharp.Syntax.SimpleLambdaExpressionSyntax simple
+                    when simple.Parameter.Identifier.Text == name:
+                    return true;
+                case Microsoft.CodeAnalysis.CSharp.Syntax.ParenthesizedLambdaExpressionSyntax paren
+                    when paren.ParameterList.Parameters.Any(p => p.Identifier.Text == name):
+                    return true;
+                case Microsoft.CodeAnalysis.CSharp.Syntax.MethodDeclarationSyntax:
+                    return false;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Modifier property name → the WinUI type names <c>ApplyModifiers</c> actually writes it
     /// to, read out of <c>Reconciler.cs</c>.
     /// </summary>

@@ -80,14 +80,15 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
     internal const string ReplacementKey = "Replacement";
 
     /// <summary>
-    /// Code-fix payload: how the sole argument must be carried across — <c>brush</c> passes it
-    /// through unchanged, <c>string</c> needs a <c>BrushHelper.Parse(…)</c> wrap because the shape
-    /// modifiers take a <c>Brush</c>. Any other shape (e.g. the <c>ThemeRef</c> overload) is absent,
-    /// and the fix is not registered.
+    /// Code-fix payload: how the arguments must be carried across — <c>rename</c> passes them
+    /// through unchanged onto an identically-shaped overload, <c>string</c> wraps a single colour
+    /// string in <c>BrushHelper.Parse(…)</c> because the shape modifiers take a <c>Brush</c>. Absent
+    /// when no mechanical rewrite is sound (e.g. the <c>ThemeRef</c> overload), and the fix is then
+    /// not registered.
     /// </summary>
     internal const string ArgumentKindKey = "ArgumentKind";
 
-    internal const string BrushArgument = "brush";
+    internal const string RenameArgument = "rename";
     internal const string StringArgument = "string";
 
     private const string ReactorNamespace = "Microsoft.UI.Reactor";
@@ -107,7 +108,7 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
     /// Modifier → the shape modifier(s) that carry the same intent, most specific first. Only
     /// consulted when the receiver's control is a <c>Shape</c>, and only after the candidate is
     /// confirmed to resolve on that element type — so <c>LineElement</c>, which has no <c>Fill</c>,
-    /// falls through to <c>Stroke</c> and the emitted fix always compiles.
+    /// falls through to <c>Stroke</c>.
     /// </summary>
     internal static readonly IReadOnlyDictionary<string, string[]> ShapeReplacements =
         new Dictionary<string, string[]>(System.StringComparer.Ordinal)
@@ -117,6 +118,50 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
             { "BorderBrush", new[] { "Stroke" } },
             { "BorderThickness", new[] { "StrokeThickness" } },
         };
+
+    /// <summary>
+    /// <c>element|modifier</c> → the element-specific modifier that carries the same intent, for
+    /// receivers that are not shapes. <c>FlexPanel</c> is a <c>Panel</c> but not a
+    /// <c>StackPanel</c>, so <c>ApplyModifiers</c> drops <c>Padding</c> on it; the Yoga box model
+    /// exposes the equivalent as <c>FlexPadding</c>, whose three overloads mirror
+    /// <c>Padding</c>'s exactly.
+    /// </summary>
+    internal static readonly IReadOnlyDictionary<string, string> ElementReplacements =
+        new Dictionary<string, string>(System.StringComparer.Ordinal)
+        {
+            { "Microsoft.UI.Reactor.Core.FlexElement|Padding", "FlexPadding" },
+        };
+
+    /// <summary>
+    /// <c>element|modifier</c> pairs where the element's own generated descriptor reads the common
+    /// modifier slot and writes it to the control itself, so <c>ApplyModifiers</c>' gate is not the
+    /// authority and the value is <em>not</em> dropped.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>RichTextBlockElement</c>'s <c>Customize</c> hook declares
+    /// <c>get: e =&gt; e.Padding …, set: (c, v) =&gt; c.Padding = v, dp: RichTextBlock.PaddingProperty</c>
+    /// — <c>e.Padding</c> being the base <c>Element.Padding</c> shim over the common modifier bag.
+    /// A <c>RichTextBlock</c> is neither <c>Control</c>, <c>Border</c> nor <c>StackPanel</c>, so the
+    /// control gate says "dropped" while the descriptor in fact applies it. Reporting there would be
+    /// a false positive on correct code, which is the one outcome worse than the bug this rule
+    /// exists to catch.
+    /// </para>
+    /// <para>
+    /// This is the only such entry in the framework today. A <c>ModifierTableIntegrityTests</c>
+    /// guard parses every descriptor <c>Customize</c> hook and fails if another one starts (or stops)
+    /// consuming a gated common modifier, so the exception list cannot go stale in either direction.
+    /// </para>
+    /// </remarks>
+    internal static readonly IReadOnlyCollection<string> DescriptorAppliedModifiers =
+        new HashSet<string>(System.StringComparer.Ordinal)
+        {
+            "Microsoft.UI.Reactor.Core.RichTextBlockElement|Padding",
+        };
+
+    /// <summary>Key shared by <see cref="ElementReplacements"/> and <see cref="DescriptorAppliedModifiers"/>.</summary>
+    internal static string ElementModifierKey(string elementFullName, string modifier) =>
+        elementFullName + "|" + modifier;
 
     /// <summary>
     /// Control bases that stand in for "whatever was handed to us" rather than naming a real
@@ -197,17 +242,32 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
         if (gate.Any(allowed => SetLambdaHelpers.InheritsFrom(control, allowed, XamlControlsNamespace)))
             return;
 
+        // …and neither is the gate the authority when the element's own descriptor consumes the
+        // common-modifier slot and writes it to the control itself.
+        var elementKey = ElementModifierKey(receiver.ToDisplayString(), modifierName);
+        if (DescriptorAppliedModifiers.Contains(elementKey))
+            return;
+
         var properties = ImmutableDictionary<string, string?>.Empty;
         var hint = string.Empty;
 
-        if (SetLambdaHelpers.InheritsFrom(control, ShapeTypeName, XamlShapesNamespace)
-            && TryGetShapeReplacement(context, invocation, receiver, modifierName, out var replacement))
+        if (TryGetReplacement(context, invocation, receiver, control, method, modifierName, elementKey,
+                out var replacement, out var argumentKind))
         {
-            hint = $". {control.Name} is a Shape, which is painted with '{replacement}' — did you mean '.{replacement}(...)'?";
-            properties = properties.Add(ReplacementKey, replacement);
+            var family = SetLambdaHelpers.InheritsFrom(control, ShapeTypeName, XamlShapesNamespace)
+                ? $"{control.Name} is a Shape, which is painted with '{replacement}'"
+                : $"'{replacement}' is the equivalent on {receiver.Name}";
 
-            if (DescribeSoleArgument(invocation, method) is { } argumentKind)
-                properties = properties.Add(ArgumentKindKey, argumentKind);
+            hint = argumentKind is null
+                ? $". {family}"
+                : $". {family} — did you mean '.{replacement}(...)'?";
+
+            if (argumentKind is not null)
+            {
+                properties = properties
+                    .Add(ReplacementKey, replacement)
+                    .Add(ArgumentKindKey, argumentKind);
+            }
         }
         else if (modifierName == "Background")
         {
@@ -309,63 +369,125 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
     }
 
     /// <summary>
-    /// First <see cref="ShapeReplacements"/> candidate that actually resolves as an invocable member
-    /// on the receiver — so the suggestion (and the fix built from it) always compiles.
+    /// Resolves the modifier this call should have used, and how (if at all) the code fix can carry
+    /// the arguments across.
     /// </summary>
-    private static bool TryGetShapeReplacement(
+    /// <remarks>
+    /// <para>
+    /// Candidates come from <see cref="ElementReplacements"/> (element-specific, e.g.
+    /// <c>FlexElement.Padding</c> → <c>FlexPadding</c>) or, for a <c>Shape</c> receiver, from
+    /// <see cref="ShapeReplacements"/>. A candidate is only reported at all once it resolves as an
+    /// invocable member on the receiver, so <c>LineElement</c> — which has no <c>Fill</c> — falls
+    /// through to <c>Stroke</c>.
+    /// </para>
+    /// <para>
+    /// <paramref name="argumentKind"/> is <see langword="null"/> when the replacement exists but no
+    /// mechanical rewrite is sound; the caller then names the replacement without offering a fix and
+    /// without the "did you mean" phrasing, because there is nothing to click. Two rewrites are
+    /// sound:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description><b>Rename</b> — some overload of the replacement has exactly the bound
+    /// modifier's parameter types, in order.</description></item>
+    /// <item><description><b>Parse</b> — the modifier took a colour <c>string</c> and the
+    /// replacement has a single-<c>Brush</c> overload, so the value goes through
+    /// <c>BrushHelper.Parse</c> exactly as <c>Background(string)</c> does internally.</description></item>
+    /// </list>
+    /// <para>
+    /// Both require every argument to be positional and to fill the whole replacement parameter
+    /// list. Named arguments are refused because the parameter names differ
+    /// (<c>Background(color:)</c> vs <c>Fill(brush:)</c>), and a partially-applied optional list is
+    /// refused because the replacement's parameters may have no defaults — <c>Padding(top: 8)</c>
+    /// binds the four-parameter <c>Padding</c> overload, but <c>FlexPadding</c>'s four-parameter
+    /// overload is not optional.
+    /// </para>
+    /// </remarks>
+    private static bool TryGetReplacement(
         SyntaxNodeAnalysisContext context,
         InvocationExpressionSyntax invocation,
         INamedTypeSymbol receiver,
+        INamedTypeSymbol control,
+        IMethodSymbol method,
         string modifierName,
-        out string replacement)
+        string elementKey,
+        out string replacement,
+        out string? argumentKind)
     {
-        if (ShapeReplacements.TryGetValue(modifierName, out var candidates))
-        {
-            foreach (var candidate in candidates)
-            {
-                var symbols = context.SemanticModel.LookupSymbols(
-                    invocation.SpanStart,
-                    receiver,
-                    candidate,
-                    includeReducedExtensionMethods: true);
+        replacement = null!;
+        argumentKind = null;
 
-                if (symbols.Any(symbol => symbol is IMethodSymbol))
-                {
-                    replacement = candidate;
-                    return true;
-                }
+        string[] candidates;
+        if (ElementReplacements.TryGetValue(elementKey, out var elementSpecific))
+            candidates = new[] { elementSpecific };
+        else if (SetLambdaHelpers.InheritsFrom(control, ShapeTypeName, XamlShapesNamespace)
+                 && ShapeReplacements.TryGetValue(modifierName, out var shapeCandidates))
+            candidates = shapeCandidates;
+        else
+            return false;
+
+        var positional = invocation.ArgumentList.Arguments;
+        var allPositional = method.MethodKind == MethodKind.ReducedExtension
+            && positional.All(argument => argument.NameColon is null && argument.RefKindKeyword.IsKind(SyntaxKind.None));
+
+        foreach (var candidate in candidates)
+        {
+            var overloads = context.SemanticModel
+                .LookupSymbols(invocation.SpanStart, receiver, candidate, includeReducedExtensionMethods: true)
+                .OfType<IMethodSymbol>()
+                .Where(m => m.MethodKind == MethodKind.ReducedExtension)
+                .ToArray();
+
+            if (overloads.Length == 0)
+                continue;
+
+            // First resolvable candidate wins the hint, fix or not.
+            replacement ??= candidate;
+
+            if (!allPositional)
+                continue;
+
+            if (overloads.Any(overload =>
+                    overload.Parameters.Length == positional.Count
+                    && ParametersMatch(overload, method)))
+            {
+                replacement = candidate;
+                argumentKind = RenameArgument;
+                return true;
+            }
+
+            if (positional.Count == 1
+                && method.Parameters.Length == 1
+                && method.Parameters[0].Type.SpecialType == SpecialType.System_String
+                && overloads.Any(overload =>
+                    overload.Parameters.Length == 1
+                    && SetLambdaHelpers.InheritsFrom(overload.Parameters[0].Type, BrushTypeName, XamlMediaNamespace)))
+            {
+                replacement = candidate;
+                argumentKind = StringArgument;
+                return true;
             }
         }
 
-        replacement = null!;
-        return false;
+        return replacement is not null;
     }
 
-    /// <summary>
-    /// How the code fix must carry the argument onto the shape modifier, or <see langword="null"/>
-    /// when it cannot — the <c>ThemeRef</c> overload has no shape counterpart, and the non-fluent
-    /// <c>ElementExtensions.Background(el, v)</c> spelling is not a shape the rewrite handles. Keyed
-    /// off the <em>bound parameter</em> type rather than the argument syntax, so a variable, a
-    /// field, or a method call is classified as accurately as a literal.
-    /// </summary>
-    private static string? DescribeSoleArgument(InvocationExpressionSyntax invocation, IMethodSymbol method)
+    /// <summary>The two reduced methods take exactly the same parameter types, in order.</summary>
+    private static bool ParametersMatch(IMethodSymbol replacement, IMethodSymbol original)
     {
-        if (invocation.ArgumentList.Arguments.Count != 1
-            || method.MethodKind != MethodKind.ReducedExtension
-            || method.Parameters.Length != 1)
-            return null;
+        if (replacement.Parameters.Length != original.Parameters.Length)
+            return false;
 
-        var type = method.Parameters[0].Type;
-        if (type.SpecialType == SpecialType.System_String)
-            return StringArgument;
+        for (var i = 0; i < replacement.Parameters.Length; i++)
+        {
+            if (!SymbolEqualityComparer.Default.Equals(replacement.Parameters[i].Type, original.Parameters[i].Type))
+                return false;
+        }
 
-        return SetLambdaHelpers.InheritsFrom(type, BrushTypeName, XamlMediaNamespace)
-            ? BrushArgument
-            : null;
+        return true;
     }
 
     /// <summary>"Panel, Control, or Border".</summary>
-    private static string Humanize(string[] gate) => gate.Length switch
+    internal static string Humanize(string[] gate) => gate.Length switch
     {
         0 => "no control type",
         1 => gate[0],

@@ -11,16 +11,18 @@ using Microsoft.CodeAnalysis.Simplification;
 namespace Microsoft.UI.Reactor.Analyzers;
 
 /// <summary>
-/// Code fix for <see cref="NoOpModifierAnalyzer"/> (REACTOR_MOD_003) on <b>shape</b> receivers:
-/// rewrites the dropped modifier to the shape modifier that carries the same intent, so
-/// <c>Rectangle().Background("#FF6B6B")</c> becomes <c>Rectangle().Fill(BrushHelper.Parse("#FF6B6B"))</c>
-/// and <c>Line().Background(brush)</c> becomes <c>Line().Stroke(brush)</c>.
+/// Code fix for <see cref="NoOpModifierAnalyzer"/> (REACTOR_MOD_003): rewrites the dropped modifier
+/// to the one that carries the same intent on this element, so
+/// <c>Rectangle().Background("#FF6B6B")</c> becomes
+/// <c>Rectangle().Fill(BrushHelper.Parse("#FF6B6B"))</c>, <c>Line().Background(brush)</c> becomes
+/// <c>Line().Stroke(brush)</c>, and <c>Flex().Padding(16)</c> becomes <c>Flex().FlexPadding(16)</c>.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The analyzer only emits <see cref="NoOpModifierAnalyzer.ReplacementKey"/> after confirming the
-/// replacement resolves as an invocable member on that element type, so the rewrite cannot produce
-/// a call that does not exist.
+/// The analyzer only emits <see cref="NoOpModifierAnalyzer.ReplacementKey"/> and
+/// <see cref="NoOpModifierAnalyzer.ArgumentKindKey"/> after confirming a specific overload of the
+/// replacement accepts the call's arguments, so the rewrite cannot produce a call that does not
+/// exist or does not bind. Everything else reports without a fix.
 /// </para>
 /// <para>
 /// The colour-string arm needs the <c>BrushHelper.Parse</c> wrap because the shape modifiers take a
@@ -32,9 +34,11 @@ namespace Microsoft.UI.Reactor.Analyzers;
 /// the same name cannot capture it.
 /// </para>
 /// <para>
-/// No fix is offered for the <c>ThemeRef</c> overload (no <c>Fill(ThemeRef)</c> counterpart exists)
-/// or for non-shape receivers, where the remedy is a structural change — hosting the element in a
-/// <c>Border</c> — rather than a rename. The diagnostic still reports in both cases.
+/// No fix is offered for the <c>ThemeRef</c> overload (no <c>Fill(ThemeRef)</c> counterpart exists),
+/// for named or partially-applied arguments (the parameter names and optionality differ between the
+/// two modifiers), or for receivers with no equivalent modifier at all — there the remedy is a
+/// structural change, such as hosting the element in a <c>Border</c>. The diagnostic still reports
+/// in every one of those cases.
 /// </para>
 /// </remarks>
 [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(NoOpModifierCodeFix))]
@@ -62,18 +66,20 @@ public sealed class NoOpModifierCodeFix : CodeFixProvider
                 continue;
 
             if (!diagnostic.Properties.TryGetValue(NoOpModifierAnalyzer.ArgumentKindKey, out var argumentKind)
-                || argumentKind is not (NoOpModifierAnalyzer.BrushArgument or NoOpModifierAnalyzer.StringArgument))
+                || argumentKind is not (NoOpModifierAnalyzer.RenameArgument or NoOpModifierAnalyzer.StringArgument))
                 continue;
 
             var node = root.FindNode(diagnostic.Location.SourceSpan, getInnermostNodeForTie: true);
             if (node.FirstAncestorOrSelf<InvocationExpressionSyntax>() is not
                 {
                     Expression: MemberAccessExpressionSyntax memberAccess,
-                    ArgumentList.Arguments.Count: 1,
                 } invocation)
                 continue;
 
-            var argument = invocation.ArgumentList.Arguments[0];
+            // The analyzer only emits StringArgument for a single-argument call.
+            if (argumentKind == NoOpModifierAnalyzer.StringArgument
+                && invocation.ArgumentList.Arguments.Count != 1)
+                continue;
 
             context.RegisterCodeFix(
                 CodeAction.Create(
@@ -81,7 +87,7 @@ public sealed class NoOpModifierCodeFix : CodeFixProvider
                     _ => Task.FromResult(context.Document.WithSyntaxRoot(
                         root.ReplaceNode(
                             invocation,
-                            Rewrite(invocation, memberAccess, argument, replacement!, argumentKind!)))),
+                            Rewrite(invocation, memberAccess, replacement!, argumentKind!)))),
                     equivalenceKey: EquivalenceKey),
                 diagnostic);
         }
@@ -90,7 +96,6 @@ public sealed class NoOpModifierCodeFix : CodeFixProvider
     private static InvocationExpressionSyntax Rewrite(
         InvocationExpressionSyntax invocation,
         MemberAccessExpressionSyntax memberAccess,
-        ArgumentSyntax argument,
         string replacement,
         string argumentKind)
     {
@@ -102,6 +107,7 @@ public sealed class NoOpModifierCodeFix : CodeFixProvider
         if (argumentKind != NoOpModifierAnalyzer.StringArgument)
             return rewritten;
 
+        var argument = invocation.ArgumentList.Arguments[0];
         var parsed = SyntaxFactory.InvocationExpression(
             SyntaxFactory.ParseExpression(BrushHelperParse)
                 .WithAdditionalAnnotations(Simplifier.Annotation),

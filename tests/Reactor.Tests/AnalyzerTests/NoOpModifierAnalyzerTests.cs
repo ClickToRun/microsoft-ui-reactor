@@ -62,6 +62,12 @@ namespace Microsoft.UI.Xaml.Controls
     public class Image : FrameworkElement { }
 }
 
+namespace Microsoft.UI.Reactor.Layout
+{
+    // FlexPanel is a Panel but NOT a StackPanel, so ApplyModifiers drops Padding on it.
+    public class FlexPanel : Microsoft.UI.Xaml.Controls.Panel { }
+}
+
 namespace Microsoft.UI.Xaml.Shapes
 {
     using Microsoft.UI.Xaml;
@@ -139,6 +145,12 @@ namespace Microsoft.UI.Reactor.Core
     [GenerateReactorDescriptor(typeof(WinUI.Image))]
     public record ImageElement : Element { }
 
+    [GenerateReactorDescriptor(typeof(global::Microsoft.UI.Reactor.Layout.FlexPanel))]
+    public record FlexElement : Element { }
+
+    // Two Set overloads naming different controls: the mounted control is ambiguous.
+    public record AmbiguousElement : Element { }
+
     // XamlInterop's host: declared as the base, mounted as whatever the caller supplied.
     [GenerateReactorDescriptor(typeof(Microsoft.UI.Xaml.FrameworkElement))]
     public record XamlHostElement : Element { }
@@ -160,6 +172,8 @@ namespace Microsoft.UI.Reactor.Core
         public static TextBlockElement Text(string s) => new();
         public static RichTextBlockElement RichTextBlock() => new();
         public static ImageElement Image(string s) => new();
+        public static FlexElement Flex() => new();
+        public static AmbiguousElement Ambiguous() => new();
         public static XamlHostElement XamlHost() => new();
         public static CardElement Card() => new();
     }
@@ -194,7 +208,16 @@ namespace Microsoft.UI.Reactor
         public static TextBlockElement Set(this TextBlockElement el, Action<WinUI.TextBlock> configure) => el;
         public static RichTextBlockElement Set(this RichTextBlockElement el, Action<WinUI.RichTextBlock> configure) => el;
         public static ImageElement Set(this ImageElement el, Action<WinUI.Image> configure) => el;
+        public static FlexElement Set(this FlexElement el, Action<global::Microsoft.UI.Reactor.Layout.FlexPanel> configure) => el;
+        public static AmbiguousElement Set(this AmbiguousElement el, Action<WinUI.Grid> configure) => el;
+        public static AmbiguousElement Set(this AmbiguousElement el, Action<WinUI.Border> configure) => el;
         public static XamlHostElement Set(this XamlHostElement el, Action<Microsoft.UI.Xaml.FrameworkElement> configure) => el;
+
+        // Yoga box model: the element-specific equivalent of Padding on a FlexElement. Overload
+        // shapes mirror Padding's exactly, which is what makes the rename fix sound.
+        public static FlexElement FlexPadding(this FlexElement el, double uniform) => el;
+        public static FlexElement FlexPadding(this FlexElement el, double horizontal, double vertical) => el;
+        public static FlexElement FlexPadding(this FlexElement el, double left, double top, double right, double bottom) => el;
 
         // Generic common modifiers — the ones ApplyModifiers gates on a control type.
         public static T Background<T>(this T el, string color) where T : Element => el;
@@ -205,6 +228,8 @@ namespace Microsoft.UI.Reactor
         public static T BorderThickness<T>(this T el, double thickness) where T : Element => el;
         public static T CornerRadius<T>(this T el, double radius) where T : Element => el;
         public static T Padding<T>(this T el, double uniform) where T : Element => el;
+        public static T Padding<T>(this T el, double horizontal, double vertical) where T : Element => el;
+        public static T Padding<T>(this T el, double left = 0.0, double top = 0.0, double right = 0.0, double bottom = 0.0) where T : Element => el;
         public static T FontSize<T>(this T el, double size) where T : Element => el;
 
         // Generic, but ungated in ModifierTable (see GateOnlyInReconciler).
@@ -429,6 +454,65 @@ namespace TestApp
         await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
     }
 
+    [Fact]
+    public async Task Fires_For_Padding_On_A_Flex_And_Suggests_FlexPadding()
+    {
+        // FlexPanel is a Panel but not a StackPanel, so Padding is dropped — and the Yoga box model
+        // already exposes the equivalent, so this gets an element-specific did-you-mean.
+        var body = App(@"
+        internal static Element M() => Flex().{|#0:Padding|}(16);");
+
+        var test = MakeAnalyzerTest(body);
+        test.ExpectedDiagnostics.Add(
+            AnalyzerVerifier.Diagnostic(NoOpModifierAnalyzer.DiagnosticId)
+                .WithLocation(0)
+                .WithArguments(
+                    "Padding",
+                    "FlexElement",
+                    "Control, Border, or StackPanel",
+                    ". 'FlexPadding' is the equivalent on FlexElement — did you mean '.FlexPadding(...)'?"));
+
+        await test.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_For_A_Shape_Modifier_With_No_Replacement_And_Offers_No_Suggestion()
+    {
+        // CornerRadius has no shape counterpart in ShapeReplacements, so the diagnostic still
+        // reports the silent drop but names no alternative.
+        var body = App(@"
+        internal static Element M() => Rectangle().{|#0:CornerRadius|}(4);");
+
+        var test = MakeAnalyzerTest(body);
+        test.ExpectedDiagnostics.Add(
+            AnalyzerVerifier.Diagnostic(NoOpModifierAnalyzer.DiagnosticId)
+                .WithLocation(0)
+                .WithArguments("CornerRadius", "RectangleElement", "Control or Border", ""));
+
+        await test.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Reports_A_Shape_Replacement_Without_Did_You_Mean_When_No_Fix_Is_Possible()
+    {
+        // There is no Fill(ThemeRef), so the message must still teach that shapes paint with Fill
+        // while dropping the "did you mean" phrasing — there is nothing to click.
+        var body = App(@"
+        internal static Element M(ThemeRef t) => Rectangle().{|#0:Background|}(t);");
+
+        var test = MakeAnalyzerTest(body);
+        test.ExpectedDiagnostics.Add(
+            AnalyzerVerifier.Diagnostic(NoOpModifierAnalyzer.DiagnosticId)
+                .WithLocation(0)
+                .WithArguments(
+                    "Background",
+                    "RectangleElement",
+                    "Panel, Control, or Border",
+                    ". Rectangle is a Shape, which is painted with 'Fill'"));
+
+        await test.RunAsync(TestContext.Current.CancellationToken);
+    }
+
     // ── Negatives (false-positive gating) ───────────────────────────
 
     [Fact]
@@ -551,6 +635,29 @@ namespace TestApp
     }
 
     [Fact]
+    public async Task Does_Not_Fire_When_The_Set_Overloads_Name_Different_Controls()
+    {
+        // Two applicable Set overloads disagree about the mounted control, so it is unknown.
+        var body = App(@"
+        internal static Element M() => Ambiguous().Background(""#FF6B6B"");");
+
+        await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Does_Not_Fire_For_Padding_On_A_RichTextBlock()
+    {
+        // RichTextBlock is neither Control, Border nor StackPanel, so the control gate says
+        // "dropped" — but RichTextBlockElement's descriptor reads the common Padding slot itself
+        // and writes RichTextBlock.PaddingProperty, so the value DOES reach the control. Reporting
+        // here would be a false positive on correct code.
+        var body = App(@"
+        internal static Element M() => RichTextBlock().Padding(8);");
+
+        await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task Does_Not_Fire_For_The_Polymorphic_XamlInterop_Host()
     {
         // XamlHostElement declares FrameworkElement, but hosts whatever the caller supplied — which
@@ -619,6 +726,47 @@ namespace TestApp
     }
 
     [Fact]
+    public async Task CodeFix_Renames_BorderThickness_To_StrokeThickness()
+    {
+        // A pure rename: BorderThickness<T>(double) and StrokeThickness(this PathElement, double)
+        // have identical parameter lists, so the argument passes straight through.
+        var body = App(@"
+        internal static Element M() => Path().{|REACTOR_MOD_003:BorderThickness|}(2);");
+        var fixedBody = App(@"
+        internal static Element M() => Path().StrokeThickness(2);");
+
+        await MakeFixTest(body, fixedBody).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Renames_Padding_To_FlexPadding_Across_Arities()
+    {
+        var body = App(@"
+        internal static Element One() => Flex().{|REACTOR_MOD_003:Padding|}(16);
+        internal static Element Two() => Flex().{|REACTOR_MOD_003:Padding|}(8, 4);
+        internal static Element Four() => Flex().{|REACTOR_MOD_003:Padding|}(1, 2, 3, 4);");
+        var fixedBody = App(@"
+        internal static Element One() => Flex().FlexPadding(16);
+        internal static Element Two() => Flex().FlexPadding(8, 4);
+        internal static Element Four() => Flex().FlexPadding(1, 2, 3, 4);");
+
+        await MakeFixTest(body, fixedBody).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Is_Not_Offered_For_Named_Arguments()
+    {
+        // `.Background(color: "#fff")` cannot be renamed to `.Fill(color: ...)` — the shape
+        // modifier's parameter is `brush`. Likewise `.Padding(top: 8)` binds the four-parameter
+        // optional overload, while FlexPadding's four-parameter overload has no defaults.
+        var body = App(@"
+        internal static Element Colour() => Rectangle().{|REACTOR_MOD_003:Background|}(color: ""#FF6B6B"");
+        internal static Element Side() => Flex().{|REACTOR_MOD_003:Padding|}(top: 8);");
+
+        await MakeFixTest(body, body).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task CodeFix_Is_Not_Offered_For_The_ThemeRef_Overload()
     {
         // No Fill(ThemeRef) counterpart exists. The diagnostic still reports; FixedCode equal to
@@ -639,6 +787,15 @@ namespace TestApp
     }
 
     // ── Drift guard: the suggested shape modifiers must really exist ──
+
+    [Theory]
+    [InlineData(new string[0], "no control type")]
+    [InlineData(new[] { "Control" }, "Control")]
+    [InlineData(new[] { "Control", "Border" }, "Control or Border")]
+    [InlineData(new[] { "Panel", "Control", "Border" }, "Panel, Control, or Border")]
+    [InlineData(new[] { "Control", "Border", "StackPanel" }, "Control, Border, or StackPanel")]
+    public void Humanize_Renders_Every_Gate_Arity(string[] gate, string expected) =>
+        Assert.Equal(expected, NoOpModifierAnalyzer.Humanize(gate));
 
     /// <summary>
     /// Every shape element in the live Reactor assembly must expose at least one of the
