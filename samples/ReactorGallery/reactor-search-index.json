@@ -1312,7 +1312,7 @@
         {
           "header": "Left-Pane NavigationView",
           "language": "csharp",
-          "code": "NavigationView(items, content: TextBlock(\"Selected: ...\"))\nwith {\n    SelectedTag = tag,\n    OnSelectedTagChanged = t => setTag(t),\n    PaneTitle = \"Nav Demo\",\n    PaneDisplayMode = modes[paneMode],   // driven by the Options combo below\n}"
+          "code": "NavigationView(items, content: TextBlock($\"Selected: {selectedTag}\"))\nwith {\n    SelectedTag = selectedTag,\n    // The tag is nullable — guard before writing it back to state.\n    OnSelectedTagChanged = tag => { if (tag != null) setSelectedTag(tag); },\n    PaneTitle = \"Nav Demo\",\n    PaneDisplayMode = modes[paneMode],   // driven by the Options combo below\n    IsSettingsVisible = false,\n}"
         }
       ]
     },

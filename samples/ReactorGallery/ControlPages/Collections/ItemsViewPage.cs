@@ -73,8 +73,13 @@ class ItemsViewPage : Component
                     ItemsView(
                         products, p => p.Name,
                         (p, i) => ItemContainer(
-                            HStack(8, TextBlock(p.Name).Flex(grow: 1), TextBlock(price)))
-                    )
+                            HStack(8,
+                                TextBlock($"{i + 1}.").Width(20).Foreground(Theme.SecondaryText),
+                                TextBlock(p.Name).Flex(grow: 1),
+                                TextBlock($"${p.Price:F2}").Foreground(Theme.AccentText)
+                            ).Padding(8)
+                        )
+                    ).Height(250)
                     """)
             ).Margin(36, 24, 36, 36)
         );

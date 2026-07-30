@@ -131,9 +131,11 @@ DataGrid(
                     Caption("EditMode.Row puts every editable cell in the row into edit mode at once, so the whole row commits or cancels together.")
                         .Foreground(Theme.SecondaryText)),
                 sourceCode: @"
+// `rowEditSource` and `Columns()` are the same list source and five columns
+// the card above uses — this card differs only in editMode.
 DataGrid(
-    source: source,
-    columns: columns,
+    source: rowEditSource,
+    columns: Columns(),
     editable: true,
     editMode: EditMode.Row,   // whole row edits and commits together
     onRowChanged: (key, item) => { /* persist the row */ return Task.CompletedTask; },
