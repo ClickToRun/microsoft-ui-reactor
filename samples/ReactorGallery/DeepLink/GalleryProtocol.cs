@@ -136,6 +136,13 @@ public static partial class GalleryProtocol
     }
 
     /// <summary>Remove the current-user registration. No-op when packaged.</summary>
+    /// <remarks>
+    /// Removes the registration for the <em>currently running</em> executable.
+    /// <see cref="ActivationRegistrationManager"/> derives its handler ProgId from the
+    /// executable path, so a build that has been moved or copied elsewhere leaves the
+    /// old location's entry behind — harmless for a sample that is rebuilt in place,
+    /// but worth knowing if you relocate the output and want the registry clean.
+    /// </remarks>
     public static bool Unregister()
     {
         if (IsPackaged) return false;

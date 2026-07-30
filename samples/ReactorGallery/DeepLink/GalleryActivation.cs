@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.UI.Reactor;
@@ -34,18 +35,48 @@ public static class GalleryActivation
     /// <summary>How long a redirecting instance waits before giving up and exiting.</summary>
     static readonly TimeSpan RedirectTimeout = TimeSpan.FromSeconds(10);
 
+    /// <summary>Guards <see cref="_initialRoute"/> and <see cref="_pendingRoute"/>.</summary>
+    static readonly object Gate = new();
+
+    static GalleryRoute? _initialRoute;
+    static GalleryRoute? _pendingRoute;
+
     /// <summary>
     /// The route this process was launched with, or <c>null</c> for a plain launch.
-    /// Set exactly once, by <see cref="TryRedirectToRunningInstance"/>, before any UI
-    /// exists.
+    /// Written once by <see cref="TryRedirectToRunningInstance"/> on the startup thread
+    /// and read from the UI thread when the shell seeds its state.
     /// </summary>
-    public static GalleryRoute? InitialRoute { get; private set; }
+    public static GalleryRoute? InitialRoute
+    {
+        get { lock (Gate) return _initialRoute; }
+    }
 
     /// <summary>
     /// Raised on the UI thread when a link arrives while the gallery is already
     /// running.
     /// </summary>
     public static event Action<GalleryRoute>? RouteActivated;
+
+    /// <summary>
+    /// Take a route that arrived before anything could handle it — because the UI thread
+    /// didn't exist yet, or because the shell hadn't finished subscribing.
+    /// </summary>
+    /// <remarks>
+    /// The shell calls this immediately after subscribing to
+    /// <see cref="RouteActivated"/>. Without the hand-off, a link that lands in the gap
+    /// between process start and first render is simply dropped: the shell only reads
+    /// <see cref="InitialRoute"/> once, on its first render, so a later write there
+    /// would never be seen.
+    /// </remarks>
+    public static bool TryTakePendingRoute([NotNullWhen(true)] out GalleryRoute? route)
+    {
+        lock (Gate)
+        {
+            route = _pendingRoute;
+            _pendingRoute = null;
+        }
+        return route is not null;
+    }
 
     /// <summary>
     /// Claim the single-instance key, or hand our activation to whoever already holds
@@ -69,8 +100,14 @@ public static class GalleryActivation
                 return true;
             }
 
-            InitialRoute = ResolveRoute(args, allowCommandLineFallback: true);
+            // Subscribe before doing anything else with this instance: registering the
+            // key is what makes us discoverable, so a second launch can redirect to us
+            // from this moment on, and an activation that arrives with no handler
+            // attached is lost along with the process that sent it.
             keyInstance.Activated += OnKeyInstanceActivated;
+
+            var route = ResolveRoute(args, allowCommandLineFallback: true);
+            lock (Gate) _initialRoute = route;
             return false;
         }
         catch (Exception ex)
@@ -80,7 +117,8 @@ public static class GalleryActivation
             // back to the command line for a cold-start deep link.
             global::System.Diagnostics.Debug.WriteLine(
                 $"[Gallery] single-instance registration failed: {ex.GetType().Name}: {ex.Message}");
-            InitialRoute = RouteFromCommandLine();
+            var fallback = RouteFromCommandLine();
+            lock (Gate) _initialRoute = fallback;
             return false;
         }
     }
@@ -123,14 +161,22 @@ public static class GalleryActivation
         var dispatcher = ReactorApp.UIDispatcher;
         if (dispatcher is null)
         {
-            // No UI yet (activation raced startup) — the shell will pick up
-            // InitialRoute when it first renders.
-            InitialRoute = route;
+            // The UI thread doesn't exist yet — this activation raced startup. Park the
+            // route for the shell to drain once it has subscribed.
+            Park(route);
             return;
         }
 
-        dispatcher.TryEnqueue(() =>
+        if (!dispatcher.TryEnqueue(() =>
         {
+            var handler = RouteActivated;
+            if (handler is null)
+            {
+                // Mounted between the null check and here, or not mounted at all.
+                Park(route);
+                return;
+            }
+
             // Bring the existing window forward first: a link that navigates a window
             // the user can't see is worse than not handling it at all.
             try { ReactorApp.PrimaryWindow?.Activate(); }
@@ -140,8 +186,22 @@ public static class GalleryActivation
                     $"[Gallery] window activation failed: {ex.GetType().Name}: {ex.Message}");
             }
 
-            RouteActivated?.Invoke(route);
-        });
+            handler(route);
+        }))
+        {
+            // The dispatcher refused the work item (shutting down). Park rather than
+            // silently drop, in case another window is still coming up.
+            Park(route);
+        }
+    }
+
+    /// <summary>
+    /// Hold a route that could not be delivered yet. Last one wins: if two links arrive
+    /// before the shell is listening, the user's most recent intent is the right one.
+    /// </summary>
+    static void Park(GalleryRoute route)
+    {
+        lock (Gate) _pendingRoute = route;
     }
 
     /// <summary>

@@ -44,16 +44,37 @@ class GalleryShell : Component
         // whatever was selected on the very first render.
         var currentTag = UseRef(selectedTag);
         currentTag.Current = selectedTag;
+
+        // WinUI raises NavigationView.SelectionChanged for programmatic writes as well as
+        // user clicks, and Reactor forwards both to OnSelectedTagChanged. So the moment a
+        // deep link changes SelectedTag, the control echoes that change straight back into
+        // the handler below — which would clear the query a `/search?q=` link just set and
+        // overwrite the back target with the destination. Latch the tag we wrote so the
+        // handler can recognise its own echo and let it pass. Only one echo is possible
+        // per write, and only when the tag actually changes, so the latch can never
+        // swallow a real click.
+        var expectedSelectionEcho = UseRef<string?>(null);
+
         UseEffect(() =>
         {
             void OnRouteActivated(GalleryRoute route)
             {
+                if (route.Tag != currentTag.Current)
+                    expectedSelectionEcho.Current = route.Tag;
+
                 setPrevTag(currentTag.Current);
                 setSearchQuery(SearchTextFor(route));
                 setSelectedTag(route.Tag);
             }
 
             GalleryActivation.RouteActivated += OnRouteActivated;
+
+            // A link can land between process start and this subscription — the shell
+            // reads InitialRoute only once, on its first render, so anything arriving
+            // afterwards is parked instead. Drain it now that there is a listener.
+            if (GalleryActivation.TryTakePendingRoute(out var pending))
+                OnRouteActivated(pending);
+
             return () => GalleryActivation.RouteActivated -= OnRouteActivated;
         });
 
@@ -187,6 +208,15 @@ class GalleryShell : Component
                 IsPaneOpen = isPaneOpen,
                 OnSelectedTagChanged = tag =>
                 {
+                    // Our own deep-link write coming back as a SelectionChanged echo:
+                    // state is already exactly right, and re-applying it here would undo
+                    // the query and back target the link just set.
+                    if (tag is not null && expectedSelectionEcho.Current == tag)
+                    {
+                        expectedSelectionEcho.Current = null;
+                        return;
+                    }
+
                     setSearchQuery("");
                     if (tag != null)
                     {
