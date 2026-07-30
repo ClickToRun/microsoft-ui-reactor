@@ -53,6 +53,19 @@ auditable against the working code.
 
 Spec §6.7.4 worry-threshold for `Propagate` is 20; we're at 12.
 
+> **Before you increment a row here, establish what it counts — the rule is not recorded.**
+> It is demonstrably **neither a row count nor a site count**: 17 site rows below carry a
+> `Keep` verdict against a `Keep` value of 8, and two of those rows collapse 12 sites into 2
+> (`LayoutEtwConsumer`'s "7 error-swallow catches" and "5 pure-trace `Debug.WriteLine`").
+> So `+1 per new entry` is a guess in the shape of a computation, and a wrong value here is
+> silent — nothing derives or gates these numbers. If you cannot determine the rule, add your
+> per-file entry and note that the counter does not yet include it, as the
+> `FrameNavigation.cs` section does. The entries are the record; the counts are downstream.
+>
+> The prose immediately below is a **historical** statement about what audit pass 2 produced.
+> Its figures are correctly frozen at that point and drift from the table above by design —
+> do not "fix" them to match.
+
 The dramatic shift from "56 Keep" in the first audit pass to "8 Keep + 12 Propagate + 9 Deleted + 33 Narrow" came from applying the §6.7.2 narrowing properly to ReactorWindow.cs (29 sites) and the related Hosting code. The first pass migrated `Debug.WriteLine` → `DiagnosticLog.SwallowedError` with the catch shape unchanged ("Keep"); the second pass actually applied the §6.7.2 rule that broad `catch (Exception)` is wrong almost everywhere it isn't iteration sibling-independence or genuine fail-safe-to-default behavior.
 
 ---
