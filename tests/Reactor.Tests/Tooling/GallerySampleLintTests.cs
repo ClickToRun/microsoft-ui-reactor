@@ -142,6 +142,16 @@ public sealed class GallerySampleLintTests
             .Where(l => ParameterCount(l) == 2)
             .ToList();
 
+    /// <summary>
+    /// The lambda or local function a statement actually belongs to. <c>DescendantNodes</c> walks the
+    /// whole subtree, so without this a <c>return</c> inside a nested lambda or local helper declared
+    /// in the builder body would be attributed to the builder itself and checked for an
+    /// <c>ItemContainer</c> root it was never required to have.
+    /// </summary>
+    static SyntaxNode? OwningScope(SyntaxNode node) =>
+        node.Ancestors().FirstOrDefault(a =>
+            a is AnonymousFunctionExpressionSyntax or LocalFunctionStatementSyntax);
+
     /// <summary>Every expression a lambda can hand back, flattening conditional branches.</summary>
     static IEnumerable<ExpressionSyntax> ReturnedExpressions(AnonymousFunctionExpressionSyntax lambda)
     {
@@ -151,6 +161,7 @@ public sealed class GallerySampleLintTests
         if (lambda.Block is { } block)
             roots.AddRange(block.DescendantNodes()
                 .OfType<ReturnStatementSyntax>()
+                .Where(r => ReferenceEquals(OwningScope(r), lambda))
                 .Select(r => r.Expression)
                 .OfType<ExpressionSyntax>());
 
@@ -225,6 +236,15 @@ public sealed class GallerySampleLintTests
         Assert.True(offenders.Count == 0, string.Join("\n", offenders));
     }
 
+    static InvocationExpressionSyntax ParseItemsViewCall(string call) =>
+        CSharpSyntaxTree
+            .ParseText($"class C {{ void M() {{ var x = {call}; }} }}",
+                cancellationToken: TestContext.Current.CancellationToken)
+            .GetRoot(TestContext.Current.CancellationToken)
+            .DescendantNodes()
+            .OfType<InvocationExpressionSyntax>()
+            .First(i => InvokedName(i) == "ItemsView");
+
     /// <summary>
     /// The builder selection above decides whether the lint checks a call or fails it closed, so its
     /// own behaviour is pinned here against synthetic source. A cast- or parenthesis-wrapped lambda is
@@ -237,17 +257,27 @@ public sealed class GallerySampleLintTests
     [InlineData("ItemsView(items, i => i.Key, (Func<Item, int, Element>)((i, n) => ItemContainer(Text(i.Name))))", 1)]
     [InlineData("ItemsView(items, i => i.Key, BuildRow)", 0)]
     [InlineData("ItemsView(items, i => i.Key, i => ItemContainer(Text(i.Name)))", 0)]
-    public void ViewBuilderSelection_FindsWrappedLambdas_AndIgnoresOneParameterArguments(string call, int expected)
-    {
-        var invocation = CSharpSyntaxTree
-            .ParseText($"class C {{ void M() {{ var x = {call}; }} }}",
-                cancellationToken: TestContext.Current.CancellationToken)
-            .GetRoot(TestContext.Current.CancellationToken)
-            .DescendantNodes()
-            .OfType<InvocationExpressionSyntax>()
-            .First(i => InvokedName(i) == "ItemsView");
+    public void ViewBuilderSelection_FindsWrappedLambdas_AndIgnoresOneParameterArguments(string call, int expected) =>
+        Assert.Equal(expected, ViewBuilders(ParseItemsViewCall(call)).Count);
 
-        Assert.Equal(expected, ViewBuilders(invocation).Count);
+    /// <summary>
+    /// Returns are collected with <c>DescendantNodes</c>, which walks the entire subtree — so a
+    /// <c>return</c> belonging to a nested lambda or a local helper declared inside the builder would
+    /// otherwise be read as one of the builder's own return paths and demanded to be an
+    /// <c>ItemContainer</c>. That is a false failure against legal code, so the scoping is pinned here.
+    /// </summary>
+    [Theory]
+    [InlineData("ItemsView(items, i => i.Key, (i, n) => ItemContainer(Text(i.Name)))", "ItemContainer")]
+    [InlineData("ItemsView(items, i => i.Key, (i, n) => { return ItemContainer(Text(i.Name)); })", "ItemContainer")]
+    [InlineData("ItemsView(items, i => i.Key, (i, n) => { var f = () => { return Text(i.Name); }; return ItemContainer(f()); })", "ItemContainer")]
+    [InlineData("ItemsView(items, i => i.Key, (i, n) => { Element H() { return Text(i.Name); } return ItemContainer(H()); })", "ItemContainer")]
+    [InlineData("ItemsView(items, i => i.Key, (i, n) => n == 0 ? ItemContainer(Text(i.Name)) : ItemContainer(Icon()))", "ItemContainer,ItemContainer")]
+    public void ReturnedExpressions_AreScopedToTheBuilder_NotNestedLambdasOrLocalFunctions(string call, string expectedHeads)
+    {
+        var builder = Assert.Single(ViewBuilders(ParseItemsViewCall(call)));
+        var heads = ReturnedExpressions(builder).Select(ChainHeadName).ToArray();
+
+        Assert.Equal(expectedHeads, string.Join(",", heads));
     }
 
     // ── Shapes are painted with Fill, not Background ─────────────────────────
