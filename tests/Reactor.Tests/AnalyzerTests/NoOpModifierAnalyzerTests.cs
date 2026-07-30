@@ -954,6 +954,46 @@ namespace TestApp
     }
 
     [Fact]
+    public async Task CodeFix_Qualifies_BrushHelper_When_The_Reactor_Namespace_Is_Not_Imported()
+    {
+        // Every other code-fix test has `using Microsoft.UI.Reactor;`, so BrushHelper resolves in
+        // one segment and the multi-segment qualification path never runs. Here the extension
+        // methods come in via `using static ElementExtensions`, which does NOT bring BrushHelper
+        // into scope — so the emitted call has to stay qualified, and the rewritten document has
+        // to round-trip. (A qualified callee built as MemberAccess(ParseTypeName(...), name)
+        // produces correct text but a tree shape the parser never emits; this fix uses
+        // ParseExpression over the whole dotted string, which is why it round-trips.)
+        var body = @"
+namespace TestApp4
+{
+    using Microsoft.UI.Reactor.Core;
+    using Microsoft.UI.Xaml.Media;
+    using static Microsoft.UI.Reactor.ElementExtensions;
+    using static Microsoft.UI.Reactor.Core.Factories;
+
+    static class C5
+    {
+        internal static Element M() => Rectangle().{|REACTOR_MOD_003:Background|}(""#FF6B6B"");
+    }
+}";
+        var fixedBody = @"
+namespace TestApp4
+{
+    using Microsoft.UI.Reactor.Core;
+    using Microsoft.UI.Xaml.Media;
+    using static Microsoft.UI.Reactor.ElementExtensions;
+    using static Microsoft.UI.Reactor.Core.Factories;
+
+    static class C5
+    {
+        internal static Element M() => Rectangle().Fill(Microsoft.UI.Reactor.BrushHelper.Parse(""#FF6B6B""));
+    }
+}";
+
+        await MakeFixTest(body, fixedBody).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task CodeFix_Is_Not_Offered_For_A_Constant_Null_Argument()
     {
         var body = App(@"
