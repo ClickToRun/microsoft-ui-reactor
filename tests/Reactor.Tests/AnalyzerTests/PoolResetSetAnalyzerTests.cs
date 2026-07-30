@@ -47,6 +47,7 @@ public class FakeElement
     public double Height;
     public double Opacity;
     public Thickness Margin;
+    public string AccessKey = string.Empty;
     public HorizontalAlignment HorizontalAlignment;
     public VerticalAlignment VerticalAlignment;
 
@@ -66,6 +67,7 @@ public static class FakeElementExtensions
     public static FakeElement Width(this FakeElement el, double v) => el;
     public static FakeElement Height(this FakeElement el, double v) => el;
     public static FakeElement Opacity(this FakeElement el, double v) => el;
+    public static FakeElement AccessKey(this FakeElement el, string v) => el;
     public static FakeElement Margin(this FakeElement el, double u) => el;
     public static FakeElement Margin(this FakeElement el, double l, double t, double r, double b) => el;
     public static FakeElement HorizontalAlignment(this FakeElement el, HorizontalAlignment a) => el;
@@ -440,6 +442,33 @@ class C
     {
         var el = new FakeElement();
         {|REACTOR_POOL_001:el.Set(fe => fe.Margin = margin)|};
+    }
+}";
+
+        await new CSharpCodeFixTest<PoolResetSetAnalyzer, PoolResetSetCodeFix, DefaultVerifier>
+        {
+            TestCode = code,
+            FixedCode = code,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodeFix_Suppressed_When_An_Instance_Property_Is_Written_Twice_And_One_Is_Null()
+    {
+        // The instance-shape half of the per-key fixability rule, and a bug that predates the
+        // attached work. Only ONE diagnostic: the null write is deliberately not reported,
+        // because ApplyModifiers skips a null modifier value (Reconciler.cs — `m.AccessKey is
+        // not null` gates the write). But it shares a property NAME with the reported one, so
+        // before the fixable set was made per-key the fix converted it too and emitted
+        // `.AccessKey("F").AccessKey(null)` — which compiles, and silently stops performing
+        // the explicit clear.
+        var code = Stubs + @"
+class C
+{
+    void M()
+    {
+        var el = new FakeElement();
+        {|REACTOR_POOL_001:el.Set(fe => { fe.AccessKey = ""F""; fe.AccessKey = null; })|};
     }
 }";
 
