@@ -454,18 +454,13 @@ public sealed class GallerySnippetAgreementTests
     /// ordinary tuple carries no such contract: one of its names matching something unrelated that
     /// happens to be live would otherwise convict its sibling.
     /// </summary>
-    static bool IsStatePair(List<string> names)
-    {
-        foreach (var setter in names.Where(n =>
-            n.Length > 3 && n.StartsWith("set", global::System.StringComparison.Ordinal) && char.IsUpper(n[3])))
-        {
-            var value = char.ToLowerInvariant(setter[3]) + setter[4..];
-            if (names.Contains(value, global::System.StringComparer.Ordinal))
-                return true;
-        }
-
-        return false;
-    }
+    static bool IsStatePair(List<string> names) =>
+        names
+            .Where(n => n.Length > 3
+                        && n.StartsWith("set", global::System.StringComparison.Ordinal)
+                        && char.IsUpper(n[3]))
+            .Select(setter => char.ToLowerInvariant(setter[3]) + setter[4..])
+            .Any(value => names.Contains(value, global::System.StringComparer.Ordinal));
 
     // ── the gate ─────────────────────────────────────────────────────────────
 
