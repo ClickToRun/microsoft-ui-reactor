@@ -70,7 +70,7 @@ public sealed class SwallowedErrorAuditTests
     {
         var audit = Load();
         var derived = Derive(audit.Rows);
-        var published = audit.Distribution;
+        var published = audit.Distribution.Value;
 
         var mismatch = derived.Keys
             .Union(published.Keys)
@@ -123,13 +123,13 @@ public sealed class SwallowedErrorAuditTests
         foreach (var (verdict, tally) in derived)
         {
             Assert.True(
-                audit.Distribution.ContainsKey(verdict),
+                audit.Distribution.Value.ContainsKey(verdict),
                 $"`{verdict}` has {tally.Sites} site(s) in the ledger but no row in the "
                 + $"verdict-distribution table, so those sites are uncountable from the summary "
                 + $"— the exact defect issue #959 reported. Add a row for it.");
         }
 
-        foreach (var verdict in audit.Distribution.Keys)
+        foreach (var verdict in audit.Distribution.Value.Keys)
         {
             Assert.True(
                 audit.Vocabulary.Contains(verdict),
@@ -165,29 +165,78 @@ public sealed class SwallowedErrorAuditTests
     // ── Assertion 4: non-vacuity floor ─────────────────────────────────────
     //
     // Without this, breaking the parser turns every other assertion in this
-    // file green (nothing parsed, so nothing disagrees). These floors are well
-    // under the current content and encode the ledger's cumulative definition:
-    // it never shrinks.
+    // file green (nothing parsed, so nothing disagrees).
+    //
+    // The site floor is the ledger's own monotonic invariant, not a loose
+    // sanity bound: the ledger is cumulative, so its total can only rise.
+    // Raise this number when the ledger grows; it must never be lowered. A
+    // slack floor here would let a whole section be deleted and the summary
+    // re-derived downward, which is exactly the silent-shrink the cumulative
+    // definition forbids.
+    const int LedgerSiteFloor = 124;
+    const int LedgerSectionFloor = 19;
+    const int LedgerRowFloor = 50;
 
     [Fact]
     public void Parser_sees_a_substantial_ledger()
     {
         var audit = Load();
 
-        Assert.True(audit.Sections.Count >= 15, $"Parsed only {audit.Sections.Count} ledger sections.");
-        Assert.True(audit.Tables.Count >= 15, $"Parsed only {audit.Tables.Count} ledger tables.");
-        Assert.True(audit.Rows.Count >= 35, $"Parsed only {audit.Rows.Count} ledger rows.");
-        Assert.True(audit.Distribution.Count >= 6, $"Parsed only {audit.Distribution.Count} distribution rows.");
+        Assert.True(audit.Sections.Count >= LedgerSectionFloor, $"Parsed only {audit.Sections.Count} ledger sections; the floor is {LedgerSectionFloor}.");
+        Assert.True(audit.Tables.Count >= LedgerSectionFloor, $"Parsed only {audit.Tables.Count} ledger tables; the floor is {LedgerSectionFloor}.");
+        Assert.True(audit.Rows.Count >= LedgerRowFloor, $"Parsed only {audit.Rows.Count} ledger rows; the floor is {LedgerRowFloor}.");
+        Assert.True(audit.Distribution.Value.Count >= 6, $"Parsed only {audit.Distribution.Value.Count} distribution rows.");
         Assert.True(audit.Vocabulary.Count >= 8, $"Parsed only {audit.Vocabulary.Count} vocabulary tokens.");
         Assert.True(audit.KeepJustifications.Count >= 4, $"Parsed only {audit.KeepJustifications.Count} Keep justifications.");
 
         var distinctVerdicts = audit.Rows.Select(r => r.Verdict).Distinct(global::System.StringComparer.Ordinal).Count();
         Assert.True(distinctVerdicts >= 4, $"Parsed only {distinctVerdicts} distinct verdicts across all rows.");
 
-        // The ledger is cumulative — the total is monotonic by definition, so a
-        // floor here is safe and catches wholesale deletion of a section.
         var total = audit.Rows.Sum(r => r.Sites);
-        Assert.True(total >= 100, $"Ledger totals {total} sites; the cumulative ledger cannot shrink below its recorded history.");
+        Assert.True(
+            total >= LedgerSiteFloor,
+            $"The ledger totals {total} sites, below the recorded floor of {LedgerSiteFloor}. The ledger is "
+            + $"cumulative — a row is only ever removed if it was recorded in error. If that is genuinely what "
+            + $"happened, lower LedgerSiteFloor in the same commit and say why in the commit message.");
+    }
+
+    // ── Assertion 4b: every table sits under its own section heading ───────
+    //
+    // Section attribution is what makes a row's path claim (assertion 7)
+    // meaningful. Without this, deleting a heading silently reattributes its
+    // table to the previous file, and every other assertion still passes.
+
+    [Fact]
+    public void Every_ledger_table_has_its_own_section_heading()
+    {
+        var audit = Load();
+
+        Assert.NotEmpty(audit.Tables);
+
+        foreach (var table in audit.Tables)
+        {
+            Assert.True(
+                table.SectionIndex is not null,
+                $"{AuditPath}:{table.LineNumber}: a ledger table appears before any '### ' section heading, "
+                + $"so its rows adjudicate an unnamed file.");
+        }
+
+        var duplicated = audit.Tables
+            .GroupBy(t => t.SectionIndex)
+            .Where(g => g.Count() > 1)
+            .ToList();
+
+        Assert.True(
+            duplicated.Count == 0,
+            $"These sections carry more than one ledger table: "
+            + $"{string.Join("; ", duplicated.Select(g => $"'{audit.Sections[g.Key!.Value].Heading}' ({g.Count()} tables at lines {string.Join(", ", g.Select(t => t.LineNumber))})"))}. "
+            + $"One table per section keeps every row attributable to the path in its heading.");
+
+        Assert.True(
+            audit.Tables.Count == audit.Sections.Count,
+            $"{audit.Sections.Count} section heading(s) but {audit.Tables.Count} ledger table(s). Every section "
+            + $"must carry exactly one table — a section with no table contributes no counted sites, which is "
+            + $"how a file silently drops out of the ledger.");
     }
 
     // ── Assertion 5: Status is binary ──────────────────────────────────────
@@ -331,21 +380,43 @@ public sealed class SwallowedErrorAuditTests
 
     // ── Assertion 10: the machine-readable markers are load-bearing ─────────
     //
-    // Deleting a marker would zero the parse. Load() throws on a missing
-    // marker, but assert it explicitly so the failure names the cause.
+    // Deleting a marker zeroes the parse; *duplicating* one is worse, because
+    // `Region()` takes the first occurrence — an early stray `ledger:end`
+    // silently truncates the ledger, and re-deriving the summary against the
+    // truncated set makes every other assertion agree with itself. So this
+    // checks exact-line uniqueness and ordering, not mere presence. (Presence
+    // alone would also be vacuous: the Derivation prose names both ledger
+    // markers inline.)
 
     [Fact]
-    public void Region_markers_are_present()
+    public void Region_markers_are_unique_exact_lines_in_the_right_order()
     {
-        var text = File.ReadAllText(Path.Combine(RepoRoot(), AuditPath.Replace('/', Path.DirectorySeparatorChar)));
+        var lines = File.ReadAllLines(Path.Combine(RepoRoot(), AuditPath.Replace('/', Path.DirectorySeparatorChar)));
 
-        foreach (var marker in new[] { LedgerBegin, LedgerEnd, DistributionBegin, DistributionEnd })
+        var at = new Dictionary<string, List<int>>(global::System.StringComparer.Ordinal);
+
+        foreach (var marker in new[] { DistributionBegin, DistributionEnd, LedgerBegin, LedgerEnd })
         {
+            at[marker] = Enumerable.Range(0, lines.Length).Where(i => lines[i].Trim() == marker).ToList();
+
             Assert.True(
-                text.Contains(marker, Ordinal.Ordinal),
-                $"{AuditPath} is missing the '{marker}' marker. The markers delimit what the "
-                + $"derivation counts; without them the summary table is unverifiable prose again.");
+                at[marker].Count == 1,
+                $"{AuditPath} contains {at[marker].Count} line(s) that are exactly '{marker}' "
+                + $"(lines {string.Join(", ", at[marker].Select(i => i + 1))}); it must contain exactly one. "
+                + $"The markers delimit what the derivation counts — a duplicate silently truncates or "
+                + $"extends the counted region, and a missing one zeroes it.");
         }
+
+        Assert.True(
+            at[DistributionBegin][0] < at[DistributionEnd][0],
+            $"'{DistributionBegin}' must precede '{DistributionEnd}'.");
+        Assert.True(
+            at[LedgerBegin][0] < at[LedgerEnd][0],
+            $"'{LedgerBegin}' must precede '{LedgerEnd}'.");
+        Assert.True(
+            at[DistributionEnd][0] < at[LedgerBegin][0],
+            $"The distribution region must close before the ledger region opens; overlapping regions "
+            + $"would let the summary table count itself.");
     }
 
     // ── Parsing ────────────────────────────────────────────────────────────
@@ -356,14 +427,14 @@ public sealed class SwallowedErrorAuditTests
 
     sealed record Section(string Heading, string RelativePath, int LineNumber);
 
-    sealed record Table(string Section, string Header, int LineNumber, int DataLineCount);
+    sealed record Table(string Section, int? SectionIndex, string Header, int LineNumber, int DataLineCount);
 
     sealed record Audit(
         string Text,
         IReadOnlyList<Row> Rows,
         IReadOnlyList<Section> Sections,
         IReadOnlyList<Table> Tables,
-        IReadOnlyDictionary<string, Tally> Distribution,
+        Lazy<IReadOnlyDictionary<string, Tally>> Distribution,
         IReadOnlySet<string> Vocabulary,
         IReadOnlySet<string> KeepJustifications);
 
@@ -388,7 +459,8 @@ public sealed class SwallowedErrorAuditTests
         var sections = new List<Section>();
         var tables = new List<Table>();
         var rows = new List<Row>();
-        var section = "(before any section)";
+        var section = "(before any section heading)";
+        int? sectionIndex = null;
 
         for (var i = ledgerFrom; i < ledgerTo; i++)
         {
@@ -399,6 +471,7 @@ public sealed class SwallowedErrorAuditTests
                 var heading = line[4..].Trim();
                 section = heading;
                 sections.Add(new Section(heading, BacktickedPath(heading), i + 1));
+                sectionIndex = sections.Count - 1;
                 continue;
             }
 
@@ -414,7 +487,7 @@ public sealed class SwallowedErrorAuditTests
                 dataTo++;
             }
 
-            tables.Add(new Table(section, line.Trim(), i + 1, dataTo - dataFrom));
+            tables.Add(new Table(section, sectionIndex, line.Trim(), i + 1, dataTo - dataFrom));
 
             for (var j = dataFrom; j < dataTo; j++)
             {
@@ -432,7 +505,11 @@ public sealed class SwallowedErrorAuditTests
             rows,
             sections,
             tables,
-            ParseDistribution(lines, distFrom, distTo),
+
+            // Lazy so that a malformed summary table fails only the facts that
+            // actually read it, instead of taking down every fact with a
+            // message about a table they don't examine.
+            new Lazy<IReadOnlyDictionary<string, Tally>>(() => ParseDistribution(lines, distFrom, distTo)),
             ParseFirstColumnTokens(lines, "## Verdict vocabulary"),
             ParseFirstColumnTokens(lines, "### `Keep` justifications"));
     }
@@ -449,17 +526,31 @@ public sealed class SwallowedErrorAuditTests
     }
 
     // A markdown table header is a `|`-row immediately followed by a delimiter
-    // row. Keying off structure rather than off the expected header text is what
-    // lets assertion 3 *see* a non-canonical table instead of skipping it.
+    // row of the same width. Keying off structure rather than off the expected
+    // header text is what lets the schema assertion *see* a non-canonical table
+    // instead of skipping it; matching widths stops `|---|` from certifying a
+    // five-column header.
     static bool IsTableHeader(string[] lines, int i)
     {
-        if (!lines[i].TrimStart().StartsWith('|') || i + 1 >= lines.Length)
+        if (i + 1 >= lines.Length)
+        {
+            return false;
+        }
+
+        var header = Cells(lines[i]);
+        if (header is null || header.Length < 2)
         {
             return false;
         }
 
         var next = lines[i + 1].Trim();
-        return next.StartsWith('|') && next.Contains("---", Ordinal.Ordinal) && Regex.IsMatch(next, @"^\|[\s:|-]+\|$");
+        if (!Regex.IsMatch(next, @"^\|[\s:|-]*-[\s:|-]*\|$"))
+        {
+            return false;
+        }
+
+        var delimiter = Cells(next);
+        return delimiter is not null && delimiter.Length == header.Length;
     }
 
     static bool TryParseRow(string line, string section, int lineNumber, out Row row)
@@ -472,7 +563,10 @@ public sealed class SwallowedErrorAuditTests
             return false;
         }
 
-        if (!int.TryParse(cells[1], out var sites) || sites <= 0)
+        // Parse sign-agnostically and let the Fact judge positivity — rejecting
+        // `0` or `-3` here would drop the row and make that assertion
+        // unfalsifiable.
+        if (!int.TryParse(cells[1], out var sites))
         {
             return false;
         }
@@ -488,9 +582,11 @@ public sealed class SwallowedErrorAuditTests
         return true;
     }
 
-    // Splits a table row into cells, folding any surplus back into the last one:
-    // Notes legitimately contains `|` inside inline code, and losing those rows
-    // would silently undercount.
+    // Splits a markdown table row on unescaped `|`. A literal pipe in a cell
+    // must be written `\|`, which is what markdown requires anyway — folding
+    // surplus columns into the last cell instead would let a row grow a sixth
+    // column silently, and a stray pipe in an early cell would shift every
+    // column right while still looking well-formed.
     static string[]? Cells(string line)
     {
         var trimmed = line.Trim();
@@ -499,54 +595,60 @@ public sealed class SwallowedErrorAuditTests
             return null;
         }
 
-        var parts = trimmed[1..^1].Split('|');
-        if (parts.Length < 5)
-        {
-            return parts.Select(p => p.Trim()).ToArray();
-        }
-
-        return
-        [
-            parts[0].Trim(),
-            parts[1].Trim(),
-            parts[2].Trim(),
-            parts[3].Trim(),
-            string.Join('|', parts[4..]).Trim(),
-        ];
+        return Regex.Split(trimmed[1..^1], @"(?<!\\)\|")
+            .Select(p => p.Replace(@"\|", "|").Trim())
+            .ToArray();
     }
 
     static Dictionary<string, Tally> ParseDistribution(string[] lines, int from, int to)
     {
         var result = new Dictionary<string, Tally>(global::System.StringComparer.Ordinal);
-        var sawHeader = false;
 
-        for (var i = from; i < to; i++)
-        {
-            var cells = Cells(lines[i]);
-            if (cells is null || cells.Length < 4)
-            {
-                continue;
-            }
-
-            if (Normalize(lines[i]) == Normalize(DistributionHeader))
-            {
-                sawHeader = true;
-                continue;
-            }
-
-            if (!int.TryParse(cells[1], out var sites)
-                || !int.TryParse(cells[2], out var shipped)
-                || !int.TryParse(cells[3], out var deferred))
-            {
-                continue;
-            }
-
-            result[cells[0].Trim('`')] = new Tally(sites, shipped, deferred);
-        }
+        var headerAt = Enumerable.Range(from, to - from)
+            .Where(i => IsTableHeader(lines, i))
+            .ToList();
 
         Assert.True(
-            sawHeader,
-            $"The verdict-distribution table's header must be exactly '{DistributionHeader}'.");
+            headerAt.Count == 1,
+            $"The distribution region must contain exactly one table; found {headerAt.Count}.");
+
+        var h = headerAt[0];
+        Assert.True(
+            Normalize(lines[h]) == Normalize(DistributionHeader),
+            $"{AuditPath}:{h + 1}: the verdict-distribution table's header is '{lines[h].Trim()}' but must be "
+            + $"exactly '{DistributionHeader}'.");
+
+        // Every `|`-line after the delimiter must be a well-formed data row.
+        // Skipping unparseable lines would let a contradictory row sit in the
+        // published table while the parse stayed correct.
+        for (var i = h + 2; i < to && lines[i].TrimStart().StartsWith('|'); i++)
+        {
+            var cells = Cells(lines[i]);
+
+            Assert.True(
+                cells is { Length: 4 },
+                $"{AuditPath}:{i + 1}: distribution row has {cells?.Length.ToString() ?? "malformed"} cell(s); "
+                + $"the table is four columns.");
+
+            var verdict = cells![0].Trim('`');
+
+            Assert.True(
+                int.TryParse(cells[1], out var sites)
+                && int.TryParse(cells[2], out var shipped)
+                && int.TryParse(cells[3], out var deferred),
+                $"{AuditPath}:{i + 1}: distribution row for '{verdict}' has non-integer counts.");
+
+            int.TryParse(cells[1], out sites);
+            int.TryParse(cells[2], out shipped);
+            int.TryParse(cells[3], out deferred);
+
+            Assert.True(
+                result.TryAdd(verdict, new Tally(sites, shipped, deferred)),
+                $"{AuditPath}:{i + 1}: '{verdict}' already has a row in the distribution table. Duplicate rows "
+                + $"make the published table self-contradictory while still parsing.");
+        }
+
+        Assert.NotEmpty(result);
 
         return result;
     }

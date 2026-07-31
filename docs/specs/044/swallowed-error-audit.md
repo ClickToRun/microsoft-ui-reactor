@@ -34,9 +34,9 @@ construction (issue #959).
 
 ### `Keep` justifications
 
-`Keep` is **not** a single justification. Four distinct ones are in
-use, and every `Keep` row's `Notes` cell opens with the matching bold
-tag (gated):
+`Keep` is **not** a single justification. These four are permitted, and
+every `Keep` row's `Notes` cell opens with the matching bold tag
+(gated):
 
 | Tag | Meaning |
 |---|---|
@@ -45,8 +45,10 @@ tag (gated):
 | **fail-safe-to-default** | The operation's contract is "answer if possible, otherwise fall back"; any failure to answer resolves to the safe direction. |
 | **framework-internal** | Spec §6.3 carve-out — the failure class is contributor-shaped, not user-shaped. |
 
-Read the distribution table's `Keep` row as the union of all four, not
-as any one of them.
+Read the distribution table's `Keep` row as the union of these, not as
+any one of them. Three are currently in use; **framework-internal** is
+reserved for a §6.3 carve-out that stays a broad `Keep` rather than
+becoming `Trace`, and no row uses it today.
 
 Each entry also names the migration commit so the verdict is
 auditable against the working code.
@@ -131,7 +133,7 @@ all deliberate:
 **Updating it.** Edit your per-file row, run
 
 ```bash
-dotnet test tests/Reactor.Tests -p:SkipSignaturesGen=true --filter "FullyQualifiedName~SwallowedErrorAudit"
+dotnet test tests/Reactor.Tests -p:Platform=x64 -p:SkipSignaturesGen=true --filter "FullyQualifiedName~SwallowedErrorAudit"
 ```
 
 and paste the recomputed table the failure message prints. Do **not**
