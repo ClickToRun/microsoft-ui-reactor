@@ -1,0 +1,351 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text.RegularExpressions;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.UI.Reactor.Cli.Pack;
+using Xunit;
+
+namespace Microsoft.UI.Reactor.Tests.AnalyzerTests;
+
+/// <summary>
+/// Pins the reset half of the modifier protocol: <b>unsetting a modifier must
+/// <c>ClearValue</c> the dependency property, never assign the property's default.</b>
+/// <para>
+/// The two are indistinguishable when you read the effective value on a control with no
+/// relevant style, which is exactly why issue #952 survived for so long. They are not
+/// equivalent: a local value outranks every <c>Style</c> setter in WinUI's precedence
+/// order, so writing <c>HorizontalAlignment.Stretch</c> on unset does not restore the
+/// styled value — it permanently overrides it, and the control can never get its
+/// style-provided value back.
+/// </para>
+/// <para>
+/// The behavioural proof lives in the selftests (<c>ModifierEvent_StyleUnsetRestore</c> and
+/// <c>ModifierEvent_PoolClearValueOnRent</c>) because headless xUnit cannot construct a
+/// WinUI control. These tests are the cheap structural counterpart: they read the source
+/// and fail, naming the property, the moment any arm regresses to a default-value write.
+/// Parsed with Roslyn rather than matched with a regex so "which arm is this statement in"
+/// is an exact question about the syntax tree instead of guesswork about brace depth.
+/// </para>
+/// </summary>
+public class ModifierUnsetClearValueTests
+{
+    /// <summary>
+    /// Statements in an unset arm that are legitimately not <c>ClearValue</c> calls, keyed
+    /// by the assignment target as written. Empty on purpose — every unset arm in
+    /// <c>ApplyModifiers</c> can and does clear its dependency property. An entry here is a
+    /// claim that a property has no DP to clear; add one only with a reason.
+    /// </summary>
+    private static readonly Dictionary<string, string> ApplyModifiersAssignmentExceptions = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Direct <c>fe.PROP = …</c> writes allowed to remain in <c>CleanElement</c>'s FE-common
+    /// block, with the reason each one is not a styled-DP restore.
+    /// </summary>
+    private static readonly Dictionary<string, string> CleanElementAssignmentExceptions =
+        new(StringComparer.Ordinal)
+        {
+            // Reactor's own pool/element-identity slot, not a value any Style supplies.
+            // Nulling it is the point; there is no styled value to fall back to.
+            ["Tag"] = "framework-internal element-identity slot, never style-provided",
+        };
+
+    [Fact]
+    public void Every_ApplyModifiers_Unset_Arm_Clears_The_Dependency_Property()
+    {
+        var arms = ReadUnsetArms();
+
+        // A parser that finds nothing would make every assertion below vacuous. The method
+        // has ~30 unset arms today; 20 is a floor that survives ordinary churn but not a
+        // shape change that silently stops matching.
+        Assert.True(
+            arms.Count >= 20,
+            $"Only {arms.Count} modifier-unset arm(s) were read out of Reconciler.ApplyModifiers. " +
+            "The unset-transition shape ('!m.X.HasValue && oldM?.X.HasValue == true' or " +
+            "'m.X is null && oldM?.X is not null') has probably changed, which would make this " +
+            "whole test pass without checking anything.");
+
+        var offenders = new List<string>();
+
+        foreach (var (modifier, arm) in arms)
+        {
+            foreach (var assignment in arm.DescendantNodes().OfType<AssignmentExpressionSyntax>())
+            {
+                var target = assignment.Left.ToString();
+                var property = target.Contains('.') ? target[(target.LastIndexOf('.') + 1)..] : target;
+                if (ApplyModifiersAssignmentExceptions.ContainsKey(property)) continue;
+
+                offenders.Add($"{modifier}: `{assignment.ToString().Trim()}`");
+            }
+        }
+
+        Assert.True(
+            offenders.Count == 0,
+            "These unset arms in Reconciler.ApplyModifiers write a value instead of calling " +
+            "ClearValue(<DP>Property). A local value outranks Style setters, so the write does " +
+            "not restore the styled value — it permanently overrides it (issue #952):\n  " +
+            string.Join("\n  ", offenders));
+    }
+
+    /// <summary>
+    /// The positive half of <see cref="Every_ApplyModifiers_Unset_Arm_Clears_The_Dependency_Property"/>:
+    /// an arm that neither assigns nor clears would satisfy that test while resetting nothing.
+    /// </summary>
+    [Fact]
+    public void Every_ApplyModifiers_Unset_Arm_Actually_Resets_Something()
+    {
+        var inert = ReadUnsetArms()
+            .Where(entry => !entry.Arm.DescendantNodes()
+                .OfType<InvocationExpressionSyntax>()
+                .Any(invocation => invocation.Expression is MemberAccessExpressionSyntax { Name.Identifier.Text: "ClearValue" }))
+            .Where(entry => !entry.Arm.DescendantNodes().OfType<AssignmentExpressionSyntax>().Any())
+            .Select(entry => entry.Modifier)
+            .ToList();
+
+        Assert.True(
+            inert.Count == 0,
+            "These unset arms in Reconciler.ApplyModifiers neither clear nor write anything, so " +
+            $"the modifier is never reset on a set → unset update: [{string.Join(", ", inert)}]");
+    }
+
+    /// <summary>
+    /// Dependency properties <c>CleanElement</c>'s FE-common block must release. Absence of a
+    /// default-value assignment is not enough on its own: deleting a <c>ClearValue</c> line
+    /// outright leaves no offender to find, so the block is also pinned positively. Every
+    /// entry corresponds to a common modifier whose <c>ApplyModifiers</c> unset arm clears
+    /// the same dependency property.
+    /// </summary>
+    private static readonly string[] CleanElementRequiredClears =
+    [
+        "FrameworkElement.Margin",
+        "FrameworkElement.Width",
+        "FrameworkElement.Height",
+        "FrameworkElement.MinWidth",
+        "FrameworkElement.MinHeight",
+        "FrameworkElement.MaxWidth",
+        "FrameworkElement.MaxHeight",
+        "FrameworkElement.HorizontalAlignment",
+        "FrameworkElement.VerticalAlignment",
+        "UIElement.Opacity",
+        "UIElement.Visibility",
+        "UIElement.AccessKey",
+        "UIElement.ContextFlyout",
+        "UIElement.IsHitTestVisible",
+        "FrameworkElement.RenderTransform",
+        "FrameworkElement.FlowDirection",
+        "Control.IsTabStop",
+    ];
+
+    [Fact]
+    public void CleanElement_Resets_Through_ClearValue_Not_Default_Assignment()
+    {
+        var commonBlock = ReadCleanElementCommonBlock(out var paramName);
+
+        // Same shape PoolResetSetConsistencyTests.ReadResetProperties scans for, so the two
+        // stay in agreement about what a "reset" looks like in this block.
+        var offenders = Regex.Matches(commonBlock, $@"\b{Regex.Escape(paramName)}\.(\w+)\s*=[^=]")
+            .Select(match => match.Groups[1].Value)
+            .Where(property => property != "ClearValue")
+            .Where(property => !CleanElementAssignmentExceptions.ContainsKey(property))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(property => property, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            offenders.Count == 0,
+            "ElementPool.CleanElement's FE-common block resets these properties by assigning a " +
+            "default instead of calling ClearValue. A pooled control handed back with a local " +
+            "value can never show its default style's value for that property, which defeats the " +
+            $"pool's 'indistinguishable from a fresh control' contract (issue #952): [{string.Join(", ", offenders)}]");
+    }
+
+    /// <summary>
+    /// The positive half: an outright deleted <c>ClearValue</c> produces no offender for
+    /// <see cref="CleanElement_Resets_Through_ClearValue_Not_Default_Assignment"/> to catch,
+    /// so the required releases are pinned by name.
+    /// </summary>
+    [Fact]
+    public void CleanElement_Releases_Every_Modifier_Backed_Dependency_Property()
+    {
+        var commonBlock = ReadCleanElementCommonBlock(out _);
+
+        var cleared = Regex.Matches(commonBlock, @"\b\w+\.ClearValue\(\s*(?:[\w.]+\.)?(\w+)\.(\w+)Property\s*\)")
+            .Select(match => match.Groups[1].Value + "." + match.Groups[2].Value)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var missing = CleanElementRequiredClears
+            .Where(required => !cleared.Contains(required))
+            .ToList();
+
+        Assert.True(
+            missing.Count == 0,
+            "ElementPool.CleanElement's FE-common block no longer releases these dependency " +
+            "properties, so a recycled control carries the previous renter's local value into " +
+            $"its next mount (issue #952): [{string.Join(", ", missing)}]. If a reset was moved " +
+            "or intentionally dropped, update CleanElementRequiredClears with the reason.");
+    }
+
+    // ── Source-scanning helpers ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Every <c>else</c>-arm in <c>Reconciler.ApplyModifiers</c> guarded by an unset
+    /// transition — the modifier is absent now and was present on the previous render.
+    /// </summary>
+    private static List<(string Modifier, StatementSyntax Arm)> ReadUnsetArms()
+    {
+        var root = RepoRootFinder.FindRepoRoot();
+        Assert.NotNull(root);
+        var file = Path.Join(root!, "src", "Reactor", "Core", "Reconciler.cs");
+        Assert.True(File.Exists(file), $"Reconciler.cs not found at {file}");
+
+        var methods = CSharpSyntaxTree.ParseText(File.ReadAllText(file))
+            .GetRoot()
+            .DescendantNodes()
+            .OfType<MethodDeclarationSyntax>()
+            .Where(method => method.Identifier.Text == "ApplyModifiers")
+            .ToList();
+
+        Assert.True(methods.Count > 0, "No ApplyModifiers method found in Reconciler.cs");
+
+        var arms = new List<(string, StatementSyntax)>();
+
+        foreach (var ifStatement in methods.SelectMany(method => method.DescendantNodes().OfType<IfStatementSyntax>()))
+        {
+            var modifier = UnsetTransitionModifier(ifStatement.Condition)
+                           ?? ElseOfSetArmModifier(ifStatement);
+            if (modifier is null) continue;
+
+            // Only the arm's own body — an `else if` chain nests the next arm inside this
+            // one's Else clause, and attributing that arm's statements here would report
+            // every following modifier under the first one's name.
+            arms.Add((modifier, ifStatement.Statement));
+        }
+
+        return arms;
+    }
+
+    /// <summary>
+    /// The modifier name when <paramref name="condition"/> is an unset transition —
+    /// <c>!m.X.HasValue &amp;&amp; oldM?.X.HasValue == true</c> or
+    /// <c>m.X is null &amp;&amp; oldM?.X is not null</c> — otherwise null.
+    /// </summary>
+    /// <remarks>
+    /// Both halves are required. <c>m.X</c> alone is the set arm; <c>oldM?.X</c> alone is a
+    /// diff guard. Only the conjunction means "was set, now isn't", which is the transition
+    /// that has to release the local value.
+    /// </remarks>
+    private static string? UnsetTransitionModifier(ExpressionSyntax condition)
+    {
+        var text = condition.ToString();
+
+        foreach (var name in ModifierNames(condition).Distinct(StringComparer.Ordinal))
+        {
+            var absentNow = text.Contains($"!m.{name}.HasValue") || text.Contains($"m.{name} is null");
+            var presentBefore = text.Contains($"oldM?.{name}.HasValue == true")
+                                || text.Contains($"oldM?.{name} is not null");
+            if (absentNow && presentBefore) return name;
+        }
+
+        // Padding and BorderThickness are computed into a local first (to overlay the
+        // BiDi-aware inline variants), so the absent-now half reads `!resolvedPadding.HasValue`
+        // rather than `!m.Padding.HasValue`. Match on the oldM half and the local's shape.
+        var resolved = Regex.Match(text, @"!\s*(resolved\w+)\.HasValue");
+        if (resolved.Success)
+        {
+            var oldHalf = Regex.Match(text, @"oldM\?\.(\w+)\.HasValue == true");
+            if (oldHalf.Success) return oldHalf.Groups[1].Value;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The modifier name when <paramref name="ifStatement"/> is the <c>else</c> of a set arm
+    /// and only re-tests the previous render — <c>if (m.X is not null) … else if
+    /// (oldM?.X is not null)</c>. Reaching the <c>else</c> already proves <c>m.X</c> is
+    /// absent, so the condition omits that half and
+    /// <see cref="UnsetTransitionModifier"/> cannot see it. <c>ContextFlyout</c> is written
+    /// this way; without this the arm would be silently skipped and its reset untested.
+    /// </summary>
+    private static string? ElseOfSetArmModifier(IfStatementSyntax ifStatement)
+    {
+        if (ifStatement.Parent is not ElseClauseSyntax { Parent: IfStatementSyntax setArm }) return null;
+
+        var text = ifStatement.Condition.ToString();
+        var oldHalf = Regex.Match(text, @"oldM\?\.(\w+)(?:\.HasValue == true| is not null)");
+        if (!oldHalf.Success) return null;
+
+        var name = oldHalf.Groups[1].Value;
+
+        // If the condition tests `m.X` itself, UnsetTransitionModifier already owns it (or
+        // deliberately rejected it); only the implicit-else shape belongs here.
+        if (text.Contains($"m.{name}", StringComparison.Ordinal)
+            && !text.Contains($"oldM?.{name}", StringComparison.Ordinal)) return null;
+        if (Regex.IsMatch(text, $@"(?<!old)\bm\.{Regex.Escape(name)}\b")) return null;
+
+        // The guarding `if` must be the set arm for the same modifier, otherwise this is some
+        // unrelated `else if` that happens to mention oldM.
+        var setText = setArm.Condition.ToString();
+        if (!Regex.IsMatch(setText, $@"(?<!old)\bm\.{Regex.Escape(name)}\b")) return null;
+
+        return name;
+    }
+
+    /// <summary>Modifier names read off <c>m.</c> / <c>oldM.</c> / <c>oldM?.</c> in a condition.</summary>
+    private static IEnumerable<string> ModifierNames(SyntaxNode node)
+    {
+        foreach (var descendant in node.DescendantNodesAndSelf())
+        {
+            switch (descendant)
+            {
+                case MemberAccessExpressionSyntax { Expression: IdentifierNameSyntax bag } access
+                    when bag.Identifier.Text is "m" or "oldM":
+                    yield return access.Name.Identifier.Text;
+                    break;
+
+                case ConditionalAccessExpressionSyntax { Expression: IdentifierNameSyntax bag } conditional
+                    when bag.Identifier.Text is "m" or "oldM":
+                {
+                    var binding = conditional.WhenNotNull
+                        .DescendantNodesAndSelf()
+                        .OfType<MemberBindingExpressionSyntax>()
+                        .FirstOrDefault();
+                    if (binding is not null) yield return binding.Name.Identifier.Text;
+                    break;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// The FE-common block of <c>ElementPool.CleanElement</c> — opening brace up to (but not
+    /// including) the <c>switch (fe)</c> that begins type-specific cleanup — plus the
+    /// method's parameter name. Mirrors the boundary
+    /// <see cref="PoolResetSetConsistencyTests"/> uses, deliberately: the type-specific arms
+    /// reset content slots (<c>Content</c>, <c>Child</c>, <c>Source</c>) whose correct empty
+    /// state really is a written null, so they are not subject to this rule.
+    /// </summary>
+    private static string ReadCleanElementCommonBlock(out string paramName)
+    {
+        var root = RepoRootFinder.FindRepoRoot();
+        Assert.NotNull(root);
+        var file = Path.Join(root!, "src", "Reactor", "Core", "ElementPool.cs");
+        Assert.True(File.Exists(file), $"ElementPool.cs not found at {file}");
+
+        var source = File.ReadAllText(file);
+        var signature = Regex.Match(source, @"static\s+void\s+CleanElement\s*\(\s*FrameworkElement\s+(\w+)\s*\)");
+        Assert.True(signature.Success, "Could not locate CleanElement(FrameworkElement) in ElementPool.cs");
+        paramName = signature.Groups[1].Value;
+
+        var braceStart = source.IndexOf('{', signature.Index + signature.Length);
+        Assert.True(braceStart > signature.Index, "CleanElement opening brace not found");
+
+        var switchStart = source.IndexOf($"switch ({paramName})", braceStart, StringComparison.Ordinal);
+        Assert.True(switchStart > braceStart, $"CleanElement layout changed — no 'switch ({paramName})' boundary found.");
+
+        return source[braceStart..switchStart];
+    }
+}

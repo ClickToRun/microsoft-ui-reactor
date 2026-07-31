@@ -503,7 +503,7 @@ pools at all and, if so, how to reset its mutable state when it goes
 back into the pool. Most leaf controls — `Button`, `TextBlock`,
 `Border`, `RatingControl`, every input the form catalog covers —
 opt in by default; the per-type entry in `PoolableTypes` declares the
-reset hook (clearing handlers, restoring default property values) so
+reset hook (clearing handlers, clearing local property values) so
 a rented instance is observably indistinguishable from a fresh one.
 Authors writing a new handler should generally accept the default and
 let the engine pool the control; the policy escape hatch exists for
