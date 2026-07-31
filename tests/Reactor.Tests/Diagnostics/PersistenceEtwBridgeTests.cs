@@ -231,9 +231,11 @@ public class PersistenceEtwBridgeTests : IDisposable
         var foreignIndex = IndexOfForeignProbe(events);
         Assert.True(foreignIndex >= 0, $"The injected {ForeignOperation} event was not observed.");
 
-        // Everything before the injected event predates this test. Slicing there makes the
-        // ordering STRUCTURAL rather than argued: within the slice our foreign event is first by
-        // construction, so nothing emitted before this test started can affect what follows.
+        // Slice at the probe. This deliberately does NOT claim that everything before it
+        // predates the test — a concurrent class can emit between this test starting and the
+        // probe landing, so that would be false. The determinism does not rest on it: it rests
+        // only on those events being EXCLUDED, which the slice does by construction. Within the
+        // slice our probe is first, so nothing outside it can reach the two assertions below.
         var since = events.Skip(foreignIndex).ToArray();
 
         // `since[0]` is the probe by construction, so this is the event an UNdiscriminated
@@ -357,6 +359,11 @@ public class PersistenceEtwBridgeTests : IDisposable
         var monitors = new[] { new MonitorRect(null, 0, 0, 1920, 1080) };
         Assert.False(WindowPlacementCodec.Restore(hwnd: 0, ms.ToArray(), monitors));
 
+        // Discriminated on the REASON (payload[1]), not the storeKind (payload[0]), deliberately:
+        // WindowPlacementCodec emits "placement" for three distinct rejections
+        // (implausible-monitor-count, implausible-rect, truncated), so storeKind matches any of
+        // the three while each reason matches exactly one. The storeKind is asserted separately
+        // below, so both fields are still checked — only the lookup key differs.
         var evt = AssertEvent(
             _listener.Events,
             nameof(ReactorEventSource.PersistenceRejected),
