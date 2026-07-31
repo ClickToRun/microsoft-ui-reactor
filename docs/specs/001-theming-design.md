@@ -1092,7 +1092,8 @@ public class MediaPlayerPage : Component
                         .OnValueChanged(v => setProgress(v / 100)),
 
                     HStack(
-                        Button(isPlaying ? "\uE769" : "\uE768")  // pause/play
+                        Button(Icon(FontIcon(isPlaying ? "\uE769" : "\uE768")))  // pause/play
+                            .AutomationName(isPlaying ? "Pause" : "Play")
                             .OnClick(() => setPlaying(!isPlaying)),
 
                         Text($"{FormatTime(progress * 180)} / 3:00")
@@ -1106,7 +1107,8 @@ public class MediaPlayerPage : Component
                             .OnValueChanged(v => setVolume(v / 100))
                             .Width(120),
 
-                        Button("\uE740")  // fullscreen icon
+                        Button(Icon(FontIcon("\uE740")))  // fullscreen icon
+                            .AutomationName("Full screen")
                     )
                     .Gap(8)
                     .VerticalAlignment(VerticalAlignment.Center)

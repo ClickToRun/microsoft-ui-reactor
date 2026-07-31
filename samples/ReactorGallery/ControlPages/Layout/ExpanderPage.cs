@@ -39,7 +39,7 @@ class ExpanderPage : Component
                     """
                     Expander("Settings", VStack(
                         TextBlock("Option 1: Enabled"), ...
-                    ), expanded, setExpanded)
+                    ), expanded1, setExpanded1)
                     """),
 
                 SampleCard("Direction Control",
@@ -48,8 +48,9 @@ class ExpanderPage : Component
                         TextBlock("Try switching between Down and Up.")
                     ), true).Direction(direction).Width(350),
                     """
-                    Expander("Header", content, true)
-                        .Direction(ExpandDirection.Up)
+                    Expander("Expand Direction", VStack(4,
+                        TextBlock("This content appears based on the direction setting.")
+                    ), true).Direction(ExpandDirection.Up)
                     """,
                     OptionPanel(
                         TextBlock("Direction"),

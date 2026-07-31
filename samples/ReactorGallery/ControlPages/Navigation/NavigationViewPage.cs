@@ -71,7 +71,7 @@ with {
                         PaneDisplayMode = NavigationViewPaneDisplayMode.Top,
                         IsSettingsVisible = false,
                     }).Height(200),
-                    @"NavigationView(items, content) with {
+                    @"NavigationView(items, content: TextBlock($""Content area for: {selectedTag}"")) with {
     PaneDisplayMode = NavigationViewPaneDisplayMode.Top
 }")
             ).Margin(36, 24, 36, 36)

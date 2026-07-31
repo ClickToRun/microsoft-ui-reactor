@@ -48,7 +48,9 @@ class ThemePage : Component
                      .Background(Theme.SolidBackground)
                      .CornerRadius(8),
                     @"var (isDark, setIsDark) = UseState(false);
-Border(content)
+Border(VStack(12,
+    ToggleSwitch(isDark, b => setIsDark(b), onContent: ""Dark"", offContent: ""Light"", header: ""Theme""),
+    preview).Padding(16))
     .RequestedTheme(isDark ? ElementTheme.Dark : ElementTheme.Light)
     .Background(Theme.SolidBackground)"),
 

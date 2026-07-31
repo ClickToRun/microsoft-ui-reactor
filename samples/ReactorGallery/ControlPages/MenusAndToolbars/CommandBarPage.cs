@@ -32,10 +32,10 @@ class CommandBarPage : Component
                         TextBlock($"Last action: {lastAction}").Foreground(Theme.SecondaryText)
                     ),
                     @"CommandBar(primaryCommands: new AppBarItemBase[] {
-    AppBarButton(""Add"", () => setAction(""Add""), icon: ""Add""),
-    AppBarButton(""Edit"", () => setAction(""Edit""), icon: ""Edit""),
+    AppBarButton(""Add"", () => setLastAction(""Add""), icon: ""Add""),
+    AppBarButton(""Edit"", () => setLastAction(""Edit""), icon: ""Edit""),
     AppBarSeparator(),
-    AppBarButton(""Delete"", () => setAction(""Delete""), icon: ""Delete""),
+    AppBarButton(""Delete"", () => setLastAction(""Delete""), icon: ""Delete""),
 })"),
 
                 SampleCard("Primary and Secondary Commands",

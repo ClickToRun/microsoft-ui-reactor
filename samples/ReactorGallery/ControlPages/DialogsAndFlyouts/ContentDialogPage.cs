@@ -29,10 +29,10 @@ class ContentDialogPage : Component
                             OnClosed = _ => setShowBasic(false),
                         }
                     ),
-                    @"Button(""Show Dialog"", () => setShow(true)),
+                    @"Button(""Show Dialog"", () => setShowBasic(true)),
 ContentDialog(""Welcome"", TextBlock(""Thank you!""), ""OK"") with {
-    IsOpen = show,
-    OnClosed = _ => setShow(false),
+    IsOpen = showBasic,
+    OnClosed = _ => setShowBasic(false),
 }"),
 
                 SampleCard("Confirmation Dialog",
@@ -54,9 +54,9 @@ ContentDialog(""Welcome"", TextBlock(""Thank you!""), ""OK"") with {
                     ),
                     @"ContentDialog(""Confirm Delete"",
     TextBlock(""Are you sure?""), ""Delete"") with {
-    IsOpen = show,
+    IsOpen = showConfirm,
     SecondaryButtonText = ""Cancel"",
-    OnClosed = r => { setResult(r.ToString()); setShow(false); },
+    OnClosed = r => { setResult(r.ToString()); setShowConfirm(false); },
 }")
             ).Margin(36, 24, 36, 36)
         );

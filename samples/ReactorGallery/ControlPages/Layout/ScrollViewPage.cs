@@ -31,7 +31,7 @@ class ScrollViewPage : Component
                     ).Size(300, 200).WithBorder(Theme.CardStroke).CornerRadius(ThemeResource.CornerRadius("ControlCornerRadius").TopLeft),
                     """
                     ScrollView(
-                        VStack(4, items.Select(i =>
+                        VStack(4, Enumerable.Range(1, 20).Select(i =>
                             Border(TextBlock($"Item {i}")).Padding(8)
                         ).ToArray())
                     )
