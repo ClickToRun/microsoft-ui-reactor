@@ -474,15 +474,14 @@ public sealed class SwallowedErrorAuditTests
     /// </summary>
     /// <remarks>
     /// Every path this gate resolves comes out of the audit document, so it is
-    /// author-controlled, and two shapes escape the tree. <c>Path.Combine</c>
-    /// silently discards its earlier arguments when a later one is rooted, and
-    /// a relative path can climb out with <c>..</c> segments. Either would let
+    /// author-controlled, and two shapes escape the tree: an absolute path, and
+    /// a relative path that climbs out with <c>..</c> segments. Either would let
     /// a heading satisfy the existence check by naming an unrelated file
     /// elsewhere on the machine. Both are rejected here rather than followed.
     /// </remarks>
     static string RepoPath(string relative, string what)
     {
-        var root = RepoRoot();
+        var root = Path.GetFullPath(RepoRoot());
         var native = relative.Replace('/', Path.DirectorySeparatorChar);
 
         Assert.False(
@@ -491,13 +490,19 @@ public sealed class SwallowedErrorAuditTests
             + $"repository root — an absolute one would resolve outside the tree and could satisfy the "
             + $"existence check by naming an unrelated file.");
 
-        var full = Path.GetFullPath(Path.Combine(root, native));
+        // Resolving against an explicit base states the intent in one call. The
+        // Path.Combine spelling of this reads as if the root is always part of
+        // the answer when it is not: Combine returns only its last argument once
+        // that argument is rooted, so the root would drop out silently. The
+        // assertion above is what closes that case; not writing Combine at all
+        // keeps a future edit from reintroducing it by moving the assertion.
+        var full = Path.GetFullPath(native, root);
 
         // Path.GetRelativePath applies the platform's own path-comparison rules,
         // so the containment check stays correct without this file having to
         // pick a StringComparison. A path that escapes the root comes back
         // either rooted (no relative path exists) or leading with "..".
-        var relativeToRoot = Path.GetRelativePath(Path.GetFullPath(root), full);
+        var relativeToRoot = Path.GetRelativePath(root, full);
 
         Assert.False(
             Path.IsPathRooted(relativeToRoot)
