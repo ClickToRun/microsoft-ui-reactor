@@ -51,6 +51,7 @@ Rectangle().Width(80).Height(56).Fill(new SolidColorBrush(Colors.SeaGreen))
                     Tile("Line", Line(10, 10, 100, 70).Stroke(accent).StrokeThickness(4)),
                     Tile("Path", Path2D().Fill(new SolidColorBrush(Colors.OrangeRed)).Set(p => p.Data = triangle))),
                 sourceCode: @"
+var accent = new SolidColorBrush(Colors.SteelBlue);
 Line(10, 10, 100, 70).Stroke(accent).StrokeThickness(4)
 
 // Path2D draws an arbitrary Geometry:

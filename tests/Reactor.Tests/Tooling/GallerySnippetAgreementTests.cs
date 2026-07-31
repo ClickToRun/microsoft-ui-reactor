@@ -247,7 +247,12 @@ public sealed class GallerySnippetAgreementTests
     internal static IEnumerable<string> DeclaredNames(SyntaxNode root) =>
         root.DescendantNodesAndSelf().SelectMany(DeclaredBy);
 
-    /// <summary>The names a single node binds, ignoring its descendants.</summary>
+    /// <summary>
+    /// The names a single node binds, ignoring its descendants. Tuple <em>type</em> element names
+    /// (<c>(string path, int id)</c>) are deliberately absent: they name members reached through a
+    /// value, not locals, so crediting them would let a snippet invent one. Tuple deconstruction
+    /// binds through <see cref="SingleVariableDesignationSyntax"/> and is unaffected.
+    /// </summary>
     static IEnumerable<string> DeclaredBy(SyntaxNode node) =>
         (node switch
         {
@@ -265,7 +270,6 @@ public sealed class GallerySnippetAgreementTests
             JoinClauseSyntax j => [j.Identifier],
             JoinIntoClauseSyntax j => [j.Identifier],
             QueryContinuationSyntax q => [q.Identifier],
-            TupleElementSyntax t => [t.Identifier],
             TypeDeclarationSyntax t => [t.Identifier],
             EnumMemberDeclarationSyntax e => [e.Identifier],
             LabeledStatementSyntax l => [l.Identifier],
@@ -290,7 +294,7 @@ public sealed class GallerySnippetAgreementTests
         var names = new HashSet<string>(global::System.StringComparer.Ordinal);
 
         bool Reachable(SyntaxNode node) =>
-            !allCards.Any(other => other != card && other.Span.Contains(node.Span));
+            card.Span.Contains(node.Span) || !allCards.Any(other => other.Span.Contains(node.Span));
 
         foreach (var node in pageRoot.DescendantNodesAndSelf().Where(Reachable))
         {
@@ -444,8 +448,12 @@ public sealed class GallerySnippetAgreementTests
                 $"{GallerySources.Rel(path)}:{f.PageLine}: {f.Describe()}"));
         }
 
-        Assert.True(cards > 0, "no SampleCard invocations were inspected — the lint would pass vacuously.");
-        Assert.True(namesChecked > 0, "no snippet names were resolved — the lint would pass vacuously.");
+        // Floors, not `> 0`: a loader that silently found one page — or a scanner that stopped
+        // recognising most cards — would still clear `> 0` while checking almost nothing. These sit
+        // well under the current tree (214 cards / 487 names) so ordinary gallery churn never trips
+        // them, but a collapse of either input fails here instead of passing quietly.
+        Assert.True(cards >= 150, $"only {cards} SampleCard invocations were inspected — the lint is barely looking.");
+        Assert.True(namesChecked >= 300, $"only {namesChecked} snippet names were resolved — the lint is barely looking.");
         Assert.True(offenders.Count == 0,
             $"{offenders.Count} snippet name(s) disagree with the card beside them " +
             $"({cards} cards, {namesChecked} names checked, {notLiteral} snippet(s) not a literal and skipped):" +
@@ -818,6 +826,19 @@ public sealed class GallerySnippetAgreementTests
         { "value binds like any other local", "        var value = Seed();", "TextBlock(\"x\")", "TextBox(value)", [] },
         { "dynamic in a type slot", "", "TextBlock(\"x\")", "dynamic row = Rows(); Use(row)", [] },
 
+        // The type-slot test only ever sees lowerCamelCase type names, so `var` and `dynamic` are
+        // the whole of its real input — but they reach it through most of the slots a snippet can
+        // use. Each row below fails if its arm is dropped, because the name then reads as a value.
+        { "var in a deconstruction declaration", "", "TextBlock(\"x\")", "var (row, count) = Pair(); Use(row, count)", [] },
+        { "dynamic in a cast", "", "TextBlock(\"x\")", "Use((dynamic)Rows())", [] },
+        { "dynamic as a lambda parameter type", "", "TextBlock(\"x\")", "Rows().Select((dynamic row) => Use(row))", [] },
+        { "dynamic in an as-expression", "", "TextBlock(\"x\")", "var bag = Rows() as dynamic; Use(bag)", [] },
+        { "dynamic in a declaration pattern", "", "TextBlock(\"x\")", "if (Rows() is dynamic bag) { Use(bag); }", [] },
+        { "dynamic in a type argument", "", "TextBlock(\"x\")", "Use(new List<dynamic>())", [] },
+        { "dynamic in an array creation", "", "TextBlock(\"x\")", "Use(new dynamic[0])", [] },
+        { "dynamic in typeof", "", "TextBlock(\"x\")", "Use(typeof(dynamic))", [] },
+        { "dynamic as a local function return type", "", "TextBlock(\"x\")", "dynamic Load() => Rows(); Use(Load())", [] },
+
         // Interpolation holes are code; comments and string bodies are not.
         { "interpolation hole", "", "TextBlock(\"x\")", "TextBlock($\"total: {total}\")", ["total"] },
         { "comment", "", "TextBlock(\"x\")", "// total is set above\nTextBlock(\"hi\")", [] },
@@ -938,9 +959,56 @@ public sealed class GallerySnippetAgreementTests
         var finding = Assert.Single(scan.Findings);
         Assert.Equal("Card", finding.Card);
         Assert.Equal("row", finding.Name);
+        Assert.Equal(FindingKind.Invented, finding.Kind);
+        Assert.Contains("may omit; it may not invent", finding.Describe(), global::System.StringComparison.Ordinal);
 
         // The sibling's own snippet uses the same name and stays silent, because there `row` is in
         // the card that binds it. Same page, same name, opposite verdicts — that is the scope.
         Assert.DoesNotContain(scan.Findings, f => f.Card == "Sibling");
+    }
+
+    /// <summary>
+    /// A card nested inside another card's arguments still resolves against its own sample. Scoping
+    /// by "no other card contains this node" would exclude an inner card from itself, because the
+    /// outer card contains all of it — turning every name the inner sample binds into a finding.
+    /// </summary>
+    [Fact]
+    public void NestedCard_ResolvesAgainstItsOwnSample()
+    {
+        var page = """
+            namespace Gallery;
+
+            class __Page
+            {
+                Element Render() =>
+                    SampleCard("Outer",
+                        VStack(
+                            SampleCard("Inner",
+                                VStack(Rows().Select(entry => TextBlock(entry.Label)).ToArray()),
+                                sourceCode: @"TextBlock(entry.Label)")),
+                        sourceCode: @"VStack(Inner())");
+            }
+            """;
+
+        var scan = ScanSource(page);
+
+        Assert.Equal(2, scan.Cards);
+        Assert.Empty(scan.Findings);
+    }
+
+    /// <summary>
+    /// <c>(string path, int id)</c> is a type, and its element names are members reached through a
+    /// value — <c>current.path</c>, which member access already excludes — never locals. Crediting
+    /// them as live would let a snippet invent <c>path</c> beside a card that never binds it.
+    /// </summary>
+    [Fact]
+    public void NamedTupleTypeElement_DoesNotResolveASnippetName()
+    {
+        AssertReported(
+            "named tuple type element",
+            "        (string path, int id) Current() => (\"a\", 1);",
+            "            TextBlock(Current().path)",
+            "TextBlock(path)",
+            ["path"]);
     }
 }
