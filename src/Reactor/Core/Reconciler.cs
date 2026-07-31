@@ -3860,7 +3860,9 @@ public sealed partial class Reconciler : IDisposable
         if (m.BorderInlineStart.HasValue)
         {
             var isRtl = fe.FlowDirection == FlowDirection.RightToLeft;
-            var baseBorder = resolvedBorder ?? (fe is WinUI.Control bc ? bc.BorderThickness : fe is WinUI.Border bb ? bb.BorderThickness : new Thickness());
+            // Same base rule as Margin/Padding: the previous render's physical thickness, not
+            // the live control value, which already carries the last render's inline overlay.
+            var baseBorder = resolvedBorder ?? oldM?.BorderThickness ?? (fe is WinUI.Control bc ? bc.BorderThickness : fe is WinUI.Border bb ? bb.BorderThickness : new Thickness());
             var inlineStartThickness = m.BorderInlineStart.Value;
             if (isRtl)
                 resolvedBorder = new Thickness(baseBorder.Left, baseBorder.Top, inlineStartThickness.Left, baseBorder.Bottom);

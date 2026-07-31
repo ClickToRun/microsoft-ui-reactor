@@ -989,12 +989,13 @@ internal static class ModifierEventFixtures
     }
 
     // ════════════════════════════════════════════════════════════════════
-    //  The Control half of the same contract. Padding is declared on
-    //  Control / Border / StackPanel rather than FrameworkElement, and a
-    //  ContextFlyout is a live object graph owned by the previous renter's
-    //  component — neither used to be released on pool return, so a recycled
-    //  Button kept the last renter's padding as a local value (it could never
-    //  show its default style's padding again) and its context menu.
+    //  The Border/Panel half of the same contract. Padding / CornerRadius /
+    //  BorderThickness / Background are declared on Border (and Background on
+    //  Panel) rather than FrameworkElement, and CleanElement used to reset
+    //  them by ASSIGNING the default — so a recycled Border was handed to its
+    //  next renter carrying Thickness(0) as a *local* value that outranks any
+    //  Style the renter attaches. A ContextFlyout is a live object graph owned
+    //  by the previous renter's component and was never released at all.
     // ════════════════════════════════════════════════════════════════════
 
     internal class ModifierPoolClearValueControl(Harness h) : SelfTestFixtureBase(h)
@@ -1011,48 +1012,49 @@ internal static class ModifierEventFixtures
                     Button("RemountPoolCtrl", () => set(2)),
                     phase switch
                     {
-                        0 => Button("pool-ctrl-carrier", () => { })
+                        0 => Factories.Border(Factories.TextBlock("pool-ctrl-carrier"))
                             .Padding(21)
                             .CornerRadius(13)
                             .BorderThickness(7)
                             .WithContextFlyout(MenuItems(MenuItem("PoolCtrlMenu"))),
                         1 => Empty(),
                         // Remounted with no modifiers at all.
-                        _ => Button("pool-ctrl-carrier-2", () => { }),
+                        _ => Factories.Border(Factories.TextBlock("pool-ctrl-carrier-2")),
                     });
             });
 
             await Harness.Render();
-            var first = H.FindButton("pool-ctrl-carrier");
+            var first = H.FindControl<Microsoft.UI.Xaml.Controls.Border>(b =>
+                b.Child is TextBlock tb && tb.Text == "pool-ctrl-carrier");
             H.Check("PoolCtrl_Phase0_Present", first is not null);
             H.Check("PoolCtrl_Phase0_LocalValuesWritten",
                 first is not null
-                && first.ReadLocalValue(Control.PaddingProperty) != DependencyProperty.UnsetValue
+                && first.ReadLocalValue(Microsoft.UI.Xaml.Controls.Border.PaddingProperty) != DependencyProperty.UnsetValue
                 && first.ReadLocalValue(UIElement.ContextFlyoutProperty) != DependencyProperty.UnsetValue);
 
             H.ClickButton("DropPoolCtrl");
             await Harness.Render();
-            H.Check("PoolCtrl_Phase1_Returned", H.FindButton("pool-ctrl-carrier") is null);
 
             H.ClickButton("RemountPoolCtrl");
             await Harness.Render();
-            var second = H.FindButton("pool-ctrl-carrier-2");
+            var second = H.FindControl<Microsoft.UI.Xaml.Controls.Border>(b =>
+                b.Child is TextBlock tb && tb.Text == "pool-ctrl-carrier-2");
             // Load-bearing: without instance reuse every check below passes trivially.
             H.Check("PoolCtrl_Phase2_ReusedInstance",
                 first is not null && ReferenceEquals(first, second));
             if (second is null) return;
 
-            // Cleared, not "reset to Thickness(0)": Button's default style supplies padding,
-            // so a released local value reads back as the styled value, not as zero.
+            // Cleared, not "reset to Thickness(0)" — ReadLocalValue is the only oracle that
+            // tells those two apart, and the difference is the whole of issue #952.
             H.Check("PoolCtrl_Phase2_PaddingCleared",
-                second.ReadLocalValue(Control.PaddingProperty) == DependencyProperty.UnsetValue);
+                second.ReadLocalValue(Microsoft.UI.Xaml.Controls.Border.PaddingProperty) == DependencyProperty.UnsetValue);
             H.Check("PoolCtrl_Phase2_ContextFlyoutCleared",
                 second.ReadLocalValue(UIElement.ContextFlyoutProperty) == DependencyProperty.UnsetValue
                 && second.ContextFlyout is null);
             H.Check("PoolCtrl_Phase2_CornerRadiusCleared",
-                second.ReadLocalValue(Control.CornerRadiusProperty) == DependencyProperty.UnsetValue);
+                second.ReadLocalValue(Microsoft.UI.Xaml.Controls.Border.CornerRadiusProperty) == DependencyProperty.UnsetValue);
             H.Check("PoolCtrl_Phase2_BorderThicknessCleared",
-                second.ReadLocalValue(Control.BorderThicknessProperty) == DependencyProperty.UnsetValue);
+                second.ReadLocalValue(Microsoft.UI.Xaml.Controls.Border.BorderThicknessProperty) == DependencyProperty.UnsetValue);
         }
     }
 

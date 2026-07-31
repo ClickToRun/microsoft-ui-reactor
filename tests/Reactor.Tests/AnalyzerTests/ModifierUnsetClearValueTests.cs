@@ -133,6 +133,10 @@ public class ModifierUnsetClearValueTests
         "UIElement.Visibility",
         "UIElement.AccessKey",
         "UIElement.ContextFlyout",
+        "UIElement.IsHitTestVisible",
+        "FrameworkElement.RenderTransform",
+        "FrameworkElement.FlowDirection",
+        "Control.IsTabStop",
     ];
 
     [Fact]

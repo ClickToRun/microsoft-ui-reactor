@@ -397,26 +397,6 @@ public sealed class ElementPool : IDisposable
                 VisualStateManager.GoToState(toggle, "Normal", false);
                 break;
         }
-
-        // Padding / CornerRadius / BorderThickness / BorderBrush / Background / IsEnabled are
-        // declared on Control (and Padding also on StackPanel) rather than on
-        // FrameworkElement, so they cannot live in the FE-common block above; Border's copies
-        // are cleared in its own case. Without this a pooled Button keeps the previous
-        // renter's padding as a *local* value and can never show its default style's padding
-        // again — issue #952 in the pool.
-        if (fe is Control resetControl)
-        {
-            resetControl.ClearValue(Control.PaddingProperty);
-            resetControl.ClearValue(Control.CornerRadiusProperty);
-            resetControl.ClearValue(Control.BorderThicknessProperty);
-            resetControl.ClearValue(Control.BorderBrushProperty);
-            resetControl.ClearValue(Control.BackgroundProperty);
-            resetControl.ClearValue(Control.IsEnabledProperty);
-        }
-        else if (fe is WinUI.StackPanel resetStack)
-        {
-            resetStack.ClearValue(WinUI.StackPanel.PaddingProperty);
-        }
     }
 
     public void Dispose()
