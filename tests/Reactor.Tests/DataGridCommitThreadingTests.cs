@@ -1,5 +1,6 @@
 using System;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.UI.Reactor.Controls;
@@ -33,6 +34,56 @@ public class DataGridCommitThreadingTests
     private record TestItem(int Id, string Name);
 
     /// <summary>
+    /// A committing thread with a guarded body. An unhandled exception on a dedicated
+    /// <see cref="Thread"/> tears down the process, so a run that should have reported one failing
+    /// test would instead lose every test after it — and the commit here reaches a private method
+    /// through reflection, which throws on any signature drift. Whatever the body throws is
+    /// captured and replayed on the xUnit thread by <see cref="Rethrow"/>.
+    /// </summary>
+    private sealed class Committer
+    {
+        private readonly Thread _thread;
+        private Exception? _failure;
+
+        internal Committer(string name, Action body)
+        {
+            _thread = new Thread(() =>
+            {
+                try
+                {
+                    body();
+                }
+                catch (Exception ex)
+                {
+                    _failure = ex;
+                }
+            })
+            {
+                IsBackground = true,
+                Name = name,
+            };
+        }
+
+        internal int ManagedThreadId => _thread.ManagedThreadId;
+
+        internal void Start() => _thread.Start();
+
+        internal bool Join(TimeSpan timeout) => _thread.Join(timeout);
+
+        /// <summary>
+        /// Replays anything the committing thread threw, original stack intact. Call it after
+        /// <see cref="Join"/> — which is also the happens-before edge that makes the read safe —
+        /// and before asserting on what the commit observed, because a commit that threw recorded
+        /// nothing and its assertions would otherwise fail for the wrong reason.
+        /// </summary>
+        internal void Rethrow()
+        {
+            if (_failure is { } ex)
+                ExceptionDispatchInfo.Capture(ex).Throw();
+        }
+    }
+
+    /// <summary>
     /// With a <c>CommitDispatcher</c> installed, the delegate is invoked synchronously on the
     /// committing thread and the fallback does not also run.
     /// </summary>
@@ -60,7 +111,7 @@ public class DataGridCommitThreadingTests
         var threadIdOnReturn = 0;
         var committingOnReturn = false;
 
-        var committer = new Thread(() =>
+        var committer = new Committer("HandleAsyncCommit caller (dispatcher arm)", () =>
         {
             committerThreadId = Environment.CurrentManagedThreadId;
             InvokeHandleAsyncCommit(state, element, key, new TestItem(1, "Alice edited"), new TestItem(1, "Alice"));
@@ -71,15 +122,17 @@ public class DataGridCommitThreadingTests
             callsOnReturn = Volatile.Read(ref dispatcherCalls);
             threadIdOnReturn = Volatile.Read(ref dispatcherThreadId);
             committingOnReturn = state.IsCommitting(key);
-        })
-        {
-            IsBackground = true,
-            Name = "HandleAsyncCommit caller (dispatcher arm)",
-        };
+        });
 
         committer.Start();
+        var joined = committer.Join(Timeout);
+
+        // Before the assertions below: a commit that threw sampled nothing, so they would all fail
+        // on zeroed locals and bury the actual exception.
+        committer.Rethrow();
+
         Assert.True(
-            committer.Join(Timeout),
+            joined,
             $"{MethodName} never returned on the dispatcher path. It is a straight call through to " +
             "the dispatcher, which cannot block.");
 
@@ -137,15 +190,11 @@ public class DataGridCommitThreadingTests
         // on a thread we own that would go unhandled and take the run down. So it is disposed only
         // once the join below confirms nobody is left inside it.
         var assertionsDone = new ManualResetEventSlim(false);
-        var committer = new Thread(() =>
+        var committer = new Committer("HandleAsyncCommit caller (fallback arm)", () =>
         {
             InvokeHandleAsyncCommit(state, element, (RowKey)1, new TestItem(1, "Alice edited"), new TestItem(1, "Alice"));
             assertionsDone.Wait(Timeout);
-        })
-        {
-            IsBackground = true,
-            Name = "HandleAsyncCommit caller (fallback arm)",
-        };
+        });
 
         // Watchdog: a regression that ran the callback to completion on the committing thread would
         // block that thread until this fires, so the test fails on thread identity rather than
@@ -156,6 +205,7 @@ public class DataGridCommitThreadingTests
         committer.Start();
 
         var joined = false;
+        var neverEntered = false;
 
         try
         {
@@ -170,9 +220,10 @@ public class DataGridCommitThreadingTests
         }
         catch (TimeoutException)
         {
-            Assert.Fail(
-                $"{MethodName}'s fallback arm never invoked OnRowChanged. It is offloaded to the " +
-                "thread pool, so something has to run it.");
+            // Recorded rather than asserted here so the finally below still joins the committer and
+            // the rethrow below still gets its turn — a commit that threw also never enters the
+            // callback, and that exception is the real story.
+            neverEntered = true;
         }
         finally
         {
@@ -183,6 +234,13 @@ public class DataGridCommitThreadingTests
             if (joined)
                 assertionsDone.Dispose();
         }
+
+        committer.Rethrow();
+
+        Assert.False(
+            neverEntered,
+            $"{MethodName}'s fallback arm never invoked OnRowChanged. It is offloaded to the " +
+            "thread pool, so something has to run it.");
 
         Assert.True(
             joined,
