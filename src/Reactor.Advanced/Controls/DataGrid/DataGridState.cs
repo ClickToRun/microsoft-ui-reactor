@@ -312,12 +312,31 @@ public class DataGridState<T>
     }
 
     /// <summary>
-    /// Delegate installed by <see cref="Controls.DataGridComponent{T}"/> each render to
+    /// Delegate installed by <see cref="DataGridComponent{T}"/> each render to
     /// route row-commit dispatch through a <c>UseMutation</c> hook. Static helpers in
-    /// the component (<c>HandleKeyDown</c>, <c>RenderRow</c>) invoke it instead of
-    /// spinning up their own <c>Task.Run</c>. When null — e.g. in headless unit tests —
-    /// callers fall back to invoking <c>OnRowChanged</c> themselves.
+    /// the component (<c>HandleKeyDown</c>, <c>RenderRow</c>) invoke it synchronously, on
+    /// the thread that committed the edit, instead of spinning up their own <c>Task.Run</c>;
+    /// the component's own delegate goes on to reach <c>OnRowChanged</c> on that same
+    /// thread, but a delegate you install yourself is free to offload or marshal from
+    /// there. When null — e.g. in headless unit tests — callers fall back to invoking
+    /// <c>OnRowChanged</c> themselves on a thread-pool thread; see
+    /// <c>DataGridComponent&lt;T&gt;.HandleAsyncCommit</c> for both threading contracts.
     /// </summary>
+    /// <remarks>
+    /// Installing a delegate of your own replaces that fallback outright. It is invoked
+    /// synchronously, on the thread that committed the edit, with the row key, the post-edit
+    /// item and the pre-edit item — and from there the grid does nothing further for that
+    /// commit. The third argument is <c>T?</c> for a reason: the callers resolve it by row
+    /// index just before committing, and it is <c>default</c> when there is no row being edited
+    /// or the key no longer maps to a loaded row, so a delegate that snapshots it for an
+    /// optimistic revert has to cope with that. The delegate also owns both halves the fallback
+    /// used to handle: calling the element's <c>OnRowChanged</c>, and driving the row's commit
+    /// lifecycle (<see cref="BeginAsyncCommit"/>, then <see cref="CompleteAsyncCommit"/> or
+    /// <see cref="FailAsyncCommit"/>). Skip the lifecycle calls and the row never shows a
+    /// committing state, an error banner, or an optimistic revert. Note that a grid rendered
+    /// through <see cref="DataGridComponent{T}"/> reassigns this property on every
+    /// render, so a custom dispatcher only survives on a state you drive yourself.
+    /// </remarks>
     public Action<RowKey, T, T?>? CommitDispatcher { get; set; }
 
     /// <summary>

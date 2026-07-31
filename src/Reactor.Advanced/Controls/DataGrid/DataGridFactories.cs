@@ -18,6 +18,11 @@ public static partial class Factories
     /// <summary>
     /// Creates a DataGrid with explicit column definitions.
     /// </summary>
+    /// <remarks>
+    /// <paramref name="onRowChanged"/> is normally invoked on the thread that committed the edit
+    /// (the UI thread), but the grid falls back to a thread-pool thread in some cases — see
+    /// <see cref="DataGridElement{T}.OnRowChanged"/> for the full threading contract.
+    /// </remarks>
     public static ComponentElement<DataGridElement<T>> DataGrid<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicConstructors)] T>(
         IDataSource<T> source,
         IReadOnlyList<FieldDescriptor> columns,
@@ -65,6 +70,11 @@ public static partial class Factories
     /// <summary>
     /// Creates a DataGrid with auto-generated columns from TypeRegistry + reflection.
     /// </summary>
+    /// <remarks>
+    /// <paramref name="onRowChanged"/> is normally invoked on the thread that committed the edit
+    /// (the UI thread), but the grid falls back to a thread-pool thread in some cases — see
+    /// <see cref="DataGridElement{T}.OnRowChanged"/> for the full threading contract.
+    /// </remarks>
     public static ComponentElement<DataGridElement<T>> DataGrid<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicConstructors)] T>(
         IDataSource<T> source,
         TypeRegistry registry,
