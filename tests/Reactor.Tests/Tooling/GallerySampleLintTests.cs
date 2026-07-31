@@ -521,11 +521,16 @@ public sealed class GallerySampleLintTests
         {
             grew = false;
 
-            foreach (var name in reachable.ToList())
-            {
-                if (!lifted.TryGetValue(name, out var local)) continue;
+            // Snapshotted and materialised before the adds below: `reachable` is what we are
+            // widening, so the pass has to read the set as it stood when the pass began.
+            var initializers = reachable.ToList()
+                .Where(lifted.ContainsKey)
+                .Select(name => lifted[name].Initializer!.Value)
+                .ToList();
 
-                foreach (var id in local.Initializer!.Value.DescendantNodesAndSelf().OfType<IdentifierNameSyntax>())
+            foreach (var initializer in initializers)
+            {
+                foreach (var id in initializer.DescendantNodesAndSelf().OfType<IdentifierNameSyntax>())
                     grew |= reachable.Add(id.Identifier.Text);
             }
         } while (grew);
