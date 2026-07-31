@@ -162,6 +162,7 @@ internal static partial class CompileCommand
 
         // Build screenshot registry from manifests
         var allScreenshots = new Dictionary<string, ScreenshotInfo>(StringComparer.OrdinalIgnoreCase);
+        var reservedSuffixIds = new List<string>();
         foreach (var (topicId, appDir) in apps)
         {
             var manifestPath = Path.Combine(appDir, "doc-manifest.yaml");
@@ -170,8 +171,30 @@ internal static partial class CompileCommand
             foreach (var ss in manifest.Screenshots)
             {
                 var fullId = $"{topicId}/{ss.Id}";
+                // The `-thumb` suffix is how ImageProcessor.ContentRegionFor tells a
+                // chrome-free catalog thumbnail from a full-size capture that has a
+                // border and drop shadow. A full-size screenshot named `<x>-thumb`
+                // would be scored whole, and its own chrome would then mask a blank
+                // capture from the REACTOR_DOC_IMAGE_002 gate. Reserve the suffix so
+                // that collision cannot be authored in the first place.
+                if (ImageProcessor.HasThumbSuffix(ss.Id)
+                    && !string.Equals(ss.Kind, "catalog-thumb", StringComparison.OrdinalIgnoreCase))
+                {
+                    reservedSuffixIds.Add($"{fullId} ({manifestPath})");
+                }
                 allScreenshots[fullId] = new ScreenshotInfo(ss.Id, topicId, ss.Description, ss.Format, ss.Kind);
             }
+        }
+        if (reservedSuffixIds.Count > 0)
+        {
+            foreach (var id in reservedSuffixIds)
+            {
+                Console.Error.WriteLine(
+                    $"  ✗ REACTOR_DOC_SHOT_002: screenshot id '{id}' ends in the reserved " +
+                    $"'{ImageProcessor.ThumbSuffix}' suffix, which is only valid for " +
+                    "'kind: catalog-thumb'. Rename it, or set the kind.");
+            }
+            return 1;
         }
         Console.WriteLine($"  Screenshot definitions: {allScreenshots.Count}");
         if (screenshotFilter is not null)

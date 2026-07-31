@@ -230,13 +230,26 @@ internal static class DiagramProcessor
         Dictionary<string, bool>? blankCache = null)
     {
         var findings = new List<TierLintFinding>();
+        var imagesFull = Path.GetFullPath(imagesRoot);
         foreach (Match m in ImagePattern.Matches(body))
         {
             var rel = m.Groups[1].Value;
-            var full = Path.Combine(imagesRoot, "..", rel.Replace('/', Path.DirectorySeparatorChar));
-            full = Path.GetFullPath(full);
             var line = body[..m.Index].Count(c => c == '\n') + 1;
-            if (!File.Exists(full))
+
+            // The leading "../" run is page-relative escaping emitted by
+            // DocAssembler for nested topics; every ref lands in the same
+            // images tree regardless of depth, so strip it and resolve against
+            // that tree rather than replaying the traversal.
+            var normalized = rel;
+            while (normalized.StartsWith("../", StringComparison.Ordinal))
+                normalized = normalized["../".Length..];
+
+            var full = Path.GetFullPath(Path.Combine(
+                imagesFull, "..", normalized.Replace('/', Path.DirectorySeparatorChar)));
+
+            // Anything that still resolves outside the images tree is a
+            // malformed reference, not a file to go probing for.
+            if (!IsUnder(full, imagesFull) || !File.Exists(full))
             {
                 findings.Add(new TierLintFinding(
                     "REACTOR_DOC_IMAGE_001",
@@ -256,6 +269,14 @@ internal static class DiagramProcessor
             }
         }
         return findings;
+    }
+
+    private static bool IsUnder(string candidate, string root)
+    {
+        var rooted = root.EndsWith(Path.DirectorySeparatorChar)
+            ? root
+            : root + Path.DirectorySeparatorChar;
+        return candidate.StartsWith(rooted, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -296,7 +317,21 @@ internal static class DiagramProcessor
 
         try
         {
+            // Pre-decode guards, mirroring ImageProcessor.Process (TASK-044).
+            // This walks every referenced file in the committed corpus and hands
+            // it to GDI+, so a hostile or corrupt image must be rejected on
+            // cheap metadata before a decoder ever sees it.
+            var info = new FileInfo(path);
+            if (!info.Exists || info.Length == 0 || info.Length > ImageProcessor.MaxImageBytes) return false;
+            if (!HasRasterMagic(path)) return false;
+
             using var bmp = new global::System.Drawing.Bitmap(path);
+            if (bmp.Width > ImageProcessor.MaxImageDimension ||
+                bmp.Height > ImageProcessor.MaxImageDimension)
+            {
+                return false;
+            }
+
             var region = ImageProcessor.ContentRegionFor(path, bmp.Width, bmp.Height);
             return !ImageProcessor.HasContentPixel(bmp, region);
         }
@@ -310,6 +345,25 @@ internal static class DiagramProcessor
             // decode faults as ArgumentException *or* ExternalException
             // depending on the fault, so both are caught here; a compile must
             // not die on one bad byte in one image.
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Reads only the leading signature bytes to confirm a file really is a PNG
+    /// or JPEG, so a mislabelled or crafted <c>.png</c> is never handed to GDI+.
+    /// </summary>
+    private static bool HasRasterMagic(string path)
+    {
+        try
+        {
+            using var fs = File.OpenRead(path);
+            var head = new byte[8];
+            var read = fs.Read(head, 0, head.Length);
+            return read == head.Length && ImageProcessor.HasKnownImageMagic(head);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
             return false;
         }
     }
@@ -343,8 +397,21 @@ internal static class DiagramProcessor
             D --> E
         """;
 
+    /// <summary>
+    /// Matches a markdown image reference into the guide's image tree.
+    /// </summary>
+    /// <remarks>
+    /// The <c>(\.\./)*</c> prefix is load-bearing. <c>DocAssembler</c> prepends
+    /// one <c>../</c> per level of nesting for topic ids containing <c>/</c>
+    /// (e.g. <c>recipes/login</c>), and validation runs on the <em>assembled</em>
+    /// output, not the template. Anchoring on a bare <c>images/</c> therefore
+    /// skipped every nested page — 10 of them today — so neither the broken-link
+    /// check nor the blank-screenshot gate ever saw their images. A gate with a
+    /// silent blind spot is worse than no gate, because its clean run reads as
+    /// coverage.
+    /// </remarks>
     private static readonly Regex ImagePattern =
-        new(@"!\[[^\]]*\]\((images/[^)]+)\)", RegexOptions.Compiled);
+        new(@"!\[[^\]]*\]\(((?:\.\./)*images/[^)]+)\)", RegexOptions.Compiled);
 
     private static bool FilesIdentical(string a, string b)
     {

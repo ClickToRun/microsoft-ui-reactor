@@ -159,14 +159,55 @@ public class ImageProcessorTests
     }
 
     /// <summary>
-    /// The blank check has to survive the sparse (step-2) scan that content
-    /// cropping uses. A single dark pixel on an odd row/column is invisible to
-    /// that scan, so a full-resolution confirmation pass must run before the
-    /// frame is declared blank — otherwise a real screenshot could be thrown
-    /// away, which is a worse failure than the one being fixed.
+    /// The scan that preceded this one sampled every other column (<c>x += 2</c>),
+    /// which had two failure modes. The visible one: content living only on odd
+    /// columns looked blank. The dangerous one: content on <em>both</em> odd and
+    /// even columns produced a bounding box drawn around only the even ones, so
+    /// the crop silently shaved real pixels off an otherwise plausible-looking
+    /// screenshot.
+    /// </summary>
+    /// <remarks>
+    /// Asserting only that <c>Process</c> succeeds would not catch the second
+    /// mode — the sampled scan succeeds there too, it just returns the wrong
+    /// box. So this measures the output dimensions, which are a direct function
+    /// of the bounds: leftmost content at x=41 and rightmost at x=101 spans 61
+    /// columns, plus <c>ContentPadding</c> on each side and the border/shadow
+    /// chrome. Under the old sampled scan the left edge would have snapped to
+    /// x=42 and the right to x=100, giving a narrower image.
+    /// </remarks>
+    [Fact]
+    public void Process_bounds_content_on_odd_columns_exactly()
+    {
+        using var bmp = new Bitmap(200, 200, PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(bmp))
+        {
+            g.Clear(Color.White);
+        }
+        bmp.SetPixel(41, 101, Color.Black);  // odd column, odd row — leftmost
+        bmp.SetPixel(101, 41, Color.Black);  // odd column, odd row — rightmost
+        bmp.SetPixel(70, 70, Color.Black);   // even/even, so the sampled scan saw *something*
+
+        using var ms = new MemoryStream();
+        bmp.Save(ms, ImageFormat.Png);
+
+        var bytes = ImageProcessor.Process(ms.ToArray());
+
+        using var outMs = new MemoryStream(bytes);
+        using var outBmp = new Bitmap(outMs);
+
+        // Content spans x∈[41,101] and y∈[41,101] → 61×61, padded by
+        // ContentPadding (8) on each side → 77×77, plus the 8px chrome canvas.
+        Assert.Equal(77 + 8, outBmp.Width);
+        Assert.Equal(77 + 8, outBmp.Height);
+    }
+
+    /// <summary>
+    /// The blank verdict itself must not be sampled either: a single dark pixel
+    /// on an odd column is a real screenshot and rejecting it would be a worse
+    /// failure than the one being fixed.
     /// </summary>
     [Fact]
-    public void Process_accepts_content_missed_by_the_sparse_scan()
+    public void Process_accepts_a_single_pixel_on_an_odd_column()
     {
         using var bmp = new Bitmap(200, 200, PixelFormat.Format32bppArgb);
         using (var g = Graphics.FromImage(bmp))

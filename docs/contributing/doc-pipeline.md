@@ -177,6 +177,13 @@ the compile still exited 0 ([issue #989][i989]). Two guards now prevent that:
   compile rather than at review time. Full-size captures are scored with the
   border/shadow chrome excluded; catalog thumbs (`<id>-thumb.<ext>`) carry no
   chrome and are scored whole.
+- The `-thumb` suffix is therefore **reserved**. A manifest entry whose `id`
+  ends in it without `kind: catalog-thumb` is rejected with
+  `REACTOR_DOC_SHOT_002` — otherwise a full-size screenshot could claim the
+  chrome-free scoring rule and hide a blank capture behind its own border.
+- Image-reference validation runs on the *assembled* page, where `DocAssembler`
+  prefixes one `../` per level of topic nesting. Both image gates accept that
+  prefix, so nested topics (`recipes/*`) are checked like flat ones.
 
 If you are staging a docs change by hand, stage the specific `.md` / `.md.dt`
 paths rather than `git add -A`, and check `git status` for unexpected entries
@@ -221,6 +228,7 @@ reference-generation codes.
 | `REACTOR_DOC_IMAGE_001`    | `![..](images/<topic>/...)` reference resolves to nothing  |
 | `REACTOR_DOC_IMAGE_002`    | Referenced screenshot exists but its interior is blank — a failed capture overwrote it. Restore from git and re-capture on an interactive desktop |
 | `REACTOR_DOC_SHOT_001`     | Captured frame was contentless; nothing was written and the existing screenshot was left untouched |
+| `REACTOR_DOC_SHOT_002`     | Manifest screenshot id ends in the reserved `-thumb` suffix without `kind: catalog-thumb` |
 | `REACTOR_DOC_REGISTRY_W001`| Registry rule maps to a category with no `guide-pages`     |
 | `REACTOR_DOC_REGISTRY_W002`| Registry-declared guide page has no inbound `<!-- ref:Member -->` marker (doc-coverage gate, spec [041 §5.3](../specs/041-docs-comprehensive-uplift.md)) |
 

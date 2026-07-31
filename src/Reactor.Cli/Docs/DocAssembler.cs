@@ -86,7 +86,7 @@ internal static partial class DocAssembler
             // generated URL must match (spec 041 §6.3, §12 Q7).
             var fileBase = info != null
                 && string.Equals(info.Kind, "catalog-thumb", StringComparison.OrdinalIgnoreCase)
-                ? $"{id}-thumb"
+                ? $"{id}{ImageProcessor.ThumbSuffix}"
                 : id;
 
             return $"![{altText}]({imagePrefix}images/{topic}/{fileBase}.{format})";

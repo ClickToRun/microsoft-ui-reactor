@@ -133,6 +133,102 @@ public class CompileCaptureSkipTests
     }
 
     /// <summary>
+    /// Proves the <c>REACTOR_DOC_IMAGE_002</c> gate is actually wired into
+    /// <c>docs compile</c> Phase 6, not merely reachable from a unit test.
+    /// Deleting the <c>ValidateImageRefs</c> call from <c>CompileCommand</c>
+    /// leaves every direct <c>DiagramProcessor</c> test green; it fails this one.
+    /// </summary>
+    /// <remarks>
+    /// <c>--no-screenshots</c> is deliberate: it removes the capture-failure exit
+    /// so the exit code here is attributable to the gate alone. The
+    /// <c>blank: false</c> theory case is the non-vacuity control — same fixture,
+    /// same flags, one different pixel, opposite verdict.
+    /// </remarks>
+    [Theory]
+    [InlineData(true, 1)]
+    [InlineData(false, 0)]
+    public void Blank_committed_screenshot_fails_the_compile_through_phase_6(bool blank, int expectedExit)
+    {
+        using var repo = new FakeRepo();
+        repo.PlantProcessedScreenshot("demo/widget.png", blank);
+        repo.AddTemplate("extra.md.dt", "![Widget](images/demo/widget.png)");
+
+        var (exitCode, output) = repo.Compile(
+            "--no-screenshots", "--no-build", "--skip-diagrams", "--skip-reference", "--ci");
+
+        Assert.Equal(blank, output.Contains("REACTOR_DOC_IMAGE_002"));
+        Assert.Equal(expectedExit, exitCode);
+    }
+
+    /// <summary>
+    /// The image-reference gates run on the <em>assembled</em> page, and
+    /// <c>DocAssembler</c> prefixes one <c>../</c> per level of topic nesting.
+    /// A pattern anchored on a bare <c>images/</c> therefore skipped every nested
+    /// page — 10 of them in the real guide — while still reporting a clean run.
+    /// </summary>
+    /// <remarks>
+    /// The screenshot directive is used rather than a literal markdown link
+    /// precisely because the <c>../</c> is something the assembler emits: a
+    /// literal link would be copied through unchanged and would not exercise the
+    /// nesting at all. The flat control pins that the fixture's only variable is
+    /// the topic depth.
+    /// </remarks>
+    [Theory]
+    [InlineData("extra.md.dt")]
+    [InlineData("recipes/nested.md.dt")]
+    public void Blank_screenshot_is_caught_at_every_topic_depth(string templatePath)
+    {
+        using var repo = new FakeRepo();
+        repo.PlantProcessedScreenshot("demo/widget.png", blank: true);
+        repo.AddTemplate(templatePath, "![Widget](screenshot://demo/widget)");
+
+        var (exitCode, output) = repo.Compile(
+            "--no-screenshots", "--no-build", "--skip-diagrams", "--skip-reference", "--ci");
+
+        Assert.Contains("REACTOR_DOC_IMAGE_002", output);
+        Assert.Equal(1, exitCode);
+    }
+
+    /// <summary>
+    /// <c>ImageProcessor.ContentRegionFor</c> infers "no chrome" from the
+    /// <c>-thumb</c> filename suffix, so a full-size screenshot allowed to claim
+    /// that name would be scored whole and could hide a blank capture behind its
+    /// own border. The suffix is reserved to make that unrepresentable.
+    /// </summary>
+    [Theory]
+    [InlineData("widget-thumb", "screenshot", 1)]
+    [InlineData("widget-thumb", "catalog-thumb", 0)]
+    [InlineData("widget", "screenshot", 0)]
+    public void Reserved_thumb_suffix_is_rejected_for_non_catalog_screenshots(
+        string id, string kind, int expectedExit)
+    {
+        using var repo = new FakeRepo();
+        repo.WriteManifest(
+            $"""
+            app:
+              title: "Demo"
+              width: 400
+              height: 300
+              startup-delay: 0
+
+            screenshots:
+              - id: {id}
+                description: "Fixture screenshot."
+                component: WidgetDemo
+                region: client
+                format: png
+                kind: {kind}
+
+            """);
+
+        var (exitCode, output) = repo.Compile(
+            "--no-screenshots", "--no-build", "--skip-diagrams", "--skip-reference");
+
+        Assert.Equal(expectedExit == 1, output.Contains("REACTOR_DOC_SHOT_002"));
+        Assert.Equal(expectedExit, exitCode);
+    }
+
+    /// <summary>
     /// Minimal repo the doc compiler will accept: a <c>.git</c> marker for root
     /// discovery, a <c>Directory.Build.props</c> carrying the version token
     /// source, one doc app (with the <c>.cs</c> file discovery requires and a
@@ -214,8 +310,7 @@ public class CompileCaptureSkipTests
         /// <summary>Writes a screenshot with known bytes and returns its path.</summary>
         public string PlantScreenshot(string relative)
         {
-            var full = global::System.IO.Path.Join(_root, "docs", "guide", "images",
-                relative.Replace('/', global::System.IO.Path.DirectorySeparatorChar));
+            var full = ImagePath(relative);
             global::System.IO.Directory.CreateDirectory(global::System.IO.Path.GetDirectoryName(full)!);
 
             // Real PNG bytes rather than a sentinel string: a future guard that
@@ -236,6 +331,57 @@ public class CompileCaptureSkipTests
                 global::System.DateTime.UtcNow.AddHours(-1));
             return full;
         }
+
+        /// <summary>
+        /// Writes a processed-screenshot-shaped PNG (border + drop shadow) that
+        /// is either blank inside its chrome or carries a mark of real content.
+        /// </summary>
+        public string PlantProcessedScreenshot(string relative, bool blank)
+        {
+            var full = ImagePath(relative);
+            global::System.IO.Directory.CreateDirectory(global::System.IO.Path.GetDirectoryName(full)!);
+            global::System.IO.File.WriteAllBytes(full, TestImages.CapturedStub(120, 90, blank));
+            return full;
+        }
+
+        /// <summary>
+        /// Adds a template at <paramref name="relativePath"/> (which may name a
+        /// subdirectory, producing a nested topic id) whose body is
+        /// <paramref name="body"/>.
+        /// </summary>
+        public void AddTemplate(string relativePath, string body)
+        {
+            var full = global::System.IO.Path.Join(_root, "docs", "_pipeline", "templates",
+                relativePath.Replace('/', global::System.IO.Path.DirectorySeparatorChar));
+            global::System.IO.Directory.CreateDirectory(global::System.IO.Path.GetDirectoryName(full)!);
+            global::System.IO.File.WriteAllText(full,
+                $"""
+                ---
+                title: "Extra"
+                app: demo
+                order: 2
+                audience: beginner
+                goal: |
+                  Fixture template.
+                tier: stub
+                ---
+
+                # Extra
+
+                {body}
+
+                """);
+        }
+
+        /// <summary>Rewrites the demo manifest verbatim.</summary>
+        public void WriteManifest(string yaml) =>
+            global::System.IO.File.WriteAllText(
+                global::System.IO.Path.Join(_root, "docs", "_pipeline", "apps", "demo", "doc-manifest.yaml"),
+                yaml);
+
+        private string ImagePath(string relative) =>
+            global::System.IO.Path.Join(_root, "docs", "guide", "images",
+                relative.Replace('/', global::System.IO.Path.DirectorySeparatorChar));
 
         public (int ExitCode, string Output) Compile(params string[] args)
         {

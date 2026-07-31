@@ -177,7 +177,7 @@ internal static class ScreenshotCapture
                     // controls-catalog index can refer to them without colliding with
                     // a full-size screenshot of the same id (spec 041 §6.3 + §12 Q7).
                     var isThumb = string.Equals(screenshot.Kind, "catalog-thumb", StringComparison.OrdinalIgnoreCase);
-                    var fileBase = isThumb ? $"{screenshot.Id}-thumb" : screenshot.Id;
+                    var fileBase = isThumb ? $"{screenshot.Id}{ImageProcessor.ThumbSuffix}" : screenshot.Id;
                     outputPath = Path.GetFullPath(Path.Combine(topicDir, $"{fileBase}.{screenshot.Format}"));
                     if (!outputPath.StartsWith(Path.GetFullPath(topicDir) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                         throw new InvalidOperationException($"Screenshot id '{screenshot.Id}' would escape output directory");
@@ -237,7 +237,7 @@ internal static class ScreenshotCapture
     /// same <see cref="BlankFrameException"/> it would have seen anyway rather
     /// than a misleading "no frame produced".
     /// </param>
-    private static async Task<byte[]> PollForFrame(
+    internal static async Task<byte[]> PollForFrame(
         HttpClient http, int port, TimeSpan deadline, bool requireContent = false)
     {
         var sw = global::System.Diagnostics.Stopwatch.StartNew();

@@ -196,8 +196,6 @@ internal static class ImageProcessor
         return cb < ContentThreshold || cg < ContentThreshold || cr < ContentThreshold;
     }
 
-    private static bool IsContent(Color p) => IsContent(p.B, p.G, p.R, p.A);
-
     /// <summary>
     /// True as soon as any pixel in <paramref name="region"/> is visible
     /// content. Same predicate as <see cref="CountContentPixels"/> but stops at
@@ -225,69 +223,64 @@ internal static class ImageProcessor
     }
 
     /// <summary>
-    /// Locates the tight bounding box of non-background content, or
+    /// Locates the tight bounding box of visible content, or
     /// <see langword="null"/> when the bitmap has none at all.
     /// </summary>
     /// <remarks>
-    /// The scan samples every other row/column for speed, exactly as it always
-    /// has. A frame that looks empty under that sampling is re-scanned at full
-    /// resolution before we report <see langword="null"/> — a false "blank"
-    /// verdict costs a real screenshot, so the cheap scan is only allowed to
-    /// say "yes, content".
+    /// <para>
+    /// One exact pass over the locked bits. The scan this replaced sampled every
+    /// other column (<c>x += 2</c>) for speed, which had two consequences: a
+    /// frame whose only content sat on odd columns was reported blank, and — the
+    /// worse of the two — a frame with content on <em>both</em> odd and even
+    /// columns returned a box drawn only around the even ones, silently cropping
+    /// real pixels away. The second failure was invisible because the result was
+    /// a plausible-looking screenshot, just missing an edge.
+    /// </para>
+    /// <para>
+    /// Sampling is not needed for speed here: the row-buffer read below is far
+    /// cheaper per pixel than <see cref="Bitmap.GetPixel"/>, so the exact pass
+    /// costs less than the sampled one it replaces.
+    /// </para>
     /// </remarks>
-    private static Rectangle? FindContentBounds(Bitmap bmp) =>
-        ScanContentBounds(bmp, step: 2) ?? ScanContentBounds(bmp, step: 1);
-
-    private static Rectangle? ScanContentBounds(Bitmap bmp, int step)
+    private static Rectangle? FindContentBounds(Bitmap bmp)
     {
-        int top = -1, bottom = -1, left = -1, right = -1;
+        var full = new Rectangle(0, 0, bmp.Width, bmp.Height);
+        if (full.Width <= 0 || full.Height <= 0) return null;
 
-        // Scan from top
-        for (int y = 0; y < bmp.Height; y++)
+        var data = bmp.LockBits(full, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        try
         {
-            if (RowHasContent(bmp, y, step)) { top = y; break; }
+            var row = new byte[full.Width * 4];
+            int top = -1, bottom = -1, left = int.MaxValue, right = -1;
+
+            for (int y = 0; y < full.Height; y++)
+            {
+                global::System.Runtime.InteropServices.Marshal.Copy(
+                    data.Scan0 + (y * data.Stride), row, 0, row.Length);
+
+                int rowLeft = -1, rowRight = -1;
+                for (int x = 0, i = 0; x < full.Width; x++, i += 4)
+                {
+                    // Format32bppArgb is BGRA in memory.
+                    if (!IsContent(row[i], row[i + 1], row[i + 2], row[i + 3])) continue;
+                    if (rowLeft < 0) rowLeft = x;
+                    rowRight = x;
+                }
+
+                if (rowLeft < 0) continue;
+                if (top < 0) top = y;
+                bottom = y;
+                if (rowLeft < left) left = rowLeft;
+                if (rowRight > right) right = rowRight;
+            }
+
+            if (top < 0) return null;
+            return new Rectangle(left, top, right - left + 1, bottom - top + 1);
         }
-
-        // No sampled pixel anywhere is below the threshold — nothing to bound.
-        if (top < 0) return null;
-
-        // Scan from bottom
-        for (int y = bmp.Height - 1; y >= top; y--)
+        finally
         {
-            if (RowHasContent(bmp, y, step)) { bottom = y; break; }
+            bmp.UnlockBits(data);
         }
-
-        // Scan from left
-        for (int x = 0; x < bmp.Width; x++)
-        {
-            if (ColumnHasContent(bmp, x, top, bottom, step)) { left = x; break; }
-        }
-
-        // Scan from right
-        for (int x = bmp.Width - 1; x >= left; x--)
-        {
-            if (ColumnHasContent(bmp, x, top, bottom, step)) { right = x; break; }
-        }
-
-        return new Rectangle(left, top, right - left + 1, bottom - top + 1);
-    }
-
-    private static bool RowHasContent(Bitmap bmp, int y, int step)
-    {
-        for (int x = 0; x < bmp.Width; x += step)
-        {
-            if (IsContent(bmp.GetPixel(x, y))) return true;
-        }
-        return false;
-    }
-
-    private static bool ColumnHasContent(Bitmap bmp, int x, int yStart, int yEnd, int step)
-    {
-        for (int y = yStart; y <= yEnd; y += step)
-        {
-            if (IsContent(bmp.GetPixel(x, y))) return true;
-        }
-        return false;
     }
 
     /// <summary>
@@ -359,6 +352,19 @@ internal static class ImageProcessor
     }
 
     /// <summary>
+    /// Filename suffix the pipeline reserves for catalog thumbnails.
+    /// </summary>
+    internal const string ThumbSuffix = "-thumb";
+
+    /// <summary>
+    /// True when <paramref name="path"/> carries the reserved catalog-thumbnail
+    /// suffix, i.e. it was written by <see cref="ProcessThumb"/> and has no chrome.
+    /// </summary>
+    internal static bool HasThumbSuffix(string path) =>
+        Path.GetFileNameWithoutExtension(path)
+            .EndsWith(ThumbSuffix, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Region of a committed image the blank-screenshot gate should score.
     /// </summary>
     /// <remarks>
@@ -367,12 +373,20 @@ internal static class ImageProcessor
     /// thumbnails are written by <see cref="ProcessThumb"/>, which draws no
     /// border and no shadow — insetting one would silently ignore up to 10&#160;px
     /// of real content along its right and bottom edges and could report a
-    /// perfectly good thumbnail as blank. The pipeline names them
-    /// <c>&lt;id&gt;-thumb.&lt;ext&gt;</c> (see <c>ScreenshotCapture</c>), which is the
-    /// only signal available from a committed file on disk.
+    /// perfectly good thumbnail as blank.
+    /// <para>
+    /// The filename is the only signal a committed file on disk carries, so
+    /// <see cref="ThumbSuffix"/> is <em>reserved</em>: <c>docs compile</c> rejects a
+    /// non-<c>catalog-thumb</c> manifest entry whose id ends in it
+    /// (<c>REACTOR_DOC_SHOT_002</c>). Without that reservation a full-size
+    /// screenshot could be named <c>foo-thumb</c>, get scored whole, and hide a
+    /// blank capture behind its own border — the exact failure this gate exists
+    /// to catch. The inference is sound because the reservation makes the
+    /// collision unrepresentable, not because the convention is usually followed.
+    /// </para>
     /// </remarks>
     internal static Rectangle ContentRegionFor(string path, int width, int height) =>
-        Path.GetFileNameWithoutExtension(path).EndsWith("-thumb", StringComparison.OrdinalIgnoreCase)
+        HasThumbSuffix(path)
             ? new Rectangle(0, 0, width, height)
             : InteriorRegion(width, height);
 
