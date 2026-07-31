@@ -107,40 +107,13 @@ public class FlyoutPlacementGuardTests
     private const string HelperFileName = "FlyoutPlacement.cs";
 
     /// <summary>
-    /// Other single-purpose helpers that own a flyout placement write. A write inside one of
-    /// these is the choke point, not a bypass.
+    /// The <c>CommandBarFlyout</c> reconciler methods, which used to carry their own
+    /// placement helper (<c>Reconciler.ApplyFlyoutPlacement</c>) and their own exemption from
+    /// the bypass test below. The two helpers silently diverged while that exemption stood, so
+    /// these names are kept — now to assert the opposite: that they route through the one
+    /// choke point like every other flyout site.
     /// </summary>
-    /// <remarks>
-    /// <c>ApplyFlyoutPlacement</c> is the sibling helper introduced alongside the
-    /// <c>CommandBarFlyout</c> wiring fix. Listing it here keeps this guard meaningful across
-    /// that change instead of firing on a legitimate choke point; the two are expected to
-    /// converge on one helper afterwards.
-    /// </remarks>
-    private static readonly string[] PlacementHelperMethods =
-    [
-        "ApplyFlyoutPlacement",
-    ];
-
-    /// <summary>
-    /// Methods owned by the <c>CommandBarFlyout</c> wiring fix rather than by this change.
-    /// This guard takes no position on what they do with placement.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Those sites are guarded by <c>Reconciler.ApplyFlyoutPlacement</c>, not by
-    /// <c>FlyoutPlacement.Apply</c> — <b>not</b> because <c>CommandBarFlyout</c> is unaffected
-    /// by the crash. It is affected: it simply never reached the validator, because the flyout
-    /// was installed as <c>AttachedFlyout</c> metadata that nothing ever called
-    /// <c>ShowAttachedFlyout</c> on. Once that wiring was fixed, a default
-    /// <see cref="FlyoutPlacementMode.Auto"/> reached <c>ShowAtCore</c> and fail-fasted exactly
-    /// as it did for <c>Flyout</c>.
-    /// </para>
-    /// <para>
-    /// Keyed by method name so it holds regardless of whether those methods write placement
-    /// directly or route it through a helper.
-    /// </para>
-    /// </remarks>
-    private static readonly string[] MethodsOwnedElsewhere =
+    private static readonly string[] CommandBarFlyoutPlacementMethods =
     [
         "MountCommandBarFlyout",
         "UpdateCommandBarFlyout",
@@ -149,12 +122,8 @@ public class FlyoutPlacementGuardTests
     [Fact]
     public void No_Flyout_Placement_Write_Bypasses_FlyoutPlacement()
     {
-        var writes = ScanCoreForFlyoutPlacementWrites();
-
-        var bypasses = writes
+        var bypasses = ScanCoreForFlyoutPlacementWrites()
             .Where(w => !string.Equals(Path.GetFileName(w.File), HelperFileName, StringComparison.Ordinal))
-            .Where(w => !PlacementHelperMethods.Contains(w.Method, StringComparer.Ordinal))
-            .Where(w => !MethodsOwnedElsewhere.Contains(w.Method, StringComparer.Ordinal))
             .Select(w => $"{Path.GetFileName(w.File)}({w.Line}) in {w.Method}: {w.Text}")
             .OrderBy(s => s, StringComparer.Ordinal)
             .ToList();
@@ -164,23 +133,55 @@ public class FlyoutPlacementGuardTests
             "These sites write FlyoutBase.Placement directly instead of routing through " +
             "FlyoutPlacement.Apply, which lets FlyoutPlacementMode.Auto reach WinUI's validator " +
             "and terminate the process when the flyout is shown: " +
-            $"[{string.Join("; ", bypasses)}]. Route the write through FlyoutPlacement.Apply, or " +
-            $"— if it is itself a placement helper — add the method to {nameof(PlacementHelperMethods)}.");
+            $"[{string.Join("; ", bypasses)}]. Route the write through FlyoutPlacement.Apply. " +
+            "There is deliberately no exemption list: a second helper for this DP is exactly " +
+            "what issue #953 retired, after the first pair diverged unnoticed behind one.");
     }
 
     [Fact]
-    public void CommandBarFlyout_Sites_Are_Left_To_The_Wiring_Fix()
+    public void FlyoutPlacement_Is_The_Only_File_That_Writes_The_Dp()
     {
-        // Documents the partition rather than asserting a behaviour: whatever the
-        // CommandBarFlyout methods do with placement, this guard must not flag it, and this
-        // change must not be the thing that guards them. Deliberately tolerates both states
-        // — direct writes today, helper-routed once the wiring fix lands — so neither PR
-        // breaks the other regardless of merge order.
-        var exempt = ScanCoreForFlyoutPlacementWrites()
-            .Where(w => MethodsOwnedElsewhere.Contains(w.Method, StringComparer.Ordinal))
+        // The class summary claims FlyoutPlacement is "the single choke point for pushing a
+        // Reactor element's Placement onto a live WinUI FlyoutBase". Make that literally true
+        // rather than aspirational. Equality (not "contains") so this fails in both
+        // directions: a second writer fails, and so does a scan that silently found nothing.
+        var files = ScanCoreForFlyoutPlacementWrites()
+            .Select(w => Path.GetFileName(w.File))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(f => f, StringComparer.Ordinal)
             .ToList();
 
-        Assert.All(exempt, w => Assert.Contains("CommandBarFlyout", w.Method, StringComparison.Ordinal));
+        Assert.Equal([HelperFileName], files);
+    }
+
+    [Fact]
+    public void CommandBarFlyout_Sites_Route_Through_The_Choke_Point()
+    {
+        // The half the bypass test cannot see: a method that stopped applying placement
+        // altogether writes nothing, so it would pass "no direct write" vacuously. Assert the
+        // positive — these methods still call FlyoutPlacement.Apply — so dropping the call,
+        // renaming the method, or reintroducing a private helper all fail here.
+        //
+        // Scope: method granularity, deliberately. A syntactic scan cannot tell which branch
+        // of UpdateCommandBarFlyout a call sits in, so per-branch coverage is left to the
+        // selftests that open a real flyout (CbfReset_AutoRestoresDefaultPlacement drives the
+        // reuse-existing branch; CbfAuto_OpenedWithoutFailFast the mount branch).
+        var routed = ScanCoreForChokePointCalls()
+            .Select(c => c.Method)
+            .ToHashSet(StringComparer.Ordinal);
+
+        // Anti-vacuity: a call scanner that matched nothing would make the assertion below
+        // fail rather than pass, but pin a known-routed non-CommandBarFlyout site too so a
+        // scanner that only ever matches one shape is visible.
+        Assert.Contains("MountFlyout", routed);
+
+        Assert.All(
+            CommandBarFlyoutPlacementMethods,
+            method => Assert.True(
+                routed.Contains(method),
+                $"{method} no longer calls FlyoutPlacement.Apply. It is one of the two sites " +
+                "that used to own a duplicate placement helper; placement there must go " +
+                "through the shared choke point."));
     }
 
     [Fact]
@@ -248,11 +249,12 @@ public class FlyoutPlacementGuardTests
     }
 
     [Fact]
-    public void Scanner_Scopes_The_Exemption_To_The_Enclosing_Method()
+    public void Scanner_Attributes_Each_Write_To_Its_Enclosing_Method()
     {
-        // The CommandBarFlyout carve-out is keyed by method name, so prove two identical
-        // writes are classified differently purely by which method they sit in — otherwise
-        // the exemption could silently swallow a real bypass elsewhere in the same file.
+        // Both the bypass failure message and
+        // CommandBarFlyout_Sites_Route_Through_The_Choke_Point key off the enclosing method
+        // name, so prove two identical writes in one file are attributed to the method they
+        // actually sit in — not to the file, and not to "<none>".
         const string source = """
             class Sample
             {
@@ -272,27 +274,55 @@ public class FlyoutPlacementGuardTests
             .ToDictionary(w => w.Method, w => w);
 
         Assert.Equal(2, byMethod.Count);
-        Assert.Contains("MountCommandBarFlyout", MethodsOwnedElsewhere);
-        Assert.DoesNotContain("MountFlyout", MethodsOwnedElsewhere);
-        Assert.DoesNotContain("MountFlyout", PlacementHelperMethods);
-        Assert.Equal("MountCommandBarFlyout", byMethod["MountCommandBarFlyout"].Method);
-        Assert.Equal("MountFlyout", byMethod["MountFlyout"].Method);
+        Assert.Contains("new WinUI.CommandBarFlyout", byMethod["MountCommandBarFlyout"].Text, StringComparison.Ordinal);
+        Assert.Contains("new WinUI.Flyout", byMethod["MountFlyout"].Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Scanner_Finds_Choke_Point_Calls_Regardless_Of_Qualification()
+    {
+        // Anti-vacuity for CommandBarFlyout_Sites_Route_Through_The_Choke_Point: a call
+        // matcher that missed the shape actually used in src/Reactor would turn that test
+        // into a permanent failure rather than a silent pass, but a matcher that is too
+        // loose is the real risk — prove it ignores same-named Apply calls on other owners.
+        const string source = """
+            class Sample
+            {
+                void MountFlyout()
+                {
+                    FlyoutPlacement.Apply(flyout, flyEl.Placement);
+                    Core.FlyoutPlacement.Apply(flyout, flyEl.Placement);
+                    SomethingElse.Apply(flyout, flyEl.Placement);
+                    FlyoutPlacement.ShouldApply(flyEl.Placement);
+                }
+            }
+            """;
+
+        var calls = FindChokePointCalls("synthetic.cs", source).ToList();
+
+        Assert.Equal(2, calls.Count);
+        Assert.All(calls, c => Assert.Equal("MountFlyout", c.Method));
     }
 
     // ── scanning helpers ────────────────────────────────────────────
 
     private readonly record struct PlacementWrite(string File, int Line, string Method, string Text);
 
-    // Four [Fact]s consume these; walking src/Reactor and Roslyn-parsing every file once per
+    private readonly record struct ChokePointCall(string File, int Line, string Method);
+
+    // Five [Fact]s consume these; walking src/Reactor and Roslyn-parsing every file once per
     // test is pure overhead. Lazy also caches the assertion failure, so a broken repo-root
     // lookup reports identically in every test instead of racing. Mirrors the memoization in
     // AnalyzerTests/SetEventSubscriptionConsistencyTests.
     private static readonly Lazy<List<string>> s_coreSourceFiles = new(FindCoreSourceFiles);
     private static readonly Lazy<List<PlacementWrite>> s_placementWrites = new(ScanCore);
+    private static readonly Lazy<List<ChokePointCall>> s_chokePointCalls = new(ScanCoreForCalls);
 
     private static List<string> CoreSourceFiles() => s_coreSourceFiles.Value;
 
     private static List<PlacementWrite> ScanCoreForFlyoutPlacementWrites() => s_placementWrites.Value;
+
+    private static List<ChokePointCall> ScanCoreForChokePointCalls() => s_chokePointCalls.Value;
 
     private static List<string> FindCoreSourceFiles()
     {
@@ -317,6 +347,36 @@ public class FlyoutPlacementGuardTests
         return writes;
     }
 
+    private static List<ChokePointCall> ScanCoreForCalls()
+    {
+        var calls = new List<ChokePointCall>();
+        foreach (var file in CoreSourceFiles())
+            calls.AddRange(FindChokePointCalls(file, File.ReadAllText(file)));
+        return calls;
+    }
+
+    /// <summary>
+    /// Finds calls to the choke point itself — <c>FlyoutPlacement.Apply(...)</c>, however
+    /// <c>FlyoutPlacement</c> is qualified — so a site can be asserted to route through it
+    /// rather than merely to contain no direct write.
+    /// </summary>
+    private static IEnumerable<ChokePointCall> FindChokePointCalls(string file, string source)
+    {
+        var tree = CSharpSyntaxTree.ParseText(source);
+
+        foreach (var invocation in tree.GetCompilationUnitRoot().DescendantNodes().OfType<InvocationExpressionSyntax>())
+        {
+            if (invocation.Expression is not MemberAccessExpressionSyntax
+                { Name.Identifier.Text: "Apply", Expression: var owner }) continue;
+            if (LeafName(owner) != nameof(FlyoutPlacement)) continue;
+
+            yield return new ChokePointCall(
+                file,
+                invocation.GetLocation().GetLineSpan().StartLinePosition.Line + 1,
+                EnclosingMethodName(invocation));
+        }
+    }
+
     /// <summary>
     /// Finds writes that land on a live WinUI <c>FlyoutBase.Placement</c> DP:
     /// <list type="bullet">
@@ -328,9 +388,10 @@ public class FlyoutPlacementGuardTests
     /// <item><c>SetValue(FlyoutBase.PlacementProperty, ...)</c> and
     /// <c>SetCurrentValue(...)</c> — the DP escape hatches that bypass the CLR property.</item>
     /// </list>
-    /// The match is syntactic (no semantic model, so the scan needs no compilation), which
-    /// is why <see cref="NonFlyoutPlacementWriteFiles"/> exists as the deliberate escape
-    /// valve for a future non-flyout <c>Placement</c> setter.
+    /// The match is syntactic (no semantic model, so the scan needs no compilation), which is
+    /// why it keys on the <c>FlyoutBase</c> qualifier for the DP forms and on a
+    /// <c>...Flyout</c> type name for object initializers: a future non-flyout <c>Placement</c>
+    /// setter (a <c>TeachingTip</c>, say) must not be mistaken for a bypass.
     /// </summary>
     private static IEnumerable<PlacementWrite> FindPlacementWrites(string file, string source)
     {
@@ -397,9 +458,10 @@ public class FlyoutPlacementGuardTests
                text);
 
     /// <summary>
-    /// Nearest enclosing method/accessor/local-function name, used to scope the
-    /// <see cref="AutoTolerantFlyoutMethods"/> exemption to a stable identifier rather
-    /// than to a file or a line number.
+    /// Nearest enclosing method/accessor/local-function name. Names the offending site in the
+    /// bypass failure message, and is what
+    /// <see cref="CommandBarFlyout_Sites_Route_Through_The_Choke_Point"/> matches against —
+    /// a stable identifier rather than a file or a line number.
     /// </summary>
     private static string EnclosingMethodName(SyntaxNode node)
     {

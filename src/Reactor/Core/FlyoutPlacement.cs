@@ -45,14 +45,17 @@ namespace Microsoft.UI.Reactor.Core;
 /// mount of the same element.
 /// </para>
 /// <para>
-/// <c>CommandBarFlyout</c>'s three placement sites are guarded by the equivalent
-/// <c>Reconciler.ApplyFlyoutPlacement</c>, introduced by the change that fixed
-/// <c>CommandBarFlyout</c> never opening from its target. The two now behave identically;
-/// folding them into one helper is a mechanical follow-up. <c>CommandBarFlyout</c> is affected
-/// by the same crash: it simply never reached the validator beforehand, because the flyout was
-/// installed as <c>AttachedFlyout</c> metadata that nothing ever called
-/// <c>ShowAttachedFlyout</c> on. A latent crash masked by a separate defect reads exactly like
-/// a working code path.
+/// <c>CommandBarFlyout</c>'s three placement sites route through here too. They briefly had
+/// their own equivalent helper — introduced by the change that fixed <c>CommandBarFlyout</c>
+/// never opening from its target — which drifted from this one until the two were reconciled
+/// and folded together. <c>CommandBarFlyout</c> is affected by the same crash: it simply never
+/// reached the validator beforehand, because the flyout was installed as <c>AttachedFlyout</c>
+/// metadata that nothing ever called <c>ShowAttachedFlyout</c> on. A latent crash masked by a
+/// separate defect reads exactly like a working code path. The
+/// <c>FlyoutPlacement_Is_The_Only_File_That_Writes_The_Dp</c> unit guard now holds this file
+/// to being the only one under <c>src/Reactor</c> that writes the DP, and
+/// <c>CommandBarFlyout_Sites_Route_Through_The_Choke_Point</c> holds those three sites to
+/// calling <see cref="Apply"/>, so a second helper cannot reappear unnoticed.
 /// </para>
 /// </remarks>
 internal static class FlyoutPlacement

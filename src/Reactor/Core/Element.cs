@@ -6735,12 +6735,11 @@ public record CommandBarFlyoutElement(
     /// <see cref="FlyoutPlacementMode.Auto"/>, meaning "no opinion — let the platform decide".
     /// </summary>
     /// <remarks>
-    /// These sites are guarded by <c>Reconciler.ApplyFlyoutPlacement</c> rather than by
-    /// <c>FlyoutPlacement.Apply</c>, because they are owned by the change that fixed
-    /// <c>CommandBarFlyout</c> never opening from its target. Both prevent <c>Auto</c> from
-    /// reaching WinUI's show-time validator, which rejects it; they differ only on an update
-    /// back to <c>Auto</c>, where this one clears the DP so it returns to the platform
-    /// default rather than retaining the last explicit value.
+    /// Pushed onto the live flyout by <c>FlyoutPlacement.Apply</c>, the single choke point
+    /// shared with <c>Flyout</c>, <c>ContentFlyout</c> and <c>MenuFlyout</c>. It keeps
+    /// <c>Auto</c> away from WinUI's show-time validator, which rejects it, by clearing the DP
+    /// rather than writing the value through — so an explicit → <c>Auto</c> update returns to
+    /// the platform default instead of stranding the last explicit value.
     /// </remarks>
     public FlyoutPlacementMode Placement { get; init; } = FlyoutPlacementMode.Auto;
     internal Action<WinUI.CommandBarFlyout>[] Setters { get; init; } = [];

@@ -419,7 +419,7 @@ internal static class OverlayLifecycle
         if (target is FrameworkElement targetFe)
         {
             var flyout = new WinUI.CommandBarFlyout();
-            Reconciler.ApplyFlyoutPlacement(flyout, cbf.Placement);
+            FlyoutPlacement.Apply(flyout, cbf.Placement);
             if (cbf.PrimaryCommands is not null)
                 foreach (var cmd in cbf.PrimaryCommands) flyout.PrimaryCommands.Add(MenuCommandFactory.CreateAppBarItem(cmd));
             if (cbf.SecondaryCommands is not null)
@@ -468,7 +468,7 @@ internal static class OverlayLifecycle
             if (existing is null)
             {
                 var flyout = new WinUI.CommandBarFlyout();
-                Reconciler.ApplyFlyoutPlacement(flyout, n.Placement);
+                FlyoutPlacement.Apply(flyout, n.Placement);
                 if (n.PrimaryCommands is not null)
                     foreach (var cmd in n.PrimaryCommands) flyout.PrimaryCommands.Add(MenuCommandFactory.CreateAppBarItem(cmd));
                 if (n.SecondaryCommands is not null)
@@ -479,7 +479,7 @@ internal static class OverlayLifecycle
             }
             else
             {
-                Reconciler.ApplyFlyoutPlacement(existing, n.Placement);
+                FlyoutPlacement.Apply(existing, n.Placement);
                 if (commandsChanged)
                 {
                     existing.PrimaryCommands.Clear();
