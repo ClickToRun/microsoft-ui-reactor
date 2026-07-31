@@ -312,7 +312,7 @@ public class DataGridState<T>
     }
 
     /// <summary>
-    /// Delegate installed by <see cref="Controls.DataGridComponent{T}"/> each render to
+    /// Delegate installed by <see cref="DataGridComponent{T}"/> each render to
     /// route row-commit dispatch through a <c>UseMutation</c> hook. Static helpers in
     /// the component (<c>HandleKeyDown</c>, <c>RenderRow</c>) invoke it synchronously, on
     /// the thread that committed the edit, instead of spinning up their own <c>Task.Run</c>;
@@ -334,7 +334,7 @@ public class DataGridState<T>
     /// lifecycle (<see cref="BeginAsyncCommit"/>, then <see cref="CompleteAsyncCommit"/> or
     /// <see cref="FailAsyncCommit"/>). Skip the lifecycle calls and the row never shows a
     /// committing state, an error banner, or an optimistic revert. Note that a grid rendered
-    /// through <see cref="Controls.DataGridComponent{T}"/> reassigns this property on every
+    /// through <see cref="DataGridComponent{T}"/> reassigns this property on every
     /// render, so a custom dispatcher only survives on a state you drive yourself.
     /// </remarks>
     public Action<RowKey, T, T?>? CommitDispatcher { get; set; }

@@ -195,19 +195,28 @@ public class DataGridCommitThreadingTests
             InvokeHandleAsyncCommit(state, element, (RowKey)1, new TestItem(1, "Alice edited"), new TestItem(1, "Alice"));
         });
 
+        // One budget shared by the two waits below, so a hung regression costs Timeout once for the
+        // test rather than once per wait.
+        var startedAt = Environment.TickCount64;
+        TimeSpan Remaining()
+        {
+            var left = Timeout - TimeSpan.FromMilliseconds(Environment.TickCount64 - startedAt);
+            return left > TimeSpan.Zero ? left : TimeSpan.Zero;
+        }
+
         committer.Start();
 
         // The callback never blocks, so this join is safe against every shape being tested: the
         // contracted arm offloads and returns, and a regression that ran the callback inline still
         // returns promptly and fails below on where it ran rather than hanging the run.
-        var joined = committer.Join(Timeout);
+        var joined = committer.Join(Remaining());
 
         var entered = true;
         var onPool = false;
 
         try
         {
-            onPool = await callbackOnPool.Task.WaitAsync(Timeout, ct);
+            onPool = await callbackOnPool.Task.WaitAsync(Remaining(), ct);
         }
         catch (TimeoutException)
         {
