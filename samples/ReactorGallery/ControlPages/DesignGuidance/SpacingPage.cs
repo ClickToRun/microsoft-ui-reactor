@@ -75,7 +75,7 @@ class SpacingPage : Component
     static Element MarginVsPaddingSection() =>
         SampleCard("Margin vs Padding",
             VStack(16,
-                TextBlock("Margin adds space outside an element; Padding adds space inside. In Reactor, .Padding() only works on Border and Control elements (Button, TextBox, etc.). Layout panels like VStack and HStack only support .Margin() — wrap content in a Border if you need inner padding on a stack.")
+                TextBlock("Margin adds space outside an element; Padding adds space inside. In Reactor, .Padding() works on Border, Control-based elements (Button, TextBox, etc.), StackPanel-based layout panels (VStack, HStack), and TextBlock-based text. It is not applied to Grid or Image — wrap them in a Border if you need inner padding.")
                     .Foreground(Theme.SecondaryText)
                     .FontSize(13)
                     .TextWrapping(TextWrapping.Wrap)
@@ -141,25 +141,27 @@ class SpacingPage : Component
                     CompatRow("Border",    true,  true),
                     CompatRow("Button",    true,  true),
                     CompatRow("TextBox",   true,  true),
-                    CompatRow("Text",      true,  false),
-                    CompatRow("VStack",    true,  false),
-                    CompatRow("HStack",    true,  false),
+                    CompatRow("Text",      true,  true),
+                    CompatRow("VStack",    true,  true),
+                    CompatRow("HStack",    true,  true),
                     CompatRow("Grid",      true,  false),
                     CompatRow("Image",     true,  false)
                 )
             ),
             @"// Margin — works on ALL elements
 TextBlock(""Hello"").Margin(8)
-VStack(children).Margin(16)
-Border(child).Margin(12)
+VStack(TextBlock(""A""), TextBlock(""B"")).Margin(16)
+Border(TextBlock(""Content"")).Margin(12)
 
-// Padding — only on Border and Control (Button, TextBox, etc.)
-Border(child).Padding(16)    // ✓ works
-Button(""Go"").Padding(12)    // ✓ works
+// Padding — Border, Control, StackPanel and TextBlock
+Border(TextBlock(""Content"")).Padding(16)               // ✓ works
+Button(""Go"").Padding(12)                               // ✓ works
+VStack(8, TextBlock(""A""), TextBlock(""B"")).Padding(16)  // ✓ works
+TextBlock(""Hello"").Padding(8)                          // ✓ works
 
-// VStack/HStack don't support Padding — wrap in Border instead:
+// .Padding() is not applied to Grid — wrap in Border instead:
 Border(
-    VStack(8, items)
+    Grid(columns: [GridSize.Star()], rows: [GridSize.Auto], TextBlock(""Cell""))
 ).Padding(16)  // ✓ padding applied to the Border");
 
     static Element CompatRow(string element, bool margin, bool padding) =>
@@ -245,13 +247,13 @@ element.Margin(4, 8, 16, 24)");
                 PaddingDemo("Per-side (4, 8, 16, 24)", 4, 8, 16, 24)
             ),
             @"// Uniform — same on all sides
-Border(child).Padding(16)
+Border(TextBlock(""Content"")).Padding(16)
 
 // Horizontal, Vertical
-Border(child).Padding(horizontal: 24, vertical: 8)
+Border(TextBlock(""Content"")).Padding(horizontal: 24, vertical: 8)
 
 // Per-side: left, top, right, bottom
-Border(child).Padding(4, 8, 16, 24)");
+Border(TextBlock(""Content"")).Padding(4, 8, 16, 24)");
 
     static Element PaddingDemo(string label, double l, double t, double r, double b) =>
         VStack(2,
