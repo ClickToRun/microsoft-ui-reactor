@@ -1,4 +1,5 @@
 using Microsoft.UI.Reactor.Controls;
+using Microsoft.UI.Reactor.Controls.Validation;
 using Microsoft.UI.Reactor.Data;
 using Xunit;
 using VirtualKey = global::Windows.System.VirtualKey;
@@ -94,6 +95,32 @@ public class DataGridRowEditKeyboardTests
     private static void Key(DataGridState<TestItem> state, DataGridElement<TestItem> el, VirtualKey key)
         => DataGridComponent<TestItem>.HandleKeyDownForTests(state, el, key);
 
+    // Same shape as Columns, except Name carries a Required validator so a blank pending value
+    // makes CommitRowEdit() bail out and leave the row open.
+    private static readonly FieldDescriptor[] ValidatedColumns =
+    [
+        Columns[IdCol],
+        Columns[NameCol] with { Validators = [Validate.Required()] },
+        Columns[ScoreCol],
+    ];
+
+    private static async Task<DataGridState<TestItem>> ValidatedState()
+    {
+        var state = new DataGridState<TestItem>(new TestDataSource(), ValidatedColumns, SelectionMode.None);
+        await state.LoadDataAsync();
+        return state;
+    }
+
+    private static DataGridElement<TestItem> ValidatedGrid() => new()
+    {
+        Source = new TestDataSource(),
+        Columns = ValidatedColumns,
+        Editable = true,
+        EditMode = EditMode.Row,
+        SelectionMode = SelectionMode.None,
+        OnRowChanged = null,
+    };
+
     private static TestItem Row(DataGridState<TestItem> state, int index)
         => state.GetItemAt(index)!;
 
@@ -183,16 +210,19 @@ public class DataGridRowEditKeyboardTests
         // BeginRowEdit snapshots pending values from the FULL column list, so a hidden editable
         // column lands in _rowEditValues even though the row renders no editor for it. Tab must
         // not park focus on a cell the user cannot see.
-        state.HideColumn("Score");
-        state.SetFocus(0, NameCol);
+        state.HideColumn("Name");
+        state.SetFocus(0, IdCol);
         Assert.True(state.BeginRowEdit(0));
-        Assert.True(state.GetRowEditValue("Score") is not null);
+        Assert.True(state.GetRowEditValue("Name") is not null);
 
         Key(state, el, VirtualKey.Tab);
 
-        // Only Name is both editable and visible, so Tab stays on it instead of moving to Score.
-        Assert.Equal(NameCol, state.FocusedColIndex);
-        Assert.NotEqual(ScoreCol, state.FocusedColIndex);
+        // Name is the very next column and IS in _rowEditValues, so a traversal that ignored
+        // visibility would stop there. Landing on Score instead proves the hidden column was
+        // stepped over — and the move off IdCol proves the traversal ran at all.
+        Assert.Equal(ScoreCol, state.FocusedColIndex);
+        Assert.NotEqual(NameCol, state.FocusedColIndex);
+        Assert.NotEqual(IdCol, state.FocusedColIndex);
         Assert.Equal(0, state.FocusedRowIndex);
         Assert.True(state.IsRowEditing);
     }
@@ -212,6 +242,53 @@ public class DataGridRowEditKeyboardTests
         Assert.False(state.FocusNextRowEditColumn());
         Assert.Equal(IdCol, state.FocusedColIndex);
         Assert.True(state.IsRowEditing);
+
+        // Differential isolation: the ONLY thing that changes here is Name's visibility, so the
+        // false above has to be the visibility check talking and not a method that never moves.
+        state.ShowColumn("Name");
+        Assert.True(state.FocusNextRowEditColumn());
+        Assert.Equal(NameCol, state.FocusedColIndex);
+    }
+
+    [Fact]
+    public async Task FocusPrevRowEditColumn_WalksBackwardAndWraps()
+    {
+        var state = await LoadedState();
+
+        // Start on the read-only Id column. With only Name and Score editable, that is the one
+        // position where forward and backward traversal disagree — from anywhere else the two
+        // directions ping-pong between the same two columns, so a test that started elsewhere
+        // would pass even if this method walked forward.
+        state.SetFocus(0, IdCol);
+        Assert.True(state.BeginRowEdit(0));
+
+        // Backward off column 0 wraps to the LAST editable column, not the first.
+        Assert.True(state.FocusPrevRowEditColumn());
+        Assert.Equal(ScoreCol, state.FocusedColIndex);
+
+        Assert.True(state.FocusPrevRowEditColumn());
+        Assert.Equal(NameCol, state.FocusedColIndex);
+        Assert.NotEqual(IdCol, state.FocusedColIndex); // read-only column is skipped both ways
+        Assert.Equal(0, state.FocusedRowIndex);
+        Assert.True(state.IsRowEditing);
+
+        // Differential isolation: same grid, same start, only the direction differs.
+        var forward = await LoadedState();
+        forward.SetFocus(0, IdCol);
+        Assert.True(forward.BeginRowEdit(0));
+        Assert.True(forward.FocusNextRowEditColumn());
+        Assert.Equal(NameCol, forward.FocusedColIndex);
+        Assert.NotEqual(ScoreCol, forward.FocusedColIndex);
+    }
+
+    [Fact]
+    public async Task FocusPrevRowEditColumn_ReturnsFalse_WhenNotRowEditing()
+    {
+        var state = await LoadedState();
+        state.SetFocus(0, ScoreCol);
+
+        Assert.False(state.FocusPrevRowEditColumn());
+        Assert.Equal(ScoreCol, state.FocusedColIndex);
     }
 
     // ── Enter / Escape go to the ROW api, not the cell api ───────────
@@ -238,6 +315,43 @@ public class DataGridRowEditKeyboardTests
         Assert.False(state.IsEditing);
         Assert.Null(state.EditingRowKey);
         Assert.Null(state.GetRowEditValue("Name"));
+    }
+
+    [Fact]
+    public async Task RowEditEnter_WithValidationError_KeepsTheRowOpenAndCommitsNothing()
+    {
+        var state = await ValidatedState();
+        var el = ValidatedGrid();
+
+        Assert.True(state.BeginRowEdit(0));
+        state.UpdateRowEditValue("Name", "");        // fails Validate.Required()
+        state.UpdateRowEditValue("Score", 100.0);    // valid, but must not sneak through
+
+        var validation = state.EditValidation;
+        Assert.NotNull(validation);
+        Assert.False(validation!.IsValid());
+
+        Key(state, el, VirtualKey.Enter);
+
+        // CommitRowEdit() returns null on a validation failure and leaves the row in edit mode, so
+        // the Enter branch must not clear state or half-apply the row behind it.
+        Assert.True(state.IsRowEditing);
+        Assert.NotNull(state.EditingRowKey);
+        Assert.Equal("Alice", Row(state, 0).Name);
+        Assert.Equal(95.0, Row(state, 0).Score);
+
+        // The pending edits are still there for the user to fix.
+        Assert.Equal("", state.GetRowEditValue("Name"));
+        Assert.Equal(100.0, state.GetRowEditValue("Score"));
+
+        // Fixing the error and pressing Enter again commits — proving the block above was the
+        // validator talking, not an Enter branch that never commits.
+        state.UpdateRowEditValue("Name", "Alicia");
+        Key(state, el, VirtualKey.Enter);
+
+        Assert.False(state.IsRowEditing);
+        Assert.Equal("Alicia", Row(state, 0).Name);
+        Assert.Equal(100.0, Row(state, 0).Score);
     }
 
     [Fact]

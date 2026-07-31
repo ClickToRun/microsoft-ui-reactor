@@ -1375,7 +1375,27 @@ public class DataGridState<T>
     /// XAML <c>Focus</c>. Real keyboard focus between the row's editors is WinUI's FocusManager tab
     /// order, which runs before the grid's <c>handledEventsToo</c> KeyDown handler.
     /// </remarks>
-    public bool FocusNextRowEditColumn()
+    public bool FocusNextRowEditColumn() => MoveRowEditFocus(+1);
+
+    /// <summary>
+    /// Move the grid's logical cell cursor back to the previous visible column taking part in the
+    /// active row edit, wrapping to the last one before the first. The Shift+Tab counterpart of
+    /// <see cref="FocusNextRowEditColumn"/>, with the same never-commit guarantee. Returns false
+    /// when no row edit is active, or when no visible column in the row has an editor.
+    /// </summary>
+    /// <remarks>
+    /// The grid's own KeyDown handler cannot call this today — it forwards only the raw key with no
+    /// modifier state, so it never sees Shift+Tab. It is public for the same reason
+    /// <see cref="FocusPrevCell"/> is: app authors driving custom keyboard handling need both
+    /// directions. The logical-cursor caveat on <see cref="FocusNextRowEditColumn"/> applies here too.
+    /// </remarks>
+    public bool FocusPrevRowEditColumn() => MoveRowEditFocus(-1);
+
+    /// <summary>
+    /// Shared traversal for <see cref="FocusNextRowEditColumn"/> / <see cref="FocusPrevRowEditColumn"/>.
+    /// </summary>
+    /// <param name="direction">+1 to walk forward, -1 to walk backward.</param>
+    private bool MoveRowEditFocus(int direction)
     {
         if (!_isRowEditing || _rowEditValues is null) return false;
 
@@ -1387,11 +1407,11 @@ public class DataGridState<T>
         // editors do. BeginRowEdit snapshots from the full column list, so hidden columns can be
         // in there without a rendered editor — skip those too. _focusedColIndex is -1 when the row
         // edit began from the Edit button with no prior cell focus; the double modulo maps that to
-        // the first column. Indices are into the full _columns list, matching FocusNextCell and
-        // every other focus API.
+        // the first column going forward. Indices are into the full _columns list, matching
+        // FocusNextCell and every other focus API.
         for (int step = 1; step <= colCount; step++)
         {
-            var idx = ((_focusedColIndex + step) % colCount + colCount) % colCount;
+            var idx = ((_focusedColIndex + (step * direction)) % colCount + colCount) % colCount;
             var name = _columns[idx].Name;
             if (_rowEditValues.ContainsKey(name) && IsColumnVisible(name))
             {
