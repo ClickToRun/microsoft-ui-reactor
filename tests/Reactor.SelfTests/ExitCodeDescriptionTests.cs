@@ -17,7 +17,7 @@ public class ExitCodeDescriptionTests
 {
     // The four codes that actually occur in this harness. 0xC000027B is the WinUI/WinRT one;
     // 0xC0000409 has repo precedent in the SwipeControl stress crash.
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(unchecked((int)0xC0000005u), "STATUS_ACCESS_VIOLATION")]
     [DataRow(unchecked((int)0xC000027Bu), "STATUS_STOWED_EXCEPTION")]
     [DataRow(unchecked((int)0xC0000409u), "STATUS_STACK_BUFFER_OVERRUN")]
@@ -55,7 +55,7 @@ public class ExitCodeDescriptionTests
     /// reachable from this harness's own synthesized watchdog value, an external kill, a parent
     /// reap and a CI job-object teardown, so claiming "external kill" would be a false verdict.
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(-1)]
     [DataRow(1)]
     public void Killer_codes_are_not_called_a_crash_and_name_the_disambiguator(int exitCode)
@@ -110,21 +110,24 @@ public class ExitCodeDescriptionTests
     }
 
     /// <summary>
-    /// Guards the mask arithmetic that makes the previous test necessary. If someone widens the
-    /// NTSTATUS mask to swallow 0xE0434352, the dedicated managed-exception wording would be
-    /// unreachable and this fails.
+    /// Guards the mask arithmetic that makes the previous test necessary. <c>0xE0434352 &amp;
+    /// 0xF0000000</c> is <c>0xE0000000</c>, not <c>0xC0000000</c>, so the NTSTATUS shape mask
+    /// cannot reach the CLR tag. If someone widens that mask to swallow it, the dedicated
+    /// managed-exception wording becomes unreachable and the two classes collapse to identical
+    /// guidance — which is what this asserts. (The mask arithmetic itself is a compile-time
+    /// constant and is deliberately stated in prose rather than asserted; asserting a constant
+    /// proves nothing at run time.)
     /// </summary>
     [TestMethod]
     public void Clr_tag_is_not_matched_by_the_NtStatus_shape_mask()
     {
-        Assert.AreEqual(0xE0000000u, 0xE0434352u & 0xF0000000u,
-            "precondition: the CLR tag is 0xE-shaped, not 0xC-shaped");
-
         var clr = SelfTestBatch.DescribeExitCode(unchecked((int)0xE0434352u));
         var nt = SelfTestBatch.DescribeExitCode(unchecked((int)0xC0000005u));
 
         Assert.AreNotEqual(clr, nt, "the two crash classes must not produce identical guidance");
         StringAssert.Contains(nt, "NTSTATUS");
+        Assert.IsFalse(clr.Contains("NTSTATUS"),
+            "widening the 0xC mask to cover the CLR tag would route it to the NTSTATUS wording");
     }
 
     /// <summary>
@@ -142,18 +145,20 @@ public class ExitCodeDescriptionTests
     }
 
     /// <summary>
-    /// Signed-vs-unsigned regression guard. NTSTATUS values arrive as negative Int32; comparing
-    /// them signed against 0xC0000005 matches nothing and every crash would silently fall through
-    /// to the "no verdict" branch. This fails if the uint casts are dropped.
+    /// Signed-vs-unsigned regression guard. NTSTATUS values arrive as a negative <see cref="int"/>
+    /// (<c>0xC0000005</c> is <c>-1073741819</c>), so a signed comparison against the hex literal
+    /// matches nothing and every crash would silently fall through to the "no verdict" branch.
+    /// The negativity is a compile-time fact stated here rather than asserted; what is asserted
+    /// is the observable consequence — the named text is only reachable via the uint cast.
     /// </summary>
     [TestMethod]
     public void NtStatus_is_matched_unsigned_not_signed()
     {
-        Assert.IsTrue(unchecked((int)0xC0000005u) < 0, "precondition: NTSTATUS is a negative Int32");
-
         var text = SelfTestBatch.DescribeExitCode(unchecked((int)0xC0000005u));
 
         StringAssert.Contains(text, "STATUS_ACCESS_VIOLATION",
             "a signed comparison would never match, so this text is only reachable via the uint cast");
+        StringAssert.Contains(text, "crashed on its own",
+            "the shape mask is also uint-based; a signed mask would leave this unclassified");
     }
 }

@@ -316,7 +316,7 @@ public class ChartKeyboardNavTests : AppTestBase
         // element and focuses it inside the SAME invocation, so it replaces the Search + Focus +
         // SendKeys trio below. This test presses ~46 keys, so the two saved process spawns per
         // press (~150ms each) dominate its runtime.
-        if (_targetedSendKeysWorks)
+        if (TargetedSendKeysAvailable)
         {
             try
             {
@@ -329,7 +329,7 @@ public class ChartKeyboardNavTests : AppTestBase
                 // Build doesn't support --target, or SetFocus on the Canvas was rejected through
                 // it. Latch off for the rest of the run and use the click-to-focus path, which
                 // handles that case. Latching (not retrying per key) keeps the fallback cheap.
-                _targetedSendKeysWorks = false;
+                DisableTargetedSendKeys();
             }
         }
 
@@ -354,7 +354,21 @@ public class ChartKeyboardNavTests : AppTestBase
 
     // Latched off the first time the single-spawn targeted send-keys path fails, so the rest of
     // the run takes the click-to-focus fallback without re-probing on every key.
+    //
+    // Deliberately process-wide and one-way: whether `winapp ui send-keys --target` is supported
+    // is a property of the installed CLI build, not of any one test, so a failure for one key
+    // will hold for every key and every test in the process. Re-probing would pay the failure
+    // cost repeatedly for no new information.
+    //
+    // Accessed only through the two static members below. That keeps the mutation out of
+    // instance code (CodeQL cs/static-field-written-by-instance-method), states the one-way
+    // contract in one place, and makes the read/write safe if MSTest ever runs these classes in
+    // parallel — the latch is monotonic, so a lost race can only cost one extra slow-path probe.
     private static bool _targetedSendKeysWorks = true;
+
+    private static bool TargetedSendKeysAvailable => Volatile.Read(ref _targetedSendKeysWorks);
+
+    private static void DisableTargetedSendKeys() => Volatile.Write(ref _targetedSendKeysWorks, false);
 
     // Virtual-key codes for the navigator vocabulary (migrated from the retired InputInjector, whose
     // only consumer was this fixture). Each is emitted as a layout-independent `vk=0xNN` send-keys
