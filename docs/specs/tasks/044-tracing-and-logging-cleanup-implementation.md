@@ -163,7 +163,8 @@ For each `catch (Exception ex) { Debug.WriteLine(...); }` site in `src/Reactor/`
 - [ ] **Observed/expected failure modes** — at the HRESULT / Win32 code level, not just exception type.
 - [ ] **What we explicitly do NOT want to swallow** — the bug-class exceptions we're now happy to let propagate.
 - [ ] **Why we swallow the listed cases** — single-paragraph justification.
-- [ ] **Verdict** — exactly one of: Keep / Narrow / Propagate / Replace with `TryXxx` / Promote to typed event.
+- [ ] **Verdict** — exactly one canonical token: `Keep` / `Narrow` / `Propagate` / `TryFinally` / `TryXxx` / `PromoteEvent` / `Deleted` / `Trace`. The audit file's verdict-vocabulary section is authoritative; the gate rejects anything outside it.
+- [ ] **Sites** — how many sites the row adjudicates, as a positive integer. Rows that collapse several sites declare the collapse factor rather than leaving it implicit.
 - [ ] **Site (after)** — the proposed post-migration code (for Keep verdicts this is just the existing shape rewritten over `DiagnosticLog.SwallowedError`).
 - [ ] **Risk** — one line on what could break.
 - [ ] **Owner / PR / Status** — `☐ migrated  ☐ verdict shipped` checkboxes.
@@ -181,8 +182,17 @@ For each `catch (Exception ex) { Debug.WriteLine(...); }` site in `src/Reactor/`
 
 ### 3.4 Sanity-check verdict distribution
 
+> **Historical — audit pass 1. Do not update.** The figures below are a frozen
+> snapshot of what the first pass produced, not a current-state summary. The
+> live counts are the derived ledger at the top of
+> [`docs/specs/044/swallowed-error-audit.md`](../044/swallowed-error-audit.md),
+> which is computed from per-site rows and gated by
+> `tests/Reactor.Tests/Docs/SwallowedErrorAuditTests.cs`. The two are not
+> commensurable and must not be reconciled with each other (issue #959).
+
 - [x] Verdict counts at the top of the audit file: 56 Keep, 9 Narrow (6 shipped, 3 deferred), 0 Propagate, 10 Replace-with-TryXxx (all deferred to 4.8), 18 Promote-to-typed-event (9 shipped, 9 deferred to 4.6).
 - [x] Propagate count is 0 — well under the spec §6.7.4 worry threshold of 20.
+- [x] The distribution table is now **derived** rather than asserted. Adding a G9 entry means adding a ledger row and re-running the gate — never hand-incrementing a cell, which git auto-merges into a silently dropped increment when two branches do it from the same base.
 
 ### 3.5 Phase C-audit acceptance
 

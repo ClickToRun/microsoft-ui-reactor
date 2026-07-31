@@ -262,6 +262,16 @@ catch (COMException ex) when (ex.HResult is HResults.RPC_E_DISCONNECTED or HResu
 
 `DiagnosticLog.SwallowedError` and `DiagnosticLog.HResultFailed` emit the typed ETW event under `Keywords.Errors` at `Warning` in Release **and** mirror a richer line (including `ex.Message`) to `Debug.WriteLine` in Debug builds via a `[Conditional("DEBUG")]` helper. The exception message never reaches the ETW payload — see [`docs/guide/diagnostics.md`](docs/guide/diagnostics.md) for the PII discipline and the full capture workflow.
 
+**Adding a new swallow site means adding a ledger row.** Spec 044 §6.7 (G9) makes every `catch` that absorbs an exception in `src/Reactor/` or `src/Reactor.Advanced/` a written, adjudicated decision, recorded in [`docs/specs/044/swallowed-error-audit.md`](docs/specs/044/swallowed-error-audit.md). Add a row to the section for your file using the canonical schema — `| Site(s) | Sites | Verdict | Status | Notes |` — with one verdict token from that file's vocabulary and a declared site count.
+
+The summary table at the top of that file is **derived**, not maintained: it is the sum of the ledger rows, and `tests/Reactor.Tests/Docs/SwallowedErrorAuditTests.cs` fails on any drift. Never hand-edit a cell in it. Instead run
+
+```bash
+dotnet test tests/Reactor.Tests -p:SkipSignaturesGen=true --filter "FullyQualifiedName~SwallowedErrorAudit"
+```
+
+and paste the table the failure prints. Hand-incrementing was how the published counts became unreproducible (issue #959): two branches editing `37 → 38` from the same base produce identical edits that git auto-resolves as agreement, silently dropping one increment.
+
 ---
 
 ## Hot reload

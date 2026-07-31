@@ -36,7 +36,7 @@ Corollaries:
 - **G6.** Ship an optional `ILogger` bridge so apps using `Microsoft.Extensions.Logging` see framework events in their existing pipeline (Serilog/Seq/AppInsights) without writing an `EventListener`.
 - **G7.** Wire the in-process `EventListener` into the devtools `reactor.logs` ring buffer so the MCP `logs` tool returns ETW events alongside Console/Debug/Trace.
 - **G8.** Add a small CI/test harness that asserts high-value events fire (e.g., reconcile Start/Stop pairing, RenderError on component throw).
-- **G9.** **Re-justify every swallowed-error site as part of the migration.** Each of the ~80 `catch (Exception ex) { Debug.WriteLine(...); }` sites gets a written entry in a sidecar audit file (`docs/specs/044/swallowed-error-audit.md`) explaining the failure modes the catch is hiding, why swallowing is the right answer (or why it isn't), and a verdict: **Keep**, **Narrow**, **Propagate**, **Replace with `TryXxx`**, or **Promote to typed event**. No site is migrated to `DiagnosticLog.SwallowedError` without a corresponding audit entry. Sites with verdict ≠ Keep get a fix in the same PR.
+- **G9.** **Re-justify every swallowed-error site as part of the migration.** Each of the ~80 `catch (Exception ex) { Debug.WriteLine(...); }` sites gets a written entry in a sidecar audit file (`docs/specs/044/swallowed-error-audit.md`) explaining the failure modes the catch is hiding, why swallowing is the right answer (or why it isn't), and a verdict: **Keep**, **Narrow**, **Propagate**, **`TryXxx`**, or **`PromoteEvent`** (plus **`TryFinally`** and **`Trace`**, added later — see the audit file's verdict vocabulary, which is the authoritative list). No site is migrated to `DiagnosticLog.SwallowedError` without a corresponding audit entry. Sites with verdict ≠ Keep get a fix in the same PR. Entries use the audit's canonical five-column ledger schema (`Site(s) | Sites | Verdict | Status | Notes`) — the summary table at the top of that file is **derived** from those rows and gated by `SwallowedErrorAuditTests`, so a new entry updates the counts by re-running the gate, never by hand-incrementing a cell.
 
 ### 3.2 Non-goals
 
@@ -224,6 +224,13 @@ Payloads should also be length-bounded (typical cap: 256 chars) before being for
 ### 6.3 Phase C — Migrate `Debug.WriteLine` call sites
 
 Apply the rule from §2 mechanically:
+
+> **Prospective estimates, not counts.** The `Approx count` column below was
+> written *before* the migration, as planning input. The measured result is the
+> cumulative ledger in
+> [`044/swallowed-error-audit.md`](044/swallowed-error-audit.md), which is
+> derived from per-site rows and gated. The two are **not commensurable** — do
+> not pair a figure from this table with a figure from that one.
 
 | Site class | Action | Approx count |
 |---|---|---|
@@ -420,15 +427,18 @@ The "What we explicitly do NOT want to swallow" field is load-bearing. It turns 
 
 #### 6.7.2 Verdicts
 
-Every site lands in exactly one bucket:
+Every site lands in exactly one bucket. The audit file's **verdict vocabulary**
+section is authoritative and has since grown two tokens (`TryFinally`, `Trace`)
+for dispositions this table could not express; the canonical spellings are the
+single-word tokens, which is what the ledger rows and the gate use.
 
-| Verdict | Meaning | Resulting code |
-|---|---|---|
-| **Keep** | Broad swallow is correct (dispose path, finalizer-equivalent, user-callback isolation — see §6.7.3). Justification is written and the code shape is unchanged. | `catch (Exception ex) { DiagnosticLog.SwallowedError(category, op, ex); }` — typically with a `// AUDIT: ...` comment |
-| **Narrow** | The catch should match specific HRESULTs / Win32 codes only. Anything else is a real bug we want to surface. | `catch (COMException ex) when (ex.HResult is HResults.RPC_E_DISCONNECTED or HResults.CO_E_OBJNOTCONNECTED)` — never bare `catch (COMException)` |
-| **Propagate** | The catch was defensive paranoia / AI slop. Remove it; let the exception bubble. | (catch deleted) |
-| **Replace with `TryXxx`** | The hot-path exception is the steady-state; refactor to a predicate or `bool TryDo(...)` that doesn't throw. | `if (TryClose(out var hr)) ... else DiagnosticLog.HResultFailed(...)` |
-| **Promote to typed event** | The site deserves its own `ReactorEventSource` event with structured payload, not the generic `SwallowedError`. | `ReactorEventSource.Log.WindowCloseFailed(hr, windowType);` |
+| Verdict | Token | Meaning | Resulting code |
+|---|---|---|---|
+| **Keep** | `Keep` | Broad swallow is correct (dispose path, finalizer-equivalent, user-callback isolation — see §6.7.3). Justification is written and the code shape is unchanged. | `catch (Exception ex) { DiagnosticLog.SwallowedError(category, op, ex); }` — typically with a `// AUDIT: ...` comment |
+| **Narrow** | `Narrow` | The catch should match specific HRESULTs / Win32 codes only. Anything else is a real bug we want to surface. | `catch (COMException ex) when (ex.HResult is HResults.RPC_E_DISCONNECTED or HResults.CO_E_OBJNOTCONNECTED)` — never bare `catch (COMException)` |
+| **Propagate** | `Propagate` | The catch was defensive paranoia / AI slop. Remove it; let the exception bubble. | (catch deleted) |
+| **Replace with `TryXxx`** | `TryXxx` | The hot-path exception is the steady-state; refactor to a predicate or `bool TryDo(...)` that doesn't throw. | `if (TryClose(out var hr)) ... else DiagnosticLog.HResultFailed(...)` |
+| **Promote to typed event** | `PromoteEvent` | The site deserves its own `ReactorEventSource` event with structured payload, not the generic `SwallowedError`. | `ReactorEventSource.Log.WindowCloseFailed(hr, windowType);` |
 
 Sites with verdict ≠ **Keep** ship their fix in the same PR as the migration. The audit entry's **Status** transitions from `migrated` to `verdict shipped`.
 
@@ -451,6 +461,16 @@ For these, swallowing **is** the correct framework behavior: an app's faulty eff
 #### 6.7.4 First-pass categorization (~80 sites)
 
 Rough triage from the audit (refined in the actual report):
+
+> **Prospective estimates, not counts.** These are pre-migration guesses,
+> deliberately written as `~N`. The measured, per-site result is the cumulative
+> ledger in [`044/swallowed-error-audit.md`](044/swallowed-error-audit.md).
+> **Do not pair a number from this table with a number from that one** — a
+> reader who took `Keep` from the audit and `Narrow` from here produced a pair
+> that was individually correct and jointly meaningless (issue #959). The
+> verdict names below also predate the audit's canonical vocabulary: read
+> "Replace with `TryXxx`" as `TryXxx` and "Promote to typed event" as
+> `PromoteEvent`.
 
 | Category | Approx count | Likely verdict |
 |---|---|---|
