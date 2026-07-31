@@ -1112,8 +1112,17 @@ internal static class ReconcilerBigCoverageFixtures
             // wherever Icon(glyph) was: with no family supplied, the mounted
             // control must resolve to the SAME family ResolveIconString assigns
             // explicitly. "\uE700" is not a Symbol enum name, so that call takes
-            // the glyph arm and is the honest comparand. Retarget
-            // ResolveSymbolFontFamily and the two sides part company here.
+            // the glyph arm and is the honest comparand.
+            //
+            // Scope, honestly: under a live app SymbolThemeFontFamily is present,
+            // so ResolveSymbolFontFamily returns from its theme-resource arm. This
+            // traps a retarget of THAT arm (verified by mutation) but NOT its
+            // `?? SymbolFontFallback` tail, which never executes in this host —
+            // PrivMount_SymbolFontFallbackStack in PrivateMountHotPaths is what
+            // pins the fallback constant. What this check adds is cross-path
+            // agreement: Reactor's hand-assigned family and the family the WinUI
+            // FontIcon default style supplies must not drift apart, or typed
+            // glyph icons render tofu while the string form keeps working.
             var handAssigned =
                 (IconResolver.ResolveIconString("\uE700") as WinXC.FontIcon)?.FontFamily?.Source;
             H.Check("IconFontSize_DefaultFamilyMatchesGlyphResolver",
