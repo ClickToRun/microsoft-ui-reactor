@@ -1497,9 +1497,9 @@ public class DataGridComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMe
     /// snapshot a revert would restore can be <c>default</c>.
     /// </para>
     /// <para>
-    /// Keep this description in step with the two arms below — the
-    /// <c>DataGridCommitThreadingDocTests</c> unit tests fail when the prose and the code
-    /// disagree (issue #958).
+    /// Keep this description in step with the two arms below. <c>DataGridCommitThreadingTests</c>
+    /// pins what each arm actually does with the callback's thread, so it is the thing to consult
+    /// — and to re-run — if you change either one (issue #958).
     /// </para>
     /// </remarks>
     private static void HandleAsyncCommit(
