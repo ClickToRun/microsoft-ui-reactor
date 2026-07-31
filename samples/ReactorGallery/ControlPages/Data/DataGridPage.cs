@@ -86,7 +86,7 @@ class DataGridPage : Component
                 sourceCode: @"
 // Memoize the source so the grid isn't remounted on every render
 // (DataGrid keys off source.GetHashCode()).
-var source = UseMemo(() => new ListDataSource<Product>(products, p => (RowKey)p.Id));
+var source = UseMemo(() => new ListDataSource<Product>(BuildProducts(60), p => (RowKey)p.Id));
 
 DataGrid(
     source: source,

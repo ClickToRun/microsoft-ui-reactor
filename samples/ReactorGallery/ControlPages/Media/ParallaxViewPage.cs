@@ -69,14 +69,17 @@ var (scroller, setScroller) = UseState<UIElement?>(null);
 // `background` must be TALLER than the viewport (+ the shift) and have visible
 // vertical structure — and it needs an explicit width, because ParallaxView
 // arranges its child at the child's own desired size.
-var background = Border(VStack(0, band1, band2, band3)).Width(480).Height(570);
+var background = Border(VStack(0,
+    Band(""▲  TOP"", ""#0F6CBD""),
+    Band(""●  MIDDLE"", ""#8764B8""),
+    Band(""▼  BOTTOM"", ""#C0397E""))).Width(480).Height(570);
 
 var parallax = ParallaxView(background, verticalShift: 150);
 if (scroller is not null) parallax = parallax.Source(scroller);
 
 Grid(columns: [GridSize.Star()], rows: [GridSize.Star()],
     parallax.Grid(row: 0, column: 0),
-    ListView(rows)
+    ListView(Enumerable.Range(1, 24).Select(i => (Element)Border(TextBlock($""Row {i}""))).ToArray())
         .Set(lv => lv.Background = null)          // transparent → background shows through
         .OnMount(el => setScroller((UIElement)el)) // bind the scroller
         .Grid(row: 0, column: 0)).Width(480).Height(300)

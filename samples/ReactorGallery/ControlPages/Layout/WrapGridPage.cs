@@ -30,7 +30,7 @@ class WrapGridPage : Component
                     ),
                     """
                     WrapGrid(
-                        items.Select(i =>
+                        Enumerable.Range(1, 10).Select(i =>
                             Border(TextBlock($"{i}")).Size(70, 70).Margin(4)
                         ).ToArray()
                     )
@@ -50,7 +50,7 @@ class WrapGridPage : Component
                     ),
                     """
                     WrapGrid(4,  // max 4 per row
-                        items.Select(i => Border(TextBlock($"#{i}")).Size(80, 50)).ToArray()
+                        Enumerable.Range(1, 12).Select(i => Border(TextBlock($"#{i}")).Size(80, 50)).ToArray()
                     )
                     """)
             ).Margin(36, 24, 36, 36)

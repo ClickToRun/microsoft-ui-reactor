@@ -64,7 +64,7 @@ new DockManager
         new DockTabGroup([ new DockableContent(
             Title: ""Items"", Content: ListBox(Items, selected, setSelected), Key: ""items"", CanClose: true) ], Width: 200),
         new DockTabGroup([ new DockableContent(
-            Title: ""Detail"", Content: detailView, Key: ""detail"", CanClose: true) ]),
+            Title: ""Detail"", Content: VStack(8, TextBlock(Items[selected]).FontSize(22).SemiBold()), Key: ""detail"", CanClose: true) ]),
     ]),
 }.WithKey($""dock-{layoutKey}"").Height(360)
 // Re-key the DockManager to reset the user's drag-modified layout.")

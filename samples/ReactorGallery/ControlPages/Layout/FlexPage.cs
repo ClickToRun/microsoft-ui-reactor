@@ -54,7 +54,7 @@ class FlexPage : Component
                     """
                     // Every axis below is driven by the Options combos, so the
                     // snippet tracks whatever the live sample is showing.
-                    new FlexElement(children)
+                    Flex(new[] { Box("1", "#E74C3C"), Box("2", "#3498DB"), Box("3", "#2ECC71") }) with
                     {
                         Direction = direction,
                         JustifyContent = justify,

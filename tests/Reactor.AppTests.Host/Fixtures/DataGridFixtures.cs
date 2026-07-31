@@ -31,8 +31,10 @@ internal static class DataGridFixtures
             // that a specific edit callback fired, regardless of which async write lands last.
             var (editLog, appendEdit) = UseReducer("");
 
-            // Capture UI-thread dispatcher so onRowChanged (which runs on a threadpool
-            // thread via HandleAsyncCommit's Task.Run) can safely update component state.
+            // This grid renders through DataGridComponent, so its commits take HandleAsyncCommit's
+            // dispatcher path: UseMutation invokes onRowChanged synchronously on the committing
+            // thread, which is this UI thread. Capture the dispatcher anyway — see the callback
+            // below for why the marshal stays.
             var dq = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
 
             var source = UseMemo(() => new ListDataSource<Employee>(
@@ -61,9 +63,13 @@ internal static class DataGridFixtures
                     editMode: EditMode.Cell,
                     onRowChanged: (key, item) =>
                     {
-                        // Dispatch to UI thread — this callback runs on a threadpool thread from
-                        // HandleAsyncCommit's Task.Run. The functional update composes append-only,
-                        // so concurrent commits accumulate instead of clobbering each other.
+                        // Keep this marshal. It is not a required thread hop on this path — the
+                        // callback is invoked on the committing (UI) thread — but the DataGrid's
+                        // contract makes the callback's thread depend on which commit path runs
+                        // (HandleAsyncCommit's no-dispatcher fallback offloads to the thread pool),
+                        // and enqueueing also keeps the state write out of the commit call stack.
+                        // The functional update composes append-only, so concurrent commits
+                        // accumulate instead of clobbering each other.
                         dq?.TryEnqueue(() =>
                         {
                             appendEdit(prev => prev + $"[{key.Value}:{item.FirstName},{item.LastName}]");
