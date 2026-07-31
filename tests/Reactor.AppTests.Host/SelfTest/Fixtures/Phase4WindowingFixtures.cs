@@ -245,20 +245,30 @@ internal static class Phase4WindowingFixtures
             var win = await OpenAndSettle(spec);
             try
             {
-                // The Level flip reaches the native window through SetWindowPos, so the ex-style
-                // bit lands asynchronously. Poll instead of betting on one fixed wait — under a
-                // full selftest run (many windows opened/closed by preceding fixtures) 80ms was
-                // not always enough and this pair flaked ~1 run in 3 (issue #927). The assertion
-                // stays just as strict: it still fails if the bit never flips.
+                // NOT a settled fix — issue #927 remains open. Two hypotheses have now been
+                // tested and refuted on this fixture:
+                //   1. "the fixed 80ms wait is too tight" — replaced with WaitFor polling;
+                //      still failed on a later full run.
+                //   2. "the secondary window's host is never awaited" — real gap (Harness.Render
+                //      only awaits ReactorApp.PrimaryWindow's host, and OpenAndSettle above does
+                //      await win.Host, but this fixture did not). Fixed below, and the flake STILL
+                //      reproduced 1 run in 4 with a 1.4s poll budget.
+                // So the topmost bit genuinely does not always get set; this is not a
+                // wait-longer problem. Next suspect is the Level update being coalesced away, or
+                // Z-order contention from the Floating windows the two preceding fixtures create.
+                // The await + poll below are kept because both are correct regardless, and the
+                // assertion stays strict: it fails if the bit never flips.
                 win.Update(spec with { Level = WindowLevel.AlwaysOnTop });
+                await win.Host.WaitForIdleAsync();
                 H.Check("WindowLevel_RuntimeFlip_Topmost",
                     await Harness.WaitFor(() => (ExStyleBits(win) & Native.WS_EX_TOPMOST) != 0,
-                        maxPasses: 10, perPassMs: 40));
+                        maxPasses: 25, perPassMs: 40));
 
                 win.Update(spec with { Level = WindowLevel.Normal });
+                await win.Host.WaitForIdleAsync();
                 H.Check("WindowLevel_RuntimeFlip_Normal",
                     await Harness.WaitFor(() => (ExStyleBits(win) & Native.WS_EX_TOPMOST) == 0,
-                        maxPasses: 10, perPassMs: 40));
+                        maxPasses: 25, perPassMs: 40));
             }
             finally { await CloseAndSettle(win); }
         }
