@@ -45,6 +45,30 @@ internal static class TabViewFillContentAreaFixtures
         h.FindControl<Border>(b => AutomationProperties.GetAutomationId(b) == "tab-body");
 
     /// <summary>
+    /// Polls for the tab body instead of reading it from a one-shot <see cref="Harness.Render()"/>
+    /// snapshot. TabView realizes its selected tab's ContentPresenter over multiple dispatcher
+    /// waves (see the Harness.Render remarks, which name this exact surface), and Render caps at
+    /// four passes — so on a contended machine the Border can still be unrealized when it returns.
+    /// Every call site used to do <c>Body(H)!.ActualHeight</c>, which turned that miss into a
+    /// NullReferenceException that aborted the fixture and truncated the TAP stream. Returning
+    /// null here instead lets the caller substitute a sentinel, so a genuine miss surfaces as an
+    /// ordinary failed assertion on the check that cares.
+    /// </summary>
+    private static async Task<Border?> WaitForBody(Harness h)
+    {
+        await Harness.WaitFor(() => Body(h) is not null, maxPasses: 25, perPassMs: 20);
+        return Body(h);
+    }
+
+    // Sentinel for "the body never realized". NaN, not a negative number: several assertions
+    // here are growth ratios or deltas between two body heights (bodyOn > bodyOff * 3,
+    // |bodyOffAgain - bodyOff| < 2), and a shared negative sentinel SATISFIES those — -1 > -3
+    // and |-1 - -1| < 2 are both true, so a missing body would pass them vacuously. Every
+    // comparison against NaN is false, so the sentinel fails every check that touches it.
+    // Verified by mutation: with Body() forced null, all seven body-dependent checks fail.
+    private const double NoBody = double.NaN;
+
+    /// <summary>
     /// Off → on → off. Asserts the opt-out keeps WinUI's <c>Top</c> AND a content-sized
     /// body, that opting in both flips the alignment and makes the body actually fill the
     /// remaining height, and that opting back out releases the local value so the style
@@ -64,14 +88,19 @@ internal static class TabViewFillContentAreaFixtures
                     static (p, tab) => p == 1 ? tab.FillContentArea() : tab);
             });
 
-            await Harness.Render();
+            await Harness.WaitFor(
+                () => H.FindControl<TabView>(_ => true) is not null && Body(H) is not null,
+                maxPasses: 25, perPassMs: 20);
             var tabView = H.FindControl<TabView>(_ => true);
             H.Check("TabViewFill_Mounted", tabView is not null && Body(H) is not null);
-            if (tabView is null) throw new InvalidOperationException("TabView was not mounted.");
+            // Report and stop rather than throw: an exception aborts the fixture and
+            // truncates TAP output, which reads downstream as an unattributable flake
+            // rather than as this precondition failing.
+            if (tabView is null) return;
 
             // Phase 0 — opt-out: WinUI's style default is untouched and the body is
             // content-sized (this is the pre-fix behaviour, deliberately preserved).
-            double bodyOff = Body(H)!.ActualHeight;
+            double bodyOff = (await WaitForBody(H))?.ActualHeight ?? NoBody;
             H.Check("TabViewFill_OffKeepsWinUIDefault",
                 tabView.VerticalAlignment == VerticalAlignment.Top);
             H.Check("TabViewFill_OffBodyIsContentSized",
@@ -82,7 +111,7 @@ internal static class TabViewFillContentAreaFixtures
             // bodyOn == bodyOff.
             H.ClickButton("Advance");
             await Harness.Render();
-            double bodyOn = Body(H)!.ActualHeight;
+            double bodyOn = (await WaitForBody(H))?.ActualHeight ?? NoBody;
             H.Check("TabViewFill_OnStretchesControl",
                 tabView.VerticalAlignment == VerticalAlignment.Stretch);
             H.Check("TabViewFill_OnBodyFillsContentArea", bodyOn > FilledBodyFloor);
@@ -97,7 +126,7 @@ internal static class TabViewFillContentAreaFixtures
             // takes over again and the body re-collapses.
             H.ClickButton("Advance");
             await Harness.Render();
-            double bodyOffAgain = Body(H)!.ActualHeight;
+            double bodyOffAgain = (await WaitForBody(H))?.ActualHeight ?? NoBody;
             H.Check("TabViewFill_ToggledOffRestoresWinUIDefault",
                 tabView.VerticalAlignment == VerticalAlignment.Top);
             H.Check("TabViewFill_ToggledOffBodyCollapsesAgain",
@@ -137,11 +166,17 @@ internal static class TabViewFillContentAreaFixtures
                         : tab.VAlign(VerticalAlignment.Center));
             });
 
-            await Harness.Render();
+            await Harness.WaitFor(
+                () => H.FindControl<TabView>(_ => true) is not null && Body(H) is not null,
+                maxPasses: 25, perPassMs: 20);
             var tabView = H.FindControl<TabView>(_ => true);
-            if (tabView is null) throw new InvalidOperationException("TabView was not mounted.");
+            // Same rationale as ToggleFillContentArea: a missing mount is a reportable
+            // check, not an exception. Throwing here truncates TAP and disguises the
+            // precondition failure as a flake.
+            H.Check("TabViewFill_ExplicitMounted", tabView is not null);
+            if (tabView is null) return;
 
-            double bodyPinned = Body(H)!.ActualHeight;
+            double bodyPinned = (await WaitForBody(H))?.ActualHeight ?? NoBody;
             H.Check("TabViewFill_ExplicitCenterBeatsOptIn",
                 tabView.VerticalAlignment == VerticalAlignment.Center);
             H.Check("TabViewFill_ExplicitBodyStaysContentSized",
@@ -154,7 +189,7 @@ internal static class TabViewFillContentAreaFixtures
             H.Check("TabViewFill_ExplicitSurvivesRerender",
                 tabView.VerticalAlignment == VerticalAlignment.Center);
             H.Check("TabViewFill_ExplicitBodyStillContentSizedAfterRerender",
-                Body(H)!.ActualHeight < FilledBodyFloor);
+                ((await WaitForBody(H))?.ActualHeight ?? NoBody) is > 0 and < FilledBodyFloor);
 
             // Phase 2 — opt-in turned off while the explicit alignment stays put: the
             // release must not steal the author's value either.
@@ -170,7 +205,7 @@ internal static class TabViewFillContentAreaFixtures
             H.Check("TabViewFill_ExplicitSurvivesOptIn",
                 tabView.VerticalAlignment == VerticalAlignment.Center);
             H.Check("TabViewFill_ExplicitBodyStillContentSizedAfterOptIn",
-                Body(H)!.ActualHeight < FilledBodyFloor);
+                ((await WaitForBody(H))?.ActualHeight ?? NoBody) is > 0 and < FilledBodyFloor);
         }
     }
 }

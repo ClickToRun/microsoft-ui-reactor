@@ -133,10 +133,9 @@ internal static class DataGridEditFixtures
                 );
             });
 
-            await Harness.Render(500);
-
             H.Check("DataGrid_Commit_InitialRender",
-                H.FindTextContaining("Product 0") is not null);
+                await Harness.WaitFor(() => H.FindTextContaining("Product 0") is not null,
+                    maxPasses: 25, perPassMs: 20));
 
             await Harness.Render(300);
 
@@ -171,10 +170,9 @@ internal static class DataGridEditFixtures
                 );
             });
 
-            await Harness.Render(500);
-
             H.Check("DataGrid_RapidSel_Renders",
-                H.FindText("Selected: 0") is not null);
+                await Harness.WaitFor(() => H.FindText("Selected: 0") is not null,
+                    maxPasses: 25, perPassMs: 20));
 
             await Harness.Render(500);
 
@@ -222,9 +220,8 @@ internal static class DataGridEditFixtures
                 return VStack(TextBlock($"Mode: {mode}"), grid);
             });
 
-            await Harness.Render(500);
-
-            H.Check("DataGrid_SelectionMode_Mounted", gridState is not null);
+            H.Check("DataGrid_SelectionMode_Mounted",
+                await Harness.WaitFor(() => gridState is not null, maxPasses: 25, perPassMs: 20));
             if (gridState is null) return;
 
             H.Check("DataGrid_SelectionMode_InitialSingle",
@@ -491,21 +488,23 @@ internal static class DataGridEditFixtures
                         emptyTemplate: TextBlock("empty-grid-template")));
             });
 
-            await Harness.Render(600);
-
             H.Check("DataGrid_RowEdit_CustomCellRendered",
-                H.FindText("cell:Name:Product 0") is not null);
+                await Harness.WaitFor(() => H.FindText("cell:Name:Product 0") is not null,
+                    maxPasses: 25, perPassMs: 20));
             H.Check("DataGrid_RowEdit_CustomHeaderRendered",
-                H.FindButton("hdr:Name:none") is not null);
+                await Harness.WaitFor(() => H.FindButton("hdr:Name:none") is not null,
+                    maxPasses: 25, perPassMs: 20));
             H.Check("DataGrid_RowEdit_SearchBoxRendered",
-                H.FindAllControls<TextBox>(_ => true).Count >= 1);
+                await Harness.WaitFor(() => H.FindAllControls<TextBox>(_ => true).Count >= 1,
+                    maxPasses: 25, perPassMs: 20));
             H.Check("DataGrid_RowEdit_EmptyTemplateRendered",
-                H.FindText("empty-grid-template") is not null);
+                await Harness.WaitFor(() => H.FindText("empty-grid-template") is not null,
+                    maxPasses: 25, perPassMs: 20));
 
             H.ClickButton("hdr:Name:none");
-            await Harness.Render(600);
             H.Check("DataGrid_RowEdit_HeaderSortUpdated",
-                H.FindButton("hdr:Name:Ascending") is not null);
+                await Harness.WaitFor(() => H.FindButton("hdr:Name:Ascending") is not null,
+                    maxPasses: 25, perPassMs: 20));
 
             H.ClickButton("Edit");
             await Harness.Render(600);
@@ -521,17 +520,17 @@ internal static class DataGridEditFixtures
                 H.FindButton("Save") is not null && H.FindButton("Cancel") is not null);
 
             H.ClickButton("Cancel");
-            await Harness.Render(400);
             H.Check("DataGrid_RowEdit_CancelClearsEditors",
-                H.FindButton("Save") is null);
+                await Harness.WaitFor(() => H.FindButton("Save") is null, maxPasses: 20, perPassMs: 15));
 
             H.ClickButton("Edit");
             await Harness.Render(500);
             H.ClickButton("Save");
-            await Harness.Render(700);
 
             H.Check("DataGrid_RowEdit_SaveCommitted",
-                lastCommit.StartsWith("0:Product 0:A:10", StringComparison.Ordinal));
+                await Harness.WaitFor(
+                    () => lastCommit.StartsWith("0:Product 0:A:10", StringComparison.Ordinal),
+                    maxPasses: 25, perPassMs: 20));
             H.Check("DataGrid_RowEdit_ReturnedToDisplay",
                 H.FindText("cell:Name:Product 0") is not null);
         }

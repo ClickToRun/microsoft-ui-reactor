@@ -198,6 +198,14 @@ internal static class SelfTestFixtureRegistry
         "KLR_FlexColumn_KeyedChildren_Swap_SurvivorsKeepIdentity",
         "KLR_FlexColumn_KeyedChildren_Reverse_SurvivorsKeepIdentity",
         "KLR_FlexColumn_WithKeyItem_PreservesIdentityAcrossInsert",
+        // Issue #951 — keyed ListView/GridView rows must not announce Reactor's
+        // internal row identity, and must honor an author-declared item name.
+        "KLIA_NoRowIdentityLeak",
+        "KLIA_MatchesElementArray",
+        "KLIA_AuthorNameParityAcrossOverloads",
+        "KLIA_AuthorNameReachesItem",
+        "KLIA_AuthorNameTracksUpdates",
+        "KLIA_AuthorNameClearedWhenRemoved",
         // Spec 047 §14 — panel descriptor migration: keyed reconcile identity,
         // lockstep attached-prop reapply, stale-state clears, unmount cleanup.
         "PDM_Stack_KeyedSwap_PreservesIdentity",
@@ -218,6 +226,15 @@ internal static class SelfTestFixtureRegistry
         "Issue522_SharedStyleAcrossMultipleElements_IsolatedRemoval",
         "Issue522_ThemeBindingsRemoval_AfterCacheClear_StillWorks",
         "Issue522_ThemeRef_CycleAcrossDifferentKeys",
+        // Issue #950 — the common Padding modifier (and the BiDi PaddingInline*
+        // pair that folds into it) must reach a TextBlock, which is not a Control.
+        "Issue950_PaddingMountUpdateUnset",
+        "Issue950_InlinePaddingResolvesPerFlowDirection",
+        "Issue950_PaddingDoesNotLeakAcrossPoolReuse",
+        "Issue950_PaddingUnsetClearsInsteadOfZeroing",
+        "Issue950_ModifierResetOutranksASetterWrite",
+        "Issue950_PaddingUnsetClearsOnEveryGatedType",
+        "Issue950_RichTextBlockPaddingStillFlowsThroughItsDescriptor",
         // Spec 047 §4.5 — overlay handler-owned Unmount tears down side-mounted
         // Reactor subtrees (Flyout content, Popup child) the generic recursion
         // cannot reach.
@@ -421,6 +438,10 @@ internal static class SelfTestFixtureRegistry
         "Issue811_ReferenceStableChildSkip_ContextConsumerRerenders",
         "Issue811_KeyedReferenceStableChildSkip_ContextConsumerRerenders",
         "Issue811_HintedRange_ContextConsumerRerenders",
+        "Issue811_SplitViewPane_ContextConsumerRerenders",
+        "Issue811_SplitViewContent_ContextConsumerRerenders",
+        "Issue811_ViewboxNested_ContextConsumerRerenders",
+        "Issue811_ActiveButUnchangedContext_StillSkips",
         "ThemeBindingsSkip_ImmediateAncestorToggleSelfHeals",
         "ThemeBindingsSkip_InheritedAncestorToggleSelfHeals",
         "ThemeBindingsSkip_WholeListEarlyOutToggleSelfHeals",
@@ -1126,6 +1147,7 @@ internal static class SelfTestFixtureRegistry
         "RBC_ExpanderTemplateTransitionEvents",
         "RBC_PrivateUpdateHotPaths",
         "RBC_PrivateMountHotPaths",
+        "RBC_IconElementFontIconSizing",
 
         // Issue #142 — controls with private static readonly DPs
         "Issue142_CustomControlPrivateDp_Renders",
@@ -1184,6 +1206,7 @@ internal static class SelfTestFixtureRegistry
         "WindowLevel_Floating_AboveSiblings",
         "WindowLevel_Floating_AboveOwner",
         "WindowLevel_RuntimeFlip",
+        "WindowLevel_VerdictBranches",
         // Spec 054 Phase 5 — SizeToContent.
         "SizeToContent_Width_Tracks",
         "SizeToContent_Height_Tracks",
@@ -1817,6 +1840,13 @@ internal static class SelfTestFixtureRegistry
         "KLR_FlexColumn_KeyedChildren_Swap_SurvivorsKeepIdentity" => new KeyedListReconciliationFixtures.FlexColumn_KeyedChildren_Swap_SurvivorsKeepIdentity(harness),
         "KLR_FlexColumn_KeyedChildren_Reverse_SurvivorsKeepIdentity" => new KeyedListReconciliationFixtures.FlexColumn_KeyedChildren_Reverse_SurvivorsKeepIdentity(harness),
         "KLR_FlexColumn_WithKeyItem_PreservesIdentityAcrossInsert" => new KeyedListReconciliationFixtures.FlexColumn_WithKeyItem_PreservesIdentityAcrossInsert(harness),
+        // Issue #951 — keyed list/grid row automation names.
+        "KLIA_NoRowIdentityLeak" => new KeyedListItemAutomationNameFixtures.NoRowIdentityLeak(harness),
+        "KLIA_MatchesElementArray" => new KeyedListItemAutomationNameFixtures.MatchesElementArray(harness),
+        "KLIA_AuthorNameParityAcrossOverloads" => new KeyedListItemAutomationNameFixtures.AuthorNameParityAcrossOverloads(harness),
+        "KLIA_AuthorNameReachesItem" => new KeyedListItemAutomationNameFixtures.AuthorNameReachesItem(harness),
+        "KLIA_AuthorNameTracksUpdates" => new KeyedListItemAutomationNameFixtures.AuthorNameTracksUpdates(harness),
+        "KLIA_AuthorNameClearedWhenRemoved" => new KeyedListItemAutomationNameFixtures.AuthorNameClearedWhenRemoved(harness),
         "PDM_Stack_KeyedSwap_PreservesIdentity" => new PanelDescriptorMigrationFixtures.Stack_KeyedSwap_PreservesIdentity(harness),
         "PDM_Grid_KeyedSwap_PreservesIdentity_And_RowFollows" => new PanelDescriptorMigrationFixtures.Grid_KeyedSwap_PreservesIdentity_And_RowFollows(harness),
         "PDM_Canvas_KeyedReorder_PreservesIdentity_And_PositionFollows" => new PanelDescriptorMigrationFixtures.Canvas_KeyedReorder_PreservesIdentity_And_PositionFollows(harness),
@@ -1833,6 +1863,14 @@ internal static class SelfTestFixtureRegistry
         "Issue522_SharedStyleAcrossMultipleElements_IsolatedRemoval" => new Issue522TextBlockStyleResetFixture.SharedStyleAcrossMultipleElements_IsolatedRemoval(harness),
         "Issue522_ThemeBindingsRemoval_AfterCacheClear_StillWorks" => new Issue522TextBlockStyleResetFixture.ThemeBindingsRemoval_AfterCacheClear_StillWorks(harness),
         "Issue522_ThemeRef_CycleAcrossDifferentKeys" => new Issue522TextBlockStyleResetFixture.ThemeRef_CycleAcrossDifferentKeys(harness),
+        // Issue #950 — Padding / PaddingInline* on a TextBlock.
+        "Issue950_PaddingMountUpdateUnset" => new Issue950TextBlockPaddingFixture.PaddingMountUpdateUnset(harness),
+        "Issue950_InlinePaddingResolvesPerFlowDirection" => new Issue950TextBlockPaddingFixture.InlinePaddingResolvesPerFlowDirection(harness),
+        "Issue950_PaddingDoesNotLeakAcrossPoolReuse" => new Issue950TextBlockPaddingFixture.PaddingDoesNotLeakAcrossPoolReuse(harness),
+        "Issue950_PaddingUnsetClearsInsteadOfZeroing" => new Issue950TextBlockPaddingFixture.PaddingUnsetClearsInsteadOfZeroing(harness),
+        "Issue950_ModifierResetOutranksASetterWrite" => new Issue950TextBlockPaddingFixture.ModifierResetOutranksASetterWrite(harness),
+        "Issue950_PaddingUnsetClearsOnEveryGatedType" => new Issue950TextBlockPaddingFixture.PaddingUnsetClearsOnEveryGatedType(harness),
+        "Issue950_RichTextBlockPaddingStillFlowsThroughItsDescriptor" => new Issue950TextBlockPaddingFixture.RichTextBlockPaddingStillFlowsThroughItsDescriptor(harness),
         "OverlayTeardown_Flyout_Unmount_RunsFlyoutContentCleanup" => new OverlayTeardownFixtures.Flyout_Unmount_RunsFlyoutContentCleanup(harness),
         "OverlayTeardown_Flyout_Unmount_RunsPassThroughCleanup" => new OverlayTeardownFixtures.Flyout_Unmount_RunsPassThroughCleanup(harness),
         "OverlayTeardown_Popup_Unmount_RunsChildCleanup" => new OverlayTeardownFixtures.Popup_Unmount_RunsChildCleanup(harness),
@@ -2014,6 +2052,10 @@ internal static class SelfTestFixtureRegistry
         "Issue811_ReferenceStableChildSkip_ContextConsumerRerenders" => new Issue811ContextConsumerSkipFixtures.ReferenceStableChildSkip_ContextConsumerRerenders(harness),
         "Issue811_KeyedReferenceStableChildSkip_ContextConsumerRerenders" => new Issue811ContextConsumerSkipFixtures.KeyedReferenceStableChildSkip_ContextConsumerRerenders(harness),
         "Issue811_HintedRange_ContextConsumerRerenders" => new Issue811ContextConsumerSkipFixtures.HintedRange_ContextConsumerRerenders(harness),
+        "Issue811_SplitViewPane_ContextConsumerRerenders" => new Issue811ContextConsumerSkipFixtures.SplitViewPane_ContextConsumerRerenders(harness),
+        "Issue811_SplitViewContent_ContextConsumerRerenders" => new Issue811ContextConsumerSkipFixtures.SplitViewContent_ContextConsumerRerenders(harness),
+        "Issue811_ViewboxNested_ContextConsumerRerenders" => new Issue811ContextConsumerSkipFixtures.ViewboxNested_ContextConsumerRerenders(harness),
+        "Issue811_ActiveButUnchangedContext_StillSkips" => new Issue811ContextConsumerSkipFixtures.ActiveButUnchangedContext_StillSkips(harness),
         "ThemeBindingsSkip_ImmediateAncestorToggleSelfHeals" => new ThemeBindingsSkipSelfHealFixtures.ImmediateAncestorToggleSelfHeals(harness),
         "ThemeBindingsSkip_InheritedAncestorToggleSelfHeals" => new ThemeBindingsSkipSelfHealFixtures.InheritedAncestorToggleSelfHeals(harness),
         "ThemeBindingsSkip_WholeListEarlyOutToggleSelfHeals" => new ThemeBindingsSkipSelfHealFixtures.WholeListEarlyOutToggleSelfHeals(harness),
@@ -2724,6 +2766,7 @@ internal static class SelfTestFixtureRegistry
         "RBC_ExpanderTemplateTransitionEvents" => new ReconcilerBigCoverageFixtures.ExpanderTemplateTransitionEvents(harness),
         "RBC_PrivateUpdateHotPaths" => new ReconcilerBigCoverageFixtures.PrivateUpdateHotPaths(harness),
         "RBC_PrivateMountHotPaths" => new ReconcilerBigCoverageFixtures.PrivateMountHotPaths(harness),
+        "RBC_IconElementFontIconSizing" => new ReconcilerBigCoverageFixtures.IconElementFontIconSizing(harness),
 
         "Issue142_CustomControlPrivateDp_Renders" => new Issue142Fixtures.CustomControlPrivateDp_Renders(harness),
         "Issue142_ThirdPartyControlPrivateDp_Renders" => new Issue142Fixtures.ThirdPartyControlPrivateDp_Renders(harness),
@@ -2784,6 +2827,7 @@ internal static class SelfTestFixtureRegistry
         "WindowLevel_Floating_AboveSiblings" => new Phase4WindowingFixtures.WindowLevelFloatingAboveSiblings(harness),
         "WindowLevel_Floating_AboveOwner" => new Phase4WindowingFixtures.WindowLevelFloatingAboveOwner(harness),
         "WindowLevel_RuntimeFlip" => new Phase4WindowingFixtures.WindowLevelRuntimeFlip(harness),
+        "WindowLevel_VerdictBranches" => new Phase4WindowingFixtures.WindowLevelVerdictBranches(harness),
         // Spec 054 Phase 5 — SizeToContent.
         "SizeToContent_Width_Tracks" => new Phase5WindowingFixtures.SizeToContentWidthTracks(harness),
         "SizeToContent_Height_Tracks" => new Phase5WindowingFixtures.SizeToContentHeightTracks(harness),

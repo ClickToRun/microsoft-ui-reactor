@@ -100,7 +100,11 @@ internal sealed class CopyDeepLinkButton : Component<string>
             return () => isMounted.Current = false;
         });
 
-        return Button(Icon(copied ? "\uE73E" : "\uE71B"))
+        // 16 DIP glyph + zero padding: the default Button padding (11,5,11,6) leaves
+        // only 18 DIP of content width on a 40 DIP button, which clips the 20 DIP
+        // default FontIcon. 16 also matches the title bar's own back / pane-toggle
+        // glyphs.
+        return Button(Icon(FontIcon(copied ? "\uE73E" : "\uE71B", fontSize: GalleryControls.TitleBarGlyphSize)))
             .Click(() =>
             {
                 try
@@ -123,7 +127,7 @@ internal sealed class CopyDeepLinkButton : Component<string>
                     // copy button swallows.
                 }
             })
-            .Width(40).Height(36)
+            .Width(40).Height(36).Padding(0)
             .ToolTip(copied ? "Link copied" : $"Copy link to this page\n{uri}")
             .AutomationName("Copy link to this page");
     }
@@ -258,6 +262,13 @@ internal sealed class SourceCodeView : Component<string>
 /// </summary>
 public static class GalleryControls
 {
+    /// <summary>
+    /// Glyph size for the title-bar command buttons. Matches the 16 DIP the WinUI
+    /// <c>TitleBar</c> template uses for its own back / pane-toggle glyphs; the
+    /// <c>FontIcon</c> default of 20 DIP overflows a 40 DIP button and gets clipped.
+    /// </summary>
+    internal const double TitleBarGlyphSize = 16;
+
     static CornerRadius ControlRadiusCR => ThemeResource.CornerRadius("ControlCornerRadius");
     static CornerRadius OverlayRadiusCR => ThemeResource.CornerRadius("OverlayCornerRadius");
     static double ControlRadius => ControlRadiusCR.TopLeft;

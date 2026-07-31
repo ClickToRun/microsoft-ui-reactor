@@ -191,10 +191,20 @@ internal static class Phase3WindowingFixtures
                 var pos = win.AppWindow.Position;
                 var size = win.AppWindow.Size;
                 var center = (X: pos.X + size.Width / 2, Y: pos.Y + size.Height / 2);
-                bool inCursorWorkArea = haveCursor
-                    && center.X >= work.Left && center.X < work.Right
-                    && center.Y >= work.Top && center.Y < work.Bottom;
-                H.Check("PersistPlacement_FallbackWhenEmpty", inCursorWorkArea);
+                // Same shape as CenterOnCurrent_UsesCursorMonitor in Phase1 — this is that
+                // assertion a second time, which is why the two always failed as a pair. See the
+                // comment there: an undeterminable cursor is a skip, not a failure.
+                if (!haveCursor)
+                {
+                    H.Skip("PersistPlacement_FallbackWhenEmpty",
+                        "GetCursorPos unavailable (non-interactive desktop) — cursor monitor cannot be determined");
+                }
+                else
+                {
+                    H.Check("PersistPlacement_FallbackWhenEmpty",
+                        center.X >= work.Left && center.X < work.Right
+                        && center.Y >= work.Top && center.Y < work.Bottom);
+                }
             }
             finally { await CloseAndSettle(win); }
         }

@@ -331,6 +331,33 @@ satisfied without sprinkling regions through the tree, and message
 ordering is sequential because the underlying
 `RaiseNotificationEvent` queues at the automation peer.
 
+### Naming list and grid rows
+
+A `ListView` / `GridView` row is its own automation node, separate from
+the item view you render into it. When the item view is a single piece
+of text, WinUI composes the row's name from that text and there is
+nothing to do. When it is a composite — an `HStack` of an icon, a title
+and a subtitle, or a card `Border` — WinUI has no single string to use
+and the row is left unnamed, so Narrator falls through to reading the
+descendants one by one.
+
+To give the row a single spoken name, put `.AutomationName(...)` on the
+**root of the item view**; Reactor forwards it to the generated
+`ListViewItem` / `GridViewItem` container and keeps it in sync as rows
+are added, renamed, reordered and recycled:
+
+```csharp
+ListView(contacts, c => c.Id, (contact, i) =>
+    HStack(
+        Image(contact.AvatarUrl).AccessibilityHidden(),
+        VStack(TextBlock(contact.Name).Bold(), TextBlock(contact.Role))
+    ).AutomationName($"{contact.Name}, {contact.Role}"))
+```
+
+Leave it off when the composite already reads well descendant by
+descendant — an unnamed row is the correct, standard result, not a bug.
+Reactor never derives the row name from its own internal bookkeeping.
+
 ### Custom-control semantics
 
 Composite controls (a star rating built from `Button` children, a
