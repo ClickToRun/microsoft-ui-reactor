@@ -240,23 +240,23 @@ TextBlock(""Secondary"").Foreground(Theme.SecondaryText)
 TextBlock(""Hyperlink"").Foreground(Theme.AccentText)
 
 // Background
-Border(content)
+Border(TextBlock(""Card surface""))
     .Background(Theme.CardBackground)
     .WithBorder(Theme.CardStroke)
     .CornerRadius(6)
 
-Border(content)
+Border(TextBlock(""Accent surface""))
     .Background(Theme.Accent)  // accent-filled button
 
 // Border & Stroke
-Border(content)
+Border(TextBlock(""ControlStroke border""))
     .WithBorder(Theme.ControlStroke)
 
 Border(VStack()).Height(1)
     .Background(Theme.DividerStroke)  // horizontal divider
 
 // System Signal
-Border(HStack(icon, message))
+Border(HStack(8, TextBlock(""\uE930"").Foreground(Theme.SystemSuccess), TextBlock(""Operation completed successfully"")))
     .Background(Theme.SystemSuccessBackground)");
 
     static Element BrushSection(string title, string description, BrushEntry[] entries)

@@ -35,8 +35,8 @@ class SemanticZoomPage : Component
                     Caption("Use Ctrl+scroll or the zoomed-out header affordance to switch views.")
                 ),
                 sourceCode: @"SemanticZoom(
-    GridView(items.Select(item =>
-        Border(TextBlock(item).Center()).Padding(12)).ToArray()),
+    GridView(labels.Select(label =>
+        Border(TextBlock(label).Center()).Padding(12)).ToArray()),
     ListView(groups.Select(group =>
         Border(TextBlock(group).SemiBold()).Padding(12)).ToArray())
 ).Height(300)"),
@@ -54,7 +54,9 @@ class SemanticZoomPage : Component
                         .ToArray())
                 ).Height(300),
                 sourceCode: @"SemanticZoom(
-    GridView(sectionItems.Select(text => Border(TextBlock(text))).ToArray()),
+    GridView(groups
+        .SelectMany(group => Enumerable.Range(1, 3).Select(i => $""{group} sample {i}""))
+        .Select(text => Border(TextBlock(text))).ToArray()),
     ListView(groups.Select(group => TextBlock(group).FontSize(20).Bold()).ToArray())
 ).Height(300)")
         ).Margin(36, 24, 36, 36));

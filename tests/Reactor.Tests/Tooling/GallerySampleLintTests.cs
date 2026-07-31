@@ -32,48 +32,17 @@ namespace Microsoft.UI.Reactor.Tests.Tooling;
 /// </summary>
 public sealed class GallerySampleLintTests
 {
-    static string RepoRoot()
-    {
-        var dir = AppContext.BaseDirectory;
-        while (dir is not null)
-        {
-            if (File.Exists(Path.Join(dir, "Reactor.slnx")))
-                return dir;
-            dir = Path.GetDirectoryName(dir);
-        }
-        throw new DirectoryNotFoundException("Could not locate repo root (Reactor.slnx) from " + AppContext.BaseDirectory);
-    }
+    // Source loading lives in GallerySources so the snippet-agreement lint next door reads the
+    // same pages through the same code path.
+    static string GalleryDir() => GallerySources.GalleryDir();
 
-    static string GalleryDir() => Path.Join(RepoRoot(), "samples", "ReactorGallery");
+    static IReadOnlyList<(string Path, SyntaxNode Root)> Pages() => GallerySources.Pages();
 
-    static IReadOnlyList<(string Path, SyntaxNode Root)> Pages()
-    {
-        var pagesDir = Path.Join(GalleryDir(), "ControlPages");
-        Assert.True(Directory.Exists(pagesDir), $"gallery ControlPages directory not found at {pagesDir}");
+    static string Rel(string absolute) => GallerySources.Rel(absolute);
 
-        var pages = Directory.EnumerateFiles(pagesDir, "*.cs", SearchOption.AllDirectories)
-            .OrderBy(p => p, global::System.StringComparer.Ordinal)
-            .Select(p => (Path: p, Root: CSharpSyntaxTree.ParseText(File.ReadAllText(p)).GetRoot()))
-            .ToList();
+    static string Where(string path, SyntaxNode node) => GallerySources.Where(path, node);
 
-        Assert.NotEmpty(pages);
-        return pages;
-    }
-
-    static string Rel(string absolute) =>
-        Path.GetRelativePath(RepoRoot(), absolute).Replace('\\', '/');
-
-    static string Where(string path, SyntaxNode node) =>
-        $"{Rel(path)}:{node.GetLocation().GetLineSpan().StartLinePosition.Line + 1}";
-
-    /// <summary>Simple name of an invocation: <c>Foo(...)</c> and <c>x.Foo(...)</c> both yield "Foo".</summary>
-    static string? InvokedName(InvocationExpressionSyntax invocation) => invocation.Expression switch
-    {
-        IdentifierNameSyntax id => id.Identifier.Text,
-        GenericNameSyntax generic => generic.Identifier.Text,
-        MemberAccessExpressionSyntax member => member.Name.Identifier.Text,
-        _ => null,
-    };
+    static string? InvokedName(InvocationExpressionSyntax invocation) => GallerySources.InvokedName(invocation);
 
     /// <summary>
     /// Name of the call that *starts* a fluent chain: for <c>ItemContainer(x).Margin(4)</c>

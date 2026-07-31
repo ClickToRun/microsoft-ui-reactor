@@ -61,7 +61,7 @@ BreadcrumbBar(
 // cards would make navigating here rewrite the card above.
 var (dynamicPath, setDynamicPath) = UseState(UseMemo(() => new[] { ""Home"", ""Documents"", ""Reports"" }));
 
-BreadcrumbBar(items, item => {
+BreadcrumbBar(dynamicPath.Select(p => Breadcrumb(p)).ToArray(), item => {
     var idx = Array.IndexOf(dynamicPath, item.Label);
     if (idx >= 0) setDynamicPath(dynamicPath.Take(idx + 1).ToArray());
 })")

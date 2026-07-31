@@ -71,7 +71,7 @@ class CardPage : Component
                             .Foreground(Theme.SecondaryText)
                     )
                 ).Padding(24).CornerRadius(16).Width(360),
-                sourceCode: @"Card(child).Padding(24).CornerRadius(16)")
+                sourceCode: @"Card(VStack(8, BodyStrong(""Custom padding & radius""), Body(""...""))).Padding(24).CornerRadius(16)")
         );
     }
 }

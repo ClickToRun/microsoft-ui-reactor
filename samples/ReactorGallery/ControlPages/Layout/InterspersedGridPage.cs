@@ -34,9 +34,11 @@ class InterspersedGridPage : Component
                     8,
                     i => Border(Empty()).Width(2).Background(Theme.DividerStroke))
                     .Height(160),
-                sourceCode: @"InterspersedGrid(
+                sourceCode: @"var horizontalPanels = new Element[] { Panel(""1x"", Theme.Accent), Panel(""2x"", ""#5B6ABF""), Panel(""1x"", ""#107C10"") };
+
+InterspersedGrid(
     Orientation.Horizontal,
-    new Element[] { panelA, panelB, panelC },
+    horizontalPanels,
     new[] { 1.0, 2.0, 1.0 },
     8,
     i => Border(Empty()).Width(2).Background(Theme.DividerStroke))
@@ -49,9 +51,11 @@ class InterspersedGridPage : Component
                     8,
                     i => Border(Empty()).Height(2).Background(Theme.DividerStroke))
                     .Height(240),
-                sourceCode: @"InterspersedGrid(
+                sourceCode: @"var verticalPanels = new Element[] { Panel(""Top"", Theme.Accent), Panel(""Middle"", ""#5B6ABF""), Panel(""Bottom"", ""#107C10"") };
+
+InterspersedGrid(
     Orientation.Vertical,
-    panels,
+    verticalPanels,
     new[] { 1.0, 1.5, 1.0 },
     8,
     i => Border(Empty()).Height(2).Background(Theme.DividerStroke))
