@@ -12,7 +12,7 @@ namespace Microsoft.UI.Reactor.Tests.Tooling;
 
 /// <summary>
 /// Source lint for the ReactorGallery sample pages. The gallery is the reference app, so a
-/// card that silently renders nothing teaches the wrong pattern — and the three mistakes
+/// card that silently renders nothing teaches the wrong pattern — and the four mistakes
 /// guarded here are all statically detectable and all shipped at least once:
 ///
 /// <list type="bullet">
@@ -22,7 +22,10 @@ namespace Microsoft.UI.Reactor.Tests.Tooling;
 /// Panel / Control / Border and therefore drops, rendering an invisible shape;</item>
 /// <item>an <c>ms-appx:///</c> asset that either does not exist, is never copied to the
 /// output folder, or is composed at runtime so it cannot be checked — all of which render a
-/// blank image with no error of any kind.</item>
+/// blank image with no error of any kind;</item>
+/// <item><c>new Uri(x)</c> on a runtime value, which throws <c>UriFormatException</c> out of
+/// <c>Render()</c> the moment the value is half-typed and replaces the whole page with the
+/// error boundary.</item>
 /// </list>
 ///
 /// Roslyn parses the page sources directly — no gallery build, no WinUI objects, so this
@@ -407,5 +410,171 @@ public sealed class GallerySampleLintTests
         Assert.True(match.Success, $"no ms-appx match in: {source}");
         Assert.Equal(expected, match.Groups["path"].Value);
         Assert.Equal(composed, IsComposedAssetPath(match.Groups["path"].Value));
+    }
+
+    // ── new Uri(...) takes compile-time constants, never a runtime value ─────
+
+    /// <summary>
+    /// <c>new Uri(text)</c> throws <c>UriFormatException</c> on anything malformed, and a gallery
+    /// page evaluates its element tree inside <c>Render()</c> — so the throw lands in
+    /// <c>ErrorFallback</c> and the reader's whole page becomes a
+    /// <c>⚠ Render error: UriFormatException…</c> overlay. Half-typed text in a bound
+    /// <c>TextBox</c> is enough to trigger it (issue #982). A string that cannot vary at runtime
+    /// cannot do that, hence the rule below.
+    /// </summary>
+    static bool IsUriCreation(ObjectCreationExpressionSyntax creation) => creation.Type switch
+    {
+        IdentifierNameSyntax id => id.Identifier.Text == "Uri",
+        // System.Uri and global::System.Uri both land here.
+        QualifiedNameSyntax qualified => qualified.Right.Identifier.Text == "Uri",
+        _ => false,
+    };
+
+    /// <summary>Names in <paramref name="root"/> that a <c>new Uri(...)</c> argument may safely reference.</summary>
+    /// <remarks>
+    /// Two tiers, and the second is why this is sound rather than assumed:
+    /// <list type="bullet">
+    /// <item><c>const</c> fields and locals initialized from a string literal — compile-time
+    /// constants, so a malformed one fails on first render and never gets committed;</item>
+    /// <item><c>static readonly</c> fields whose own initializer is a string literal or a
+    /// <c>new Uri(...)</c> over accepted arguments. That covers <c>new Uri(BaseUri, "page.html")</c>
+    /// without hand-waving: the referenced field's construction is checked by this same rule, so
+    /// accepting the reference adds no unchecked value. A <c>static readonly</c> initialized from a
+    /// runtime call is <em>not</em> accepted.</item>
+    /// </list>
+    /// </remarks>
+    static HashSet<string> ConstantNames(SyntaxNode root)
+    {
+        var names = new HashSet<string>(global::System.StringComparer.Ordinal);
+
+        bool Accepted(ExpressionSyntax expression) =>
+            (expression is LiteralExpressionSyntax literal && literal.IsKind(SyntaxKind.StringLiteralExpression))
+            || (expression is IdentifierNameSyntax identifier && names.Contains(identifier.Identifier.Text));
+
+        foreach (var declarator in root.DescendantNodes()
+                     .OfType<VariableDeclaratorSyntax>()
+                     .Where(d => d.Parent?.Parent is FieldDeclarationSyntax { Modifiers: var m } && m.Any(SyntaxKind.ConstKeyword)
+                                 || d.Parent?.Parent is LocalDeclarationStatementSyntax { Modifiers: var l } && l.Any(SyntaxKind.ConstKeyword)))
+        {
+            if (declarator.Initializer?.Value is { } value && Accepted(value))
+                names.Add(declarator.Identifier.Text);
+        }
+
+        foreach (var declarator in root.DescendantNodes()
+                     .OfType<VariableDeclaratorSyntax>()
+                     .Where(d => d.Parent?.Parent is FieldDeclarationSyntax { Modifiers: var m }
+                                 && m.Any(SyntaxKind.StaticKeyword) && m.Any(SyntaxKind.ReadOnlyKeyword)))
+        {
+            if (declarator.Initializer?.Value is not { } value) continue;
+
+            var ok = Accepted(value)
+                     || (value is ObjectCreationExpressionSyntax creation
+                         && IsUriCreation(creation)
+                         && (creation.ArgumentList?.Arguments ?? default).All(a => Accepted(a.Expression)));
+
+            if (ok) names.Add(declarator.Identifier.Text);
+        }
+
+        return names;
+    }
+
+    /// <summary>
+    /// The <c>(string, UriKind)</c> and <c>(string, bool)</c> overloads pass a mode, not a URL, so
+    /// those arguments carry no risk and are not held to the constant rule.
+    /// </summary>
+    static bool IsNotAUrlArgument(ExpressionSyntax expression) =>
+        expression is MemberAccessExpressionSyntax { Expression: IdentifierNameSyntax { Identifier.Text: "UriKind" } }
+        || expression.IsKind(SyntaxKind.TrueLiteralExpression)
+        || expression.IsKind(SyntaxKind.FalseLiteralExpression);
+
+    /// <summary>
+    /// Every <c>new Uri(...)</c> argument in <paramref name="root"/> that is not a compile-time
+    /// constant, as <c>"line: expression"</c>. Separate from the tree-wide fact below so the rule
+    /// can be driven over synthetic source — a scan of a clean tree cannot tell a working detector
+    /// from one that reports nothing.
+    /// </summary>
+    static IReadOnlyList<(ObjectCreationExpressionSyntax Site, ExpressionSyntax Argument)> RuntimeUriArguments(SyntaxNode root)
+    {
+        var names = ConstantNames(root);
+        var offenders = new List<(ObjectCreationExpressionSyntax, ExpressionSyntax)>();
+
+        foreach (var creation in root.DescendantNodes().OfType<ObjectCreationExpressionSyntax>().Where(IsUriCreation))
+        {
+            foreach (var argument in creation.ArgumentList?.Arguments ?? default)
+            {
+                var expression = argument.Expression;
+                if (IsNotAUrlArgument(expression)) continue;
+                if (expression is LiteralExpressionSyntax literal && literal.IsKind(SyntaxKind.StringLiteralExpression)) continue;
+                if (expression is IdentifierNameSyntax identifier && names.Contains(identifier.Identifier.Text)) continue;
+
+                offenders.Add((creation, expression));
+                break;
+            }
+        }
+
+        return offenders;
+    }
+
+    static int UriCreationCount(SyntaxNode root) =>
+        root.DescendantNodes().OfType<ObjectCreationExpressionSyntax>().Count(IsUriCreation);
+
+    [Fact]
+    public void NewUri_TakesOnlyCompileTimeConstants()
+    {
+        var offenders = new List<string>();
+        var inspectedConstructions = 0;
+
+        foreach (var (path, root) in Pages())
+        {
+            inspectedConstructions += UriCreationCount(root);
+
+            foreach (var (site, argument) in RuntimeUriArguments(root))
+            {
+                offenders.Add($"{Where(path, site)}: new Uri({argument}) is built from a runtime value — " +
+                              "it throws UriFormatException on malformed input, and a throw out of Render() " +
+                              "replaces the whole page with the error boundary. Parse with Uri.TryCreate and " +
+                              "render the last value that parsed.");
+            }
+        }
+
+        // Floor rather than > 0: the gallery has four `new Uri(...)` sites, so a loader that
+        // silently found one page — or a type check that stopped recognising them — fails here
+        // instead of reporting a clean tree it never looked at.
+        Assert.True(inspectedConstructions >= 3,
+            $"only {inspectedConstructions} `new Uri(...)` sites were inspected across the gallery — the lint would pass near-vacuously.");
+        Assert.True(offenders.Count == 0, string.Join("\n", offenders));
+    }
+
+    /// <summary>
+    /// The accept-list decides everything, so each of its arms is pinned against synthetic source:
+    /// the tree-wide fact above is green for a detector that works and for one that returns nothing,
+    /// and only these rows tell them apart. The reported rows are the shapes issue #982 shipped —
+    /// state read straight out of <c>UseState</c>, a method call on it, and an interpolation.
+    /// </summary>
+    [Theory]
+    // Accepted: nothing here can vary at runtime.
+    [InlineData(@"class P { void M() { var u = new Uri(""https://example.com""); } }", 0)]
+    [InlineData(@"class P { const string U = ""https://example.com""; void M() { var u = new Uri(U); } }", 0)]
+    [InlineData(@"class P { void M() { const string U = ""https://example.com""; var u = new Uri(U); } }", 0)]
+    [InlineData(@"class P { static readonly Uri B = new Uri(""https://example.com""); void M() { var u = new Uri(B, ""page.html""); } }", 0)]
+    [InlineData(@"class P { void M() { var u = new Uri(""https://example.com"", UriKind.Absolute); } }", 0)]
+    // Reported: every one of these is a value the reader can make malformed.
+    [InlineData(@"class P { Element R() { var (t, s) = UseState(""""); return WebView2(new Uri(t)); } }", 1)]
+    [InlineData(@"class P { Element R(string t) { return WebView2(new Uri(t.Trim())); } }", 1)]
+    [InlineData(@"class P { Element R(string t) { return WebView2(new Uri($""https://{t}"")); } }", 1)]
+    [InlineData(@"class P { Element R(string t) { return WebView2(new System.Uri(t)); } }", 1)]
+    // A `static readonly` is only trusted when its own initializer is, and a property is not a field.
+    [InlineData(@"class P { static readonly string U = Fetch(); void M() { var u = new Uri(U); } }", 1)]
+    [InlineData(@"class P { static string U => Fetch(); void M() { var u = new Uri(U); } }", 1)]
+    public void UriConstantRule_AcceptsCompileTimeValues_AndReportsRuntimeOnes(string source, int expected)
+    {
+        var root = CSharpSyntaxTree
+            .ParseText(source, cancellationToken: TestContext.Current.CancellationToken)
+            .GetRoot(TestContext.Current.CancellationToken);
+
+        // Guards the rows themselves: a typo that stopped parsing as a Uri construction would
+        // otherwise satisfy every `expected: 0` row for the wrong reason.
+        Assert.True(UriCreationCount(root) > 0, $"no `new Uri(...)` in the row source: {source}");
+        Assert.Equal(expected, RuntimeUriArguments(root).Count);
     }
 }
