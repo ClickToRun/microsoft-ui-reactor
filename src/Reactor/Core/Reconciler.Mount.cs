@@ -595,6 +595,9 @@ public sealed partial class Reconciler
     {
         if (args.InRecycleQueue)
         {
+            // Issue #951 — drop any name this container carried for its
+            // previous row before WinUI hands the container to a new one.
+            PropagateItemAutomationName(args.ItemContainer, null);
             if (args.ItemContainer.ContentTemplateRoot is ContentControl oldCc)
             {
                 if (oldCc.Content is UIElement oldCtrl)
@@ -620,6 +623,8 @@ public sealed partial class Reconciler
             cc.Content = ctrl;
             SetElementTag(cc, itemElement); // Store for later reconciliation
 
+            PropagateItemAutomationName(args.ItemContainer, ctrl);
+
             // Spec 042 §6 — if this container is materializing a row that
             // the keyed diff tagged as inserted under an active
             // Animations.Animate transaction, fire a one-shot enter
@@ -631,6 +636,37 @@ public sealed partial class Reconciler
                 ApplyAmbientEnterAnimation(args.ItemContainer, kind);
             }
         }
+    }
+
+    /// <summary>
+    /// Issue #951 — forwards an author-declared automation name from the item
+    /// view's root onto its generated <c>ListViewItem</c> / <c>GridViewItem</c>.
+    /// </summary>
+    /// <remarks>
+    /// WinUI exposes each row of a templated items control through an
+    /// <c>ItemAutomationPeer</c> built from the <em>data item</em>, and that peer
+    /// resolves its UIA <c>Name</c> as: the container peer's name when non-empty,
+    /// otherwise the data item's string representation. The container peer in turn
+    /// composes a name only from plain text at the root of the realized item view —
+    /// a bare <c>TextBlock</c> works, a composite (stack / border / card) does not,
+    /// and an <c>AutomationProperties.Name</c> set on the item view's root is not
+    /// consulted at all. So without this forwarding an author has no way to name a
+    /// row: <c>.AutomationName(...)</c> on the item view lands on an element WinUI
+    /// never reads for the list item.
+    /// <para>Nothing is invented here — the name is copied only when the author set
+    /// one, and the container's local value is cleared otherwise so a recycled
+    /// container can't announce the previous row's name.</para>
+    /// </remarks>
+    internal static void PropagateItemAutomationName(WinPrim.SelectorItem container, UIElement? itemRoot)
+    {
+        var name = itemRoot is null
+            ? null
+            : global::Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(itemRoot);
+
+        if (string.IsNullOrEmpty(name))
+            container.ClearValue(global::Microsoft.UI.Xaml.Automation.AutomationProperties.NameProperty);
+        else
+            global::Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(container, name);
     }
 
     /// <summary>

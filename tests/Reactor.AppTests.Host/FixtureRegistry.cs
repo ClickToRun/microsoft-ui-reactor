@@ -60,6 +60,9 @@ internal static class FixtureRegistry
 
         // Collections
         "ListView_TypedRendering",
+        // Issue #951 — keyed list rows must not announce Reactor's internal row
+        // identity, and must honor an author-declared item name (UIA-verified).
+        "KeyedList_ItemNames",
 
         // ItemClick once-fire guard (issue #679 (a) — E2E real-pointer-click coverage of
         // the ListViewHandler once-subscribe contract across re-renders + items change)
@@ -231,6 +234,7 @@ internal static class FixtureRegistry
 
         // Collections
         "ListView_TypedRendering" => CollectionFixtures.ListViewTyped(ctx),
+        "KeyedList_ItemNames" => CollectionFixtures.KeyedListItemNames(ctx),
 
         // ItemClick once-fire guard (issue #679 (a))
         "ItemClick_OnceFire" => ItemClickE2EFixtures.OnceFire(ctx),
