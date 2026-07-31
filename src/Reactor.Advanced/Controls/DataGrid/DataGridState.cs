@@ -1364,6 +1364,46 @@ public class DataGridState<T>
     }
 
     /// <summary>
+    /// Advance the grid's logical cell cursor to the next visible column taking part in the active
+    /// row edit, wrapping to the first one after the last. Row-mode Tab navigation stays inside the
+    /// row and never commits — a row commits only on Enter, Save, or click-away (spec 017 §6.7).
+    /// Returns false when no row edit is active, or when no visible column in the row has an editor.
+    /// </summary>
+    /// <remarks>
+    /// Like every other focus API on this type (<see cref="FocusNextCell"/>, <see cref="MoveFocus"/>,
+    /// …) this moves the grid's own <see cref="FocusedColIndex"/> bookkeeping only; it does not call
+    /// XAML <c>Focus</c>. Real keyboard focus between the row's editors is WinUI's FocusManager tab
+    /// order, which runs before the grid's <c>handledEventsToo</c> KeyDown handler.
+    /// </remarks>
+    public bool FocusNextRowEditColumn()
+    {
+        if (!_isRowEditing || _rowEditValues is null) return false;
+
+        var colCount = _columns.Count;
+        if (colCount == 0) return false;
+
+        // _rowEditValues holds exactly the columns BeginRowEdit turned into editors (non-read-only
+        // with a SetValue), so this traversal skips read-only columns the same way the rendered
+        // editors do. BeginRowEdit snapshots from the full column list, so hidden columns can be
+        // in there without a rendered editor — skip those too. _focusedColIndex is -1 when the row
+        // edit began from the Edit button with no prior cell focus; the double modulo maps that to
+        // the first column. Indices are into the full _columns list, matching FocusNextCell and
+        // every other focus API.
+        for (int step = 1; step <= colCount; step++)
+        {
+            var idx = ((_focusedColIndex + step) % colCount + colCount) % colCount;
+            var name = _columns[idx].Name;
+            if (_rowEditValues.ContainsKey(name) && IsColumnVisible(name))
+            {
+                SetFocus(_focusedRowIndex, idx);
+                return true;
+            }
+        }
+
+        return false; // Every editable column in this row is hidden
+    }
+
+    /// <summary>
     /// Get the row index for a given row key, or -1 if not found.
     /// Searches the key cache (legacy mode) or scans loaded cache blocks (paged mode).
     /// </summary>
@@ -1493,9 +1533,16 @@ public class DataGridState<T>
     /// Commit the current edit. Applies SetValue to produce the new item,
     /// updates the loaded items list, and returns the (row key, new item) for async commit.
     /// Returns null if no edit is active.
+    /// In row-edit mode this delegates to <see cref="CommitRowEdit"/> — mirroring
+    /// <see cref="CancelEdit"/>'s delegation to <see cref="CancelRowEdit"/>.
     /// </summary>
     public (RowKey Key, T NewItem)? CommitEdit()
     {
+        // Row mode keeps its pending values in _rowEditValues and leaves _editingColumnName null
+        // (the "row mode" signal) while IsEditing is still true, so the single-cell path below
+        // would commit with a null column name. Delegate instead, so EVERY caller — keyboard,
+        // row-pointer click, the blur safety-net, user code — lands on the right path. (#853)
+        if (_isRowEditing) return CommitRowEdit();
         if (!IsEditing) return null;
 
         // Block commit if there are validation errors
