@@ -650,16 +650,29 @@ jobs:
       # --no-screenshots must never touch a committed screenshot. Phase 3 is
       # the pipeline's only binary writer, and this proves — on a real runner,
       # via the real invocation, on every PR — that skipping it leaves
-      # docs/guide/images byte-identical. The compile above is the subject;
-      # this step is only the assertion, so it genuinely can come out either
-      # way (it fails if anyone reintroduces a write on the skip path).
+      # docs/guide/images alone. The compile above is the subject; this step is
+      # only the assertion, so it genuinely can come out either way (it fails
+      # if anyone reintroduces a write on the skip path).
+      #
+      # `git status --porcelain`, not `git diff`: diff sees tracked
+      # modifications only. A capture emitting a *new* PNG (new topic, renamed
+      # asset) leaves an untracked file that diff reports as nothing at all —
+      # and the near-miss this gate exists for reached the index through
+      # `git add -A`, which stages precisely those. Verified by planting each
+      # case against this command: tracked overwrite and untracked create both
+      # produce output; a clean tree produces none.
       - name: Verify --no-screenshots left committed images untouched
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
-          git diff --exit-code --stat -- docs/guide/images
+          $dirty = git status --porcelain -- docs/guide/images
           if ($LASTEXITCODE -ne 0) {
-            Write-Error 'docs compile --no-screenshots modified files under docs/guide/images. That path must be non-destructive: capture (Phase 3) is skipped, so nothing may write a PNG. See issue #989 and docs/contributing/doc-pipeline.md section 4.'
+            Write-Error "git status failed (exit $LASTEXITCODE) — the gate could not run, so treat this as a failure rather than an all-clear."
+            exit 1
+          }
+          if ($dirty) {
+            $dirty | ForEach-Object { Write-Host "  $_" }
+            Write-Error 'docs compile --no-screenshots added, modified or deleted files under docs/guide/images. That path must be non-destructive: capture (Phase 3) is skipped, so nothing may write a PNG. See issue #989 and docs/contributing/doc-pipeline.md section 4.'
             exit 1
           }
 
