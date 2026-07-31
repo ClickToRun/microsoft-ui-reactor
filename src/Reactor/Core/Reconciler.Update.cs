@@ -1203,6 +1203,11 @@ public sealed partial class Reconciler
                 cc.Content = Mount(newItemElement, requestRerender);
             }
             SetElementTag(cc, newItemElement);
+
+            // Issue #951 — the container survives re-renders, so its automation
+            // name has to track the row it now shows. Without this a reorder or
+            // a renamed item would keep announcing the previous row's name.
+            PropagateItemAutomationName(container, cc.Content as UIElement);
         }
     }
 
