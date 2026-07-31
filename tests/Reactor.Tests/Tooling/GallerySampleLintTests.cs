@@ -592,10 +592,26 @@ public sealed class GallerySampleLintTests
     }
 
     /// <summary>
-    /// Pages that predate the rule, tracked by issue #980. Pinned as an explicit set rather than a
-    /// count: a count stays green when one page is fixed and another regresses in the same change,
-    /// which is exactly the drift the rule exists to stop. A floor and a ceiling each miss one of
-    /// those two directions too.
+    /// Pages that predate the rule, tracked by issue #980. An explicit set rather than a count: a
+    /// count stays green when one page is fixed and another regresses in the same change, which is
+    /// exactly the drift the rule exists to stop. A floor and a ceiling each miss one of those two
+    /// directions too.
+    /// <para>
+    /// Treated as an <em>upper bound</em>, not an equality pin. #980 is draining this list in a
+    /// separate change, and an equality pin would redden here the moment that lands — on a branch
+    /// whose own checks nothing re-runs, so the break would surface on main rather than on either
+    /// PR. The upper bound keeps both directions the rule is for: a page that is not on the list
+    /// fails, and so does a compensating edit that fixes one page while breaking another, because
+    /// the new offender is not on the list either. What it gives up is noticing that an entry has
+    /// gone stale — harmless, since a stale entry can only mask a re-regression of that exact
+    /// page-and-slot pair, and prunable at any time.
+    /// </para>
+    /// <para>
+    /// This does not make the test vacuous when the list drains to nothing: non-vacuity here comes
+    /// from <see cref="CrossCardRule_ReportsOnlySlotsSpanningCards"/> driving the detector over
+    /// synthetic source, plus the multi-card floor below — neither of which depends on the tree
+    /// still containing offenders.
+    /// </para>
     /// </summary>
     static readonly string[] KnownSharedStatePages =
     [
@@ -634,15 +650,10 @@ public sealed class GallerySampleLintTests
             $"only {pagesWithMultipleCards} gallery pages were seen to have multiple SampleCards — the rule would pass near-vacuously.");
 
         var added = offenders.Except(KnownSharedStatePages).Order().ToList();
-        var fixedUp = KnownSharedStatePages.Except(offenders).Order().ToList();
 
         Assert.True(added.Count == 0,
             "these SampleCards share a UseState slot, so driving one silently retargets its " +
             "neighbour (#982). Give each card its own slot:\n  " + string.Join("\n  ", added));
-
-        Assert.True(fixedUp.Count == 0,
-            "these pages no longer share state — thank you. Remove them from KnownSharedStatePages " +
-            "so the list keeps meaning something:\n  " + string.Join("\n  ", fixedUp));
     }
 
     [Theory]
