@@ -194,7 +194,12 @@ Hard-won specifics that repeatedly cost sessions time. Prefer these exact comman
   For stateful E2E/selftest UI use `Component<T>()` fixtures; raw `ctx.UseState` doesn't
   persist (TestHost renders with a fresh `RenderContext`).
 
-### Writing tests that actually prove something
+### Checks that actually prove something
+
+Applies to anything whose output you would act on: xUnit assertions, selftest
+`H.Check`s, and the ad-hoc commands you verify state with — log greps, freshness
+checks, CI queries. The failure mode is identical in all three, and the last one is
+the one that bites hardest, because a broken instrument is trusted by default.
 
 - **Every assertion must fail if its target code is deleted / no-op'd / returns default.**
   Bare non-null, "no throw" on a `void`, and always-emitted shape markers are vacuous.
