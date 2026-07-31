@@ -231,7 +231,8 @@ visual clickable or `.IsDragRegion(true)` to force it draggable, and set
 {
     Content = HStack(8,
         AutoSuggestBox("", _ => {}).Width(200),
-        Button("\uE713", OnSettings).IsDragRegion(false)),
+        Button(Icon(FontIcon("\uE713", fontSize: 16)), OnSettings)
+            .AutomationName("Settings").IsDragRegion(false)),
 }).AutoRefreshDragRegions();
 ```
 

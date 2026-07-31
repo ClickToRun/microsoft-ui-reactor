@@ -151,7 +151,8 @@ and add `.AutoRefreshDragRegions()` when the content changes across renders:
 {
     Content = HStack(8,
         AutoSuggestBox("", _ => {}).Width(200),
-        Button("\uE713", OnSettings).IsDragRegion(false)),
+        Button(Icon(FontIcon("\uE713", fontSize: 16)), OnSettings)
+            .AutomationName("Settings").IsDragRegion(false)),
 }).AutoRefreshDragRegions();
 ```
 

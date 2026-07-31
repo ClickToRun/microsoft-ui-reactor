@@ -2782,7 +2782,10 @@ public static partial class ElementExtensions
     /// meaningful for an element inside a <c>TitleBar</c>'s content; inert elsewhere.
     /// The nullable parameter lets callers forward a <c>bool?</c> state without branching.
     /// </summary>
-    /// <example>Button("\uE713", OnSettings).IsDragRegion(false)</example>
+    /// <example>
+    /// Button(Icon(FontIcon("\uE713", fontSize: 16)), OnSettings)
+    ///     .AutomationName("Settings").IsDragRegion(false)
+    /// </example>
     public static T IsDragRegion<T>(this T el, bool? isDragRegion = true) where T : Element =>
         Modify(el, new ElementModifiers { IsDragRegion = isDragRegion });
 
