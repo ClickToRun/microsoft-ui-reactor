@@ -257,12 +257,15 @@ Border(child).Padding(4, 8, 16, 24)");
         VStack(2,
             TextBlock(label).FontSize(12).Foreground(Theme.SecondaryText),
             Border(
-                TextBlock($"{l}, {t}, {r}, {b}")
-                    .FontSize(11)
-                    .Foreground(Theme.PrimaryText)
-                    .HAlign(HorizontalAlignment.Center)
-                    .VAlign(VerticalAlignment.Center)
-                    .Background(Theme.Accent)
+                Border(
+                    TextBlock($"{l}, {t}, {r}, {b}")
+                        .FontSize(11)
+                        .Foreground(Theme.PrimaryText)
+                        .HAlign(HorizontalAlignment.Center)
+                        .VAlign(VerticalAlignment.Center)
+                )
+                .Background(Theme.Accent)
+                .CornerRadius(4)
             )
             .Background(Theme.SubtleFill)
             .WithBorder(Theme.DividerStroke)
