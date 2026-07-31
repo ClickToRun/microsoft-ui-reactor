@@ -418,7 +418,7 @@ The cleanest forcing function is the `Debug.WriteLine` → `DiagnosticLog.Swallo
   }
   ```
 - **Risk:** Low — an unobserved HRESULT now surfaces as a real bug, which is the desired outcome.
-- **Owner:** @codemonkeychris  •  **PR:** #XXX  •  **Status:** ☐ migrated  ☐ verdict shipped
+- **Owner:** @codemonkeychris  •  **PR:** #XXX  •  **Status:** `shipped` | `deferred`
 ```
 
 Required fields: **Site (before)**, **Operation** (what platform/SDK call is in the try), **Caller contract** (who calls this, when), **Observed/expected failure modes** (HRESULT or Win32 code level — not just type), **What we explicitly do NOT want to swallow** (the bug-class exceptions we're now happy to let propagate), **Why we swallow the listed cases**, **Verdict**, **Site (after)**, **Risk**, **Owner/PR/Status**.
@@ -440,7 +440,7 @@ single-word tokens, which is what the ledger rows and the gate use.
 | **Replace with `TryXxx`** | `TryXxx` | The hot-path exception is the steady-state; refactor to a predicate or `bool TryDo(...)` that doesn't throw. | `if (TryClose(out var hr)) ... else DiagnosticLog.HResultFailed(...)` |
 | **Promote to typed event** | `PromoteEvent` | The site deserves its own `ReactorEventSource` event with structured payload, not the generic `SwallowedError`. | `ReactorEventSource.Log.WindowCloseFailed(hr, windowType);` |
 
-Sites with verdict ≠ **Keep** ship their fix in the same PR as the migration. The audit entry's **Status** transitions from `migrated` to `verdict shipped`.
+Sites with verdict ≠ **Keep** ship their fix in the same PR as the migration. **Status** is binary — `shipped` or `deferred` — and a partial delivery counts as `deferred`, with the part that did ship described in the row's Notes. (The earlier two-stage `migrated` → `verdict shipped` wording predates the ledger schema; the audit file's `Status` column is authoritative and the gate accepts only these two tokens.)
 
 A bare `catch (COMException)` or `catch (Win32Exception)` without an HRESULT/`NativeErrorCode` `when` filter is **not** a valid Narrow result — it's the type-level mistake we're trying to eliminate. The audit reviewer rejects it.
 
@@ -638,8 +638,8 @@ Phases A, B, C-audit, C, C-gate close the issue body of #323 (the audit). D–F 
 - A developer can collect a trace by setting three environment variables before launching the app — no source change required.
 - That trace opens in Visual Studio and shows reconcile/render/state/error events with timestamps, provider, and payload columns. Callstacks are available when the capturing tool was configured to record them (not asserted by us).
 - The Reactor source tree contains **zero** `Debug.WriteLine` calls that report errors or HRESULT codes — they are all routed through `DiagnosticLog`.
-- **Every remaining `catch (Exception)` in `src/Reactor/` has a corresponding entry in `docs/specs/044/swallowed-error-audit.md` with verdict = Keep and a written justification.** The audit file is review-blocking; PRs that introduce a new broad catch without an audit entry fail CI (§6.7.5).
-- The audit's verdict distribution is checked in alongside the file; the team has visibility into the "AI slop" share (Propagate verdicts) as a quality metric.
+- **Every remaining `catch (Exception)` in `src/Reactor/` has a corresponding entry in `docs/specs/044/swallowed-error-audit.md` with verdict = Keep and a written justification.** The audit file is review-blocking by convention, and its arithmetic is machine-enforced: `Reactor.Tests`' `SwallowedErrorAuditTests` re-derives the verdict distribution from the per-file ledger rows and fails CI on drift, on a non-canonical verdict or status token, on a stale section path, and on a `Keep` row with no named justification. It cannot detect a *missing* row for a newly added catch — that requires the §6.7.5 analyzer, which is still deferred (see the tasks doc). Until it ships, a missing entry is caught in code review, not by CI.
+- The audit's verdict distribution is a **derived** artifact — recomputed from the ledger rows by the gate above rather than hand-incremented — so the team's visibility into the "AI slop" share (Propagate verdicts) rests on a number that cannot silently drift.
 - All new event payloads pass the §6.2.1 PII policy review (no raw `ex.Message`, no raw window titles, no instantiated route values, no raw file paths).
 - `reactor.logs` MCP tool returns ETW events when `source=event` is passed. Existing clients that don't pass `source=event` see no behavior change (the new fields are additive and optional).
 - The core `Microsoft.UI.Reactor` assembly continues to build clean with `IsAotCompatible=true` and trim warnings promoted to errors after the new diagnostics code lands.

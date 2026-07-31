@@ -162,18 +162,21 @@ public sealed class SwallowedErrorAuditTests
         }
     }
 
-    // ── Assertion 4: non-vacuity floor ─────────────────────────────────────
+    // ── Assertion 4: non-vacuity floor + the cumulative ratchet ────────────
     //
     // Without this, breaking the parser turns every other assertion in this
     // file green (nothing parsed, so nothing disagrees).
     //
-    // The site floor is the ledger's own monotonic invariant, not a loose
-    // sanity bound: the ledger is cumulative, so its total can only rise.
-    // Raise this number when the ledger grows; it must never be lowered. A
-    // slack floor here would let a whole section be deleted and the summary
-    // re-derived downward, which is exactly the silent-shrink the cumulative
-    // definition forbids.
-    const int LedgerSiteFloor = 124;
+    // Sections and rows are *floors*, because regrouping is legitimate: two
+    // rows can merge into one, or one split into two, with no change in what
+    // was adjudicated.
+    //
+    // The site total is different — it is checked for **equality**, not `>=`.
+    // The ledger is cumulative, so the total may only ever rise, and a floor
+    // alone does not enforce that: once the ledger grows past a stale floor,
+    // a later shrink back down to it passes silently. Equality makes every
+    // change to the total a deliberate, reviewable edit in this file.
+    const int LedgerSiteTotal = 124;
     const int LedgerSectionFloor = 19;
     const int LedgerRowFloor = 50;
 
@@ -193,11 +196,17 @@ public sealed class SwallowedErrorAuditTests
         Assert.True(distinctVerdicts >= 4, $"Parsed only {distinctVerdicts} distinct verdicts across all rows.");
 
         var total = audit.Rows.Sum(r => r.Sites);
+
         Assert.True(
-            total >= LedgerSiteFloor,
-            $"The ledger totals {total} sites, below the recorded floor of {LedgerSiteFloor}. The ledger is "
-            + $"cumulative — a row is only ever removed if it was recorded in error. If that is genuinely what "
-            + $"happened, lower LedgerSiteFloor in the same commit and say why in the commit message.");
+            total == LedgerSiteTotal,
+            total > LedgerSiteTotal
+                ? $"The ledger totals {total} sites but LedgerSiteTotal records {LedgerSiteTotal}. You adjudicated "
+                  + $"{total - LedgerSiteTotal} new site(s) — raise LedgerSiteTotal to {total} in the same commit. "
+                  + $"This constant is the cumulative ratchet: it exists so that a later deletion cannot quietly "
+                  + $"return the ledger to today's number."
+                : $"The ledger totals {total} sites, below the recorded {LedgerSiteTotal}. The ledger is cumulative "
+                  + $"— a row is only ever removed if it was recorded in error. If that is genuinely what happened, "
+                  + $"lower LedgerSiteTotal to {total} in the same commit and say why in the commit message.");
     }
 
     // ── Assertion 4b: every table sits under its own section heading ───────
@@ -269,15 +278,16 @@ public sealed class SwallowedErrorAuditTests
             Assert.True(row.Sites > 0, $"{row.Where}: Sites is {row.Sites}; it must be a positive integer.");
         }
 
-        // Rows whose Sites cell failed to parse never make it into Rows, so
-        // assert none were dropped: every data line of every ledger table is a
-        // parsed row.
-        var dataLines = audit.Tables.Sum(t => t.DataLineCount);
+        // Rows whose cells failed to parse never make it into Rows, so assert
+        // none were dropped — and name them. A bare count would tell a
+        // contributor that something is wrong without telling them where.
         Assert.True(
-            dataLines == audit.Rows.Count,
-            $"{dataLines - audit.Rows.Count} ledger row(s) were skipped by the parser — "
-            + $"most likely a Sites cell that is not a positive integer, or a row with the "
-            + $"wrong number of cells. Every row must be countable.");
+            audit.SkippedRows.Count == 0,
+            $"{audit.SkippedRows.Count} ledger row(s) could not be parsed and were therefore not counted:\n"
+            + string.Join("\n", audit.SkippedRows.Select(s => $"  {AuditPath}:{s.LineNumber}  {s.Text}"))
+            + $"\n\nEvery row must be countable. The expected shape is exactly five cells:\n"
+            + $"  | <site description> | <positive integer> | `<Verdict>` | {Shipped}|{Deferred} | <notes> |\n"
+            + $"Write a literal pipe inside a cell as \\| so it is not read as a column break.");
     }
 
     // ── Assertion 7: section headings name files that exist ────────────────
@@ -427,11 +437,14 @@ public sealed class SwallowedErrorAuditTests
 
     sealed record Section(string Heading, string RelativePath, int LineNumber);
 
-    sealed record Table(string Section, int? SectionIndex, string Header, int LineNumber, int DataLineCount);
+    sealed record Table(string Section, int? SectionIndex, string Header, int LineNumber);
+
+    sealed record SkippedRow(int LineNumber, string Text);
 
     sealed record Audit(
         string Text,
         IReadOnlyList<Row> Rows,
+        IReadOnlyList<SkippedRow> SkippedRows,
         IReadOnlyList<Section> Sections,
         IReadOnlyList<Table> Tables,
         Lazy<IReadOnlyDictionary<string, Tally>> Distribution,
@@ -459,6 +472,7 @@ public sealed class SwallowedErrorAuditTests
         var sections = new List<Section>();
         var tables = new List<Table>();
         var rows = new List<Row>();
+        var skipped = new List<SkippedRow>();
         var section = "(before any section heading)";
         int? sectionIndex = null;
 
@@ -487,13 +501,17 @@ public sealed class SwallowedErrorAuditTests
                 dataTo++;
             }
 
-            tables.Add(new Table(section, sectionIndex, line.Trim(), i + 1, dataTo - dataFrom));
+            tables.Add(new Table(section, sectionIndex, line.Trim(), i + 1));
 
             for (var j = dataFrom; j < dataTo; j++)
             {
                 if (TryParseRow(lines[j], section, j + 1, out var row))
                 {
                     rows.Add(row);
+                }
+                else
+                {
+                    skipped.Add(new SkippedRow(j + 1, lines[j].Trim()));
                 }
             }
 
@@ -503,6 +521,7 @@ public sealed class SwallowedErrorAuditTests
         return new Audit(
             text,
             rows,
+            skipped,
             sections,
             tables,
 
