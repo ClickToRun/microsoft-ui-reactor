@@ -1197,6 +1197,7 @@ internal static class SelfTestFixtureRegistry
         "WindowLevel_Floating_AboveSiblings",
         "WindowLevel_Floating_AboveOwner",
         "WindowLevel_RuntimeFlip",
+        "WindowLevel_VerdictBranches",
         // Spec 054 Phase 5 — SizeToContent.
         "SizeToContent_Width_Tracks",
         "SizeToContent_Height_Tracks",
@@ -2809,6 +2810,7 @@ internal static class SelfTestFixtureRegistry
         "WindowLevel_Floating_AboveSiblings" => new Phase4WindowingFixtures.WindowLevelFloatingAboveSiblings(harness),
         "WindowLevel_Floating_AboveOwner" => new Phase4WindowingFixtures.WindowLevelFloatingAboveOwner(harness),
         "WindowLevel_RuntimeFlip" => new Phase4WindowingFixtures.WindowLevelRuntimeFlip(harness),
+        "WindowLevel_VerdictBranches" => new Phase4WindowingFixtures.WindowLevelVerdictBranches(harness),
         // Spec 054 Phase 5 — SizeToContent.
         "SizeToContent_Width_Tracks" => new Phase5WindowingFixtures.SizeToContentWidthTracks(harness),
         "SizeToContent_Height_Tracks" => new Phase5WindowingFixtures.SizeToContentHeightTracks(harness),
