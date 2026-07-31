@@ -1,18 +1,15 @@
 # Reactor Framework vs WinUI 3 — Comprehensive Gap Analysis
 
-**Status:** Living document — re-verified 2026-07-29 against `skills/reactor.api.txt` and `src/Reactor`.
+**Status:** Living document — re-verified 2026-07-30 against `skills/reactor.api.txt` and `src/Reactor`.
 
 How every WinUI 3 application-programming feature is exposed, replaced, augmented,
 hidden, or blocked by the Microsoft.UI.Reactor (Reactor) framework design.
 
 > **Read this before trusting a row.** This document ages badly: it is a snapshot of coverage,
-> and coverage moves every week. The 2026-07-29 pass corrected a large number of rows that had
+> and coverage moves every week. The 2026-07-30 pass corrected a large number of rows that had
 > gone stale — **all four of the original P0 gaps have since shipped** (theming tokens,
 > accessibility modifiers, a navigation router, and a command model). Anything not re-verified
-> on that date should be treated as a hypothesis, not a fact.
->
-> §24 tracks gaps that are closed *on an unmerged branch* — those rows are deliberately left
-> at their pre-merge status here so the document stays true of `main`.
+> on that date should be treated as a hypothesis, not a fact. §24 says how to re-verify.
 
 ## Legend
 
@@ -52,7 +49,7 @@ hidden, or blocked by the Microsoft.UI.Reactor (Reactor) framework design.
 21. [Interop](#21-interop)
 22. [Content and Items Infrastructure](#22-content-and-items-infrastructure)
 23. [Summary Scorecard](#23-summary-scorecard)
-24. [In-Flight Work and Follow-Ups](#24-in-flight-work-and-follow-ups)
+24. [Keeping This Document Honest](#24-keeping-this-document-honest)
 
 ---
 
@@ -118,7 +115,7 @@ NavigationViewItem, CommandBar, etc.
 |---|---|---|---|
 | **ListView** | Augmented | `ListView(items, template)` + `LazyVStack<T>(items, template)` | Virtualized; also TemplatedListViewElement\<T\> for typed templates |
 | **GridView** | Augmented | `GridView(items, template)` + `LazyHStack<T>` | TemplatedGridViewElement\<T\> available |
-| **ItemsView** | Exposed | `ItemsView<T>(items, keySelector, viewBuilder)` | ItemsViewElement\<T\>; `keySelector` is **required** here (unlike ListView/GridView/ItemsRepeater, which also have a keyless overload). `viewBuilder` must return an `ItemContainer(...)` root — enforced at mount by `GuardedViewBuilder` |
+| **ItemsView** | Exposed | `ItemsView<T>(items, keySelector, viewBuilder)` | ItemsViewElement\<T\>; `keySelector` is **required** here (unlike ListView/GridView/ItemsRepeater, which also have a keyless overload). `viewBuilder` must return an `ItemContainer(...)` root — enforced at build time by `REACTOR_ITEMS_002` and again at mount by `GuardedViewBuilder` |
 | **ItemsRepeater** | Exposed | `ItemsRepeater<T>(items, viewBuilder)` | ItemsRepeaterElement\<T\>, with a keyed overload; also drives LazyVStack/LazyHStack internally |
 | **FlipView** | Exposed | `FlipView(items, template)` | TemplatedFlipViewElement\<T\> available |
 | **TreeView** | Exposed | `TreeView(items)` | TreeViewElement with drag support |
@@ -207,7 +204,7 @@ container, or by registering a custom control type (see §2.2).
 **Not counted above:** XAML shapes have first-class factories — `Rectangle()`, `Ellipse()`,
 `Line()`, `Path2D()`. Note that shapes are painted with `.Fill()` / `.Stroke()`, **not**
 `.Background()` — `ApplyModifiers` only routes `Background` to `Panel`, `Control`, and `Border`,
-so `.Background()` on a shape is silently dropped (see §24).
+so `.Background()` on a shape is silently dropped (flagged at build time by `REACTOR_MOD_003`).
 
 ### 1.10 Status and Information
 
@@ -262,7 +259,7 @@ so `.Background()` on a shape is silently dropped (see §24).
 | 1.3 Icons | 6 | 6 | — | — | — | — |
 | 1.4 Collections | 6 | 4 | 2 | — | — | — |
 | 1.5 Date/Time | 4 | 4 | — | — | — | — |
-| 1.6 Dialogs | 7 | 6 | — | — | — | 1 |
+| 1.6 Dialogs | 7 | 7 | — | — | — | — |
 | 1.7 Menus/Toolbars | 6 | 6 | — | — | — | — |
 | 1.8 Navigation | 8 | 7 | — | 1 | — | — |
 | 1.9 Media | 10 | 7 | — | — | — | 3 |
@@ -270,11 +267,10 @@ so `.Background()` on a shape is silently dropped (see §24).
 | 1.11 Scrolling | 4 | 3 | — | — | 1 | — |
 | 1.12 Containers | 6 | 4 | 1 | — | — | 1 |
 | 1.13 Title Bar | 1 | 1 | — | — | — | — |
-| **Totals** | **86** | **75** | **4** | **1** | **1** | **5** |
+| **Totals** | **86** | **76** | **4** | **1** | **1** | **4** |
 
-**Overall control coverage: 81/86 (94%) accessible, 5 missing (InkCanvas, InkToolbar,
-CaptureElement, TwoPaneView, full ToolTip).** The ToolTip row drops to 4 missing once #946
-merges — see §24.
+**Overall control coverage: 82/86 (95%) accessible, 4 missing (InkCanvas, InkToolbar,
+CaptureElement, TwoPaneView).**
 
 Beyond the WinUI catalogue, Reactor ships first-class controls with no WinUI counterpart:
 `Flex` (Yoga flexbox), `DataGrid`, `PropertyGrid`, `VirtualList`, `UniformGrid`,
@@ -362,7 +358,7 @@ rather than lightweight property changes.
 | **TabView** | Exposed | TabViewElement | Full tab management with selection |
 | **BreadcrumbBar** | Exposed | BreadcrumbBarElement | Click handler per item |
 | **SelectorBar** | Exposed | SelectorBarElement | View switching |
-| **Frame.Navigate(typeof(Page))** | Blocked | — | `Frame(sourcePageType, navigationParameter)` mounts, but navigating to a **code-only** `Page` — the only kind a no-XAML Reactor app has — kills the process. Usable only for XAML-interop Pages today; PR #945 unblocks it. See the caveat below |
+| **Frame.Navigate(typeof(Page))** | Blocked | — | `Frame(sourcePageType, navigationParameter)` mounts, but a **code-only** `Page` — the only kind a no-XAML Reactor app has — cannot be navigated to. `FrameNavigation.TryNavigate` now verifies the target is resolvable in the XAML metadata chain and **refuses** rather than handing WinUI an unresolvable type, so this fails safely instead of killing the process (#945). Usable only for XAML-interop Pages. See the caveat below |
 
 **Verdict: the navigation *scenario* is solved by replacement; the WinUI `Frame` *element* is
 still blocked.** The original verdict here ("navigation is generally broken") is obsolete.
@@ -373,13 +369,20 @@ forward stacks, `NavigationHost<TRoute>(nav, routeMap)` renders the current rout
 route being an ordinary C# value means parameter passing is type-checked at compile time —
 strictly better than `Frame.Navigate(typeof(T), object)`. Use `NavigationHost`, not `Frame`.
 
-**Caveat — the WinUI `Frame` element itself.** `Frame(sourcePageType)` mounts, but navigating it
-to a **code-only** `Page` subclass currently kills the process with an access violation:
-WinUI resolves navigation targets through `IXamlMetadataProvider`, a Reactor app ships no XAML,
-so no metadata provider is emitted and `GetXamlTypeNoRef()` returns null (see
-`011-navigation-design.md`, "Why WinUI Frame is not the answer"). PR #945 fixes this by
-synthesizing the metadata and refusing to navigate when a type is unresolvable — until it
-merges, prefer `NavigationHost` and treat `Frame` as XAML-interop only. See §24.
+**Caveat — the WinUI `Frame` element itself.** `Frame(sourcePageType)` mounts, but it cannot
+navigate to a **code-only** `Page` subclass. WinUI resolves navigation targets through
+`IXamlMetadataProvider`; a Reactor app ships no XAML, so no metadata provider is emitted and
+`GetXamlTypeNoRef()` returns null. This used to kill the process with an access violation;
+#945 added `FrameNavigation.TryNavigate`, which confirms the target is resolvable and refuses
+the navigation when it is not, so the failure is now safe and reportable rather than fatal.
+
+It is **not** unblocked, and deliberately so. #945 was cut back from an earlier version that
+published app-defined `Page` types into the metadata chain: spec 011's goal 3 is *"zero XAML
+dependency — no `.xaml` files, no `IXamlMetadataProvider`"*, and its §"Why WinUI Frame is not
+the answer" documents four hard C++ constraints of which metadata resolution is only the first.
+Publishing types would have satisfied one constraint and left three, making a discouraged path
+*partially* work — worse than not supporting it. `Frame` is an interop escape hatch for apps
+that already have XAML pages; use `NavigationHost` for Reactor-native navigation.
 
 ---
 
@@ -432,7 +435,8 @@ See §9.
 
 A related sharp edge remains: `Reconciler.ApplyModifiers` only routes some modifiers to some
 control shapes. `.Background()` is applied to `Panel`, `Control`, and `Border` only, so it is
-silently dropped on a `Shape`. Analyzer work to flag this is in flight (#947, §24).
+silently dropped on a `Shape`. `REACTOR_MOD_003` now flags this class of silent no-op at build
+time.
 
 ---
 
@@ -543,7 +547,7 @@ What is genuinely still open:
   warning. The analyzers catch the common literal-color shapes at build time, but a color that
   arrives through a variable or a computed string is invisible to them.
 - **`.Background()` is dropped entirely on shapes.** Not a theming bug as such, but it lands in
-  the same "silently wrong color" bucket; see §5 and #947 in §24.
+  the same "silently wrong color" bucket; see §5. `REACTOR_MOD_003` catches it at build time.
 - **`{ThemeResource}` inside a dynamically-applied `Style` does not respect a per-element
   `RequestedTheme`.** This is a WinUI platform constraint, documented at the call site in
   `Reconciler.cs`, not something Reactor can fix.
@@ -962,7 +966,7 @@ the two `Partially replaced` rows in §10.
 
 | # | Feature Area | Exposed | Augmented | Replaced | Passthrough | Missing | Blocked |
 |---|---|---|---|---|---|---|---|
-| 1 | Built-in Controls | 75 | 4 | 1 | 1 | 5 | — |
+| 1 | Built-in Controls | 76 | 4 | 1 | 1 | 4 | — |
 | 2 | Layout System | 5 | 2 | 2 | 7 | 1 | — |
 | 3 | Navigation | 5 | 1 | 3 | — | — | 1 |
 | 4 | Data Binding | — | — | 12 | — | — | — |
@@ -987,9 +991,8 @@ the two `Partially replaced` rows in §10.
 
 ### What changed since the first pass
 
-**All four** of the original **P0** gaps have shipped, as have five of the six **P1**s — the
-outstanding P1 is ToolTip, which is in flight (§24). The list below is kept as a record so the
-document's own history stays auditable.
+**All four** of the original **P0** gaps have shipped, as have all six **P1**s. The list below
+is kept as a record so the document's own history stays auditable.
 
 | Original priority | Gap | Now |
 |---|---|---|
@@ -1002,7 +1005,7 @@ document's own history stays auditable.
 | P1 | Access key modifiers | **Shipped** — `.AccessKey()` (§14.7) |
 | P1 | Drag-and-drop modifiers | **Shipped** — typed `.OnDragStart<T>()` / `.OnDrop<T>()` (§14.7) |
 | P1 | Multi-window support | **Shipped** — `UseOpenWindow(WindowKey, WindowSpec, …)` (§18) |
-| P1 | ToolTip full feature set | **In flight** — #946 (§24) |
+| P1 | ToolTip full feature set | **Shipped** — `.ToolTipPlacement()`, `.ToolTipPlacementTarget()`, plus placement overloads of `.ToolTip()` / `.WithToolTip()` (§1.6) |
 | P2 | Connected animations | **Shipped** — `.ConnectedAnimation(key)` + `NavigationTransition.Connected` (§11) |
 | P2 | Per-element RequestedTheme | **Shipped** — `.RequestedTheme()` (§9) |
 | P2 | ManipulationMode modifier | **Still open** |
@@ -1014,9 +1017,10 @@ document's own history stays auditable.
 
 | Priority | Gap | Impact | Effort |
 |---|---|---|---|
-| **P1** | Tier-1 concrete colors silently override theming, and `.Background()` is silently dropped on shapes | The two remaining "my color is wrong and nothing told me" classes. Analyzers cover the literal cases only | Low–Medium — widen analyzer coverage (#947 covers the shape case) |
+| **P1** | Tier-1 concrete colors silently override theming | The remaining "my color is wrong and nothing told me" class. `REACTOR_THEME_*` covers the literal cases; a color arriving via a variable or computed string is still invisible to it | Low–Medium — widen analyzer coverage |
 | **P1** | `UseColorScheme()` reads the app-level theme, not the element-effective theme | Doesn't compose with `.RequestedTheme()` on an ancestor; a subtree renders theme-aware content for the wrong theme | Low — resolve through the element |
 | **P1** | Custom AutomationPeer for components | A composed control cannot publish its own UIA control pattern; blocks bespoke accessible widgets | High — needs a peer-authoring seam that doesn't require subclassing `Control` |
+| **P2** | WinUI `Frame` with code-only `Page` types | Blocked by design, not by omission — see §3. Listed so the decision stays visible, not as scheduled work | N/A — `NavigationHost` is the supported path |
 | **P2** | ControlTemplate authoring / re-templating | Cannot restyle a WinUI control's internals from Reactor; must compose a replacement instead | High — arguably out of scope by design |
 | **P2** | Manipulation family (`ManipulationMode`, `Manipulation*` events) | Custom direct-manipulation surfaces still need `.Set()`; the pan/pinch/rotate recognizers cover most cases | Low — add modifiers |
 | **P2** | App-level resource dictionary DSL | Merged/theme dictionaries still need `.Set()` on `Application.Resources` | Medium |
@@ -1042,52 +1046,25 @@ document's own history stays auditable.
 
 ---
 
-## 24. In-Flight Work and Follow-Ups
+## 24. Keeping This Document Honest
 
-Rows above describe **`main`**. This section lists work that is written and under review but not
-yet merged, so that the affected rows can be flipped in one pass when each PR lands. Nothing here
-should be treated as available yet.
+This document has gone stale once already: it kept four P0 gaps open in print long after
+all four had shipped. It will do so again unless re-verified deliberately.
 
-**This section is expected to shrink to nothing.** Delete each row as its PR merges (after
-applying the flips it names); when the table is empty, delete the section and its TOC entry. If
-a row is still here long after its PR closed, the PR was abandoned — drop the row and, if the
-gap is real, promote it to the §23 gap table instead. Only the re-verification checklist at the
-end is meant to be permanent.
-
-**Do not pre-apply these.** §1.6's ToolTip row in particular is edited by #946 on its own
-branch; changing it here as well would only create a merge conflict.
-
-### Closes a gap recorded in this document
-
-| PR | Change | Rows to flip on merge |
-|---|---|---|
-| **#946** | `.ToolTipPlacement(PlacementMode)`, `.ToolTipPlacementTarget(ElementRef)`, plus placement overloads of `.ToolTip()` / `.WithToolTip()` | §1.6 ToolTip → **Exposed** (verdict 7/7); Controls Summary row 1.6 → 7 exposed / 0 missing and Totals → **76 exposed / 4 missing**; §1 headline → "4 missing"; §23 scorecard row 1 → 76 exposed / 4 missing; §23 P1 ToolTip row → Shipped. **This PR already contains the §1.6 edit** |
-| **#945** | Synthesizes the XAML metadata a code-only `Page` needs, chains a `ReactorPageXamlMetadataProvider` into `ReactorApplication.GetXamlType`, and makes `FrameNavigation.TryNavigate` refuse to navigate to an unresolvable type instead of faulting. Adds `ReactorApp.RegisterPageType(...)` | §3 `Frame.Navigate(typeof(Page))` → **Exposed**; delete the "Caveat" paragraph and the "Use `NavigationHost`, not `Frame`" clause in the verdict; §23 scorecard row 3 → 6 exposed / 0 blocked. §19's UnhandledException note about uncatchable AVs can be softened |
-| **#947** | `REACTOR_MOD_003` — flags common modifiers the reconciler silently drops (e.g. `.Background()` on a `Shape`, which should be `.Fill()`) | §5 and §9 — the "silently dropped on a shape" footgun gains a build-time guardrail; §23 top-gap P1 row narrows to the theming half |
-| **#936** | `REACTOR_ITEMS_002` — promotes `ItemsViewElement<T>.GuardedViewBuilder`'s mount-time throw to a build-time diagnostic with a code fix | §1.4 — the ItemContainer-root requirement becomes compile-time enforced |
-
-### Related, but doesn't change a status in this document
-
-| PR | Change | Why it's here |
-|---|---|---|
-| **#941** | Fixes 12 ReactorGallery sample defects (G1–G11, R8) | Several are the *symptoms* this document's footguns predict — G2 is `.Background()` on a `Rectangle` (§5/§9), G1 is the ItemsView container guard (§1.4). Useful as evidence when re-verifying |
-| **#943** | `CommandBarFlyout` now wires through `SetFlyoutOnControl` instead of `SetAttachedFlyout`, so it actually opens | §1.6 already says CommandBarFlyout is Exposed; this makes that true in practice |
-| **#939** | Never writes `FlyoutPlacementMode.Auto` to a WinUI `FlyoutBase` (it is out of the validator's 0–12 range and fail-fasts) | Same — §1.6's "Exposed" was optimistic for default-placement flyouts |
-| **#940** | Documents and tests the edge-triggered contract for natively-mutated declared bools (`InfoBar.IsOpen`) | Clarifies the controlled-property model in `docs/guide/extending-reactor-controls.md` and spec 050; no status change here |
-| **#944** | `reactor-gallery://` deep linking, dogfooding `DeepLinkMap` / `LaunchActivation` / `LaunchKind.Protocol` | Working proof of the §3 and §19 deep-link rows |
-| **#935** | API index now includes public static classes, so `ControlRegistry` and `ReactorApp` are discoverable | This document's ground truth is `skills/reactor.api.txt`; until this merges, §2.2's `ControlRegistry.Register*` cannot be verified from the index alone |
-| **#812** | Re-renders context consumers behind reference-stable child skips | Correctness of the `UseContext` hook named in §4's verdict; no status change |
-| **#621** | `TableView` as a first-class Reactor control + 36 gallery pages | Draft / proof-of-concept, samples-only and gated off in CI. **Do not add to §1** until it graduates out of `samples/` |
-| **#451** | `mur find` + sample catalogue (spec 043) | Tooling, not framework coverage |
-
-### Re-verification checklist
-
-When one of these merges, or on the next scheduled pass:
+When a PR lands that changes coverage, or on a scheduled pass:
 
 1. Regenerate the API index (`mur --regen-api`) and diff it — new `Exposed` rows usually appear
    there first.
 2. Re-grep the specific symbols named in the rows you are changing; do not trust the prose.
+   A row naming an API that no longer exists (or never did) is this document's most common
+   failure — the 2026-07-29 pass found `TextField(...)`, which was renamed to `TextBox` in #387
+   and deleted in #390, still cited in three places.
 3. Recompute the §1 Controls Summary totals and the §23 scorecard. The pre-2026-07-29 version of
    this document had a totals row that contradicted its own prose (4 vs 5 missing) — the counts
-   are easy to break.
-4. Update the **Status** line at the top with the new verification date.
+   are easy to break. Derive them by counting status words in each section, not by hand.
+4. Check that a row's Status word agrees with its own Notes. "Exposed" beside a note explaining
+   why the feature doesn't work is the failure mode that shipped §3's `Frame` row.
+5. Grep the sibling specs that cite this one (`006`, `011`, `018`, `053`, and
+   `docs/research/compare/overview.md`). A verdict reversed here usually leaves a stale quotation
+   there.
+6. Update the **Status** line at the top with the new verification date.
