@@ -1,0 +1,100 @@
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+namespace Microsoft.UI.Reactor.SelfTests;
+
+/// <summary>
+/// Guards <see cref="SelfTestBatch.DescribeExitCode"/>, the diagnostic that tells a triager
+/// whether a truncated selftest run means "the host faulted" or "something killed it".
+///
+/// <para>Worth testing rather than eyeballing: the mapping is the thing a human acts on, the
+/// NTSTATUS values arrive as negative <see cref="int"/> and must be compared as
+/// <see cref="uint"/> (a signed comparison silently matches nothing), and the hedged wording is
+/// deliberate — the rule is a strong prior, not a proof, because TerminateProcess lets a caller
+/// choose any exit code.</para>
+/// </summary>
+[TestClass]
+public class ExitCodeDescriptionTests
+{
+    // The four codes that actually occur in this harness. 0xC000027B is the WinUI/WinRT one;
+    // 0xC0000409 has repo precedent in the SwipeControl stress crash.
+    [DataTestMethod]
+    [DataRow(unchecked((int)0xC0000005u), "STATUS_ACCESS_VIOLATION")]
+    [DataRow(unchecked((int)0xC000027Bu), "STATUS_STOWED_EXCEPTION")]
+    [DataRow(unchecked((int)0xC0000409u), "STATUS_STACK_BUFFER_OVERRUN")]
+    [DataRow(unchecked((int)0xC00000FDu), "STATUS_STACK_OVERFLOW")]
+    public void NtStatus_codes_are_named_and_attributed_to_a_self_crash(int exitCode, string expectedName)
+    {
+        var text = SelfTestBatch.DescribeExitCode(exitCode);
+
+        StringAssert.Contains(text, expectedName,
+            "the symbolic name is what makes the code searchable");
+        StringAssert.Contains(text, "crashed on its own",
+            "an NTSTATUS must point the triager at the faulting fixture, not an external killer");
+        StringAssert.Contains(text, "strong prior",
+            "the verdict must stay hedged — TerminateProcess can carry any exit code, so a " +
+            "triager who reads this as certain would stop looking too early");
+    }
+
+    /// <summary>
+    /// An NTSTATUS this method does not name individually must STILL be attributed to a crash —
+    /// the 0xC0000000 shape is the signal, not membership of the known-code list. Without this,
+    /// adding the shape check would be indistinguishable from a four-entry lookup table.
+    /// </summary>
+    [TestMethod]
+    public void Unnamed_NtStatus_still_reads_as_a_self_crash()
+    {
+        var text = SelfTestBatch.DescribeExitCode(unchecked((int)0xC0000374u)); // heap corruption
+
+        StringAssert.Contains(text, "crashed on its own");
+        StringAssert.Contains(text, "0xC0000374", "the raw value must survive so nobody has to trust the mapping");
+    }
+
+    /// <summary>
+    /// The killer codes must NOT be described as a crash, and must carry the trailer caveat —
+    /// exit 1 is ambiguous (a genuine fixture failure also exits 1), so the message has to say
+    /// what disambiguates it rather than asserting a verdict.
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(-1)]
+    [DataRow(1)]
+    public void Killer_codes_are_not_called_a_crash_and_name_the_disambiguator(int exitCode)
+    {
+        var text = SelfTestBatch.DescribeExitCode(exitCode);
+
+        Assert.IsFalse(text.Contains("crashed on its own"),
+            $"exit {exitCode} is consistent with an external kill, not a fault");
+        StringAssert.Contains(text, "external kill");
+        StringAssert.Contains(text, "trailer",
+            "exit 1 is ambiguous, so the message must point at the TAP trailer to resolve it");
+    }
+
+    /// <summary>
+    /// A plain code with no story attached gets the raw value and nothing invented. This is the
+    /// assertion that fails if the method ever grows a default verdict.
+    /// </summary>
+    [TestMethod]
+    public void Ordinary_exit_code_gets_no_invented_verdict()
+    {
+        var text = SelfTestBatch.DescribeExitCode(3);
+
+        StringAssert.Contains(text, "Exit code: 3");
+        Assert.IsFalse(text.Contains("crashed on its own"));
+        Assert.IsFalse(text.Contains("external kill"));
+    }
+
+    /// <summary>
+    /// Signed-vs-unsigned regression guard. NTSTATUS values arrive as negative Int32; comparing
+    /// them signed against 0xC0000005 matches nothing and every crash would silently fall through
+    /// to the "no verdict" branch. This fails if the uint casts are dropped.
+    /// </summary>
+    [TestMethod]
+    public void NtStatus_is_matched_unsigned_not_signed()
+    {
+        Assert.IsTrue(unchecked((int)0xC0000005u) < 0, "precondition: NTSTATUS is a negative Int32");
+
+        var text = SelfTestBatch.DescribeExitCode(unchecked((int)0xC0000005u));
+
+        StringAssert.Contains(text, "STATUS_ACCESS_VIOLATION",
+            "a signed comparison would never match, so this text is only reachable via the uint cast");
+    }
+}

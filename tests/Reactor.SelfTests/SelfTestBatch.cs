@@ -102,6 +102,58 @@ public class SelfTestBatch
             _initError = $"Self-test process exited with code {exitCode} but produced no parsable TAP output.\n{_fullOutput}";
     }
 
+    /// <summary>
+    /// Renders a Host exit code with its NTSTATUS interpretation, for the truncated-TAP paths
+    /// where the only question a triager has is "did the host fault, or did something kill it?".
+    ///
+    /// <para>This is a <b>strong prior, not a guarantee</b>, and the wording keeps that honest.
+    /// What is measured: .NET's <c>Process.Kill()</c> — and <c>Stop-Process -Force</c>, which goes
+    /// through the same path — produce <c>-1</c> (<c>0xFFFFFFFF</c>); <c>taskkill /F</c> produces
+    /// <c>1</c>. What is NOT established: that an external killer *cannot* produce an
+    /// NTSTATUS-shaped code. <c>TerminateProcess</c> takes <c>uExitCode</c> as an arbitrary
+    /// <c>UINT</c>, so the caller picks it; nothing structurally prevents a killer choosing
+    /// <c>0xC0000005</c>. It just isn't what any killer in this environment does.</para>
+    ///
+    /// <para>The raw value is always printed alongside the interpretation so nobody has to trust
+    /// the mapping. A triager who reads "external kill" as certain stops looking, and the cost of
+    /// a false certainty here is chasing the wrong cause.</para>
+    /// </summary>
+    internal static string DescribeExitCode(int exitCode)
+    {
+        // Compared as uint: these are NTSTATUS values that arrive as negative Int32.
+        var known = (uint)exitCode switch
+        {
+            0xC0000005 => "STATUS_ACCESS_VIOLATION",
+            0xC000027B => "STATUS_STOWED_EXCEPTION (WinUI/WinRT — the most likely one here)",
+            0xC0000409 => "STATUS_STACK_BUFFER_OVERRUN / fast-fail",
+            0xC00000FD => "STATUS_STACK_OVERFLOW",
+            _ => null,
+        };
+
+        // NTSTATUS failure codes are 0xC0000000-shaped. Treat that whole space as
+        // "the host faulted", not just the four named above.
+        bool ntStatusShaped = ((uint)exitCode & 0xF0000000u) == 0xC0000000u;
+
+        var raw = $"Exit code: {exitCode} (0x{(uint)exitCode:X8}{(known is null ? "" : " " + known)})";
+
+        if (ntStatusShaped)
+        {
+            return raw + "\n  -> NTSTATUS-shaped: the host almost certainly crashed on its own. " +
+                   "Look for the faulting fixture, not for an external killer. " +
+                   "(Known killers in this environment exit -1 or 1, but TerminateProcess lets a " +
+                   "caller choose any code, so this is a strong prior rather than proof.)";
+        }
+
+        if (exitCode is -1 or 1)
+        {
+            return raw + "\n  -> Consistent with an external kill (Process.Kill / Stop-Process exit -1; " +
+                   "taskkill /F exits 1). A genuine fixture failure also exits 1, so use the TAP " +
+                   "trailer to tell them apart: present trailer = real failure, truncated = killed.";
+        }
+
+        return raw;
+    }
+
     private static string? ExtractHangSignal(string output)
     {
         if (string.IsNullOrEmpty(output)) return null;
@@ -285,7 +337,8 @@ public class SelfTestBatch
             {
                 _byFixture[attributed] = (false,
                     $"Selftest Host exited before completing fixture '{attributed}'. " +
-                    $"Exit code: {exitCode}. Downstream fixtures were not executed.\n" +
+                    $"{DescribeExitCode(exitCode)}\n" +
+                    $"Downstream fixtures were not executed.\n" +
                     $"--- tail of full output ---\n{Tail(_fullOutput, 4000)}");
             }
 
@@ -352,9 +405,10 @@ public class SelfTestBatch
             Assert.Inconclusive(_abortedReason ?? "Self-test process timed out; teardown exit code is not meaningful.");
 
         Assert.IsTrue(_exitCode is 0 or 1,
-            $"Self-test Host exited with code {_exitCode} (0x{_exitCode & 0xFFFFFFFFL:X8}) — the runner only " +
-            $"ever returns 0 (all passed) or 1 (fixture failures), so any other code means the process faulted " +
-            $"at teardown (e.g. 0xC0000005). This is the issue #680 final-exit access violation.\n" +
+            $"Self-test Host exited with an unexpected code — the runner only ever returns 0 (all " +
+            $"passed) or 1 (fixture failures), so any other code means the process faulted at " +
+            $"teardown (e.g. the issue #680 final-exit access violation).\n" +
+            $"{DescribeExitCode(_exitCode)}\n" +
             $"--- tail of full output ---\n{Tail(_fullOutput, 4000)}");
     }
 
