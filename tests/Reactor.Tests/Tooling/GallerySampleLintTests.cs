@@ -523,9 +523,16 @@ public sealed class GallerySampleLintTests
 
             // Snapshotted and materialised before the adds below: `reachable` is what we are
             // widening, so the pass has to read the set as it stood when the pass began.
+            // One `TryGetValue` rather than `ContainsKey` + indexer, and the initializer is bound
+            // by pattern: `lifted` is built from a `.Where(v => v.Initializer is not null)` ~15
+            // lines up, but that filter cannot narrow the dictionary's *value type*, so reading
+            // `.Initializer!.Value` here would be an unchecked assertion resting on a guard in a
+            // different statement — the kind that survives an edit to the guard.
             var initializers = reachable.ToList()
-                .Where(lifted.ContainsKey)
-                .Select(name => lifted[name].Initializer!.Value)
+                .SelectMany(name => lifted.TryGetValue(name, out var declarator)
+                                    && declarator.Initializer?.Value is { } value
+                    ? new[] { value }
+                    : [])
                 .ToList();
 
             foreach (var initializer in initializers)
@@ -807,10 +814,11 @@ public sealed class GallerySampleLintTests
 
         var aliases = root.DescendantNodes()
             .OfType<UsingDirectiveSyntax>()
-            .Where(directive => directive.Alias is not null && RightmostName(directive.Name) == "Uri");
+            .SelectMany(directive => directive.Alias is { } alias && RightmostName(directive.Name) == "Uri"
+                ? new[] { alias.Name.Identifier.Text }
+                : []);
 
-        foreach (var directive in aliases)
-            names.Add(directive.Alias!.Name.Identifier.Text);
+        names.UnionWith(aliases);
 
         return names;
     }
@@ -969,8 +977,18 @@ public sealed class GallerySampleLintTests
 
         // Materialised once, outside the fixed-point loop: the filter is a property of the syntax
         // and cannot change, while `names` below grows on every pass and must stay inside.
+        //
+        // Filter and projection are the same step deliberately. A bare
+        // `.Where(d => d.Initializer?.Value is not null)` does not narrow the *element type* —
+        // C# flow analysis does not carry a predicate's narrowing out of the lambda — so the loop
+        // body would have to re-extract behind a null-forgiving `d.Initializer!.Value`, an
+        // unchecked assertion sitting ~15 lines from the guard that justifies it. Binding `value`
+        // in the pattern keeps the hoist and the non-null guarantee in one expression, so editing
+        // the filter cannot leave a latent dereference behind.
         var initialized = constants.Concat(staticReadonly)
-            .Where(declarator => declarator.Initializer?.Value is not null)
+            .SelectMany(declarator => declarator.Initializer?.Value is { } value
+                ? new[] { (Name: declarator.Identifier.Text, Value: value) }
+                : [])
             .ToList();
 
         // `Add` drives the fixed point: it returns false for a name already accepted, so the pass
@@ -986,17 +1004,15 @@ public sealed class GallerySampleLintTests
         {
             grew = false;
 
-            foreach (var declarator in initialized)
+            foreach (var (name, value) in initialized)
             {
-                var value = declarator.Initializer!.Value;
-
                 var accepted = IsFixedValue(value, names)
                                || (value is BaseObjectCreationExpressionSyntax creation
                                    && IsUriCreation(creation, uriTypeNames)
                                    && UrlArguments(creation).All(a => IsFixedValue(a, names)));
 
                 if (accepted)
-                    grew |= names.Add(declarator.Identifier.Text);
+                    grew |= names.Add(name);
             }
         }
         while (grew);
