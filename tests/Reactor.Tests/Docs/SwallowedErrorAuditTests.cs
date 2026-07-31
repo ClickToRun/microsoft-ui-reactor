@@ -489,10 +489,17 @@ public sealed class SwallowedErrorAuditTests
             + $"existence check by naming an unrelated file.");
 
         var full = Path.GetFullPath(Path.Combine(root, native));
-        var anchor = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)) + Path.DirectorySeparatorChar;
 
-        Assert.True(
-            full.StartsWith(anchor, Ordinal.OrdinalIgnoreCase),
+        // Path.GetRelativePath applies the platform's own path-comparison rules,
+        // so the containment check stays correct without this file having to
+        // pick a StringComparison. A path that escapes the root comes back
+        // either rooted (no relative path exists) or leading with "..".
+        var relativeToRoot = Path.GetRelativePath(Path.GetFullPath(root), full);
+
+        Assert.False(
+            Path.IsPathRooted(relativeToRoot)
+            || relativeToRoot == ".."
+            || relativeToRoot.StartsWith(".." + Path.DirectorySeparatorChar, Ordinal.Ordinal),
             $"{what} is '{relative}', which resolves to '{full}' — outside the repository root '{root}'. "
             + $"Paths in the audit must stay inside the tree; a '..' segment that climbs out could satisfy "
             + $"the existence check by naming an unrelated file.");
