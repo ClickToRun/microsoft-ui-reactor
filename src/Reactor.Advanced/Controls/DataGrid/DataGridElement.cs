@@ -30,6 +30,16 @@ public record DataGridElement<[DynamicallyAccessedMembers(DynamicallyAccessedMem
     public Action<IReadOnlySet<RowKey>>? OnSelectionChanged { get; init; }
 
     /// <summary>Callback when a row is edited and committed.</summary>
+    /// <remarks>
+    /// Invoked on the thread that committed the edit — the UI thread for a keyboard, blur or
+    /// click-away commit — because the grid routes commits through a <c>UseMutation</c> handle
+    /// that runs its mutator synchronously. Do not rely on that as a guarantee: when no commit
+    /// dispatcher is installed the grid offloads this callback to a thread-pool thread instead
+    /// (see <c>DataGridComponent&lt;T&gt;.HandleAsyncCommit</c> for both contracts and when each
+    /// applies). Marshal your own UI work rather than assuming UI-thread affinity. Whatever the
+    /// returned <see cref="Task"/> awaits internally resumes wherever its own context says, and
+    /// a faulted task is caught and surfaced in the row's error banner with the edit reverted.
+    /// </remarks>
     public Func<RowKey, T, Task>? OnRowChanged { get; init; }
 
     /// <summary>

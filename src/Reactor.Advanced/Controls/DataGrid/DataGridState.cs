@@ -315,9 +315,23 @@ public class DataGridState<T>
     /// Delegate installed by <see cref="Controls.DataGridComponent{T}"/> each render to
     /// route row-commit dispatch through a <c>UseMutation</c> hook. Static helpers in
     /// the component (<c>HandleKeyDown</c>, <c>RenderRow</c>) invoke it instead of
-    /// spinning up their own <c>Task.Run</c>. When null — e.g. in headless unit tests —
-    /// callers fall back to invoking <c>OnRowChanged</c> themselves.
+    /// spinning up their own <c>Task.Run</c>, so <c>OnRowChanged</c> is invoked on the
+    /// calling thread. When null — e.g. in headless unit tests — callers fall back to
+    /// invoking <c>OnRowChanged</c> themselves on a thread-pool thread; see
+    /// <c>DataGridComponent&lt;T&gt;.HandleAsyncCommit</c> for both threading contracts.
     /// </summary>
+    /// <remarks>
+    /// Installing a delegate of your own replaces that fallback outright. It is invoked
+    /// synchronously, on the thread that committed the edit, with the row key, the post-edit
+    /// item and the pre-edit item — and from there the grid does nothing further for that
+    /// commit. The delegate therefore owns both halves the fallback used to handle: calling the
+    /// element's <c>OnRowChanged</c>, and driving the row's commit lifecycle
+    /// (<see cref="BeginAsyncCommit"/>, then <see cref="CompleteAsyncCommit"/> or
+    /// <see cref="FailAsyncCommit"/>). Skip the lifecycle calls and the row never shows a
+    /// committing state, an error banner, or an optimistic revert. Note that a grid rendered
+    /// through <see cref="Controls.DataGridComponent{T}"/> reassigns this property on every
+    /// render, so a custom dispatcher only survives on a state you drive yourself.
+    /// </remarks>
     public Action<RowKey, T, T?>? CommitDispatcher { get; set; }
 
     /// <summary>
