@@ -384,6 +384,67 @@ public class FlyoutPlacementGuardTests
     }
 
     [Fact]
+    public void Scanner_Flags_A_Generic_Flyout_Type()
+    {
+        // A generic type is ambiguous: CustomFlyout<T> *is* a flyout, List<Flyout> merely
+        // holds one. Peeling straight to the type argument answers the second correctly and
+        // the first backwards — the write lands on a real flyout and goes unseen. The
+        // generic's own name has to be checked before its argument.
+        const string source = """
+            class Sample
+            {
+                void M()
+                {
+                    var a = new CustomFlyout<SomeElement> { Placement = n.Placement };
+                    CustomFlyout<SomeElement> b = new() { Target = null, Placement = n.Placement };
+                    var c = new Holder<SomeElement> { Placement = n.Placement };
+                }
+            }
+            """;
+
+        var hits = FindPlacementWrites("synthetic.cs", source)
+            .Select(w => w.Text)
+            .ToList();
+
+        // The two generic flyouts, explicit and target-typed; the generic non-flyout is not
+        // flagged, which is what proves the argument is still peeled when the outer name
+        // isn't a flyout rather than everything generic being flagged wholesale.
+        Assert.Equal(2, hits.Count);
+        Assert.Contains(hits, h => h.Contains("new CustomFlyout<SomeElement>", StringComparison.Ordinal));
+        Assert.Contains(hits, h => h.Contains("Target = null", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Scanner_Flags_A_Placement_Write_In_A_Nested_Member_Initializer()
+    {
+        // new Holder { ContextFlyout = { Placement = ... } } writes the property on an object
+        // that already exists, so the receiver's type appears nowhere in the expression — the
+        // initializer's parent is the outer assignment, not a creation. Unresolvable, and a
+        // real write to a live control, so it has to fail closed like every other such shape.
+        const string source = """
+            class Sample
+            {
+                void M()
+                {
+                    var a = new Holder { ContextFlyout = { Placement = n.Placement } };
+                    var b = new Holder { Anything = { Placement = n.Placement } };
+                }
+            }
+            """;
+
+        var hits = FindPlacementWrites("synthetic.cs", source)
+            .Select(w => w.Text)
+            .ToList();
+
+        // Both, including the one whose member name gives no hint: the guard cannot tell what
+        // it is writing to, and a false positive costs a one-line exemption while a false
+        // negative costs the crash.
+        Assert.Equal(2, hits.Count);
+        Assert.Contains(hits, h => h.Contains("ContextFlyout", StringComparison.Ordinal));
+        Assert.Contains(hits, h => h.Contains("Anything", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Scanner_Flags_A_Target_Typed_Initializer_It_Cannot_Type()
     {
         // When the declared type is unreadable (var, or assignment to an existing local) the
@@ -662,37 +723,41 @@ public class FlyoutPlacementGuardTests
         return initializer.Parent switch
         {
             // new WinUI.Flyout { Placement = ... }
-            ObjectCreationExpressionSyntax creation => TypeLeafName(creation.Type) is not { } name
-                                                       || name.EndsWith("Flyout", StringComparison.Ordinal),
+            ObjectCreationExpressionSyntax creation => DenotesFlyout(creation.Type) is not false,
             // WinUI.CommandBarFlyout f = new() { Placement = ... } — the type lives on the
             // declaration, not the creation. Unresolvable shapes (an assignment to an
             // existing local, say) are treated as writes: a false positive is a loud,
             // one-line fix, a false negative is the process-terminating crash coming back.
-            ImplicitObjectCreationExpressionSyntax implicitCreation => DeclaredTypeName(implicitCreation) is not { } declared
-                                                                       || declared.EndsWith("Flyout", StringComparison.Ordinal),
+            ImplicitObjectCreationExpressionSyntax implicitCreation => DeclaredDenotesFlyout(implicitCreation) is not false,
+            // new Holder { ContextFlyout = { Placement = ... } } — a nested member initializer
+            // writes the property on an object that already exists, so the receiver's type is
+            // nowhere in this expression. Nothing syntactic can resolve it, and it is a real
+            // write to a live control, so it fails closed like every other unresolvable shape.
+            AssignmentExpressionSyntax => true,
             _ => false,
         };
     }
 
     /// <summary>
-    /// Type a target-typed <c>new()</c> is being converted to, read from the declaration,
-    /// return type, or cast that supplies it; <see langword="null"/> when no syntactic
-    /// answer exists (assignment to an existing local, a lambda body, <c>var</c>).
+    /// Whether the type a target-typed <c>new()</c> is being converted to denotes a flyout,
+    /// read from the declaration, return type, or cast that supplies it;
+    /// <see langword="null"/> when no syntactic answer exists (assignment to an existing
+    /// local, a lambda body, <c>var</c>).
     /// </summary>
-    private static string? DeclaredTypeName(ImplicitObjectCreationExpressionSyntax creation)
+    private static bool? DeclaredDenotesFlyout(ImplicitObjectCreationExpressionSyntax creation)
     {
         for (SyntaxNode n = creation; n.Parent is not null; n = n.Parent)
         {
             switch (n.Parent)
             {
                 case EqualsValueClauseSyntax { Parent: VariableDeclaratorSyntax { Parent: VariableDeclarationSyntax decl } }:
-                    return decl.Type.IsVar ? null : TypeLeafName(decl.Type);
+                    return decl.Type.IsVar ? null : DenotesFlyout(decl.Type);
                 case EqualsValueClauseSyntax { Parent: PropertyDeclarationSyntax prop }:
-                    return TypeLeafName(prop.Type);
+                    return DenotesFlyout(prop.Type);
                 case CastExpressionSyntax cast:
-                    return TypeLeafName(cast.Type);
+                    return DenotesFlyout(cast.Type);
                 case ReturnStatementSyntax or ArrowExpressionClauseSyntax:
-                    return EnclosingReturnTypeName(n.Parent);
+                    return EnclosingReturnDenotesFlyout(n.Parent);
             }
 
             if (n.Parent is StatementSyntax or MemberDeclarationSyntax) break;
@@ -701,7 +766,7 @@ public class FlyoutPlacementGuardTests
         return null;
     }
 
-    private static string? EnclosingReturnTypeName(SyntaxNode node)
+    private static bool? EnclosingReturnDenotesFlyout(SyntaxNode node)
     {
         for (SyntaxNode? n = node; n is not null; n = n.Parent)
         {
@@ -710,11 +775,11 @@ public class FlyoutPlacementGuardTests
                 // A lambda's target type is not syntactically knowable — give up rather
                 // than pick up the enclosing method's return type by accident.
                 case AnonymousFunctionExpressionSyntax: return null;
-                case MethodDeclarationSyntax method: return TypeLeafName(method.ReturnType);
-                case LocalFunctionStatementSyntax local: return TypeLeafName(local.ReturnType);
-                case PropertyDeclarationSyntax property: return TypeLeafName(property.Type);
-                case ConversionOperatorDeclarationSyntax conversion: return TypeLeafName(conversion.Type);
-                case OperatorDeclarationSyntax op: return TypeLeafName(op.ReturnType);
+                case MethodDeclarationSyntax method: return DenotesFlyout(method.ReturnType);
+                case LocalFunctionStatementSyntax local: return DenotesFlyout(local.ReturnType);
+                case PropertyDeclarationSyntax property: return DenotesFlyout(property.Type);
+                case ConversionOperatorDeclarationSyntax conversion: return DenotesFlyout(conversion.Type);
+                case OperatorDeclarationSyntax op: return DenotesFlyout(op.ReturnType);
             }
         }
 
@@ -722,36 +787,53 @@ public class FlyoutPlacementGuardTests
     }
 
     /// <summary>
-    /// The leaf type name, peeling the wrappers that hide it; <see langword="null"/> when no
-    /// unambiguous syntactic answer exists, so every caller fails closed on it.
+    /// Whether the type syntax denotes a flyout — either directly, or as the element type of
+    /// a collection of them; <see langword="null"/> when no unambiguous syntactic answer
+    /// exists, so every caller fails closed on it.
     /// </summary>
     /// <remarks>
-    /// Each peeled wrapper is a shape that otherwise returns a name that is non-null but
-    /// wrong — <c>"CommandBarFlyout?"</c>, <c>"WinUI.Flyout[]"</c>, <c>"List"</c> — and so
-    /// fails the <c>Flyout</c> suffix check while still slipping past the fail-closed arm.
-    /// A guard whose job is to fail closed must not have a shape that fails open.
+    /// This answers the question the callers actually ask. An earlier revision returned the
+    /// leaf name and let each caller apply the suffix test, which cannot work: a single type
+    /// argument is ambiguous between the flyout itself (<c>CustomFlyout&lt;T&gt;</c>) and the
+    /// collection holding one (<c>List&lt;Flyout&gt;</c>), and only a check that sees both
+    /// names can tell them apart. Every wrapper peeled here is otherwise a shape that yields
+    /// a name that is non-null but wrong — <c>"CommandBarFlyout?"</c>, <c>"WinUI.Flyout[]"</c>,
+    /// <c>"List"</c> — and so fails the suffix test while still slipping past the fail-closed
+    /// arm. A guard whose job is to fail closed must not have a shape that fails open.
     /// </remarks>
-    private static string? TypeLeafName(TypeSyntax type) => type switch
+    private static bool? DenotesFlyout(TypeSyntax type) => type switch
     {
-        NullableTypeSyntax nullable => TypeLeafName(nullable.ElementType),
-        ArrayTypeSyntax array => TypeLeafName(array.ElementType),
-        // One type argument is unambiguous (List<Flyout>, IReadOnlyList<Flyout>); two or more
-        // is not, so give up rather than guess which one the initializer targets. Peeling
-        // rather than always giving up keeps the guard off Reactor's own element records when
-        // they are held in a collection, which is an ordinary DSL shape.
-        GenericNameSyntax { TypeArgumentList.Arguments: [var only] } => TypeLeafName(only),
-        GenericNameSyntax => null,
-        // Recurse rather than take Right's identifier directly, so the right-hand side gets
-        // the same peeling (Some.Namespace.List<WinUI.Flyout> resolves to Flyout).
-        QualifiedNameSyntax qualified => TypeLeafName(qualified.Right),
-        SimpleNameSyntax simple => simple.Identifier.Text,
+        NullableTypeSyntax nullable => DenotesFlyout(nullable.ElementType),
+        ArrayTypeSyntax array => DenotesFlyout(array.ElementType),
+        // Its own name first: a generic flyout is still a flyout. Only once that is ruled out
+        // is the single type argument the interesting one, and only one argument is
+        // unambiguous — two or more, and there is no guessing which the initializer targets.
+        // Peeling at all, rather than always giving up, is what keeps the guard off Reactor's
+        // own element records when they are held in a collection, an ordinary DSL shape.
+        GenericNameSyntax generic => IsFlyoutName(generic.Identifier.Text) ? true
+            : generic.TypeArgumentList.Arguments is [var only] ? DenotesFlyout(only)
+            : null,
+        // Recurse rather than test Right's identifier directly, so the right-hand side gets
+        // the same treatment (Some.Namespace.List<WinUI.Flyout> denotes a flyout).
+        QualifiedNameSyntax qualified => DenotesFlyout(qualified.Right),
+        SimpleNameSyntax simple => IsFlyoutName(simple.Identifier.Text),
         _ => null,
     };
 
+    private static bool IsFlyoutName(string name) => name.EndsWith("Flyout", StringComparison.Ordinal);
+
     private static string Flatten(AssignmentExpressionSyntax assignment)
-        => Flatten(assignment.Parent is InitializerExpressionSyntax { Parent: BaseObjectCreationExpressionSyntax creation }
-            ? creation.ToString()
-            : assignment.ToString());
+        => Flatten(assignment.Parent switch
+        {
+            // new SomeFlyout { Placement = ... } — report the whole creation, so the failure
+            // message names the type rather than just the property.
+            InitializerExpressionSyntax { Parent: BaseObjectCreationExpressionSyntax creation } => creation.ToString(),
+            // ContextFlyout = { Placement = ... } — report the outer assignment, so the
+            // message names the member being written. On its own the inner assignment reads
+            // "Placement = ..." and says nothing about what it lands on.
+            InitializerExpressionSyntax { Parent: AssignmentExpressionSyntax outer } => outer.ToString(),
+            _ => assignment.ToString(),
+        });
 
     private static string Flatten(string text)
     {
