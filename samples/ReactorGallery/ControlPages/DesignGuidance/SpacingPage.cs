@@ -150,18 +150,18 @@ class SpacingPage : Component
             ),
             @"// Margin — works on ALL elements
 TextBlock(""Hello"").Margin(8)
-VStack(children).Margin(16)
-Border(child).Margin(12)
+VStack(TextBlock(""A""), TextBlock(""B"")).Margin(16)
+Border(TextBlock(""Content"")).Margin(12)
 
 // Padding — Border, Control, StackPanel and TextBlock
-Border(child).Padding(16)          // ✓ works
-Button(""Go"").Padding(12)          // ✓ works
-VStack(8, items).Padding(16)       // ✓ works
-TextBlock(""Hello"").Padding(8)     // ✓ works
+Border(TextBlock(""Content"")).Padding(16)               // ✓ works
+Button(""Go"").Padding(12)                               // ✓ works
+VStack(8, TextBlock(""A""), TextBlock(""B"")).Padding(16)  // ✓ works
+TextBlock(""Hello"").Padding(8)                          // ✓ works
 
 // .Padding() is not applied to Grid — wrap in Border instead:
 Border(
-    Grid(columns, rows, cells)
+    Grid(columns: [GridSize.Star()], rows: [GridSize.Auto], TextBlock(""Cell""))
 ).Padding(16)  // ✓ padding applied to the Border");
 
     static Element CompatRow(string element, bool margin, bool padding) =>
