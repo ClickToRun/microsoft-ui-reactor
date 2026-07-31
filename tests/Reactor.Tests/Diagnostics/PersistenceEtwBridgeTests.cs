@@ -195,11 +195,11 @@ public class PersistenceEtwBridgeTests : IDisposable
     [Fact]
     public void AssertEvent_discriminates_against_a_concurrent_foreign_event()
     {
-        // Every other test in this class passes whether or not AssertEvent actually filters on
-        // the discriminator, because in an uncontended run the first same-name event IS the
-        // right one. Measured: with the filter removed, 9 of the 10 tests here still passed.
-        // That is why the fix needs its own guard — the flake it prevents is invisible to the
-        // coverage that already exists.
+        // When this guard was added, removing the discriminator clause from AssertEvent left
+        // every other test in this class still passing — the flake it prevents is invisible to
+        // the coverage that already exists, which is why the fix needs a test of its own. The
+        // exact count is deliberately not pinned here; it is recorded on #996 and would go stale
+        // as tests are added or removed.
         //
         // ReactorEventSource.Log is process-global, so this listener also receives SwallowedError
         // events raised by any test class running concurrently. Emitting one here turns that
@@ -219,19 +219,30 @@ public class PersistenceEtwBridgeTests : IDisposable
         var store = new JsonFileStore(_path);
         Assert.False(store.TryRead("main", out _));
 
-        // Setup oracle: prove the foreign event actually landed, WITHOUT going through the
-        // helper under test — otherwise a broken AssertEvent could make this look fine.
-        Assert.Contains(_listener.Events, e =>
-            e.EventName == nameof(ReactorEventSource.SwallowedError)
-            && (e.Payload?[0] as string) == nameof(LogCategory.Intl)
-            && (e.Payload?[1] as string) == ForeignOperation);
+        // ONE snapshot for every assertion below. _listener.Events hands back a fresh copy per
+        // call, so re-reading it between the probe and the lookup would let a concurrently
+        // emitted event change the buffer underneath them.
+        var events = _listener.Events;
 
-        // Guard the guard: the FIRST same-name event must not be the one we are looking for, or
-        // an undiscriminated lookup would return the right answer by luck and this test would
-        // prove nothing. Asserting "not the target" rather than "is our Intl event" keeps it
-        // deterministic even if a third class's event arrives first — the injected event always
-        // precedes the parse event in this thread's write order, so the target can never be first.
-        var firstByNameOnly = _listener.Events.First(e =>
+        // Setup oracle: prove the injected event actually landed, WITHOUT going through the
+        // helper under test — verifying it with AssertEvent would be circular, since a helper
+        // with no discriminator returns a non-null event either way. Its index also anchors the
+        // slice below.
+        var foreignIndex = IndexOfForeignProbe(events);
+        Assert.True(foreignIndex >= 0, $"The injected {ForeignOperation} event was not observed.");
+
+        // Everything before the injected event predates this test. Slicing there makes the
+        // ordering STRUCTURAL rather than argued: within the slice our foreign event is first by
+        // construction, so a concurrently running class that happened to emit its own
+        // "JsonFileStore.TryRead.parse" beforehand cannot satisfy the probe below by accident.
+        // That matters because such an accident would not fail the test — it would silently
+        // weaken it, and let the mutation this test exists to catch pass.
+        var since = events.Skip(foreignIndex).ToArray();
+
+        // Guard the guard: the first same-name event in the slice must not be the one we are
+        // looking for, or an undiscriminated lookup would return the right answer by luck and
+        // this test would prove nothing.
+        var firstByNameOnly = since.First(e =>
             e.EventName == nameof(ReactorEventSource.SwallowedError));
         Assert.NotEqual("JsonFileStore.TryRead.parse", firstByNameOnly.Payload?[1] as string);
 
@@ -239,12 +250,34 @@ public class PersistenceEtwBridgeTests : IDisposable
         // clause from AssertEvent and this returns the Intl event, failing on the category
         // assertion exactly as the original flake did.
         var evt = AssertEvent(
-            _listener.Events,
+            since,
             nameof(ReactorEventSource.SwallowedError),
             1,
             "JsonFileStore.TryRead.parse");
         Assert.Equal(nameof(LogCategory.Persistence), evt.Payload?[0]);
         Assert.Equal("JsonFileStore.TryRead.parse", evt.Payload?[1]);
+    }
+
+    /// <summary>
+    /// Locates the probe event injected by
+    /// <see cref="AssertEvent_discriminates_against_a_concurrent_foreign_event"/>. Deliberately
+    /// hand-rolled rather than routed through <c>AssertEvent</c>: this is the setup oracle for a
+    /// test whose subject IS <c>AssertEvent</c>, so using the helper here would be circular.
+    /// </summary>
+    private static int IndexOfForeignProbe(IReadOnlyList<EventWrittenEventArgs> events)
+    {
+        for (int i = 0; i < events.Count; i++)
+        {
+            var e = events[i];
+            if (e.EventName == nameof(ReactorEventSource.SwallowedError)
+                && (e.Payload?[0] as string) == nameof(LogCategory.Intl)
+                && (e.Payload?[1] as string) == ForeignOperation)
+            {
+                return i;
+            }
+        }
+
+        return -1;
     }
 
     [Fact]
