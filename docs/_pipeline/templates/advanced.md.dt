@@ -530,7 +530,8 @@ Button("Save", onSave).Set(c => c.RequestedTheme = ElementTheme.Dark);
 ```
 
 The modifier participates in property diffing — the next render that
-removes the modifier walks the property back to default. `.Set` is
+removes the modifier clears the local value, handing the property back
+to whatever the style (or inheritance) supplies. `.Set` is
 imperative and one-way; the next render won't undo it. Prefer the
 modifier when one exists; reserve `.Set` for properties Reactor
 genuinely doesn't expose. The `REACTOR_THEME_003` analyzer catches this

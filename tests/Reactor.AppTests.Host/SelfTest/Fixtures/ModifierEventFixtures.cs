@@ -618,7 +618,9 @@ internal static class ModifierEventFixtures
             H.Check("ModifierClear_ButtonPresent", button is not null);
             if (button is not null)
             {
-                H.Check("ModifierClear_ThemeCleared", button.RequestedTheme == ElementTheme.Default);
+                H.Check("ModifierClear_ThemeCleared",
+                    button.ReadLocalValue(FrameworkElement.RequestedThemeProperty) == DependencyProperty.UnsetValue
+                    && button.RequestedTheme == ElementTheme.Default);
                 // Asserted as "the local value was released" rather than "the property
                 // reads its DP default": the two are only the same on a control with no
                 // style, and Button's default style supplies alignment, border thickness,
@@ -987,6 +989,74 @@ internal static class ModifierEventFixtures
     }
 
     // ════════════════════════════════════════════════════════════════════
+    //  The Control half of the same contract. Padding is declared on
+    //  Control / Border / StackPanel rather than FrameworkElement, and a
+    //  ContextFlyout is a live object graph owned by the previous renter's
+    //  component — neither used to be released on pool return, so a recycled
+    //  Button kept the last renter's padding as a local value (it could never
+    //  show its default style's padding again) and its context menu.
+    // ════════════════════════════════════════════════════════════════════
+
+    internal class ModifierPoolClearValueControl(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+
+            host.Mount(ctx =>
+            {
+                var (phase, set) = ctx.UseState(0);
+                return VStack(
+                    Button("DropPoolCtrl", () => set(1)),
+                    Button("RemountPoolCtrl", () => set(2)),
+                    phase switch
+                    {
+                        0 => Button("pool-ctrl-carrier", () => { })
+                            .Padding(21)
+                            .CornerRadius(13)
+                            .BorderThickness(7)
+                            .WithContextFlyout(MenuItems(MenuItem("PoolCtrlMenu"))),
+                        1 => Empty(),
+                        // Remounted with no modifiers at all.
+                        _ => Button("pool-ctrl-carrier-2", () => { }),
+                    });
+            });
+
+            await Harness.Render();
+            var first = H.FindButton("pool-ctrl-carrier");
+            H.Check("PoolCtrl_Phase0_Present", first is not null);
+            H.Check("PoolCtrl_Phase0_LocalValuesWritten",
+                first is not null
+                && first.ReadLocalValue(Control.PaddingProperty) != DependencyProperty.UnsetValue
+                && first.ReadLocalValue(UIElement.ContextFlyoutProperty) != DependencyProperty.UnsetValue);
+
+            H.ClickButton("DropPoolCtrl");
+            await Harness.Render();
+            H.Check("PoolCtrl_Phase1_Returned", H.FindButton("pool-ctrl-carrier") is null);
+
+            H.ClickButton("RemountPoolCtrl");
+            await Harness.Render();
+            var second = H.FindButton("pool-ctrl-carrier-2");
+            // Load-bearing: without instance reuse every check below passes trivially.
+            H.Check("PoolCtrl_Phase2_ReusedInstance",
+                first is not null && ReferenceEquals(first, second));
+            if (second is null) return;
+
+            // Cleared, not "reset to Thickness(0)": Button's default style supplies padding,
+            // so a released local value reads back as the styled value, not as zero.
+            H.Check("PoolCtrl_Phase2_PaddingCleared",
+                second.ReadLocalValue(Control.PaddingProperty) == DependencyProperty.UnsetValue);
+            H.Check("PoolCtrl_Phase2_ContextFlyoutCleared",
+                second.ReadLocalValue(UIElement.ContextFlyoutProperty) == DependencyProperty.UnsetValue
+                && second.ContextFlyout is null);
+            H.Check("PoolCtrl_Phase2_CornerRadiusCleared",
+                second.ReadLocalValue(Control.CornerRadiusProperty) == DependencyProperty.UnsetValue);
+            H.Check("PoolCtrl_Phase2_BorderThicknessCleared",
+                second.ReadLocalValue(Control.BorderThicknessProperty) == DependencyProperty.UnsetValue);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
     //  Issue #952, BiDi half — Margin/Padding are computed into a local
     //  that overlays the logical (inline-start/end) variants on top of the
     //  physical value. That local used to be seeded with
@@ -1068,6 +1138,95 @@ internal static class ModifierEventFixtures
             H.Check("InlineCarry_Phase2_PaddingLocalValueReleased",
                 border is not null
                 && border.ReadLocalValue(Microsoft.UI.Xaml.Controls.Border.PaddingProperty) == DependencyProperty.UnsetValue);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  Issue #952, inline-drop half — the write guard compares the resolved
+    //  value against the previous *physical* value, so dropping an inline
+    //  edge while the physical value stays put resolves straight back to the
+    //  old value and used to skip the write entirely, stranding the previous
+    //  render's inline edge on the control. And BorderThickness's reset arm
+    //  keyed only off oldM.BorderThickness, so an inline-only border was
+    //  never released at all.
+    // ════════════════════════════════════════════════════════════════════
+
+    internal class ModifierInlineDropRestoresPhysical(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            var physical = new Thickness(2, 3, 4, 5);
+
+            host.Mount(ctx =>
+            {
+                var (phase, set) = ctx.UseState(0);
+
+                // Physical value identical in both phases; only the inline edge goes away.
+                var textMods = phase == 0
+                    ? new ElementModifiers { Margin = physical, MarginInlineStart = 20 }
+                    : new ElementModifiers { Margin = physical };
+
+                var padMods = phase == 0
+                    ? new ElementModifiers { Padding = physical, PaddingInlineStart = 20 }
+                    : new ElementModifiers { Padding = physical };
+
+                var thicknessMods = phase == 0
+                    ? new ElementModifiers { BorderThickness = new Thickness(2), BorderInlineStart = new Thickness(9) }
+                    : new ElementModifiers { BorderThickness = new Thickness(2) };
+
+                // No physical border at all — only the reset guard keying off
+                // BorderInlineStart can release this one.
+                var inlineOnlyMods = phase == 0
+                    ? new ElementModifiers { BorderInlineStart = new Thickness(9) }
+                    : new ElementModifiers();
+
+                return VStack(
+                    Button("InlineDropPhase", () => set(phase + 1)),
+                    TextBlock("inline-drop-target") with { Modifiers = textMods },
+                    Border(TextBlock("inline-drop-pad-child")) with { Modifiers = padMods },
+                    Border(TextBlock("inline-drop-thickness-child")) with { Modifiers = thicknessMods },
+                    Border(TextBlock("inline-drop-only-child")) with { Modifiers = inlineOnlyMods });
+            });
+
+            Border? FindBorder(string childText) => H.FindControl<Border>(
+                b => b.Child is TextBlock tb && tb.Text == childText);
+
+            await Harness.Render();
+            var text = H.FindText("inline-drop-target");
+            var pad = FindBorder("inline-drop-pad-child");
+            var thickness = FindBorder("inline-drop-thickness-child");
+            var inlineOnly = FindBorder("inline-drop-only-child");
+
+            H.Check("InlineDrop_Phase0_Present",
+                text is not null && pad is not null && thickness is not null && inlineOnly is not null);
+            // Phase 0 has to actually differ from the physical value, or phase 1 proves nothing.
+            H.Check("InlineDrop_Phase0_MarginOverlaid",
+                text is not null && text.Margin == new Thickness(20, 3, 4, 5));
+            H.Check("InlineDrop_Phase0_PaddingOverlaid",
+                pad is not null && pad.Padding == new Thickness(20, 3, 4, 5));
+            H.Check("InlineDrop_Phase0_BorderOverlaid",
+                thickness is not null && thickness.BorderThickness == new Thickness(9, 2, 2, 2));
+            H.Check("InlineDrop_Phase0_InlineOnlyBorderApplied",
+                inlineOnly is not null && inlineOnly.BorderThickness == new Thickness(9, 0, 0, 0));
+
+            H.ClickButton("InlineDropPhase");
+            await Harness.Render();
+            text = H.FindText("inline-drop-target");
+            pad = FindBorder("inline-drop-pad-child");
+            thickness = FindBorder("inline-drop-thickness-child");
+            inlineOnly = FindBorder("inline-drop-only-child");
+
+            H.Check("InlineDrop_Phase1_MarginBackToPhysical",
+                text is not null && text.Margin == physical);
+            H.Check("InlineDrop_Phase1_PaddingBackToPhysical",
+                pad is not null && pad.Padding == physical);
+            H.Check("InlineDrop_Phase1_BorderBackToPhysical",
+                thickness is not null && thickness.BorderThickness == new Thickness(2));
+            H.Check("InlineDrop_Phase1_InlineOnlyBorderReleased",
+                inlineOnly is not null
+                && inlineOnly.ReadLocalValue(Microsoft.UI.Xaml.Controls.Border.BorderThicknessProperty)
+                    == DependencyProperty.UnsetValue);
         }
     }
 }

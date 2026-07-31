@@ -3704,7 +3704,13 @@ public sealed partial class Reconciler : IDisposable
         // value outranks every Style setter in WinUI's precedence order, so assigning the
         // default would not restore the styled value — it would permanently override it
         // (issue #952). Same rule for every reset arm below.
-        if (resolvedMargin.HasValue && resolvedMargin != oldM?.Margin) fe.Margin = resolvedMargin.Value;
+        // The value guard compares against the previous *physical* margin, so dropping or
+        // changing an inline edge while the physical margin stays put would resolve back to
+        // the old value and skip the write, stranding the previous render's inline edge on
+        // the control. An inline delta is a change in its own right.
+        var marginInlineChanged = m.MarginInlineStart != oldM?.MarginInlineStart
+            || m.MarginInlineEnd != oldM?.MarginInlineEnd;
+        if (resolvedMargin.HasValue && (resolvedMargin != oldM?.Margin || marginInlineChanged)) fe.Margin = resolvedMargin.Value;
         else if (!resolvedMargin.HasValue && (oldM?.Margin.HasValue == true || oldM?.MarginInlineStart.HasValue == true || oldM?.MarginInlineEnd.HasValue == true))
             fe.ClearValue(FrameworkElement.MarginProperty);
 
@@ -3719,7 +3725,10 @@ public sealed partial class Reconciler : IDisposable
             var right = isRtl ? (m.PaddingInlineStart ?? basePad.Right) : (m.PaddingInlineEnd ?? basePad.Right);
             resolvedPadding = new Thickness(left, basePad.Top, right, basePad.Bottom);
         }
-        if (resolvedPadding.HasValue && resolvedPadding != oldM?.Padding)
+        // Same inline-delta rule as Margin above.
+        var paddingInlineChanged = m.PaddingInlineStart != oldM?.PaddingInlineStart
+            || m.PaddingInlineEnd != oldM?.PaddingInlineEnd;
+        if (resolvedPadding.HasValue && (resolvedPadding != oldM?.Padding || paddingInlineChanged))
         {
             if (fe is WinUI.Control padCtrl) padCtrl.Padding = resolvedPadding.Value;
             else if (fe is WinUI.Border padBdr) padBdr.Padding = resolvedPadding.Value;
@@ -3858,12 +3867,15 @@ public sealed partial class Reconciler : IDisposable
             else
                 resolvedBorder = new Thickness(inlineStartThickness.Left, baseBorder.Top, baseBorder.Right, baseBorder.Bottom);
         }
-        if (resolvedBorder.HasValue && resolvedBorder != oldM?.BorderThickness)
+        // Same inline-delta rule as Margin/Padding above; the reset arm likewise has to fire
+        // when the old bag carried only an inline border, or that edge is never released.
+        var borderInlineChanged = m.BorderInlineStart != oldM?.BorderInlineStart;
+        if (resolvedBorder.HasValue && (resolvedBorder != oldM?.BorderThickness || borderInlineChanged))
         {
             if (fe is WinUI.Control btCtrl) btCtrl.BorderThickness = resolvedBorder.Value;
             else if (fe is WinUI.Border btBdr) btBdr.BorderThickness = resolvedBorder.Value;
         }
-        else if (!resolvedBorder.HasValue && oldM?.BorderThickness.HasValue == true)
+        else if (!resolvedBorder.HasValue && (oldM?.BorderThickness.HasValue == true || oldM?.BorderInlineStart.HasValue == true))
         {
             if (fe is WinUI.Control btCtrl) btCtrl.ClearValue(WinUI.Control.BorderThicknessProperty);
             else if (fe is WinUI.Border btBdr) btBdr.ClearValue(WinUI.Border.BorderThicknessProperty);

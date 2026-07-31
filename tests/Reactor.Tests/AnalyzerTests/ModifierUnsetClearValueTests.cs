@@ -111,6 +111,30 @@ public class ModifierUnsetClearValueTests
             $"the modifier is never reset on a set → unset update: [{string.Join(", ", inert)}]");
     }
 
+    /// <summary>
+    /// Dependency properties <c>CleanElement</c>'s FE-common block must release. Absence of a
+    /// default-value assignment is not enough on its own: deleting a <c>ClearValue</c> line
+    /// outright leaves no offender to find, so the block is also pinned positively. Every
+    /// entry corresponds to a common modifier whose <c>ApplyModifiers</c> unset arm clears
+    /// the same dependency property.
+    /// </summary>
+    private static readonly string[] CleanElementRequiredClears =
+    [
+        "FrameworkElement.Margin",
+        "FrameworkElement.Width",
+        "FrameworkElement.Height",
+        "FrameworkElement.MinWidth",
+        "FrameworkElement.MinHeight",
+        "FrameworkElement.MaxWidth",
+        "FrameworkElement.MaxHeight",
+        "FrameworkElement.HorizontalAlignment",
+        "FrameworkElement.VerticalAlignment",
+        "UIElement.Opacity",
+        "UIElement.Visibility",
+        "UIElement.AccessKey",
+        "UIElement.ContextFlyout",
+    ];
+
     [Fact]
     public void CleanElement_Resets_Through_ClearValue_Not_Default_Assignment()
     {
@@ -132,6 +156,32 @@ public class ModifierUnsetClearValueTests
             "default instead of calling ClearValue. A pooled control handed back with a local " +
             "value can never show its default style's value for that property, which defeats the " +
             $"pool's 'indistinguishable from a fresh control' contract (issue #952): [{string.Join(", ", offenders)}]");
+    }
+
+    /// <summary>
+    /// The positive half: an outright deleted <c>ClearValue</c> produces no offender for
+    /// <see cref="CleanElement_Resets_Through_ClearValue_Not_Default_Assignment"/> to catch,
+    /// so the required releases are pinned by name.
+    /// </summary>
+    [Fact]
+    public void CleanElement_Releases_Every_Modifier_Backed_Dependency_Property()
+    {
+        var commonBlock = ReadCleanElementCommonBlock(out _);
+
+        var cleared = Regex.Matches(commonBlock, @"\b\w+\.ClearValue\(\s*(?:[\w.]+\.)?(\w+)\.(\w+)Property\s*\)")
+            .Select(match => match.Groups[1].Value + "." + match.Groups[2].Value)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var missing = CleanElementRequiredClears
+            .Where(required => !cleared.Contains(required))
+            .ToList();
+
+        Assert.True(
+            missing.Count == 0,
+            "ElementPool.CleanElement's FE-common block no longer releases these dependency " +
+            "properties, so a recycled control carries the previous renter's local value into " +
+            $"its next mount (issue #952): [{string.Join(", ", missing)}]. If a reset was moved " +
+            "or intentionally dropped, update CleanElementRequiredClears with the reason.");
     }
 
     // ── Source-scanning helpers ─────────────────────────────────────────────
@@ -160,7 +210,8 @@ public class ModifierUnsetClearValueTests
 
         foreach (var ifStatement in methods.SelectMany(method => method.DescendantNodes().OfType<IfStatementSyntax>()))
         {
-            var modifier = UnsetTransitionModifier(ifStatement.Condition);
+            var modifier = UnsetTransitionModifier(ifStatement.Condition)
+                           ?? ElseOfSetArmModifier(ifStatement);
             if (modifier is null) continue;
 
             // Only the arm's own body — an `else if` chain nests the next arm inside this
@@ -205,6 +256,38 @@ public class ModifierUnsetClearValueTests
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The modifier name when <paramref name="ifStatement"/> is the <c>else</c> of a set arm
+    /// and only re-tests the previous render — <c>if (m.X is not null) … else if
+    /// (oldM?.X is not null)</c>. Reaching the <c>else</c> already proves <c>m.X</c> is
+    /// absent, so the condition omits that half and
+    /// <see cref="UnsetTransitionModifier"/> cannot see it. <c>ContextFlyout</c> is written
+    /// this way; without this the arm would be silently skipped and its reset untested.
+    /// </summary>
+    private static string? ElseOfSetArmModifier(IfStatementSyntax ifStatement)
+    {
+        if (ifStatement.Parent is not ElseClauseSyntax { Parent: IfStatementSyntax setArm }) return null;
+
+        var text = ifStatement.Condition.ToString();
+        var oldHalf = Regex.Match(text, @"oldM\?\.(\w+)(?:\.HasValue == true| is not null)");
+        if (!oldHalf.Success) return null;
+
+        var name = oldHalf.Groups[1].Value;
+
+        // If the condition tests `m.X` itself, UnsetTransitionModifier already owns it (or
+        // deliberately rejected it); only the implicit-else shape belongs here.
+        if (text.Contains($"m.{name}", StringComparison.Ordinal)
+            && !text.Contains($"oldM?.{name}", StringComparison.Ordinal)) return null;
+        if (Regex.IsMatch(text, $@"(?<!old)\bm\.{Regex.Escape(name)}\b")) return null;
+
+        // The guarding `if` must be the set arm for the same modifier, otherwise this is some
+        // unrelated `else if` that happens to mention oldM.
+        var setText = setArm.Condition.ToString();
+        if (!Regex.IsMatch(setText, $@"(?<!old)\bm\.{Regex.Escape(name)}\b")) return null;
+
+        return name;
     }
 
     /// <summary>Modifier names read off <c>m.</c> / <c>oldM.</c> / <c>oldM?.</c> in a condition.</summary>

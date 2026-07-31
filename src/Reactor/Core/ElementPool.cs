@@ -225,6 +225,9 @@ public sealed class ElementPool : IDisposable
         fe.ClearValue(UIElement.VisibilityProperty);
         fe.ClearValue(FrameworkElement.RenderTransformProperty);
         fe.ClearValue(FrameworkElement.FlowDirectionProperty);
+        // A context flyout is a live object graph owned by the previous renter's component.
+        // Without this, right-clicking a recycled control shows the *previous* element's menu.
+        fe.ClearValue(UIElement.ContextFlyoutProperty);
 
         // Issue #522 defense-in-depth — the in-place Update path clears the
         // synthesized themed Style when an element transitions ThemeBindings
@@ -393,6 +396,26 @@ public sealed class ElementPool : IDisposable
                 toggle.Header = null;
                 VisualStateManager.GoToState(toggle, "Normal", false);
                 break;
+        }
+
+        // Padding / CornerRadius / BorderThickness / BorderBrush / Background / IsEnabled are
+        // declared on Control (and Padding also on StackPanel) rather than on
+        // FrameworkElement, so they cannot live in the FE-common block above; Border's copies
+        // are cleared in its own case. Without this a pooled Button keeps the previous
+        // renter's padding as a *local* value and can never show its default style's padding
+        // again — issue #952 in the pool.
+        if (fe is Control resetControl)
+        {
+            resetControl.ClearValue(Control.PaddingProperty);
+            resetControl.ClearValue(Control.CornerRadiusProperty);
+            resetControl.ClearValue(Control.BorderThicknessProperty);
+            resetControl.ClearValue(Control.BorderBrushProperty);
+            resetControl.ClearValue(Control.BackgroundProperty);
+            resetControl.ClearValue(Control.IsEnabledProperty);
+        }
+        else if (fe is WinUI.StackPanel resetStack)
+        {
+            resetStack.ClearValue(WinUI.StackPanel.PaddingProperty);
         }
     }
 
