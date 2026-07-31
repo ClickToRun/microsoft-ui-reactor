@@ -282,6 +282,33 @@ public class DataGridRowEditKeyboardTests
     }
 
     [Fact]
+    public async Task RowEditTab_OnSingleEditableColumn_DoesNotRaiseARedundantStateChanged()
+    {
+        var state = await LoadedState();
+
+        // Leave exactly one visible editable column, so the wrap lands back on the start.
+        state.HideColumn("Score");
+        state.SetFocus(0, NameCol);
+        Assert.True(state.BeginRowEdit(0));
+
+        var renders = 0;
+        state.StateChanged += () => renders++;
+
+        // Tab has a valid target (Name), it just happens to be the current one — report success
+        // without asking the grid to re-render for a move that didn't move.
+        Assert.True(state.FocusNextRowEditColumn());
+        Assert.Equal(NameCol, state.FocusedColIndex);
+        Assert.Equal(0, renders);
+
+        // Differential isolation: give it somewhere to go and the notification comes back.
+        state.ShowColumn("Score");
+        renders = 0;
+        Assert.True(state.FocusNextRowEditColumn());
+        Assert.Equal(ScoreCol, state.FocusedColIndex);
+        Assert.Equal(1, renders);
+    }
+
+    [Fact]
     public async Task FocusPrevRowEditColumn_WithNoPriorColumnFocus_LandsOnLastEditableColumn()
     {
         var state = await LoadedState();

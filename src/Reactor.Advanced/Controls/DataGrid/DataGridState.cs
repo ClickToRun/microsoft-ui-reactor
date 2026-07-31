@@ -1421,7 +1421,12 @@ public class DataGridState<T>
             var name = _columns[idx].Name;
             if (_rowEditValues.ContainsKey(name) && IsColumnVisible(name))
             {
-                SetFocus(_focusedRowIndex, idx);
+                // A row with only one visible editable column wraps straight back to where we
+                // started. SetFocus always raises StateChanged, so calling it here would re-render
+                // the whole grid for a move that didn't move. Still report success — there IS a
+                // valid target column, Tab just had nowhere else to go.
+                if (idx != _focusedColIndex)
+                    SetFocus(_focusedRowIndex, idx);
                 return true;
             }
         }
