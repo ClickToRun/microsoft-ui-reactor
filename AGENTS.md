@@ -209,9 +209,23 @@ Hard-won specifics that repeatedly cost sessions time. Prefer these exact comman
   `tests/Reactor.AppTests.Host/FixtureRegistry.cs`.
 - **Coverage** starts from `tools/coverage/run-coverage.ps1` (`-UnitOnly`, `-SkipBuild`);
   output `coverage/merged.cobertura.xml`. The script **aborts before the merge step on any
-  test failure** — if a known flake trips it (`CenterOnCurrent_UsesCursorMonitor`,
-  `PersistPlacement_FallbackWhenEmpty`, `PersistenceEtwBridgeTests.JsonFileStore_*`), merge
-  the legs manually with `dotnet-coverage merge coverage\unit.cobertura.xml coverage\selftest.cobertura.xml --output coverage\merged.cobertura.xml --output-format cobertura`.
+  test failure** — if a known flake trips it, merge the legs manually with
+  `dotnet-coverage merge coverage\unit.cobertura.xml coverage\selftest.cobertura.xml --output coverage\merged.cobertura.xml --output-format cobertura`.
+  Those known flakes span **two tiers** — don't go hunting for all three in `Reactor.Tests`:
+  - **selftest** — `CenterOnCurrent_UsesCursorMonitor` (`Phase1WindowingFixtures.cs`) and
+    `PersistPlacement_FallbackWhenEmpty` (`Phase3WindowingFixtures.cs`). These two are the
+    *same assertion twice*: both open a `WindowStartPosition.CenterOnCurrent` window and check
+    its centre lands in the work area of the monitor under the mouse, so they fail as a **pair**
+    — seeing only one of them is the surprise, not seeing both. Two distinct causes, neither a
+    render-timing race, so `WaitFor` will not help:
+    (a) a TOCTOU — `GetCursorPos` is sampled *before* `OpenAndSettle`, so a cursor that crosses
+    a monitor boundary while the window is opening invalidates the captured work rect; and
+    (b) `haveCursor` is `&&`-ed into the assertion, so when `GetCursorPos` itself fails
+    (locked / disconnected / headless session) the check reports a plain failure rather than
+    skipping. Reproduce by running the E2E suite first — it moves the pointer — then
+    `--self-test`; both are clean on a quiet machine.
+  - **unit** — `PersistenceEtwBridgeTests.JsonFileStore_*` (`Reactor.Tests/Diagnostics/`),
+    cross-test ETW/event-source bleed. Fails only in the full-suite run; passes in isolation.
 
 ### Analyzers, CLI checks, docs & public API
 

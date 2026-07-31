@@ -56,8 +56,12 @@ dotnet-coverage merge coverage\unit.cobertura.xml coverage\selftest.cobertura.xm
   --output coverage\merged.cobertura.xml --output-format cobertura
 ```
 
-Known flakes to ignore (not your regression): `CenterOnCurrent_UsesCursorMonitor`,
-`PersistPlacement_FallbackWhenEmpty`, `PersistenceEtwBridgeTests.JsonFileStore_*`.
+Known flakes to ignore (not your regression) — note they are **not all unit tests**:
+`CenterOnCurrent_UsesCursorMonitor` and `PersistPlacement_FallbackWhenEmpty` are **selftest
+fixtures** (`Phase1WindowingFixtures.cs` / `Phase3WindowingFixtures.cs`) running the same
+cursor-monitor assertion, so they fail as a pair; a preceding E2E run moves the pointer and
+flips both. `PersistenceEtwBridgeTests.JsonFileStore_*` is the only **unit** one
+(`Reactor.Tests/Diagnostics/`), and is cross-test ETW bleed that passes in isolation.
 
 ### 2. Classify each gap by tier
 
