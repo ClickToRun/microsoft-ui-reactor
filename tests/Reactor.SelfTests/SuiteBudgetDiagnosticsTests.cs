@@ -525,8 +525,10 @@ public class SuiteBudgetDiagnosticsTests
         Assert.AreEqual(287.0,
             SelfTestBatch.ExtractSuiteElapsedSeconds("\t  # Suite elapsed: 287.0\r\n")!.Value,
             0.001,
-            "The marker is matched with StartsWith, so any leading whitespace hides the line " +
-            "entirely and the wrapper silently falls back to its own elapsed time.");
+            "The per-line trim is what makes this parse: the marker is matched with StartsWith, " +
+            "so if the trim is ever dropped an indented line becomes invisible and the wrapper " +
+            "silently falls back to its own elapsed time — which is ~2s longer, because it " +
+            "includes Host process startup.");
     }
 
     // ------------------------------------------------------- classify -> apply wiring
