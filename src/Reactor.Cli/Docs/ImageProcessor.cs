@@ -249,7 +249,7 @@ internal static class ImageProcessor
     /// costs less than the sampled one it replaces.
     /// </para>
     /// </remarks>
-    private static Rectangle? FindContentBounds(Bitmap bmp)
+    internal static Rectangle? FindContentBounds(Bitmap bmp)
     {
         var full = new Rectangle(0, 0, bmp.Width, bmp.Height);
         if (full.Width <= 0 || full.Height <= 0) return null;
@@ -262,6 +262,12 @@ internal static class ImageProcessor
 
             for (int y = 0; y < full.Height; y++)
             {
+                // Scan0 + y * Stride addresses visual row y for either sign of
+                // Stride: Scan0 points at the image's first scanline, and a
+                // bottom-up DIB expresses "subsequent scanlines are at lower
+                // addresses" as a negative Stride. Normalising the base pointer
+                // and indexing with |Stride| mirrors such an image vertically —
+                // see StrideOrientationTests, which pins this against GetPixel.
                 global::System.Runtime.InteropServices.Marshal.Copy(
                     data.Scan0 + (y * data.Stride), row, 0, row.Length);
 
@@ -311,6 +317,10 @@ internal static class ImageProcessor
             int count = 0;
             for (int y = 0; y < region.Height; y++)
             {
+                // Sign-agnostic row addressing — see FindContentBounds. Counting
+                // is order-insensitive anyway, so this site is unaffected by the
+                // orientation either way; kept identical so the two scans can't
+                // drift apart.
                 global::System.Runtime.InteropServices.Marshal.Copy(
                     data.Scan0 + (y * data.Stride), row, 0, row.Length);
                 for (int i = 0; i < row.Length; i += 4)
