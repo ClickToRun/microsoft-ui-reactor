@@ -56,7 +56,7 @@ public class SelfTestBatch
     internal const int SuiteDurationWarnSeconds = 420;
 
     private static readonly int SelfTestTimeoutMs =
-        ResolveTimeoutSeconds(Environment.GetEnvironmentVariable(TimeoutEnvVar)) * 1000;
+        ResolveTimeoutMilliseconds(Environment.GetEnvironmentVariable(TimeoutEnvVar));
 
     private const int ListFixturesTimeoutMs = 30_000;
 
@@ -81,6 +81,24 @@ public class SelfTestBatch
 
         return DefaultSelfTestTimeoutSeconds;
     }
+
+    /// <summary>
+    /// The same resolution in milliseconds — the unit the process watchdog actually takes. Exists
+    /// as its own seam so the environment-to-budget wiring is reachable from a test: the static
+    /// field below runs once at type load, so a test cannot re-enter it with a different value.
+    /// </summary>
+    internal static int ResolveTimeoutMilliseconds(string? envValue) =>
+        ResolveTimeoutSeconds(envValue) * 1000;
+
+    // Diagnostic numbers are formatted invariantly and parsed invariantly (see
+    // ExtractSuiteElapsedSeconds). A machine with a comma decimal separator would otherwise emit
+    // "901,2s" into a message whose documented triage snippets — and this suite's own assertions —
+    // read a '.', so the run would fail on locale rather than on anything the suite measured.
+    private static string Fixed1(double value) =>
+        value.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string Fixed0(double value) =>
+        value.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>The budget actually in force this run, after the environment override.</summary>
     internal static int EffectiveTimeoutSeconds => SelfTestTimeoutMs / 1000;
@@ -141,17 +159,12 @@ public class SelfTestBatch
             SelfTestTimeoutMs, _wrapperElapsedSeconds, _byFixture.Count, TryGetFixtureCount(),
             Tail(_fullOutput, 4000));
 
-        if (outcome is not null)
-        {
-            _byFixture[outcome.Fixture] = (false, outcome.Detail);
-            _abortedReason = outcome.AbortReason;
-        }
-        else if (timedOut)
-        {
-            _initError = $"Self-test process timed out after {SelfTestTimeoutMs}ms with no fixture attribution.\n{_fullOutput}";
-        }
+        var disposition = ApplyAbortOutcome(
+            outcome, timedOut, SelfTestTimeoutMs, _fullOutput, _byFixture);
+        _abortedReason = disposition.AbortReason;
+        _initError = disposition.InitError;
 
-        if (timedOut)
+        if (!disposition.RunEarlyAbortCheck)
         {
             _initialized = true;
             return;
@@ -167,6 +180,51 @@ public class SelfTestBatch
 
     /// <summary>The fixture an aborted run is attributed to, and how that attribution is worded.</summary>
     internal sealed record AbortOutcome(string Fixture, string Detail, string AbortReason);
+
+    /// <summary>
+    /// What the runner does with a classified abort: the reason to stamp on every unexecuted
+    /// fixture, an initialization error when a timeout could not be attributed at all, and whether
+    /// the early-abort scan still runs.
+    /// </summary>
+    internal sealed record RunDisposition(string? AbortReason, string? InitError, bool RunEarlyAbortCheck);
+
+    /// <summary>
+    /// Applies a classified abort to the per-fixture map and decides what happens next.
+    ///
+    /// <para>Split out from <see cref="RunSelfTests"/> so the <i>wiring</i> is testable, not just
+    /// the classifier. <see cref="ClassifyAbort"/> being correct in isolation says nothing about
+    /// whether production still routes through it — reverting the caller to the old inline branches
+    /// would leave a classifier test suite entirely green while restoring the misleading
+    /// attribution of issue #988. The map is passed in rather than read from the static field for
+    /// the same reason: a test can watch the attribution actually land.</para>
+    ///
+    /// <para><paramref name="timedOut"/> suppresses the early-abort scan because a killed process
+    /// is truncated by definition — every downstream fixture is missing, so the scan would
+    /// "discover" an early abort on every single run and overwrite the budget attribution.</para>
+    /// </summary>
+    internal static RunDisposition ApplyAbortOutcome(
+        AbortOutcome? outcome,
+        bool timedOut,
+        int budgetMs,
+        string fullOutput,
+        IDictionary<string, (bool Passed, string Detail)> byFixture)
+    {
+        if (outcome is not null)
+        {
+            byFixture[outcome.Fixture] = (false, outcome.Detail);
+            return new RunDisposition(outcome.AbortReason, null, RunEarlyAbortCheck: !timedOut);
+        }
+
+        if (timedOut)
+        {
+            return new RunDisposition(
+                null,
+                $"Self-test process timed out after {budgetMs}ms with no fixture attribution.\n{fullOutput}",
+                RunEarlyAbortCheck: false);
+        }
+
+        return new RunDisposition(null, null, RunEarlyAbortCheck: true);
+    }
 
     /// <summary>
     /// Decides which fixture (if any) an aborted run is attributed to, and with what wording.
@@ -351,7 +409,7 @@ public class SelfTestBatch
                $"happened to be running, so the harness killed the Host and attributed the kill to " +
                $"it. That attribution is POSITIONAL: it records where the run was, not what went " +
                $"wrong, and the fixture named here differs from run to run.\n" +
-               $"  elapsed   : {elapsedSeconds:F1}s against a {budgetSeconds:F0}s budget " +
+               $"  elapsed   : {Fixed1(elapsedSeconds)}s against a {Fixed0(budgetSeconds)}s budget " +
                $"(these are necessarily close — the kill IS the budget expiring)\n" +
                $"  reported  : {progress} fixtures had TAP output parsed before the kill " +
                $"(includes '{inFlight}', which was still running)\n" +
@@ -397,8 +455,8 @@ public class SelfTestBatch
         var warn = elapsedSeconds > warnSeconds;
 
         var text =
-            $"Selftest suite duration: {elapsedSeconds:F1}s " +
-            $"({percentOfBudget:F1}% of the {budgetSeconds}s hard budget, warn above {warnSeconds}s).";
+            $"Selftest suite duration: {Fixed1(elapsedSeconds)}s " +
+            $"({Fixed1(percentOfBudget)}% of the {budgetSeconds}s hard budget, warn above {warnSeconds}s).";
 
         if (warn)
         {
@@ -628,19 +686,74 @@ public class SelfTestBatch
         {
             if (!_byFixture.TryGetValue(attributed, out var existing) || existing.Passed)
             {
-                _byFixture[attributed] = (false,
-                    $"Selftest Host exited before completing fixture '{attributed}'. " +
-                    $"{DescribeExitCode(exitCode)}\n" +
-                    $"Downstream fixtures were not executed.\n" +
-                    $"--- tail of full output ---\n{Tail(_fullOutput, 4000)}");
+                _byFixture[attributed] = (false, DescribeSilentDeath(
+                    attributed, exitCode, tap.SawTotalFailures, ElapsedSeconds,
+                    SelfTestTimeoutMs, Tail(_fullOutput, 4000)));
             }
 
-            _abortedReason = $"Run aborted after fixture '{attributed}'";
+            _abortedReason = SilentDeathAbortReason(attributed, tap.SawTotalFailures);
         }
         else
         {
-            _abortedReason = $"Run aborted before fixture '{fixtureNames[firstMissingIndex]}'";
+            _abortedReason = $"Run aborted before fixture '{fixtureNames[firstMissingIndex]}'" +
+                             $"{TrailerDiscriminator(tap.SawTotalFailures)}";
         }
+    }
+
+    // Appended to the early-abort reasons, which are stamped verbatim onto every unexecuted
+    // fixture. The prefixes ("Run aborted after/before fixture '<name>'") are unchanged, so
+    // existing greps and published triage procedures keep working.
+    private static string TrailerDiscriminator(bool sawTotalFailures) =>
+        sawTotalFailures
+            ? " (Host finished its run, then exited abnormally)"
+            : " (Host died mid-run with no '# Total failures:' trailer — NOT a budget kill; issue #978)";
+
+    internal static string SilentDeathAbortReason(string fixture, bool sawTotalFailures) =>
+        $"Run aborted after fixture '{fixture}'{TrailerDiscriminator(sawTotalFailures)}";
+
+    /// <summary>
+    /// Wording for a Host that stopped without the wrapper's budget killing it.
+    ///
+    /// <para>From the outside this is nearly indistinguishable from the issue #988 budget kill:
+    /// one arbitrary fixture blamed, everything downstream missing, and the victim moving between
+    /// runs. That is exactly why the two get conflated — issue #978 is this failure, and it was
+    /// initially read as #988. Raising the budget does nothing for it.</para>
+    ///
+    /// <para>The discriminator is the <c># Total failures:</c> trailer, and it is the reliable one
+    /// because it states what the Host <i>got to do</i> rather than how long it took: a budget kill
+    /// interrupts a Host that would have printed it, whereas a Host that dies mid-fixture never
+    /// reaches it. Elapsed time corroborates but cannot decide on its own — a slow machine and a
+    /// fast crash produce overlapping durations — so the timing sentence below is hedged when the
+    /// run did land near the cap.</para>
+    /// </summary>
+    internal static string DescribeSilentDeath(
+        string fixture, int exitCode, bool sawTotalFailures, double elapsedSeconds, int budgetMs, string tail)
+    {
+        var budgetSeconds = budgetMs / 1000.0;
+        var fractionOfBudget = budgetSeconds > 0 ? elapsedSeconds / budgetSeconds : 1.0;
+
+        var trailer = sawTotalFailures
+            ? "The Host DID print its `# Total failures:` trailer, so it reached the end of its run " +
+              "and then failed to exit cleanly — look at teardown, not at this fixture."
+            : "The Host never printed its `# Total failures:` trailer, so it did not reach the end " +
+              "of its run: it stopped mid-fixture. That is the discriminator against issue #988, " +
+              "whose kills always leave one.";
+
+        var timing = fractionOfBudget < 0.75
+            ? "— the run ended well short of the cap, so nothing was killed for running long"
+            : "— close enough to the cap that timing alone cannot rule out a budget interaction; " +
+              "the trailer line above is the reliable signal";
+
+        return $"SELFTEST HOST STOPPED MID-RUN — this is NOT a suite-budget kill.\n" +
+               $"'{fixture}' was the last fixture to start. {DescribeExitCode(exitCode)}\n" +
+               $"  trailer   : {trailer}\n" +
+               $"  elapsed   : {Fixed1(elapsedSeconds)}s against a {Fixed0(budgetSeconds)}s budget " +
+               $"{timing}\n" +
+               $"  remaining : reported Skipped (Assert.Inconclusive) — never RUN\n" +
+               $"Because the victim is positional here too, do not start by debugging '{fixture}'. " +
+               $"A native crash in the Host is the usual cause and the exit-code line above is the " +
+               $"first thing to read; issue #978 tracks this failure.\n" +
+               $"--- tail of full output ---\n{tail}";
     }
 
     public static IEnumerable<object[]> AllFixtures => FixtureNames.Value.Select(n => new object[] { n });
@@ -702,45 +815,99 @@ public class SelfTestBatch
         if (_initError is not null)
             Assert.Fail(_initError);
 
+        var summaryPath = Environment.GetEnvironmentVariable(StepSummaryEnvVar);
+
         if (_timedOut)
         {
             // Elapsed == budget by construction here; the overrun is already reported against the
             // in-flight fixture, and repeating it as a duration warning would add nothing.
-            PublishToStepSummary(
-                $"### ❌ Selftest suite exceeded its {SelfTestTimeoutMs / 1000}s hard budget\n\n" +
-                $"The Host was killed. One fixture is reported failed, but that attribution is " +
-                $"positional — see its message, and issue #988.");
+            PublishBudgetKill(SelfTestTimeoutMs / 1000, summaryPath);
 
             Assert.Inconclusive(
                 $"Suite hit its {SelfTestTimeoutMs / 1000}s hard budget and was killed; see the " +
                 $"budget-overrun failure for the attribution caveat.");
         }
 
-        var (warn, text) = DescribeSuiteDuration(
-            ElapsedSeconds, SuiteDurationWarnSeconds, SelfTestTimeoutMs / 1000);
+        if (_abortedReason is not null)
+        {
+            Assert.Inconclusive(
+                $"{_abortedReason}; suite duration is not meaningful for a run that did not " +
+                $"complete.");
+        }
 
-        var source = _hostElapsedSeconds is not null ? "Host-reported" : "wrapper-measured";
-        Console.WriteLine($"{text} [{source}]");
+        // Non-vacuity guard for the Host's own instrumentation. Every test that exercises
+        // ExtractSuiteElapsedSeconds feeds it a fabricated string, so if SelfTestRunner stopped
+        // emitting the trailer — or the marker literals in the two projects drifted apart, which
+        // they can, because the Host is referenced with ReferenceOutputAssembly=false and the
+        // constant is duplicated rather than shared — the parser tests would all stay green while
+        // this report silently began measuring wrapper overhead instead of the suite. This is the
+        // only assertion in the codebase that observes the real Host's real output, so it is the
+        // only place that drift can be caught.
+        Assert.IsNotNull(_hostElapsedSeconds,
+            "The Host completed its run but emitted no '# Suite elapsed: ' trailer, so suite " +
+            "duration fell back to the wrapper's clock (which includes process start and pipe " +
+            "drain). Check SelfTestRunner still writes SuiteElapsedMarker and that the duplicated " +
+            "marker literals in the two projects still match.");
 
-        PublishToStepSummary(
-            $"### {(warn ? "⚠️" : "✅")} Selftest suite duration\n\n" +
-            $"{text.Replace("\n", " ")}\n\n<sub>Source: {source}. Budget knob: " +
-            $"`{TimeoutEnvVar}`. Background: issue #988.</sub>");
+        var report = PublishSuiteDuration(
+            ElapsedSeconds, SuiteDurationWarnSeconds, SelfTestTimeoutMs / 1000,
+            _hostElapsedSeconds is not null ? "Host-reported" : "wrapper-measured",
+            summaryPath);
 
-        if (warn)
+        Console.WriteLine($"{report.Text} [{report.Source}]");
+
+        if (report.Warn)
         {
             // Kept for local runs; under `dotnet test` this is swallowed with the rest of the
             // testhost's stdout, which is why the step summary above is the load-bearing channel.
-            Console.WriteLine($"::warning title=Selftest suite duration::{text.Replace("\n", " ")}");
-            Assert.Inconclusive(text);
+            Console.WriteLine($"::warning title=Selftest suite duration::{report.Text.Replace("\n", " ")}");
+            Assert.Inconclusive(report.Text);
         }
     }
 
+    /// <summary>Environment variable naming the GitHub Actions job-summary file.</summary>
+    internal const string StepSummaryEnvVar = "GITHUB_STEP_SUMMARY";
+
+    /// <summary>The duration verdict, the markdown built from it, and whether that markdown landed.</summary>
+    internal sealed record SuiteDurationReport(
+        bool Warn, string Text, string Source, string Markdown, bool Delivered);
+
     /// <summary>
-    /// Appends a markdown block to the GitHub Actions job summary, if we are running under one.
+    /// Builds the job-summary block for a completed run and delivers it, reporting both the text
+    /// and whether the write landed.
+    ///
+    /// <para>Composition and delivery live together, and production calls exactly this, because the
+    /// delivery is the load-bearing half: this report is the mechanism that stops the budget
+    /// eroding back to the state issue #988 describes, and a report nobody receives does not
+    /// perform that job. Testing the formatter and the file-append separately would leave the join
+    /// between them — the only part that can silently stop reporting — uncovered.</para>
     /// </summary>
-    private static void PublishToStepSummary(string markdown) =>
-        TryAppendSummary(Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY"), markdown);
+    internal static SuiteDurationReport PublishSuiteDuration(
+        double elapsedSeconds, int warnSeconds, int budgetSeconds, string source, string? summaryPath)
+    {
+        var (warn, text) = DescribeSuiteDuration(elapsedSeconds, warnSeconds, budgetSeconds);
+
+        var markdown =
+            $"### {(warn ? "⚠️" : "✅")} Selftest suite duration\n\n" +
+            $"{text.Replace("\n", " ")}\n\n<sub>Source: {source}. Budget knob: " +
+            $"`{TimeoutEnvVar}`. Background: issue #988.</sub>";
+
+        return new SuiteDurationReport(warn, text, source, markdown, TryAppendSummary(summaryPath, markdown));
+    }
+
+    /// <summary>
+    /// The job-summary block for a run the budget killed. Separate from the duration report because
+    /// there is no meaningful duration to report — elapsed equals the budget by construction.
+    /// </summary>
+    internal static (string Markdown, bool Delivered) PublishBudgetKill(int budgetSeconds, string? summaryPath)
+    {
+        var markdown =
+            $"### ❌ Selftest suite exceeded its {budgetSeconds}s hard budget\n\n" +
+            $"The Host was killed. One fixture is reported failed, but that attribution is " +
+            $"positional — see its message, and issue #988.";
+
+        return (markdown, TryAppendSummary(summaryPath, markdown));
+    }
 
     /// <summary>
     /// Appends to the job-summary file, reporting whether it landed. Best-effort by design: this

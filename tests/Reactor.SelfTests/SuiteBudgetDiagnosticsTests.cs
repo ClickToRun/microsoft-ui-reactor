@@ -520,4 +520,323 @@ public class SuiteBudgetDiagnosticsTests
             SelfTestBatch.ExtractSuiteElapsedSeconds("# Total failures: 0\r\n# Suite elapsed: 287.0\r\n")!.Value,
             0.001);
     }
+
+    // ------------------------------------------------------- classify -> apply wiring
+
+    /// <summary>
+    /// <see cref="SelfTestBatch.ClassifyAbort"/> being right in isolation says nothing about
+    /// whether production still routes through it. These exercise the composed
+    /// classify-then-apply path — the same two calls <c>RunSelfTests</c> makes — so reverting the
+    /// caller to the old inline branches fails here rather than passing quietly.
+    ///
+    /// <para>What remains untestable in-process is the single line in <c>RunSelfTests</c> that
+    /// invokes them, because that method is a <c>[ClassInitialize]</c> which launches a
+    /// five-minute Host subprocess. That is the irreducible residue; everything downstream of it
+    /// is covered here.</para>
+    /// </summary>
+    [TestMethod]
+    public void ApplyAbortOutcome_BudgetKill_StampsTheVictimAndSuppressesTheEarlyAbortScan()
+    {
+        var map = new Dictionary<string, (bool Passed, string Detail)>();
+
+        var outcome = SelfTestBatch.ClassifyAbort(
+            timedOut: true, hangFixture: null, lastRunningFixture: "VictimFixture",
+            budgetMs: 900_000, elapsedSeconds: 901.2, fixturesReported: 1200, fixturesTotal: 1401, tail: Tail);
+
+        var disposition = SelfTestBatch.ApplyAbortOutcome(
+            outcome, timedOut: true, budgetMs: 900_000, fullOutput: "OUT", byFixture: map);
+
+        Assert.IsTrue(map.ContainsKey("VictimFixture"),
+            "The attribution has to land in the map the Fixture test method reads, or the run " +
+            "reports every fixture as simply 'not reported'.");
+        Assert.IsFalse(map["VictimFixture"].Passed);
+        Assert.IsTrue(map["VictimFixture"].Detail.Contains("NOT PROVEN", StringComparison.Ordinal),
+            map["VictimFixture"].Detail);
+
+        Assert.IsNotNull(disposition.AbortReason);
+        Assert.IsNull(disposition.InitError);
+        Assert.IsFalse(disposition.RunEarlyAbortCheck,
+            "A killed process is truncated by definition, so the early-abort scan would 'discover' " +
+            "an early abort on every timeout and overwrite the budget attribution with a weaker one.");
+    }
+
+    [TestMethod]
+    public void ApplyAbortOutcome_TimeoutWithNothingToBlame_FallsThroughToAnInitError()
+    {
+        var map = new Dictionary<string, (bool Passed, string Detail)>();
+
+        var outcome = SelfTestBatch.ClassifyAbort(
+            timedOut: true, hangFixture: null, lastRunningFixture: null,
+            budgetMs: 900_000, elapsedSeconds: 901.2, fixturesReported: 0, fixturesTotal: null, tail: Tail);
+
+        Assert.IsNull(outcome, "Precondition: nothing in flight means nothing to attribute.");
+
+        var disposition = SelfTestBatch.ApplyAbortOutcome(
+            outcome, timedOut: true, budgetMs: 900_000, fullOutput: "RAW-OUTPUT", byFixture: map);
+
+        Assert.AreEqual(0, map.Count, "There is no victim, so nothing may be stamped.");
+        Assert.IsNull(disposition.AbortReason);
+        Assert.IsNotNull(disposition.InitError,
+            "An unattributable timeout must still surface as a hard error; silently reporting a " +
+            "clean run would be the worst outcome available.");
+        Assert.IsTrue(disposition.InitError!.Contains("RAW-OUTPUT", StringComparison.Ordinal),
+            "The raw output is the only evidence left on this path.");
+        Assert.IsFalse(disposition.RunEarlyAbortCheck);
+    }
+
+    [TestMethod]
+    public void ApplyAbortOutcome_CleanRun_TouchesNothingAndLetsTheEarlyAbortScanRun()
+    {
+        var map = new Dictionary<string, (bool Passed, string Detail)>();
+
+        var disposition = SelfTestBatch.ApplyAbortOutcome(
+            outcome: null, timedOut: false, budgetMs: 900_000, fullOutput: "OUT", byFixture: map);
+
+        Assert.AreEqual(0, map.Count);
+        Assert.IsNull(disposition.AbortReason);
+        Assert.IsNull(disposition.InitError);
+        Assert.IsTrue(disposition.RunEarlyAbortCheck,
+            "A run that did not time out still needs the early-abort scan — that is how a Host " +
+            "that died mid-fixture without tripping any watchdog gets attributed at all.");
+    }
+
+    [TestMethod]
+    public void ApplyAbortOutcome_HangThatKilledItself_StillAllowsTheEarlyAbortScan()
+    {
+        var map = new Dictionary<string, (bool Passed, string Detail)>();
+
+        var outcome = SelfTestBatch.ClassifyAbort(
+            timedOut: false, hangFixture: "HangingFixture", lastRunningFixture: null,
+            budgetMs: 900_000, elapsedSeconds: 51.0, fixturesReported: 12, fixturesTotal: 1401, tail: Tail);
+
+        var disposition = SelfTestBatch.ApplyAbortOutcome(
+            outcome, timedOut: false, budgetMs: 900_000, fullOutput: "OUT", byFixture: map);
+
+        Assert.IsTrue(map.ContainsKey("HangingFixture"));
+        Assert.IsTrue(disposition.RunEarlyAbortCheck,
+            "Only a timeout suppresses the scan. The scan itself is a no-op once an abort reason " +
+            "exists, so gating on the outcome instead of on timedOut would silently change which " +
+            "runs get scanned.");
+    }
+
+    // ------------------------------------------------------- budget resolution wiring
+
+    [TestMethod]
+    public void ResolveTimeoutMilliseconds_ConvertsSecondsAndPreservesTheFallback()
+    {
+        Assert.AreEqual(1_234_000, SelfTestBatch.ResolveTimeoutMilliseconds("1234"));
+        Assert.AreEqual(900_000, SelfTestBatch.ResolveTimeoutMilliseconds(null));
+        Assert.AreEqual(900_000, SelfTestBatch.ResolveTimeoutMilliseconds("0"),
+            "A zero override must not produce a zero millisecond budget — that kills the run " +
+            "instantly, which is issue #988 only faster.");
+        Assert.AreEqual(900_000, SelfTestBatch.ResolveTimeoutMilliseconds("99999999"),
+            "An override large enough to overflow the millisecond conversion must fall back, not " +
+            "wrap to a negative timeout.");
+    }
+
+    /// <summary>
+    /// The wiring from the environment into the budget the watchdog actually uses.
+    ///
+    /// <para><b>Known limit, stated rather than papered over:</b> when
+    /// <c>REACTOR_SELFTEST_TIMEOUT_SECONDS</c> is unset — the normal case — both sides of this
+    /// comparison are the default, so it cannot fail. It has teeth only on a machine that sets the
+    /// override, where hardcoding the field would diverge from the resolver. The static field is
+    /// initialized once at type load, so no in-process test can re-enter it with a different value;
+    /// closing the gap fully would need a child process, which is not worth it for one assignment.
+    /// The value coverage above is what carries the weight.</para>
+    /// </summary>
+    [TestMethod]
+    public void EffectiveBudget_TracksTheEnvironmentSeamRatherThanAConstant()
+    {
+        var expected = SelfTestBatch.ResolveTimeoutMilliseconds(
+            Environment.GetEnvironmentVariable(SelfTestBatch.TimeoutEnvVar)) / 1000;
+
+        Assert.AreEqual(expected, SelfTestBatch.EffectiveTimeoutSeconds,
+            $"The budget in force must come from {SelfTestBatch.TimeoutEnvVar} via the resolver.");
+    }
+
+    // ------------------------------------------------------- job-summary delivery
+
+    /// <summary>
+    /// Composition and delivery together. The formatter and the file append were already covered
+    /// separately, which left the join between them — the only part that can stop reporting
+    /// without anything else changing — uncovered.
+    /// </summary>
+    [TestMethod]
+    public void PublishSuiteDuration_HealthyRun_LandsTheBlockInTheSummaryFile()
+    {
+        var path = TempSummaryPath();
+        try
+        {
+            var report = SelfTestBatch.PublishSuiteDuration(
+                elapsedSeconds: 302.1, warnSeconds: 420, budgetSeconds: 900,
+                source: "Host-reported", summaryPath: path);
+
+            Assert.IsFalse(report.Warn, "302.1s is under the 420s warn threshold.");
+            Assert.IsTrue(report.Delivered, "The report is the whole mechanism; it has to arrive.");
+
+            var written = global::System.IO.File.ReadAllText(path);
+            Assert.IsTrue(written.Contains("302.1s", StringComparison.Ordinal), written);
+            Assert.IsTrue(written.Contains("Host-reported", StringComparison.Ordinal),
+                "Which clock produced the number decides whether ~2.4s of wrapper overhead is " +
+                "included, which is the entire margin at issue in #988.\n" + written);
+            Assert.IsTrue(written.Contains("#988", StringComparison.Ordinal), written);
+        }
+        finally
+        {
+            if (global::System.IO.File.Exists(path)) global::System.IO.File.Delete(path);
+        }
+    }
+
+    [TestMethod]
+    public void PublishSuiteDuration_WarnRun_IsDistinguishableFromAHealthyOne()
+    {
+        var path = TempSummaryPath();
+        try
+        {
+            var healthy = SelfTestBatch.PublishSuiteDuration(
+                302.1, 420, 900, "Host-reported", summaryPath: null);
+            var warned = SelfTestBatch.PublishSuiteDuration(
+                450.0, 420, 900, "Host-reported", summaryPath: path);
+
+            Assert.IsTrue(warned.Warn);
+            Assert.IsTrue(warned.Delivered);
+            Assert.AreNotEqual(healthy.Markdown, warned.Markdown,
+                "A reader scanning the job summary has to be able to tell the two apart at a " +
+                "glance, or the warning is decoration.");
+
+            var written = global::System.IO.File.ReadAllText(path);
+            Assert.IsTrue(written.Contains("450.0s", StringComparison.Ordinal), written);
+            Assert.IsTrue(written.Contains("#988", StringComparison.Ordinal), written);
+        }
+        finally
+        {
+            if (global::System.IO.File.Exists(path)) global::System.IO.File.Delete(path);
+        }
+    }
+
+    [TestMethod]
+    public void PublishSuiteDuration_ReportsNonDeliveryInsteadOfThrowing()
+    {
+        var report = SelfTestBatch.PublishSuiteDuration(
+            302.1, 420, 900, "wrapper-measured", summaryPath: null);
+
+        Assert.IsFalse(report.Delivered,
+            "Running outside Actions is normal; it must report 'not delivered' rather than throw " +
+            "or claim success.");
+        Assert.IsFalse(string.IsNullOrWhiteSpace(report.Text));
+    }
+
+    [TestMethod]
+    public void PublishBudgetKill_DeliversThePositionalCaveat()
+    {
+        var path = TempSummaryPath();
+        try
+        {
+            var (markdown, delivered) = SelfTestBatch.PublishBudgetKill(900, path);
+
+            Assert.IsTrue(delivered);
+            Assert.IsTrue(markdown.Contains("positional", StringComparison.OrdinalIgnoreCase),
+                "The whole point of #988 is that this attribution is positional; a summary that " +
+                "omits the caveat recreates the misreading.\n" + markdown);
+
+            var written = global::System.IO.File.ReadAllText(path);
+            Assert.IsTrue(written.Contains("900s", StringComparison.Ordinal), written);
+        }
+        finally
+        {
+            if (global::System.IO.File.Exists(path)) global::System.IO.File.Delete(path);
+        }
+    }
+
+    // ------------------------------------------------------- silent mid-run death (#978)
+
+    /// <summary>
+    /// A Host that dies mid-fixture produces the same outward signature as a budget kill — one
+    /// arbitrary victim, everything downstream missing, victim moves between runs — so it gets
+    /// filed as #988 and "fixed" by raising a budget that was never the constraint. The
+    /// <c># Total failures:</c> trailer is what separates them, and these assert the message
+    /// actually says so.
+    /// </summary>
+    [TestMethod]
+    public void SilentDeath_SaysItIsNotABudgetKillAndNamesTheDiscriminator()
+    {
+        var text = SelfTestBatch.DescribeSilentDeath(
+            fixture: "LT_EffectCleanupBalanced", exitCode: -1, sawTotalFailures: false,
+            elapsedSeconds: 57.7, budgetMs: 900_000, tail: Tail);
+
+        Assert.IsTrue(text.Contains("NOT a suite-budget kill", StringComparison.Ordinal), text);
+        Assert.IsTrue(text.Contains("# Total failures:", StringComparison.Ordinal),
+            "The trailer is the discriminator; naming it is what stops the next reader re-deriving " +
+            "it.\n" + text);
+        Assert.IsTrue(text.Contains("#978", StringComparison.Ordinal), text);
+        Assert.IsTrue(text.Contains("57.7s", StringComparison.Ordinal), text);
+    }
+
+    /// <summary>
+    /// The timing sentence must not over-claim. A run that died at 6% of budget can say so; one
+    /// that died near the cap cannot, because timing alone no longer separates the two causes.
+    /// </summary>
+    [TestMethod]
+    public void SilentDeath_HedgesTheTimingClaimWhenTheRunLandedNearTheCap()
+    {
+        var early = SelfTestBatch.DescribeSilentDeath(
+            "F", -1, sawTotalFailures: false, elapsedSeconds: 57.7, budgetMs: 900_000, tail: Tail);
+        var late = SelfTestBatch.DescribeSilentDeath(
+            "F", -1, sawTotalFailures: false, elapsedSeconds: 880.0, budgetMs: 900_000, tail: Tail);
+
+        Assert.IsTrue(early.Contains("well short of the cap", StringComparison.Ordinal), early);
+        Assert.IsFalse(late.Contains("well short of the cap", StringComparison.Ordinal),
+            "At 97.8% of budget the run did not end well short of anything, and asserting it would " +
+            "send a triager past the one explanation still open.\n" + late);
+    }
+
+    [TestMethod]
+    public void SilentDeath_TrailerPresentMeansTeardown_NotAMidRunDeath()
+    {
+        var midRun = SelfTestBatch.SilentDeathAbortReason("F", sawTotalFailures: false);
+        var teardown = SelfTestBatch.SilentDeathAbortReason("F", sawTotalFailures: true);
+
+        Assert.AreNotEqual(midRun, teardown,
+            "These are different diagnoses and the abort reason is stamped verbatim onto every " +
+            "skipped fixture, so it is where a triager reads them.");
+        Assert.IsTrue(midRun.StartsWith("Run aborted after fixture 'F'", StringComparison.Ordinal),
+            "The existing prefix is load-bearing: published triage procedures grep for it.\n" + midRun);
+        Assert.IsTrue(teardown.StartsWith("Run aborted after fixture 'F'", StringComparison.Ordinal),
+            teardown);
+    }
+
+    // ------------------------------------------------------- locale independence
+
+    /// <summary>
+    /// Diagnostics are parsed back with <c>InvariantCulture</c> and the documented triage snippets
+    /// assume a <c>'.'</c> separator, so they must be produced invariantly too. On a comma-decimal
+    /// machine a current-culture <c>:F1</c> emits "901,2s", which fails this suite's own assertions
+    /// — a red build caused by the reviewer's locale rather than by anything the suite measured.
+    /// </summary>
+    [TestMethod]
+    public void Diagnostics_FormatNumbersInvariantlyOnACommaDecimalMachine()
+    {
+        var original = global::System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            global::System.Globalization.CultureInfo.CurrentCulture =
+                new global::System.Globalization.CultureInfo("de-DE");
+
+            var (_, text) = SelfTestBatch.DescribeSuiteDuration(450.0, 420, 900);
+            Assert.IsTrue(text.Contains("450.0s", StringComparison.Ordinal), text);
+            Assert.IsTrue(text.Contains("50.0%", StringComparison.Ordinal), text);
+
+            var overrun = SelfTestBatch.DescribeBudgetOverrun(
+                "F", 900_000, 901.2, 1200, 1401, Tail);
+            Assert.IsTrue(overrun.Contains("901.2s", StringComparison.Ordinal), overrun);
+        }
+        finally
+        {
+            global::System.Globalization.CultureInfo.CurrentCulture = original;
+        }
+    }
+
+    private static string TempSummaryPath() => global::System.IO.Path.Combine(
+        global::System.IO.Path.GetTempPath(), $"reactor-988-summary-{Guid.NewGuid():N}.md");
 }

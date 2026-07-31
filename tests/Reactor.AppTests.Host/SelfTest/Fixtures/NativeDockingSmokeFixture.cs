@@ -1210,6 +1210,20 @@ internal static class NativeDockingSmokeFixtures
 
         public override async Task RunAsync()
         {
+            // The pacing gate is the reason this fixture stopped costing CI ~2.3 s (issue #988),
+            // and nothing else would notice if it came back: no check below depends on the delays,
+            // so an inverted condition or a Pace() that always awaited would leave the fixture
+            // green and simply make the suite slower again — the exact silent regression the
+            // duration gate exists to catch, but arriving too gradually for it to attribute.
+            //
+            // The guard re-reads the environment rather than consulting VizPacing, because using
+            // the value under test to decide whether to test it is how a check ends up unable to
+            // fail. As written, an inverted gate fails this on any machine that has not opted in.
+            // A mistyped variable name is NOT caught (both spellings read as unset, so the CI path
+            // stays correct) — that breaks only the opt-in demo, which its user notices at once.
+            var optedIn = Environment.GetEnvironmentVariable("REACTOR_SELFTEST_VIZ_PACING") == "1";
+            H.Check("SplitterViz_PacingOffUnlessOptedIn", optedIn || Pace(120).IsCompleted);
+
             var host = H.CreateHost();
             DockingNativeInterop.Register(host.Reconciler);
 
