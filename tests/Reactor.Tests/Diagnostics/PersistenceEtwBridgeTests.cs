@@ -64,18 +64,21 @@ public class PersistenceEtwBridgeTests : IDisposable
     {
         var candidates = events.Where(e => e.EventName == name).ToArray();
         var match = candidates.FirstOrDefault(e =>
-            e.EventName == name
-            && (e.Payload?[discriminatorIndex] as string) == discriminator);
+            (e.Payload?[discriminatorIndex] as string) == discriminator);
 
         if (match is null)
         {
-            var observedPayloads = candidates.Length == 0
+            var observedDiscriminators = candidates.Length == 0
                 ? "<none>"
-                : string.Join("; ", candidates.Select(e =>
-                    $"[{string.Join(", ", e.Payload?.Select(value => value?.ToString() ?? "<null>") ?? [])}]"));
+                : string.Join(", ", candidates.Select(e =>
+                    e.Payload is { } payload
+                    && discriminatorIndex >= 0
+                    && discriminatorIndex < payload.Count
+                        ? payload[discriminatorIndex]?.ToString() ?? "<null>"
+                        : "<missing>"));
             Assert.Fail(
                 $"Expected {name} with payload[{discriminatorIndex}] = '{discriminator}'. "
-                + $"Same-name payloads: {observedPayloads}");
+                + $"Same-name payload[{discriminatorIndex}] values: {observedDiscriminators}");
         }
 
         return match;
