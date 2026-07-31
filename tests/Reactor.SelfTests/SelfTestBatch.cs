@@ -137,14 +137,30 @@ public class SelfTestBatch
             0xC000027B => "STATUS_STOWED_EXCEPTION (WinUI/WinRT — the most likely one here)",
             0xC0000409 => "STATUS_STACK_BUFFER_OVERRUN / fast-fail",
             0xC00000FD => "STATUS_STACK_OVERFLOW",
+            0xE0434352 => "CLR managed exception (unhandled .NET exception)",
             _ => null,
         };
+
+        // The CLR's managed-exception tag is NOT NTSTATUS-shaped — 0xE0434352 & 0xF0000000 is
+        // 0xE0000000, so the mask below does not catch it and it would otherwise fall through
+        // with no verdict at all. That is the likeliest crash mode for a .NET host, so it gets
+        // its own branch. Same tag the Devtools stress runner already keys on
+        // (DevtoolsStressE2ERunner.cs) and MxcSandbox documents.
+        bool clrManaged = (uint)exitCode == 0xE0434352u;
 
         // NTSTATUS failure codes are 0xC0000000-shaped. Treat that whole space as
         // "the host faulted", not just the four named above.
         bool ntStatusShaped = ((uint)exitCode & 0xF0000000u) == 0xC0000000u;
 
         var raw = $"Exit code: {exitCode} (0x{(uint)exitCode:X8}{(known is null ? "" : " " + known)})";
+
+        if (clrManaged)
+        {
+            return raw + "\n  -> Unhandled MANAGED exception: the host crashed on its own. The " +
+                   "exception type and stack trace are in the Host's stderr / the output tail " +
+                   "below — read those first. The process was not terminated from outside, and " +
+                   "this is not a WinUI native fault.";
+        }
 
         if (ntStatusShaped)
         {

@@ -205,8 +205,16 @@ internal static class DataGridParityFixtures
 
             sv.ChangeView(null, 0, null, disableAnimation: true);
 
+            // The row check alone is NOT a valid oracle here: measured, `Emp-000000` is still
+            // findable while scrolled 5000px away (offset=5000, scrollable=179647), because the
+            // repeater keeps it realized. So `FindTextContaining("Emp-000000") is not null` is
+            // true before the scroll-back as well as after, and asserting it alone proves
+            // nothing about restoration — it passed identically with the old fixed
+            // `Render(600)` gate. Gate on the offset returning to the top, which IS false
+            // before this ChangeView, so the assertion must observe a real transition.
             H.Check("HookPaging_ScrollBack_OrigRestored",
-                await Harness.WaitFor(() => H.FindTextContaining("Emp-000000") is not null,
+                await Harness.WaitFor(
+                    () => sv.VerticalOffset < 1.0 && H.FindTextContaining("Emp-000000") is not null,
                     maxPasses: 25, perPassMs: 20));
         }
     }

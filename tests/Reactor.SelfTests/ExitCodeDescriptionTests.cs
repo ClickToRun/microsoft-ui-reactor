@@ -87,6 +87,47 @@ public class ExitCodeDescriptionTests
     }
 
     /// <summary>
+    /// The CLR's unhandled-managed-exception tag must be attributed to a self-crash even though
+    /// it is NOT NTSTATUS-shaped: <c>0xE0434352 &amp; 0xF0000000</c> is <c>0xE0000000</c>, so the
+    /// <c>0xC0000000</c> mask does not catch it and it would otherwise emit a bare raw value with
+    /// no verdict. For a .NET host that is arguably the likeliest crash mode of all, and it is
+    /// already recognised elsewhere in the repo (DevtoolsStressE2ERunner, MxcSandbox).
+    /// </summary>
+    [TestMethod]
+    public void Clr_managed_exception_is_attributed_to_a_self_crash()
+    {
+        var text = SelfTestBatch.DescribeExitCode(unchecked((int)0xE0434352u));
+
+        StringAssert.Contains(text, "0xE0434352", "the raw value must survive");
+        StringAssert.Contains(text, "MANAGED",
+            "a managed crash must be distinguished from a native fault — the triager needs the " +
+            "stack trace, not a faulting-fixture hunt");
+        Assert.IsFalse(text.Contains("NTSTATUS"),
+            "0xE0434352 is not NTSTATUS-shaped; labelling it as such would send the reader to " +
+            "the wrong diagnosis");
+        Assert.IsFalse(text.Contains("external kill"),
+            "a managed exception is a self-crash, not a kill");
+    }
+
+    /// <summary>
+    /// Guards the mask arithmetic that makes the previous test necessary. If someone widens the
+    /// NTSTATUS mask to swallow 0xE0434352, the dedicated managed-exception wording would be
+    /// unreachable and this fails.
+    /// </summary>
+    [TestMethod]
+    public void Clr_tag_is_not_matched_by_the_NtStatus_shape_mask()
+    {
+        Assert.AreEqual(0xE0000000u, 0xE0434352u & 0xF0000000u,
+            "precondition: the CLR tag is 0xE-shaped, not 0xC-shaped");
+
+        var clr = SelfTestBatch.DescribeExitCode(unchecked((int)0xE0434352u));
+        var nt = SelfTestBatch.DescribeExitCode(unchecked((int)0xC0000005u));
+
+        Assert.AreNotEqual(clr, nt, "the two crash classes must not produce identical guidance");
+        StringAssert.Contains(nt, "NTSTATUS");
+    }
+
+    /// <summary>
     /// A plain code with no story attached gets the raw value and nothing invented. This is the
     /// assertion that fails if the method ever grows a default verdict.
     /// </summary>

@@ -293,6 +293,12 @@ internal static class Phase4WindowingFixtures
                 Console.WriteLine(
                     $"# WindowLevel_RuntimeFlip population (issue #927): ReactorApp.Windows={allWindows.Count}, " +
                     $"Level==Floating={liveFloating}");
+                // Asserted, not merely reported — otherwise the falsification above decays into a
+                // comment nobody reads and a future leak would reintroduce the suspect silently.
+                // Only the Floating count is asserted: it is the precise subject of the refuted
+                // hypothesis, whereas total window count would red on any unrelated fixture's leak
+                // and misattribute it here.
+                H.Check("WindowLevel_RuntimeFlip_NoLeakedFloatingWindows", liveFloating == 0);
 
                 win.Update(spec with { Level = WindowLevel.AlwaysOnTop });
                 await win.Host.WaitForIdleAsync();
@@ -337,30 +343,73 @@ internal static class Phase4WindowingFixtures
     /// <para>Written as a TAP comment rather than folded into the check name so
     /// <c>WindowLevel_RuntimeFlip_Topmost</c> stays greppable for flake tracking.</para>
     /// </summary>
+    /// <summary>
+    /// Pure verdict selection for <see cref="ReportLevelMismatch"/>, split out so the three-way
+    /// branch is reachable without reproducing the ~25%-in-a-full-run flake. Returns a short
+    /// stable tag plus the guidance text; the tag is what a test can assert on without pinning
+    /// the prose.
+    /// </summary>
+    internal static (string Tag, string Text) LevelMismatchVerdict(bool specTookUpdate, bool bitNowCorrect)
+    {
+        if (!specTookUpdate)
+            return ("spec-stale",
+                "Reactor's spec did NOT take the update — the failure is upstream of the " +
+                "native apply, in Update delivery/reconciliation, not in SetWindowPos.");
+
+        if (bitNowCorrect)
+            return ("late-apply",
+                "The bit is CORRECT now, so the apply landed after the poll exhausted — a late " +
+                "apply / lost wakeup rather than a missing one. This is the only branch a longer " +
+                "budget would fix, and 1.4s already failed once, so treat a repeat here as a " +
+                "signal to re-examine that.");
+
+        return ("apply-missing",
+            "Reactor's spec DID take the update, but the native bit still has not followed — " +
+            "the SetWindowPos apply is the suspect (coalesced away, or never issued).");
+    }
+
     private static void ReportLevelMismatch(ReactorWindow win, WindowLevel requested, bool expectTopmostBit)
     {
         var specLevel = win.Spec.Level;
         // Re-read AFTER the poll gave up — if it is correct now, the apply was merely late.
         bool bitSet = (ExStyleBits(win) & Native.WS_EX_TOPMOST) != 0;
-        bool bitNowCorrect = bitSet == expectTopmostBit;
-        bool specTookUpdate = specLevel == requested;
-
-        var verdict =
-            !specTookUpdate
-                ? "Reactor's spec did NOT take the update — the failure is upstream of the " +
-                  "native apply, in Update delivery/reconciliation, not in SetWindowPos."
-            : bitNowCorrect
-                ? "The bit is CORRECT now, so the apply landed after the poll exhausted — a late " +
-                  "apply / lost wakeup rather than a missing one. This is the only branch a longer " +
-                  "budget would fix, and 1.4s already failed once, so treat a repeat here as a " +
-                  "signal to re-examine that."
-                : "Reactor's spec DID take the update, but the native bit still has not followed — " +
-                  "the SetWindowPos apply is the suspect (coalesced away, or never issued).";
+        var (tag, verdict) = LevelMismatchVerdict(
+            specTookUpdate: specLevel == requested,
+            bitNowCorrect: bitSet == expectTopmostBit);
 
         Console.WriteLine(
-            $"# WindowLevel_RuntimeFlip diagnostic (issue #927): requested={requested}, " +
+            $"# WindowLevel_RuntimeFlip diagnostic (issue #927) [{tag}]: requested={requested}, " +
             $"spec.Level={specLevel}, WS_EX_TOPMOST={(bitSet ? "set" : "clear")}, " +
             $"expected {(expectTopmostBit ? "set" : "clear")}. {verdict}");
+    }
+
+    /// <summary>
+    /// Exhaustively covers the three-way verdict in <see cref="LevelMismatchVerdict"/>. That
+    /// branch only executes when <c>WindowLevel_RuntimeFlip</c> actually fails — ~25% of full
+    /// runs, and 0/40 under a filter — so without this fixture the diagnostic a future triager
+    /// will act on is never exercised in CI. Four checks cover the whole 2x2 input domain, so
+    /// collapsing any branch into another fails at least one of them.
+    /// </summary>
+    internal class WindowLevelVerdictBranches(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            H.Check("WindowLevelVerdict_SpecStale",
+                LevelMismatchVerdict(specTookUpdate: false, bitNowCorrect: false).Tag == "spec-stale");
+
+            // spec-stale must win even when the bit happens to read correct: if the update never
+            // reached Reactor's state, the native apply is not the suspect regardless of the bit.
+            H.Check("WindowLevelVerdict_SpecStaleWinsOverCorrectBit",
+                LevelMismatchVerdict(specTookUpdate: false, bitNowCorrect: true).Tag == "spec-stale");
+
+            H.Check("WindowLevelVerdict_LateApply",
+                LevelMismatchVerdict(specTookUpdate: true, bitNowCorrect: true).Tag == "late-apply");
+
+            H.Check("WindowLevelVerdict_ApplyMissing",
+                LevelMismatchVerdict(specTookUpdate: true, bitNowCorrect: false).Tag == "apply-missing");
+
+            return Task.CompletedTask;
+        }
     }
 
     private static class Native
