@@ -46,10 +46,10 @@ TeachingTip(""Welcome!"", ""Helpful guidance text."") with {
                             OnClosed = () => setShowTitleOnlyTip(false),
                         })
                     ),
-                    @"Button(""Show tip"", () => setShow(true)),
+                    @"Button(""Show title-only tip"", () => setShowTitleOnlyTip(true)),
 TeachingTip(""Did you know you can customize the title bar?"") with {
-    IsOpen = show,
-    OnClosed = () => setShow(false),
+    IsOpen = showTitleOnlyTip,
+    OnClosed = () => setShowTitleOnlyTip(false),
 }"),
 
                 SampleCard("TeachingTip targeting another subtree",
