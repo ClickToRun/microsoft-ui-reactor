@@ -102,6 +102,11 @@ public class ExitCodeDescriptionTests
         StringAssert.Contains(text, "MANAGED",
             "a managed crash must be distinguished from a native fault — the triager needs the " +
             "stack trace, not a faulting-fixture hunt");
+        StringAssert.Contains(text, "strong prior",
+            "the managed branch must hedge exactly as the NTSTATUS branch does: an exit code is " +
+            "chosen by whoever terminates the process, so it can never prove the absence of an " +
+            "external terminator. Asserting certainty here would contradict this method's own " +
+            "documented discipline.");
         Assert.IsFalse(text.Contains("NTSTATUS"),
             "0xE0434352 is not NTSTATUS-shaped; labelling it as such would send the reader to " +
             "the wrong diagnosis");

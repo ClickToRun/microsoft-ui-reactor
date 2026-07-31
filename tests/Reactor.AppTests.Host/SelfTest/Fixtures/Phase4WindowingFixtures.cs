@@ -321,14 +321,14 @@ internal static class Phase4WindowingFixtures
     }
 
     /// <summary>
-    /// Emits a TAP comment splitting the remaining #927 suspects apart, so the NEXT full-run
-    /// occurrence answers the question instead of costing another investigation. This fixture
-    /// only fails in the full ~6100-check run (0/40 across two narrow scopes), so a reproduction
-    /// is expensive and the failure needs to carry its own diagnosis.
+    /// Pure verdict selection for <see cref="ReportLevelMismatch"/>, split out so the three-way
+    /// branch is reachable without reproducing the ~25%-in-a-full-run flake. Returns a short
+    /// stable tag plus the guidance text; the tag is what a test can assert on without pinning
+    /// the prose.
     ///
-    /// <para>The assertion reads only the native ex-style bit, which cannot by itself
-    /// distinguish three different bugs. Reading <c>win.Spec.Level</c> and re-reading the bit
-    /// after the poll gave up separates them:</para>
+    /// <para>The assertion in the fixture reads only the native ex-style bit, which cannot by
+    /// itself distinguish three different bugs. Combining <c>win.Spec.Level</c> with a re-read of
+    /// the bit after the poll gave up separates them:</para>
     /// <list type="bullet">
     /// <item><description><b>spec stale</b> — the Update never reached Reactor's own state, so
     /// the fault is upstream of the native apply entirely.</description></item>
@@ -339,15 +339,6 @@ internal static class Phase4WindowingFixtures
     /// longer budget would actually have fixed — worth knowing, because the 1.4s budget already
     /// failed once and that argues against this branch being the usual cause.</description></item>
     /// </list>
-    ///
-    /// <para>Written as a TAP comment rather than folded into the check name so
-    /// <c>WindowLevel_RuntimeFlip_Topmost</c> stays greppable for flake tracking.</para>
-    /// </summary>
-    /// <summary>
-    /// Pure verdict selection for <see cref="ReportLevelMismatch"/>, split out so the three-way
-    /// branch is reachable without reproducing the ~25%-in-a-full-run flake. Returns a short
-    /// stable tag plus the guidance text; the tag is what a test can assert on without pinning
-    /// the prose.
     /// </summary>
     internal static (string Tag, string Text) LevelMismatchVerdict(bool specTookUpdate, bool bitNowCorrect)
     {
@@ -368,6 +359,15 @@ internal static class Phase4WindowingFixtures
             "the SetWindowPos apply is the suspect (coalesced away, or never issued).");
     }
 
+    /// <summary>
+    /// Emits a TAP comment carrying <see cref="LevelMismatchVerdict"/>'s diagnosis, so the NEXT
+    /// full-run occurrence answers the question instead of costing another investigation. This
+    /// fixture only fails in the full ~6100-check run (0/40 across two narrow scopes), so a
+    /// reproduction is expensive and the failure needs to carry its own diagnosis.
+    ///
+    /// <para>Written as a TAP comment rather than folded into the check name so
+    /// <c>WindowLevel_RuntimeFlip_Topmost</c> stays greppable for flake tracking.</para>
+    /// </summary>
     private static void ReportLevelMismatch(ReactorWindow win, WindowLevel requested, bool expectTopmostBit)
     {
         var specLevel = win.Spec.Level;

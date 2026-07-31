@@ -156,10 +156,12 @@ public class SelfTestBatch
 
         if (clrManaged)
         {
-            return raw + "\n  -> Unhandled MANAGED exception: the host crashed on its own. The " +
-                   "exception type and stack trace are in the Host's stderr / the output tail " +
-                   "below — read those first. The process was not terminated from outside, and " +
-                   "this is not a WinUI native fault.";
+            return raw + "\n  -> Unhandled MANAGED exception: the host almost certainly crashed " +
+                   "on its own, via the CLR's unhandled-exception path rather than a native " +
+                   "fault. The exception type and stack trace are in the Host's stderr / the " +
+                   "output tail below — read those first. As with the native-fault codes, a " +
+                   "terminator can pass any value to TerminateProcess, so this is a strong prior " +
+                   "rather than proof.";
         }
 
         if (ntStatusShaped)
