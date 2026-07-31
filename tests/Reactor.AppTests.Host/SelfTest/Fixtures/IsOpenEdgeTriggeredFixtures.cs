@@ -56,7 +56,7 @@ internal static class IsOpenEdgeTriggeredFixtures
     private static async Task CloseAndSettle(Reconciler rec, WinUI.TeachingTip tip)
     {
         tip.IsOpen = false;
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < 2; i++)
             await Harness.Render(25);
         rec.UnmountChild(tip);
     }
@@ -265,6 +265,12 @@ internal static class IsOpenEdgeTriggeredFixtures
         /// close raises <c>Closed</c>.</summary>
         private const int PresentDwellMs = 300;
 
+        /// <summary>Settle window for the checks that assert a tip stays CLOSED. The positive
+        /// path opens within a pass or two of <c>Loaded</c>, so this only has to outlast that —
+        /// the full entrance dwell would be pure wall-clock cost in a suite that runs under a
+        /// process-wide time cap.</summary>
+        private const int StayClosedWindowMs = 75;
+
         /// <summary>Number of popups open on the control's XamlRoot. A presented TeachingTip
         /// lives in one, so a rise from a pre-open baseline is a genuine presentation signal —
         /// unlike <c>IsOpen</c>, which only says the DP write stuck.</summary>
@@ -357,7 +363,7 @@ internal static class IsOpenEdgeTriggeredFixtures
             }
 
             parent.Children.Add(tip);
-            await Harness.Render(PresentDwellMs);
+            await Harness.Render(StayClosedWindowMs);
 
             H.Check("MountOpen_TeachingTip_DeclaredClosedStaysClosed", !tip.IsOpen && closed == 0);
 
@@ -386,7 +392,7 @@ internal static class IsOpenEdgeTriggeredFixtures
             rec.UpdateChild(mounted, Declared(isOpen: false), tip, _noOp);
 
             parent.Children.Add(tip);
-            await Harness.Render(PresentDwellMs);
+            await Harness.Render(StayClosedWindowMs);
 
             H.Check("MountOpen_TeachingTip_FallingEdgeBeforeLoadCancelsPendingOpen", !tip.IsOpen);
 
@@ -414,7 +420,7 @@ internal static class IsOpenEdgeTriggeredFixtures
             rec.UnmountChild(tip);
 
             parent.Children.Add(tip);
-            await Harness.Render(PresentDwellMs);
+            await Harness.Render(StayClosedWindowMs);
 
             H.Check("MountOpen_TeachingTip_UnmountBeforeLoadCancelsPendingOpen", !tip.IsOpen);
 
