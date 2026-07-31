@@ -40,6 +40,15 @@ public class DataGridCommitThreadingTests
     /// through reflection, which throws on any signature drift. Whatever the body throws is
     /// captured and replayed on the xUnit thread by <see cref="Rethrow"/>.
     /// </summary>
+    /// <remarks>
+    /// The catch is deliberately unfiltered. A <c>when (!IsFatal(ex))</c> guard declines to catch
+    /// the exceptions it names, and declining is not a safe no-op here: a filtered
+    /// <see cref="OutOfMemoryException"/> escapes and terminates the process with <c>0xE0434352</c>
+    /// — the failure mode above, not a defence against it. The other names such a guard lists
+    /// (stack overflow, access violation) are not catchable in .NET regardless, so its only live
+    /// effect is the harmful one. Nothing is swallowed: <see cref="Rethrow"/> replays the original
+    /// stack on the xUnit thread, where the failure is reported as a failure.
+    /// </remarks>
     private sealed class Committer
     {
         private readonly Thread _thread;
