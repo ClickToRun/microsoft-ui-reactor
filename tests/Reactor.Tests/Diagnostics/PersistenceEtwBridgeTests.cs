@@ -233,27 +233,36 @@ public class PersistenceEtwBridgeTests : IDisposable
 
         // Everything before the injected event predates this test. Slicing there makes the
         // ordering STRUCTURAL rather than argued: within the slice our foreign event is first by
-        // construction, so a concurrently running class that happened to emit its own
-        // "JsonFileStore.TryRead.parse" beforehand cannot satisfy the probe below by accident.
-        // That matters because such an accident would not fail the test — it would silently
-        // weaken it, and let the mutation this test exists to catch pass.
+        // construction, so nothing emitted before this test started can affect what follows.
         var since = events.Skip(foreignIndex).ToArray();
 
-        // Guard the guard: the first same-name event in the slice must not be the one we are
-        // looking for, or an undiscriminated lookup would return the right answer by luck and
-        // this test would prove nothing.
+        // `since[0]` is the probe by construction, so this is the event an UNdiscriminated
+        // lookup is forced to return. Capturing it is not itself an assertion — asserting
+        // anything about its operation here would be tautological, since the slice already
+        // fixes what it is. It earns its place as the comparison target below.
         var firstByNameOnly = since.First(e =>
             e.EventName == nameof(ReactorEventSource.SwallowedError));
-        Assert.NotEqual("JsonFileStore.TryRead.parse", firstByNameOnly.Payload?[1] as string);
 
-        // The discriminated lookup must skip past it. Drop the payload[discriminatorIndex]
-        // clause from AssertEvent and this returns the Intl event, failing on the category
-        // assertion exactly as the original flake did.
+        // Note this may find a sibling class's event rather than the one emitted above:
+        // JsonFileStoreTests writes the same malformed JSON and xUnit runs classes in parallel,
+        // so an identical Persistence/JsonFileStore.TryRead.parse event can land in this window.
+        // That is harmless here — the subject of this test is AssertEvent's discrimination, not
+        // the persistence path (JsonFileStore_malformed_json_... covers that). Any parse event
+        // other than the probe demonstrates the property equally well.
         var evt = AssertEvent(
             since,
             nameof(ReactorEventSource.SwallowedError),
             1,
             "JsonFileStore.TryRead.parse");
+
+        // THE property under test, and the assertion that dies under mutation: the discriminated
+        // lookup must not return what an undiscriminated one would. Remove the
+        // payload[discriminatorIndex] clause from AssertEvent and it returns `since[0]` — which
+        // IS firstByNameOnly — so this fails by reference, before any payload is inspected.
+        Assert.NotSame(firstByNameOnly, evt);
+
+        // And it must be the right event, not merely a different one. This is the assertion that
+        // reproduces the originally reported symptom ("Expected: Persistence, Actual: Intl").
         Assert.Equal(nameof(LogCategory.Persistence), evt.Payload?[0]);
         Assert.Equal("JsonFileStore.TryRead.parse", evt.Payload?[1]);
     }
