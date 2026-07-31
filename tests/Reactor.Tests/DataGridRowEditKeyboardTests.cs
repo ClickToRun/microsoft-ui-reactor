@@ -273,7 +273,7 @@ public class DataGridRowEditKeyboardTests
 
         Assert.NotNull(result);
         Assert.Equal("Alicia", result!.Value.NewItem.Name);
-        Assert.Equal(100.0, result.Value.NewItem.Score);
+        Assert.Equal(100.0, result!.Value.NewItem.Score);
         Assert.Equal("Alicia", Row(state, 0).Name);
         Assert.Equal(100.0, Row(state, 0).Score);
         Assert.False(state.IsRowEditing);
