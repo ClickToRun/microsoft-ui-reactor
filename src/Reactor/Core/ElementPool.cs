@@ -306,8 +306,9 @@ public sealed class ElementPool : IDisposable
             case WinUI.Panel panel:
                 panel.Children.Clear();
                 // These border-box properties are declared by the concrete panel types,
-                // not by Panel. Clear only the pairs ApplyModifiers writes so Canvas and
-                // the other Panel subclasses remain outside the gate.
+                // not by Panel. Clear only the pairs newly supported by this gate widening;
+                // StackPanel.Padding predates it and remains part of the #965 debt described
+                // by the TextBlock.Padding cleanup note below.
                 if (panel is WinUI.Grid grid)
                 {
                     grid.ClearValue(WinUI.Grid.PaddingProperty);
