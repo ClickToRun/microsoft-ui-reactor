@@ -412,6 +412,86 @@ public class ImageProcessorTests
         return ms.ToArray();
     }
 
+    /// <summary>
+    /// The scan locks bits as <c>Format32bppArgb</c> regardless of how the file
+    /// decoded, which raises a fair question: JPEG decodes as 24bpp and the
+    /// blank gate explicitly accepts <c>.jpg</c>, so if that lock threw, every
+    /// JPEG would fall into the decode-failure catch and be silently reported
+    /// as "not blank" — a gate that skips a whole format while reporting clean.
+    /// It doesn't: <c>LockBits</c> with an explicit format converts rather than
+    /// throwing. This pins that, because the failure mode would be invisible.
+    /// </summary>
+    /// <remarks>
+    /// Non-vacuous by construction: the blank and content variants of each
+    /// format must give <em>opposite</em> answers. If the lock threw, both arms
+    /// would land in the same catch and the pair would agree.
+    /// </remarks>
+    [Theory]
+    [InlineData(PixelFormat.Format24bppRgb, "png")]
+    [InlineData(PixelFormat.Format24bppRgb, "jpeg")]
+    [InlineData(PixelFormat.Format32bppArgb, "png")]
+    [InlineData(PixelFormat.Format8bppIndexed, "png")]
+    [InlineData(PixelFormat.Format1bppIndexed, "png")]
+    public void Content_detection_survives_every_pixel_format_the_gate_accepts(
+        PixelFormat format, string container)
+    {
+        var withContent = MakeInFormat(format, container, content: true);
+        var blank = MakeInFormat(format, container, content: false);
+
+        using var contentBmp = LoadBitmap(withContent);
+        using var blankBmp = LoadBitmap(blank);
+        var region = new Rectangle(0, 0, 80, 60);
+
+        var contentCount = ImageProcessor.CountContentPixels(contentBmp, region);
+        var blankCount = ImageProcessor.CountContentPixels(blankBmp, region);
+
+        // Report the inputs, not just the verdict: if the lock silently
+        // degraded, these would be 0 and 0 and the assertions below would be
+        // comparing two failures to each other.
+        Assert.True(contentCount > 0, $"expected content pixels, got {contentCount} ({format}/{container})");
+        Assert.Equal(0, blankCount);
+        Assert.True(ImageProcessor.HasContentPixel(contentBmp, region));
+        Assert.False(ImageProcessor.HasContentPixel(blankBmp, region));
+
+        // And end to end, which is what the gate actually calls.
+        Assert.True(ImageProcessor.FrameHasContent(withContent));
+        Assert.False(ImageProcessor.FrameHasContent(blank));
+        Assert.Throws<BlankFrameException>(
+            () => ImageProcessor.Process(blank, ImageProcessor.ParseCropMode("content")));
+    }
+
+    private static Bitmap LoadBitmap(byte[] bytes) => new(new MemoryStream(bytes));
+
+    private static byte[] MakeInFormat(PixelFormat format, string container, bool content)
+    {
+        var imageFormat = container == "jpeg" ? ImageFormat.Jpeg : ImageFormat.Png;
+
+        // Indexed formats can't back a Graphics, so draw at 32bpp and convert.
+        var indexed = format is PixelFormat.Format8bppIndexed or PixelFormat.Format1bppIndexed;
+        using var src = new Bitmap(80, 60, indexed ? PixelFormat.Format32bppArgb : format);
+        using (var g = Graphics.FromImage(src))
+        {
+            g.Clear(Color.White);
+            if (content)
+            {
+                using var brush = new SolidBrush(Color.Black);
+                g.FillRectangle(brush, 10, 10, 20, 20);
+            }
+        }
+
+        using var ms = new MemoryStream();
+        if (indexed)
+        {
+            using var converted = src.Clone(new Rectangle(0, 0, 80, 60), format);
+            converted.Save(ms, imageFormat);
+        }
+        else
+        {
+            src.Save(ms, imageFormat);
+        }
+        return ms.ToArray();
+    }
+
     private static byte[] MakePngWithCenteredContent(int w, int h, int contentW, int contentH)
     {
         using var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
