@@ -428,9 +428,10 @@ The "What we explicitly do NOT want to swallow" field is load-bearing. It turns 
 #### 6.7.2 Verdicts
 
 Every site lands in exactly one bucket. The audit file's **verdict vocabulary**
-section is authoritative and has since grown two tokens (`TryFinally`, `Trace`)
-for dispositions this table could not express; the canonical spellings are the
-single-word tokens, which is what the ledger rows and the gate use.
+section is authoritative and has since grown three tokens (`TryFinally`,
+`Deleted`, `Trace`) for dispositions this table could not express; the canonical
+spellings are the single-word tokens, which is what the ledger rows and the gate
+use.
 
 | Verdict | Token | Meaning | Resulting code |
 |---|---|---|---|

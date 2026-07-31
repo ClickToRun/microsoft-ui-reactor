@@ -74,6 +74,10 @@ Every per-file table below uses this header, exactly:
   did ship is described in `Notes`.
 - **`Notes`** — free prose. For `Keep` rows it opens with a justification tag.
 
+Cells are split on unescaped `|`. To write a literal pipe inside `Site(s)` or
+`Notes` — a `catch` filter with an `or`-chain, say — escape it as `\|`, or the
+row gains a column and the gate rejects it.
+
 > **Scope discipline.** The spec scope (§44 task doc preamble) is
 > *the minimum change required to make Reactor's release-build
 > diagnostics visible to app developers*. The `Keep` migration alone
