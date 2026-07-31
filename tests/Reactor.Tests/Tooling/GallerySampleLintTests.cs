@@ -850,9 +850,10 @@ public sealed class GallerySampleLintTests
     /// <remarks>
     /// Two tiers, and the scoping is the point:
     /// <list type="bullet">
-    /// <item><c>const</c> fields of the enclosing type(s), and <c>const</c> locals of the enclosing
-    /// <em>member only</em>. A file-wide set would let an unrelated <c>const string url</c> in one
-    /// method whitelist a runtime <c>url</c> in another — which is issue #982 itself, undetected;</item>
+    /// <item><c>const</c> fields of the enclosing type(s), and <c>const</c> locals of the blocks
+    /// that <em>enclose the site</em>. A file-wide set would let an unrelated <c>const string url</c>
+    /// in one method whitelist a runtime <c>url</c> in another — which is issue #982 itself,
+    /// undetected — and a member-wide set does the same thing across two sibling blocks;</item>
     /// <item><c>static readonly</c> fields whose own initializer is a compile-time value or a
     /// <c>new Uri(...)</c> over accepted arguments. That covers <c>new Uri(BaseUri, "page.html")</c>
     /// without hand-waving: the referenced field's construction is checked by this same rule, so
@@ -872,9 +873,18 @@ public sealed class GallerySampleLintTests
             .SelectMany(field => field.Declaration.Variables)
             .ToList();
 
-        if (site.FirstAncestorOrSelf<MemberDeclarationSyntax>() is { } member)
+        // Only the blocks that actually enclose the site. `member.DescendantNodes()` would also
+        // reach a *sibling* block, and this is legal C#:
+        //
+        //     { const string url = "https://example.com"; }
+        //     { var (url, setUrl) = UseState(""); var u = new Uri(url); }
+        //
+        // — two non-overlapping scopes, no CS0136, and a member-wide set would accept the second
+        // `url` on the strength of the first. That is the same scoping bug as the file-wide set
+        // this replaced, one level in.
+        foreach (var scope in site.Ancestors().TakeWhile(node => node is not MemberDeclarationSyntax))
         {
-            constants.AddRange(member.DescendantNodes()
+            constants.AddRange(scope.ChildNodes()
                 .OfType<LocalDeclarationStatementSyntax>()
                 .Where(local => local.Modifiers.Any(SyntaxKind.ConstKeyword))
                 .SelectMany(local => local.Declaration.Variables));
@@ -1003,6 +1013,8 @@ public sealed class GallerySampleLintTests
     [InlineData(@"class P { void M() { var u = new Uri(""https://example.com""); } }", 0)]
     [InlineData(@"class P { const string U = ""https://example.com""; void M() { var u = new Uri(U); } }", 0)]
     [InlineData(@"class P { void M() { const string U = ""https://example.com""; var u = new Uri(U); } }", 0)]
+    // A const in an *enclosing* block is visible at the site and stays accepted.
+    [InlineData(@"class P { void M() { const string U = ""https://example.com""; { var u = new Uri(U); } } }", 0)]
     [InlineData(@"class P { static readonly Uri B = new Uri(""https://example.com""); void M() { var u = new Uri(B, ""page.html""); } }", 0)]
     [InlineData(@"class P { void M() { var u = new Uri(""https://example.com"", UriKind.Absolute); } }", 0)]
     // A `const` chain, and a `static readonly string`, are both still compile-time.
@@ -1031,6 +1043,10 @@ public sealed class GallerySampleLintTests
     // A `const` in one member must not whitelist a runtime value of the same name in another —
     // this is issue #982 exactly, and a file-wide name set reports it as clean.
     [InlineData(@"class P { void Helper() { const string url = ""https://example.com""; } Element R() { var (url, s) = UseState(""""); return WebView2(new Uri(url)); } }", 1)]
+    // Same bug one level in: two *sibling* blocks in one member. This is legal C# — the scopes do
+    // not overlap, so there is no CS0136 — and a member-wide name set accepts the runtime `url` on
+    // the strength of a constant that is not visible from the site.
+    [InlineData(@"class P { Element R() { { const string url = ""https://example.com""; } { var (url, s) = UseState(""""); return WebView2(new Uri(url)); } } }", 1)]
     // Spellings that hide the type: a using-alias, global::Uri, and target-typed new.
     [InlineData(@"using WebUri = System.Uri; class P { Element R(string t) { return WebView2(new WebUri(t)); } }", 1)]
     [InlineData(@"class P { Element R(string t) { return WebView2(new global::Uri(t)); } }", 1)]
