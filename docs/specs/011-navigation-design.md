@@ -12,18 +12,27 @@ lifecycle hooks, transitions, caching, serialization, deep linking,
 NavigationView integration, and test fixtures are all in place.
 Remaining: Phase 10 documentation and E2E Appium test execution.
 
+> **Note (2026-07-29).** The Problem Statement below describes the state *before* this spec was
+> implemented, and is kept for design rationale. Because this spec shipped,
+> [`002-winui3-gap-analysis.md`](002-winui3-gap-analysis.md) §3 no longer rates navigation as a
+> gap — it records navigation as **Replaced** by `NavigationHandle<TRoute>` /
+> `NavigationHost<TRoute>` / `UseNavigation<TRoute>`. The one live caveat is the WinUI `Frame`
+> element with code-only `Page` types, covered by the §"Why WinUI Frame is not the answer"
+> section here and fixed by PR #945.
+
 ---
 
 ## Problem Statement
 
 The [critical review](../critical-review.md) §7 and the
-[gap analysis](002-winui3-gap-analysis.md) identify navigation as the single
+[gap analysis](002-winui3-gap-analysis.md), *as they stood before this spec was implemented*,
+identified navigation as the single
 largest fundamental gap blocking production readiness:
 
 > "Navigation is the second most critical gap... Frame/Page navigation is
 > *architecturally blocked*."
 
-Today, Reactor developers manually switch components via `UseState`:
+Before this spec, Reactor developers manually switched components via `UseState`:
 
 ```csharp
 var (currentPage, setCurrentPage) = UseState("home");
