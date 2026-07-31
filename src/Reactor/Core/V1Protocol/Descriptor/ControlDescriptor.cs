@@ -141,7 +141,12 @@ public sealed class ControlDescriptor<TElement, TControl>
     /// <see cref="WithUnmount"/>.
     ///
     /// <para>Not for event trampolines: those anchor to the control's lifetime by design (see
-    /// the <c>unsubscribe</c> no-op contract on <see cref="Controlled{TValue,TArgs}"/>).</para></summary>
+    /// the <c>unsubscribe</c> no-op contract on <see cref="Controlled{TValue,TArgs}"/>).</para>
+    ///
+    /// <para>Declaring this hook makes <see cref="DescriptorHandler{TElement,TControl}"/> force
+    /// the control's <c>ReactorState</c> into existence at mount, because the engine's unmount
+    /// dispatch is tag-gated. That costs one small allocation per mounted control of this type,
+    /// so declare it only when there is real teardown to do.</para></summary>
     public DescriptorUnmountCallback<TControl>? OnUnmount
     {
         get => _onUnmount;

@@ -248,6 +248,10 @@ internal static class IsOpenEdgeTriggeredFixtures
     ///   that created it — the descriptor's unmount hook has to drop it.</item>
     ///   <item><c>RisingEdgeBeforeLoadOpensOnLoad</c> fails if the deferral only covers mount
     ///   and drops an edge that lands while the tip is still unparented.</item>
+    ///   <item><c>DeclaredOpenWinsOverSetter</c> pins the documented setter-precedence
+    ///   consequence so the XML doc cannot drift from reality.</item>
+    ///   <item><c>ReloadDoesNotReopenAfterNativeDismiss</c> fails if a tip that was natively
+    ///   dismissed comes back when the same control is unloaded and reloaded.</item>
     /// </list>
     ///
     /// <para>Every render below passes a freshly constructed element, because that is what a
@@ -257,9 +261,21 @@ internal static class IsOpenEdgeTriggeredFixtures
     /// </summary>
     internal sealed class TeachingTipMountOpen(Harness h) : SelfTestFixtureBase(h)
     {
-        /// <summary>TeachingTip's entrance transition is animated; the presentation oracle
-        /// needs it to have actually played before the tip is closed again.</summary>
+        /// <summary>TeachingTip's entrance transition is animated. The presentation oracles wait
+        /// on a real signal (an open popup) rather than assuming the dwell was long enough; the
+        /// dwell that remains covers only the entrance animation, which must finish before a
+        /// close raises <c>Closed</c>.</summary>
         private const int PresentDwellMs = 300;
+
+        /// <summary>Number of popups open on the control's XamlRoot. A presented TeachingTip
+        /// lives in one, so a rise from a pre-open baseline is a genuine presentation signal —
+        /// unlike <c>IsOpen</c>, which only says the DP write stuck.</summary>
+        private static int OpenPopupCount(Microsoft.UI.Xaml.FrameworkElement fe)
+        {
+            var root = fe.XamlRoot;
+            if (root is null) return 0;
+            return Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root).Count;
+        }
 
         public override async Task RunAsync()
         {
@@ -268,6 +284,8 @@ internal static class IsOpenEdgeTriggeredFixtures
             await FallingEdgeBeforeLoadCancelsPendingOpen();
             await UnmountBeforeLoadCancelsPendingOpen();
             await RisingEdgeBeforeLoadOpensOnLoad();
+            await SetterCannotOverrideDeclaredMountOpen();
+            await ReloadDoesNotReopenAfterNativeDismiss();
         }
 
         private async Task MountOpenPresents()
@@ -293,18 +311,28 @@ internal static class IsOpenEdgeTriggeredFixtures
 
             // Parent AFTER mount — the ordering the reconciler itself uses, and the ordering
             // that used to lose the open.
+            var popupsBeforeOpen = OpenPopupCount(parent);
             parent.Children.Add(tip);
 
             H.Check("MountOpen_TeachingTip_DeclaredOpenOnFirstRenderOpens",
                 await Harness.WaitFor(() => tip.IsOpen, maxPasses: 40, perPassMs: 25));
             H.Check("MountOpen_TeachingTip_MountDoesNotFireOnClosed", closed == 0);
 
-            // The property alone proves only that the DP stuck. WinUI raises Closed on the way
-            // down only for a tip that genuinely presented, so this is the presentation oracle.
+            // Wait for a REAL presentation signal rather than a blind animation dwell: a
+            // presented tip lives in a popup on the XamlRoot. Counting from a pre-open baseline
+            // keeps this immune to a popup left over from an earlier fixture.
+            var presented = await Harness.WaitFor(
+                () => OpenPopupCount(tip) > popupsBeforeOpen, maxPasses: 60, perPassMs: 25);
+            H.Check("MountOpen_TeachingTip_DeclaredOpenOnFirstRenderPresentsAPopup", presented);
+
+            // WinUI raises Closed on the way down only for a tip that genuinely presented AND
+            // finished its entrance transition — closing mid-animation silently skips the event.
+            // The dwell now covers only the animation, because presentation itself was waited
+            // for above rather than assumed.
             await Harness.Render(PresentDwellMs);
             var wasOpenBeforeClose = tip.IsOpen;
             rec.UpdateChild(mounted, Declared(isOpen: false), tip, _noOp);
-            var settled = await Harness.WaitFor(() => !tip.IsOpen && closed > 0, maxPasses: 40, perPassMs: 25);
+            var settled = await Harness.WaitFor(() => !tip.IsOpen && closed > 0, maxPasses: 60, perPassMs: 25);
             H.Check("MountOpen_TeachingTip_PresentedTipRaisesClosedOnTeardown",
                 wasOpenBeforeClose && settled && closed == 1);
 
@@ -429,6 +457,87 @@ internal static class IsOpenEdgeTriggeredFixtures
                 await Harness.WaitFor(() => tip.IsOpen, maxPasses: 40, perPassMs: 25));
 
             rec.UpdateChild(opened, Declared(isOpen: false, WinUI.TeachingTipPlacementMode.Bottom), tip, _noOp);
+            await CloseAndSettle(rec, tip);
+            parent.Children.Clear();
+        }
+
+        /// <summary>
+        /// Pins the documented consequence of deferring the mount-time open: the write lands
+        /// after the descriptor's setter pass, so a <c>.Set(t =&gt; t.IsOpen = false)</c> cannot
+        /// override a declared <c>true</c> the way setters normally win. Asserting it here means
+        /// the XML doc on <c>TeachingTipElement.IsOpen</c> cannot silently drift from reality.
+        /// </summary>
+        private async Task SetterCannotOverrideDeclaredMountOpen()
+        {
+            var rec = new Reconciler();
+            var parent = new Grid { Background = new SolidColorBrush(Colors.Transparent) };
+            H.SetContent(parent);
+
+            var mounted = new TeachingTipElement("Setter loses to declared open")
+            {
+                IsOpen = true,
+            }.Set(t => t.IsOpen = false);
+
+            if (rec.Mount(mounted, _noOp) is not WinUI.TeachingTip tip)
+            {
+                H.Check("MountOpen_TeachingTip_SetterFixtureMounted", false);
+                return;
+            }
+
+            parent.Children.Add(tip);
+
+            H.Check("MountOpen_TeachingTip_DeclaredOpenWinsOverSetter",
+                await Harness.WaitFor(() => tip.IsOpen, maxPasses: 40, perPassMs: 25));
+
+            await CloseAndSettle(rec, tip);
+            parent.Children.Clear();
+        }
+
+        /// <summary>
+        /// A tip that opened at mount and was then natively dismissed must stay dismissed across
+        /// an unload/reload of the same control. Verified to fail when the deferral is removed
+        /// entirely; it does <b>not</b> pin the arm's self-cleanup, because WinUI does not
+        /// re-invoke the spent hook here even when the cleanup is disabled — so this is a
+        /// user-facing regression guard, not a white-box test of the state machine.
+        /// </summary>
+        private async Task ReloadDoesNotReopenAfterNativeDismiss()
+        {
+            var rec = new Reconciler();
+            var parent = new Grid { Background = new SolidColorBrush(Colors.Transparent) };
+            H.SetContent(parent);
+
+            var mounted = new TeachingTipElement("Reload after spent arm") { IsOpen = true };
+            if (rec.Mount(mounted, _noOp) is not WinUI.TeachingTip tip)
+            {
+                H.Check("MountOpen_TeachingTip_ReloadFixtureMounted", false);
+                return;
+            }
+
+            parent.Children.Add(tip);
+            var openedOnFirstLoad = await Harness.WaitFor(() => tip.IsOpen, maxPasses: 40, perPassMs: 25);
+
+            // Native dismiss — the declared value stays true, exactly like a light dismiss.
+            tip.IsOpen = false;
+            await Harness.WaitFor(() => !tip.IsOpen, maxPasses: 40, perPassMs: 25);
+
+            // Unload + reload the same control. Loaded must fire again for this check to mean
+            // anything, so the reload is waited for rather than assumed.
+            int loadedCount = 0;
+            void OnLoaded(object s, Microsoft.UI.Xaml.RoutedEventArgs e) => loadedCount++;
+            tip.Loaded += OnLoaded;
+
+            parent.Children.Remove(tip);
+            await Harness.WaitFor(() => !tip.IsLoaded, maxPasses: 40, perPassMs: 25);
+            parent.Children.Add(tip);
+            var reloaded = await Harness.WaitFor(() => loadedCount > 0, maxPasses: 40, perPassMs: 25);
+            await Harness.Render(PresentDwellMs);
+            tip.Loaded -= OnLoaded;
+
+            // Both preconditions are folded in so this cannot pass vacuously on a tip that never
+            // opened, or on a reload that never actually happened.
+            H.Check("MountOpen_TeachingTip_ReloadDoesNotReopenAfterNativeDismiss",
+                openedOnFirstLoad && reloaded && !tip.IsOpen);
+
             await CloseAndSettle(rec, tip);
             parent.Children.Clear();
         }

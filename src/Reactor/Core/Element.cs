@@ -5501,19 +5501,17 @@ public partial record TeachingTipElement(
     ///
     /// <para>Post-mount edges are unaffected: by then the tip is normally loaded, so the write
     /// goes straight through and keeps the edge-triggered contract intact.</para>
+    ///
+    /// <para><b>Where the arm lives.</b> In the control's <c>TeachingTipEventPayload</c>, via
+    /// the engine's <c>ReactorState</c> attached-DP store — the documented home for per-element
+    /// state. A side <c>ConditionalWeakTable</c> would be keyed per RCW, so two RCWs over the
+    /// same native tip would see different arms (the hazard that motivated the attached-DP store
+    /// in the first place). Arming also forces the <c>ReactorState</c> into existence, which is
+    /// what lets the engine's tag-gated unmount dispatch reach the descriptor's
+    /// <c>OnUnmount</c> hook and cancel the arm.</para>
     /// </summary>
     private static class MountOpenDeferral
     {
-        /// <summary>Arm state for one tip. Kept off the control so nothing leaks when the tip
-        /// is collected; the handler slot lets a falling edge unsubscribe a pending arm.</summary>
-        private sealed class Arm
-        {
-            public bool Wanted;
-            public RoutedEventHandler? Handler;
-        }
-
-        private static readonly global::System.Runtime.CompilerServices.ConditionalWeakTable<WinUI.TeachingTip, Arm> Arms = new();
-
         internal static void Write(WinUI.TeachingTip tip, bool isOpen)
         {
             if (!isOpen)
@@ -5540,9 +5538,10 @@ public partial record TeachingTipElement(
                 return;
             }
 
-            var arm = Arms.GetOrCreateValue(tip);
-            arm.Wanted = true;
-            if (arm.Handler is not null) return;
+            var payload = global::Microsoft.UI.Reactor.Core.Reconciler
+                .GetOrCreateControlEventPayload<global::Microsoft.UI.Reactor.Core.V1Protocol.TeachingTipEventPayload>(tip);
+            payload.MountOpenWanted = true;
+            if (payload.MountOpenLoadedHandler is not null) return;
 
             RoutedEventHandler handler = null!;
             handler = (sender, _) =>
@@ -5550,30 +5549,35 @@ public partial record TeachingTipElement(
                 if (sender is not WinUI.TeachingTip loaded) return;
                 loaded.Loaded -= handler;
 
-                // Re-check rather than trust the closure: an intervening falling edge (or an
-                // unmount + reuse) may have disarmed this tip while it was still unparented.
-                if (!Arms.TryGetValue(loaded, out var state)) return;
-                state.Handler = null;
-                if (!state.Wanted) return;
-                state.Wanted = false;
+                // Re-read rather than trust the closure: a falling edge or an unmount may have
+                // disarmed this tip while it was still unparented.
+                var state = global::Microsoft.UI.Reactor.Core.Reconciler
+                    .TryGetControlEventPayload<global::Microsoft.UI.Reactor.Core.V1Protocol.TeachingTipEventPayload>(loaded);
+                if (state is null) return;
+                state.MountOpenLoadedHandler = null;
+                if (!state.MountOpenWanted) return;
+                state.MountOpenWanted = false;
 
                 loaded.IsOpen = true;
             };
 
-            arm.Handler = handler;
+            payload.MountOpenLoadedHandler = handler;
             tip.Loaded += handler;
         }
 
         /// <summary>Drops any pending open and unsubscribes its <c>Loaded</c> hook. Called on
         /// every declared <c>false</c> and from the descriptor's unmount hook, so an arm can
-        /// never outlive the intent — or the mount — that created it.</summary>
+        /// never outlive the intent — or the mount — that created it. Uses the non-allocating
+        /// payload probe: a tip that never armed must not be forced to allocate state here.</summary>
         internal static void Cancel(WinUI.TeachingTip tip)
         {
-            if (!Arms.TryGetValue(tip, out var arm)) return;
-            arm.Wanted = false;
-            if (arm.Handler is null) return;
-            tip.Loaded -= arm.Handler;
-            arm.Handler = null;
+            var payload = global::Microsoft.UI.Reactor.Core.Reconciler
+                .TryGetControlEventPayload<global::Microsoft.UI.Reactor.Core.V1Protocol.TeachingTipEventPayload>(tip);
+            if (payload is null) return;
+            payload.MountOpenWanted = false;
+            if (payload.MountOpenLoadedHandler is null) return;
+            tip.Loaded -= payload.MountOpenLoadedHandler;
+            payload.MountOpenLoadedHandler = null;
         }
     }
 

@@ -422,8 +422,11 @@ dispatch cost for that prop stays at zero.
 > finds an empty slot and re-subscribes. Writing a real unsubscribe
 > into the lambda double-frees the subscription when the control pools
 > and is the most common source of "the event stops firing after a
-> re-render" bugs. If your control genuinely needs explicit unsubscribe
-> on unmount, override `IElementHandler.Unmount` and tear down there.
+> re-render" bugs. If your control genuinely needs explicit teardown on
+> unmount — a pending deferred write, a one-shot lifecycle subscription,
+> a disposable — declare `.WithUnmount(...)` on the descriptor. Reach for
+> a hand-coded `IElementHandler.Unmount` only when you also need to
+> control the unmount disposition or to see the element.
 
 ## Step 4 — Wire events (the non-DP case)
 
