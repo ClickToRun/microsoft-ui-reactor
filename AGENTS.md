@@ -235,15 +235,23 @@ Hard-won specifics that repeatedly cost sessions time. Prefer these exact comman
     `PersistPlacement_FallbackWhenEmpty` (`Phase3WindowingFixtures.cs`). These two are the
     *same assertion twice*: both open a `WindowStartPosition.CenterOnCurrent` window and check
     its centre lands in the work area of the monitor under the mouse, so they fail as a **pair**
-    — seeing only one of them is the surprise, not seeing both. Two distinct causes, neither a
-    render-timing race, so `WaitFor` will not help:
-    (a) a TOCTOU — `GetCursorPos` is sampled *before* `OpenAndSettle`, so a cursor that crosses
-    a monitor boundary while the window is opening invalidates the captured work rect; and
-    (b) `haveCursor` is `&&`-ed into the assertion, so when `GetCursorPos` itself fails
-    (locked / disconnected / headless session) the check reports a plain failure rather than
-    skipping. On a quiet machine both pass — which is precisely why they read as
-    nondeterministic. To make them fail **on demand**, run the E2E suite first (it moves the
-    pointer and changes Z-order), then `--self-test`.
+    — seeing only one of them is the surprise, not seeing both. Neither is a render-timing race,
+    so `WaitFor` will not help. **Two different mechanisms in two different environments — check
+    which one you are in before theorising:**
+    - **Non-interactive session (CI agents, RDP-disconnected, locked, headless).**
+      `GetCursorPos` returns **ACCESS_DENIED (err 5)** and never writes its `out` param, so the
+      cursor monitor cannot be determined at all. This is a **100% deterministic failure, not a
+      flake** — the pair simply cannot pass there. Confirmed by direct P/Invoke probe on two
+      separate machines. Fixed by skipping rather than asserting when the cursor is
+      undeterminable; if you see these fail, probe first:
+      `GetCursorPos(out p)` → `False` / `LastError=5` means you are in this case and the fixtures
+      are innocent. Note `System.Windows.Forms.Cursor.Position` **hides** this — it surfaces the
+      uninitialised `(0,0)` instead of the failure.
+    - **Interactive multi-monitor box.** A TOCTOU: `GetCursorPos` is sampled *before*
+      `OpenAndSettle`, so a cursor crossing a monitor boundary while the window opens invalidates
+      the captured work rect. Intermittent, and **structurally impossible on a single display** —
+      if you are on one virtual desktop with no boundary to cross, this is not your mechanism.
+    Do not assume "quiet machine ⇒ passes": that holds only in the interactive case.
   - **unit** — `PersistenceEtwBridgeTests.JsonFileStore_*` (`Reactor.Tests/Diagnostics/`),
     cross-test ETW/event-source bleed. Fails only in the full-suite run; passes in isolation.
 - **Don't co-locate the E2E and selftest tiers.** CI runs them as separate jobs on separate
