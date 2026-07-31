@@ -241,8 +241,9 @@ Hard-won specifics that repeatedly cost sessions time. Prefer these exact comman
     a monitor boundary while the window is opening invalidates the captured work rect; and
     (b) `haveCursor` is `&&`-ed into the assertion, so when `GetCursorPos` itself fails
     (locked / disconnected / headless session) the check reports a plain failure rather than
-    skipping. Reproduce by running the E2E suite first — it moves the pointer — then
-    `--self-test`; both are clean on a quiet machine.
+    skipping. On a quiet machine both pass — which is precisely why they read as
+    nondeterministic. To make them fail **on demand**, run the E2E suite first (it moves the
+    pointer and changes Z-order), then `--self-test`.
   - **unit** — `PersistenceEtwBridgeTests.JsonFileStore_*` (`Reactor.Tests/Diagnostics/`),
     cross-test ETW/event-source bleed. Fails only in the full-suite run; passes in isolation.
 - **Don't co-locate the E2E and selftest tiers.** CI runs them as separate jobs on separate
