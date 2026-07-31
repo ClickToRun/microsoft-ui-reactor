@@ -12,7 +12,7 @@ namespace Microsoft.UI.Reactor.Tests.Tooling;
 
 /// <summary>
 /// Source lint for the ReactorGallery sample pages. The gallery is the reference app, so a
-/// card that silently renders nothing teaches the wrong pattern — and the four mistakes
+/// card that silently renders nothing teaches the wrong pattern — and the five mistakes
 /// guarded here are all statically detectable and all shipped at least once:
 ///
 /// <list type="bullet">
@@ -25,7 +25,10 @@ namespace Microsoft.UI.Reactor.Tests.Tooling;
 /// blank image with no error of any kind;</item>
 /// <item><c>new Uri(x)</c> on a runtime value, which throws <c>UriFormatException</c> out of
 /// <c>Render()</c> the moment the value is half-typed and replaces the whole page with the
-/// error boundary.</item>
+/// error boundary;</item>
+/// <item>one <c>UseState</c> slot read by two <c>SampleCard</c>s, which makes the cards a
+/// single control mirrored twice — driving one silently retargets the other, and the reader
+/// copying either card out gets a snippet that never worked on its own.</item>
 /// </list>
 ///
 /// Roslyn parses the page sources directly — no gallery build, no WinUI objects, so this
@@ -412,7 +415,181 @@ public sealed class GallerySampleLintTests
         Assert.Equal(composed, IsComposedAssetPath(match.Groups["path"].Value));
     }
 
-    // ── new Uri(...) takes compile-time constants, never a runtime value ─────
+    // ── sibling SampleCards do not share one UseState slot ──────────────────
+
+    /// <summary>
+    /// The names bound by one <c>var (x, setX) = UseState(...)</c>. Deconstruction parses as an
+    /// assignment whose left side is a declaration expression, not as a local declaration.
+    /// </summary>
+    static IEnumerable<List<string>> StateSlots(SyntaxNode root)
+    {
+        foreach (var assignment in root.DescendantNodes().OfType<AssignmentExpressionSyntax>())
+        {
+            if (assignment.Right is not InvocationExpressionSyntax invocation) continue;
+            if (InvokedName(invocation) is not ("UseState" or "UseReducer")) continue;
+            if (assignment.Left is not DeclarationExpressionSyntax { Designation: ParenthesizedVariableDesignationSyntax parenthesized }) continue;
+
+            var names = parenthesized.Variables
+                .OfType<SingleVariableDesignationSyntax>()
+                .Select(v => v.Identifier.Text)
+                .Where(n => n != "_")
+                .ToList();
+
+            if (names.Count > 0) yield return names;
+        }
+    }
+
+    /// <summary>The outermost <c>SampleCard(...)</c> calls — one per card the reader sees.</summary>
+    static List<InvocationExpressionSyntax> SampleCards(SyntaxNode root) =>
+        root.DescendantNodes()
+            .OfType<InvocationExpressionSyntax>()
+            .Where(i => InvokedName(i) == "SampleCard")
+            .Where(i => i.Ancestors().OfType<InvocationExpressionSyntax>().All(a => InvokedName(a) != "SampleCard"))
+            .ToList();
+
+    /// <summary>
+    /// State slots read or written by more than one card. Each card is an independently
+    /// copy-pasteable demo, so a slot spanning two of them means driving one silently retargets the
+    /// other — the reader sees a control move that they did not touch (issue #982, and #980 on
+    /// NumberBox).
+    /// </summary>
+    static IReadOnlyList<(string Names, List<InvocationExpressionSyntax> Cards)> CrossCardState(SyntaxNode root)
+    {
+        var cards = SampleCards(root);
+        if (cards.Count < 2) return [];
+
+        var shared = new List<(string, List<InvocationExpressionSyntax>)>();
+
+        foreach (var slot in StateSlots(root))
+        {
+            var names = new HashSet<string>(slot, global::System.StringComparer.Ordinal);
+
+            var touched = cards
+                .Where(card => card.DescendantNodes()
+                    .OfType<IdentifierNameSyntax>()
+                    .Any(id => names.Contains(id.Identifier.Text)))
+                .ToList();
+
+            if (touched.Count > 1) shared.Add((string.Join("/", slot), touched));
+        }
+
+        return shared;
+    }
+
+    [Fact]
+    public void WebView2Page_CardsDoNotShareState()
+    {
+        var (path, root) = Pages().Single(p => p.Path.EndsWith("WebView2Page.cs", global::System.StringComparison.Ordinal));
+
+        // Issue #982 was two cards driven by one slot, so a page that stopped presenting two cards
+        // — or whose slots stopped being found — would satisfy the real assertion for the wrong
+        // reason. Both counts are what makes the sharing question askable at all.
+        Assert.True(SampleCards(root).Count >= 2, $"{Rel(path)} no longer has two SampleCards to compare.");
+        Assert.True(StateSlots(root).Count() >= 2, $"{Rel(path)} no longer has two UseState slots to compare.");
+
+        var shared = CrossCardState(root)
+            .Select(s => $"{Where(path, s.Cards[0])}: `{s.Names}` is read by {s.Cards.Count} cards " +
+                         $"(lines {string.Join(", ", s.Cards.Select(c => c.GetLocation().GetLineSpan().StartLinePosition.Line + 1))})")
+            .ToList();
+
+        Assert.True(shared.Count == 0,
+            "Issue #982: the preset buttons in the lower card silently retargeted the WebView2 in the " +
+            "upper one, because both read the same UseState slot. Each card is copy-pasteable on its " +
+            "own, so each needs its own state.\n" + string.Join("\n", shared));
+    }
+
+    /// <summary>
+    /// Pages that predate the rule, tracked by issue #980. Pinned as an exact count rather than a
+    /// floor or a ceiling: a floor stays green when a page regresses, and a ceiling stays green
+    /// when one is fixed and another breaks. The failure message names the pages, so neither
+    /// direction needs a hand-maintained list here.
+    /// </summary>
+    const int KnownSharedStatePages = 14;
+
+    [Fact]
+    public void SampleCards_SharedStateDoesNotSpread()
+    {
+        var offenders = new List<string>();
+        var pagesWithMultipleCards = 0;
+
+        foreach (var (path, root) in Pages())
+        {
+            if (SampleCards(root).Count > 1) pagesWithMultipleCards++;
+
+            offenders.AddRange(CrossCardState(root)
+                .Select(s => $"{Where(path, s.Cards[0])}: `{s.Names}` is read by {s.Cards.Count} SampleCards"));
+        }
+
+        // The rule can only fire on a page with two or more cards, so a loader or a card matcher
+        // that quietly stopped finding them would report on a tree it never examined.
+        Assert.True(pagesWithMultipleCards >= 20,
+            $"only {pagesWithMultipleCards} gallery pages were seen to have multiple SampleCards — the rule would pass near-vacuously.");
+
+        Assert.True(offenders.Count == KnownSharedStatePages,
+            $"expected the {KnownSharedStatePages} shared-state pages tracked by #980, found {offenders.Count}. " +
+            "If you fixed one, lower KnownSharedStatePages. If you added one, give each card its own " +
+            "UseState slot instead — driving one card must not retarget its neighbour (#982).\n" +
+            string.Join("\n", offenders));
+    }
+
+    [Theory]
+    // Two cards, one slot each — the shape #982 was fixed into.
+    [InlineData(0, @"
+        var (a, setA) = UseState(""x"");
+        var (b, setB) = UseState(""y"");
+        return VStack(
+            SampleCard(""one"", TextBox(a, setA), ""snippet""),
+            SampleCard(""two"", TextBox(b, setB), ""snippet""));")]
+    // One card, one slot: nothing to share with.
+    [InlineData(0, @"
+        var (a, setA) = UseState(""x"");
+        return SampleCard(""one"", VStack(TextBox(a, setA), Button(""go"", () => setA(""z""))), ""snippet"");")]
+    // Read in one card, written outside any card (e.g. a page-level command bar): one card only.
+    [InlineData(0, @"
+        var (a, setA) = UseState(""x"");
+        return VStack(
+            Button(""reset"", () => setA("""")),
+            SampleCard(""one"", TextBox(a, setA), ""snippet""),
+            SampleCard(""two"", TextBlock(""static""), ""snippet""));")]
+    // A name only mentioned inside a snippet string is not a reference — strings are not identifiers.
+    [InlineData(0, @"
+        var (a, setA) = UseState(""x"");
+        return VStack(
+            SampleCard(""one"", TextBox(a, setA), ""snippet""),
+            SampleCard(""two"", TextBlock(""static""), ""var (a, setA) = UseState(1);""));")]
+    // The bug: one slot read by both cards.
+    [InlineData(1, @"
+        var (a, setA) = UseState(""x"");
+        return VStack(
+            SampleCard(""one"", TextBox(a, setA), ""snippet""),
+            SampleCard(""two"", TextBlock(a), ""snippet""));")]
+    // Only the setter crosses over — still coupling, and the more confusing direction: the card
+    // holding the button shows no effect at all.
+    [InlineData(1, @"
+        var (a, setA) = UseState(""x"");
+        return VStack(
+            SampleCard(""one"", TextBox(a, setA), ""snippet""),
+            SampleCard(""two"", Button(""bing"", () => setA(""bing"")), ""snippet""));")]
+    // Two slots shared across the same pair of cards are two findings, not one.
+    [InlineData(2, @"
+        var (a, setA) = UseState(""x"");
+        var (b, setB) = UseState(""y"");
+        return VStack(
+            SampleCard(""one"", VStack(TextBox(a, setA), TextBox(b, setB)), ""snippet""),
+            SampleCard(""two"", VStack(TextBlock(a), TextBlock(b)), ""snippet""));")]
+    // A slot used twice inside one card is not cross-card; attribution is to the outermost card.
+    [InlineData(0, @"
+        var (a, setA) = UseState(""x"");
+        return SampleCard(""one"", VStack(TextBox(a, setA), TextBlock(a)), ""snippet"");")]
+    public void CrossCardRule_ReportsOnlySlotsSpanningCards(int expected, string body)
+    {
+        var root = CSharpSyntaxTree.ParseText($@"
+            class P : Component {{ public override Element Render() {{ {body} }} }}",
+            cancellationToken: TestContext.Current.CancellationToken).GetRoot();
+
+        Assert.Equal(expected, CrossCardState(root).Count);
+    }
+
 
     /// <summary>
     /// <c>new Uri(text)</c> throws <c>UriFormatException</c> on anything malformed, and a gallery
@@ -422,70 +599,175 @@ public sealed class GallerySampleLintTests
     /// <c>TextBox</c> is enough to trigger it (issue #982). A string that cannot vary at runtime
     /// cannot do that, hence the rule below.
     /// </summary>
-    static bool IsUriCreation(ObjectCreationExpressionSyntax creation) => creation.Type switch
+    /// <summary>
+    /// The last identifier of any name form — <c>Uri</c>, <c>System.Uri</c>,
+    /// <c>global::System.Uri</c>, <c>global::Uri</c>, <c>System.UriKind.Absolute</c>. Every
+    /// qualification question below reduces to this, so there is one place to be wrong.
+    /// </summary>
+    static string? RightmostName(SyntaxNode? node) => node switch
     {
-        IdentifierNameSyntax id => id.Identifier.Text == "Uri",
-        // System.Uri and global::System.Uri both land here.
-        QualifiedNameSyntax qualified => qualified.Right.Identifier.Text == "Uri",
-        _ => false,
+        IdentifierNameSyntax identifier => identifier.Identifier.Text,
+        QualifiedNameSyntax qualified => qualified.Right.Identifier.Text,
+        AliasQualifiedNameSyntax alias => alias.Name.Identifier.Text,
+        MemberAccessExpressionSyntax member => member.Name.Identifier.Text,
+        _ => null,
     };
 
-    /// <summary>Names in <paramref name="root"/> that a <c>new Uri(...)</c> argument may safely reference.</summary>
-    /// <remarks>
-    /// Two tiers, and the second is why this is sound rather than assumed:
-    /// <list type="bullet">
-    /// <item><c>const</c> fields and locals initialized from a string literal — compile-time
-    /// constants, so a malformed one fails on first render and never gets committed;</item>
-    /// <item><c>static readonly</c> fields whose own initializer is a string literal or a
-    /// <c>new Uri(...)</c> over accepted arguments. That covers <c>new Uri(BaseUri, "page.html")</c>
-    /// without hand-waving: the referenced field's construction is checked by this same rule, so
-    /// accepting the reference adds no unchecked value. A <c>static readonly</c> initialized from a
-    /// runtime call is <em>not</em> accepted.</item>
-    /// </list>
-    /// </remarks>
-    static HashSet<string> ConstantNames(SyntaxNode root)
+    /// <summary>
+    /// Names that mean <c>System.Uri</c> in this file: <c>Uri</c> plus any
+    /// <c>using WebUri = System.Uri;</c> alias, which would otherwise construct a Uri under a
+    /// name the rule never looks for.
+    /// </summary>
+    static HashSet<string> UriTypeNames(SyntaxNode root)
     {
-        var names = new HashSet<string>(global::System.StringComparer.Ordinal);
+        var names = new HashSet<string>(global::System.StringComparer.Ordinal) { "Uri" };
 
-        bool Accepted(ExpressionSyntax expression) =>
-            (expression is LiteralExpressionSyntax literal && literal.IsKind(SyntaxKind.StringLiteralExpression))
-            || (expression is IdentifierNameSyntax identifier && names.Contains(identifier.Identifier.Text));
-
-        foreach (var declarator in root.DescendantNodes()
-                     .OfType<VariableDeclaratorSyntax>()
-                     .Where(d => d.Parent?.Parent is FieldDeclarationSyntax { Modifiers: var m } && m.Any(SyntaxKind.ConstKeyword)
-                                 || d.Parent?.Parent is LocalDeclarationStatementSyntax { Modifiers: var l } && l.Any(SyntaxKind.ConstKeyword)))
+        foreach (var directive in root.DescendantNodes().OfType<UsingDirectiveSyntax>())
         {
-            if (declarator.Initializer?.Value is { } value && Accepted(value))
-                names.Add(declarator.Identifier.Text);
-        }
-
-        foreach (var declarator in root.DescendantNodes()
-                     .OfType<VariableDeclaratorSyntax>()
-                     .Where(d => d.Parent?.Parent is FieldDeclarationSyntax { Modifiers: var m }
-                                 && m.Any(SyntaxKind.StaticKeyword) && m.Any(SyntaxKind.ReadOnlyKeyword)))
-        {
-            if (declarator.Initializer?.Value is not { } value) continue;
-
-            var ok = Accepted(value)
-                     || (value is ObjectCreationExpressionSyntax creation
-                         && IsUriCreation(creation)
-                         && (creation.ArgumentList?.Arguments ?? default).All(a => Accepted(a.Expression)));
-
-            if (ok) names.Add(declarator.Identifier.Text);
+            if (directive.Alias is { } alias && RightmostName(directive.Name) == "Uri")
+                names.Add(alias.Name.Identifier.Text);
         }
 
         return names;
     }
 
     /// <summary>
-    /// The <c>(string, UriKind)</c> and <c>(string, bool)</c> overloads pass a mode, not a URL, so
-    /// those arguments carry no risk and are not held to the constant rule.
+    /// Factories whose parameter is a <c>Uri</c>. Target-typed <c>new(...)</c> carries no type at
+    /// all in the syntax, so in argument position this list is the only thing that can recover it —
+    /// and <c>WebView2(new(text))</c> is issue #982 spelled with three fewer characters.
     /// </summary>
-    static bool IsNotAUrlArgument(ExpressionSyntax expression) =>
-        expression is MemberAccessExpressionSyntax { Expression: IdentifierNameSyntax { Identifier.Text: "UriKind" } }
-        || expression.IsKind(SyntaxKind.TrueLiteralExpression)
-        || expression.IsKind(SyntaxKind.FalseLiteralExpression);
+    static readonly HashSet<string> UriTakingFactories =
+        new(global::System.StringComparer.Ordinal) { "WebView2" };
+
+    /// <summary>
+    /// The declared type a target-typed <c>new(...)</c> is initializing, where the syntax carries
+    /// one. The gallery uses <c>new(...)</c> heavily for record collection initializers, so this
+    /// must key off the declared type rather than flagging every implicit construction.
+    /// </summary>
+    static TypeSyntax? TargetTypeOf(ImplicitObjectCreationExpressionSyntax creation) => creation.Parent switch
+    {
+        EqualsValueClauseSyntax { Parent: VariableDeclaratorSyntax { Parent: VariableDeclarationSyntax declaration } } => declaration.Type,
+        EqualsValueClauseSyntax { Parent: PropertyDeclarationSyntax property } => property.Type,
+        ArrowExpressionClauseSyntax { Parent: PropertyDeclarationSyntax property } => property.Type,
+        ArrowExpressionClauseSyntax { Parent: MethodDeclarationSyntax method } => method.ReturnType,
+        ReturnStatementSyntax statement => statement.FirstAncestorOrSelf<MethodDeclarationSyntax>()?.ReturnType,
+        _ => null,
+    };
+
+    static bool IsArgumentToUriTakingFactory(ExpressionSyntax expression) =>
+        expression.Parent is ArgumentSyntax { Parent: ArgumentListSyntax { Parent: InvocationExpressionSyntax invocation } }
+        && RightmostName(invocation.Expression) is { } factory
+        && UriTakingFactories.Contains(factory);
+
+    static bool IsUriCreation(BaseObjectCreationExpressionSyntax creation, HashSet<string> uriTypeNames) => creation switch
+    {
+        ObjectCreationExpressionSyntax explicitCreation =>
+            RightmostName(explicitCreation.Type) is { } name && uriTypeNames.Contains(name),
+        ImplicitObjectCreationExpressionSyntax implicitCreation =>
+            (RightmostName(TargetTypeOf(implicitCreation)) is { } name && uriTypeNames.Contains(name))
+            || IsArgumentToUriTakingFactory(implicitCreation),
+        _ => false,
+    };
+
+    static IEnumerable<BaseObjectCreationExpressionSyntax> UriCreations(SyntaxNode root, HashSet<string> uriTypeNames) =>
+        root.DescendantNodes().OfType<BaseObjectCreationExpressionSyntax>().Where(c => IsUriCreation(c, uriTypeNames));
+
+    /// <summary>
+    /// A mode argument — <c>UriKind.Absolute</c> or the obsolete <c>dontEscape</c> bool — carries no
+    /// URL, and is always the trailing parameter of whichever overload takes it.
+    /// </summary>
+    static bool IsModeArgument(ExpressionSyntax expression) =>
+        expression.IsKind(SyntaxKind.TrueLiteralExpression)
+        || expression.IsKind(SyntaxKind.FalseLiteralExpression)
+        || (expression is MemberAccessExpressionSyntax member && RightmostName(member.Expression) == "UriKind");
+
+    /// <summary>The arguments that actually carry a URL, i.e. everything but a trailing mode.</summary>
+    static List<ExpressionSyntax> UrlArguments(BaseObjectCreationExpressionSyntax creation)
+    {
+        var arguments = (creation.ArgumentList?.Arguments ?? default).Select(a => a.Expression).ToList();
+
+        if (arguments.Count > 0 && IsModeArgument(arguments[^1]))
+            arguments.RemoveAt(arguments.Count - 1);
+
+        return arguments;
+    }
+
+    static bool IsCompileTimeValue(ExpressionSyntax expression, HashSet<string> names) => expression switch
+    {
+        LiteralExpressionSyntax literal => literal.IsKind(SyntaxKind.StringLiteralExpression),
+        IdentifierNameSyntax identifier => names.Contains(identifier.Identifier.Text),
+        ParenthesizedExpressionSyntax parenthesized => IsCompileTimeValue(parenthesized.Expression, names),
+        // `Scheme + Host` folds at compile time exactly when both halves do.
+        BinaryExpressionSyntax binary when binary.IsKind(SyntaxKind.AddExpression) =>
+            IsCompileTimeValue(binary.Left, names) && IsCompileTimeValue(binary.Right, names),
+        _ => false,
+    };
+
+    /// <summary>Names a <c>new Uri(...)</c> at <paramref name="site"/> may safely reference.</summary>
+    /// <remarks>
+    /// Two tiers, and the scoping is the point:
+    /// <list type="bullet">
+    /// <item><c>const</c> fields of the enclosing type(s), and <c>const</c> locals of the enclosing
+    /// <em>member only</em>. A file-wide set would let an unrelated <c>const string url</c> in one
+    /// method whitelist a runtime <c>url</c> in another — which is issue #982 itself, undetected;</item>
+    /// <item><c>static readonly</c> fields whose own initializer is a compile-time value or a
+    /// <c>new Uri(...)</c> over accepted arguments. That covers <c>new Uri(BaseUri, "page.html")</c>
+    /// without hand-waving: the referenced field's construction is checked by this same rule, so
+    /// accepting the reference adds no unchecked value. A <c>static readonly</c> initialized from a
+    /// runtime call is <em>not</em> accepted.</item>
+    /// </list>
+    /// Both tiers iterate to a fixed point so a chain — or a field referenced before it is declared —
+    /// resolves regardless of declaration order.
+    /// </remarks>
+    static HashSet<string> AcceptedNames(SyntaxNode site, HashSet<string> uriTypeNames)
+    {
+        var names = new HashSet<string>(global::System.StringComparer.Ordinal);
+
+        var constants = site.Ancestors().OfType<TypeDeclarationSyntax>()
+            .SelectMany(type => type.Members.OfType<FieldDeclarationSyntax>())
+            .Where(field => field.Modifiers.Any(SyntaxKind.ConstKeyword))
+            .SelectMany(field => field.Declaration.Variables)
+            .ToList();
+
+        if (site.FirstAncestorOrSelf<MemberDeclarationSyntax>() is { } member)
+        {
+            constants.AddRange(member.DescendantNodes()
+                .OfType<LocalDeclarationStatementSyntax>()
+                .Where(local => local.Modifiers.Any(SyntaxKind.ConstKeyword))
+                .SelectMany(local => local.Declaration.Variables));
+        }
+
+        var staticReadonly = site.Ancestors().OfType<TypeDeclarationSyntax>()
+            .SelectMany(type => type.Members.OfType<FieldDeclarationSyntax>())
+            .Where(field => field.Modifiers.Any(SyntaxKind.StaticKeyword) && field.Modifiers.Any(SyntaxKind.ReadOnlyKeyword))
+            .SelectMany(field => field.Declaration.Variables)
+            .ToList();
+
+        bool grew;
+        do
+        {
+            grew = false;
+
+            foreach (var declarator in constants.Concat(staticReadonly))
+            {
+                if (names.Contains(declarator.Identifier.Text)) continue;
+                if (declarator.Initializer?.Value is not { } value) continue;
+
+                var accepted = IsCompileTimeValue(value, names)
+                               || (value is BaseObjectCreationExpressionSyntax creation
+                                   && IsUriCreation(creation, uriTypeNames)
+                                   && UrlArguments(creation).All(a => IsCompileTimeValue(a, names)));
+
+                if (!accepted) continue;
+
+                names.Add(declarator.Identifier.Text);
+                grew = true;
+            }
+        }
+        while (grew);
+
+        return names;
+    }
 
     /// <summary>
     /// Every <c>new Uri(...)</c> argument in <paramref name="root"/> that is not a compile-time
@@ -493,21 +775,20 @@ public sealed class GallerySampleLintTests
     /// can be driven over synthetic source — a scan of a clean tree cannot tell a working detector
     /// from one that reports nothing.
     /// </summary>
-    static IReadOnlyList<(ObjectCreationExpressionSyntax Site, ExpressionSyntax Argument)> RuntimeUriArguments(SyntaxNode root)
+    static IReadOnlyList<(BaseObjectCreationExpressionSyntax Site, ExpressionSyntax Argument)> RuntimeUriArguments(SyntaxNode root)
     {
-        var names = ConstantNames(root);
-        var offenders = new List<(ObjectCreationExpressionSyntax, ExpressionSyntax)>();
+        var uriTypeNames = UriTypeNames(root);
+        var offenders = new List<(BaseObjectCreationExpressionSyntax, ExpressionSyntax)>();
 
-        foreach (var creation in root.DescendantNodes().OfType<ObjectCreationExpressionSyntax>().Where(IsUriCreation))
+        foreach (var creation in UriCreations(root, uriTypeNames))
         {
-            foreach (var argument in creation.ArgumentList?.Arguments ?? default)
-            {
-                var expression = argument.Expression;
-                if (IsNotAUrlArgument(expression)) continue;
-                if (expression is LiteralExpressionSyntax literal && literal.IsKind(SyntaxKind.StringLiteralExpression)) continue;
-                if (expression is IdentifierNameSyntax identifier && names.Contains(identifier.Identifier.Text)) continue;
+            var names = AcceptedNames(creation, uriTypeNames);
 
-                offenders.Add((creation, expression));
+            foreach (var argument in UrlArguments(creation))
+            {
+                if (IsCompileTimeValue(argument, names)) continue;
+
+                offenders.Add((creation, argument));
                 break;
             }
         }
@@ -515,18 +796,17 @@ public sealed class GallerySampleLintTests
         return offenders;
     }
 
-    static int UriCreationCount(SyntaxNode root) =>
-        root.DescendantNodes().OfType<ObjectCreationExpressionSyntax>().Count(IsUriCreation);
+    static int UriCreationCount(SyntaxNode root) => UriCreations(root, UriTypeNames(root)).Count();
 
     [Fact]
     public void NewUri_TakesOnlyCompileTimeConstants()
     {
         var offenders = new List<string>();
-        var inspectedConstructions = 0;
+        var recognized = new Dictionary<string, int>(global::System.StringComparer.OrdinalIgnoreCase);
 
         foreach (var (path, root) in Pages())
         {
-            inspectedConstructions += UriCreationCount(root);
+            recognized[Rel(path)] = UriCreationCount(root);
 
             foreach (var (site, argument) in RuntimeUriArguments(root))
             {
@@ -537,11 +817,16 @@ public sealed class GallerySampleLintTests
             }
         }
 
-        // Floor rather than > 0: the gallery has four `new Uri(...)` sites, so a loader that
-        // silently found one page — or a type check that stopped recognising them — fails here
+        // Pinned per file rather than as a tree-wide floor: a floor stays green when one of the
+        // sites it was counting is deleted, so it fails the repo's deletion test. These two are the
+        // gallery's only `new Uri(...)` pages, and naming them means a loader that quietly stopped
+        // reading a page — or a type check that stopped recognising a construction — reddens here
         // instead of reporting a clean tree it never looked at.
-        Assert.True(inspectedConstructions >= 3,
-            $"only {inspectedConstructions} `new Uri(...)` sites were inspected across the gallery — the lint would pass near-vacuously.");
+        var webView2 = recognized.SingleOrDefault(e => e.Key.EndsWith("WebView2Page.cs", global::System.StringComparison.OrdinalIgnoreCase));
+        var hyperlink = recognized.SingleOrDefault(e => e.Key.EndsWith("HyperlinkButtonPage.cs", global::System.StringComparison.OrdinalIgnoreCase));
+
+        Assert.True(webView2.Value == 3, $"expected 3 recognised `new Uri(...)` sites in WebView2Page.cs, saw {webView2.Value}");
+        Assert.True(hyperlink.Value == 1, $"expected 1 recognised `new Uri(...)` site in HyperlinkButtonPage.cs, saw {hyperlink.Value}");
         Assert.True(offenders.Count == 0, string.Join("\n", offenders));
     }
 
@@ -549,7 +834,8 @@ public sealed class GallerySampleLintTests
     /// The accept-list decides everything, so each of its arms is pinned against synthetic source:
     /// the tree-wide fact above is green for a detector that works and for one that returns nothing,
     /// and only these rows tell them apart. The reported rows are the shapes issue #982 shipped —
-    /// state read straight out of <c>UseState</c>, a method call on it, and an interpolation.
+    /// state read straight out of <c>UseState</c>, a method call on it, an interpolation — plus the
+    /// spellings that would let the same bug back in under a name the rule was not looking for.
     /// </summary>
     [Theory]
     // Accepted: nothing here can vary at runtime.
@@ -558,6 +844,21 @@ public sealed class GallerySampleLintTests
     [InlineData(@"class P { void M() { const string U = ""https://example.com""; var u = new Uri(U); } }", 0)]
     [InlineData(@"class P { static readonly Uri B = new Uri(""https://example.com""); void M() { var u = new Uri(B, ""page.html""); } }", 0)]
     [InlineData(@"class P { void M() { var u = new Uri(""https://example.com"", UriKind.Absolute); } }", 0)]
+    // A `const` chain, and a `static readonly string`, are both still compile-time.
+    [InlineData(@"class P { const string H = ""https://example.com""; const string U = H; void M() { var u = new Uri(U); } }", 0)]
+    [InlineData(@"class P { static readonly string U = ""https://example.com""; void M() { var u = new Uri(U); } }", 0)]
+    // Concatenation of accepted halves folds at compile time.
+    [InlineData(@"class P { const string H = ""https://example.com""; void M() { var u = new Uri(H + ""/docs""); } }", 0)]
+    // Declaration order must not matter: Sub references Base before Base is declared.
+    [InlineData(@"class P { static readonly Uri Sub = new Uri(Base, ""p""); static readonly Uri Base = new Uri(""https://example.com""); void M() { var u = new Uri(Sub, ""q""); } }", 0)]
+    // Qualified UriKind, and the obsolete dontEscape bool, are modes rather than URLs.
+    [InlineData(@"class P { void M() { var u = new Uri(""https://example.com"", System.UriKind.Absolute); } }", 0)]
+    [InlineData(@"class P { void M() { var u = new Uri(""https://example.com"", true); } }", 0)]
+    [InlineData(@"class P { void M() { var u = new Uri(""https://example.com"", false); } }", 0)]
+    // A trusted base built with an explicit UriKind stays trusted.
+    [InlineData(@"class P { static readonly Uri B = new Uri(""https://example.com"", UriKind.Absolute); void M() { var u = new Uri(B, ""p""); } }", 0)]
+    // Target-typed `new(...)` for a record is not a Uri construction and must stay silent.
+    [InlineData(@"class P { static readonly Item[] Items = { new(""a"", 1), new(""b"", 2) }; void M() { var u = new Uri(""https://example.com""); } }", 0)]
     // Reported: every one of these is a value the reader can make malformed.
     [InlineData(@"class P { Element R() { var (t, s) = UseState(""""); return WebView2(new Uri(t)); } }", 1)]
     [InlineData(@"class P { Element R(string t) { return WebView2(new Uri(t.Trim())); } }", 1)]
@@ -566,6 +867,14 @@ public sealed class GallerySampleLintTests
     // A `static readonly` is only trusted when its own initializer is, and a property is not a field.
     [InlineData(@"class P { static readonly string U = Fetch(); void M() { var u = new Uri(U); } }", 1)]
     [InlineData(@"class P { static string U => Fetch(); void M() { var u = new Uri(U); } }", 1)]
+    // A `const` in one member must not whitelist a runtime value of the same name in another —
+    // this is issue #982 exactly, and a file-wide name set reports it as clean.
+    [InlineData(@"class P { void Helper() { const string url = ""https://example.com""; } Element R() { var (url, s) = UseState(""""); return WebView2(new Uri(url)); } }", 1)]
+    // Spellings that hide the type: a using-alias, global::Uri, and target-typed new.
+    [InlineData(@"using WebUri = System.Uri; class P { Element R(string t) { return WebView2(new WebUri(t)); } }", 1)]
+    [InlineData(@"class P { Element R(string t) { return WebView2(new global::Uri(t)); } }", 1)]
+    [InlineData(@"class P { Element R(string t) { Uri u = new(t); return WebView2(u); } }", 1)]
+    [InlineData(@"class P { Element R(string t) { return WebView2(new(t)); } }", 1)]
     public void UriConstantRule_AcceptsCompileTimeValues_AndReportsRuntimeOnes(string source, int expected)
     {
         var root = CSharpSyntaxTree
