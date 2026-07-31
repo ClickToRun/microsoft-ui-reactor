@@ -265,6 +265,35 @@ internal static class Phase4WindowingFixtures
                 // too-short-poll problem" is the sound claim, NOT "not a race".
                 // The await + poll below are kept because both are correct regardless, and
                 // the assertion stays strict: it fails if the bit never flips.
+                // Window-population probe for issue #927. Emitted on EVERY run so a full run and
+                // a filtered run can be compared without waiting to catch the ~25% flake.
+                //
+                // RESULT: hypothesis FALSIFIED, and the probe is kept as the standing evidence.
+                // ReactorWindow.ReassertFloatingWindowsForActivation iterates ReactorApp.Windows
+                // on every activation and re-issues SetWindowPos(HWND_TOP) for every non-disposed
+                // window whose Spec.Level is Floating — it skips only _disposed, so a Floating
+                // window leaked by an earlier fixture would keep churning Z-order for the rest of
+                // the process. That made "leaked Floating windows accumulate over the suite" a
+                // strong candidate. Measured: `ReactorApp.Windows=1, Level==Floating=0` at this
+                // point in BOTH a full ~6100-check run and `--filter WindowLevel`. Identical. So
+                // there is no leak, no accumulated population, and the whole cross-window
+                // coupling family is eliminated — including the version where the two preceding
+                // Floating fixtures are to blame (also 20/20 clean with them included).
+                //
+                // What that leaves: ReactorWindow.ApplyWindowLevel discards the SetWindowPos
+                // BOOL (`_ = NativeShell.SetWindowPos(...)`, ReactorWindow.cs:810), so a rejected
+                // call is silently indistinguishable from one that never took effect. Checking
+                // that return plus GetLastError is now the leading next step — it splits "the
+                // call was rejected" from "something undid it afterwards", and neither is
+                // currently observable.
+                var allWindows = ReactorApp.Windows;
+                int liveFloating = 0;
+                for (int i = 0; i < allWindows.Count; i++)
+                    if (allWindows[i].Spec.Level == WindowLevel.Floating) liveFloating++;
+                Console.WriteLine(
+                    $"# WindowLevel_RuntimeFlip population (issue #927): ReactorApp.Windows={allWindows.Count}, " +
+                    $"Level==Floating={liveFloating}");
+
                 win.Update(spec with { Level = WindowLevel.AlwaysOnTop });
                 await win.Host.WaitForIdleAsync();
                 bool topmost = await Harness.WaitFor(
