@@ -167,7 +167,7 @@ For each `catch (Exception ex) { Debug.WriteLine(...); }` site in `src/Reactor/`
 - [ ] **Sites** — how many sites the row adjudicates, as a positive integer. Rows that collapse several sites declare the collapse factor rather than leaving it implicit.
 - [ ] **Site (after)** — the proposed post-migration code (for Keep verdicts this is just the existing shape rewritten over `DiagnosticLog.SwallowedError`).
 - [ ] **Risk** — one line on what could break.
-- [ ] **Owner / PR / Status** — `☐ migrated  ☐ verdict shipped` checkboxes.
+- [ ] **Owner / PR / Status** — `Status` is one of the two ledger tokens, `shipped` or `deferred`. A partial delivery counts as `deferred`, with the part that did ship described in the row's Notes. (The older `☐ migrated ☐ verdict shipped` checkbox pair predates the ledger schema; the gate rejects both tokens.)
 
 ### 3.3 Group entries by file per first-pass categorization (spec §6.7.4)
 
@@ -240,7 +240,7 @@ Mechanical migration driven by the audit. Each PR maps to one row of spec §6.3 
 
 - [ ] For the ~15 Shell sites with verdict "Promote to typed event", add the typed event to `ReactorEventSource` (specifically scoped — `JumpListSaveFailed`, `ThumbnailToolbarSetButtonsFailed`, etc., each with `int hr` payload).
 - [ ] Migrate each catch to the new typed event + narrow HRESULT filter.
-- [ ] Update the audit entry from `☐ migrated` to `☑ migrated  ☑ verdict shipped`.
+- [ ] Flip those rows' `Status` from `deferred` to `shipped` in the audit ledger and re-run the gate so the derived distribution table follows.
 
 ### 4.7 PR: Persistence narrowing
 
@@ -253,7 +253,7 @@ Mechanical migration driven by the audit. Each PR maps to one row of spec §6.3 
 ### 4.8 PR: TryXxx refactors
 
 - [ ] Convert the ~10 Win32 P/Invoke `GetLastError`-style swallows to `bool TryXxx(out int hr)` predicates. These usually already have a `bool` return; verify and finish.
-- [ ] Audit entries flip to `☑ verdict shipped`.
+- [ ] Flip those rows' `Status` from `deferred` to `shipped` in the audit ledger and re-run the gate so the derived distribution table follows.
 
 ### 4.9 PR: User-callback isolation sites (Keep verdicts)
 
