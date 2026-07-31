@@ -3750,7 +3750,7 @@ public sealed partial class Reconciler : IDisposable
             // Clear rather than write a local `new Thickness(0)`: a zero local wins over the
             // control's style/template, so a Button that dropped `.Padding(...)` would flush to
             // nothing instead of returning to its themed padding. This is the `Padding` half of
-            // issue #952; the sizing/alignment arms below are still #952's to convert.
+            // issue #952; the sizing/alignment arms below now follow the same rule.
             if (fe is WinUI.Control padCtrl) padCtrl.ClearValue(WinUI.Control.PaddingProperty);
             else if (fe is WinUI.Border padBdr) padBdr.ClearValue(WinUI.Border.PaddingProperty);
             else if (fe is WinUI.StackPanel padSp) padSp.ClearValue(WinUI.StackPanel.PaddingProperty);
