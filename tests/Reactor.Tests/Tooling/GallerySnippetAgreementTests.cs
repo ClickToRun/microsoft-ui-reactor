@@ -313,8 +313,7 @@ public sealed class GallerySnippetAgreementTests
 
         foreach (var node in pageRoot.DescendantNodesAndSelf().Where(Reachable))
         {
-            foreach (var declared in DeclaredBy(node))
-                names.Add(declared);
+            names.UnionWith(DeclaredBy(node));
 
             if (node is IdentifierNameSyntax id && !id.Identifier.IsMissing && !IsTypeSlot(id) && IsValueReference(id))
                 names.Add(id.Identifier.Text);
@@ -327,8 +326,7 @@ public sealed class GallerySnippetAgreementTests
     internal static HashSet<string> LiveNames(SyntaxNode pageRoot)
     {
         var names = new HashSet<string>(DeclaredNames(pageRoot), global::System.StringComparer.Ordinal);
-        foreach (var reference in ReferenceNames(pageRoot))
-            names.Add(reference.Identifier.Text);
+        names.UnionWith(ReferenceNames(pageRoot).Select(reference => reference.Identifier.Text));
         return names;
     }
 
