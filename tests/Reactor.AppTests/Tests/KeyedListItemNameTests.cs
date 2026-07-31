@@ -80,9 +80,8 @@ public class KeyedListItemNameTests : AppTestBase
         // on the item view is the supported way to name such a row, and this is
         // the assertion that it reaches a real UIA client — without it the row
         // is silently unnamed, which is how the original bug hid.
-        foreach (var label in new[] { "Apples", "Bananas", "Carrots" })
+        foreach (var expected in new[] { "Apples", "Bananas", "Carrots" }.Select(label => $"Fruit {label}"))
         {
-            var expected = $"Fruit {label}";
             var row = App.Search(expected)
                 .FirstOrDefault(m =>
                     string.Equals(m.Name, expected, StringComparison.Ordinal) &&
