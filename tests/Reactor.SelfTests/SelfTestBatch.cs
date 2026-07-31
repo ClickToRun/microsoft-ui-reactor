@@ -960,12 +960,25 @@ public class SelfTestBatch
     }
 
     /// <summary>
-    /// Appends to the job-summary file, reporting whether it landed. Best-effort by design: this
-    /// is a diagnostic channel, and a failure to write it must never turn a green selftest run red
-    /// — an unwritable summary path would otherwise convert a healthy suite into a hard error,
-    /// which is a strictly worse outcome than the silence this whole gate exists to fix.
+    /// Appends to the job-summary file, reporting whether it landed. Mechanically best-effort: it
+    /// never throws, and reports success through its return value rather than an exception, so a
+    /// caller on a failure path cannot be derailed by the diagnostics it is trying to emit.
     /// Returns false (rather than throwing) when there is no summary file, which is the normal
     /// case locally.
+    /// <para>
+    /// Whether non-delivery is <em>fatal</em> is the caller's policy, not this method's, and the
+    /// two callers deliberately differ:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description><see cref="PublishSuiteDuration"/> — <b>asserted</b> by
+    /// <see cref="SuiteDuration_WithinBudget"/> when the variable is set. Delivery *is* the gate;
+    /// an undelivered duration report is a gate that has silently stopped gating, which is the
+    /// failure mode issue #988 was.</description></item>
+    /// <item><description><see cref="PublishBudgetKill"/> — <b>not asserted</b>; its result is
+    /// deliberately discarded. That run is already failing for a reason the reader needs, and
+    /// replacing it with a complaint about the summary file would bury the finding behind its
+    /// own diagnostics.</description></item>
+    /// </list>
     /// </summary>
     internal static bool TryAppendSummary(string? path, string markdown)
     {
