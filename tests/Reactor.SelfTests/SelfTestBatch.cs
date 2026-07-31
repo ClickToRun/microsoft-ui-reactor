@@ -887,6 +887,25 @@ public class SelfTestBatch
 
         Console.WriteLine($"{report.Text} [{report.Source}]");
 
+        // The only end-to-end proof that the reporting channel works. Everything else about it is
+        // exercised against a temp file, which establishes that TryAppendSummary can write — not
+        // that the runner's GITHUB_STEP_SUMMARY is reachable from inside the testhost. That is a
+        // property of CI, so only CI can settle it, and this assertion is inert locally by
+        // construction (the variable is unset, and a report with nowhere to go is correct there).
+        //
+        // It fails rather than warns because the failure it describes is silence. A dead channel
+        // leaves every other signal green — the suite passes, the report is composed, nothing is
+        // skipped — while the gate that exists to stop the budget eroding quietly stops reporting.
+        // That is not a hypothetical failure mode; it is what #988 was.
+        if (!string.IsNullOrWhiteSpace(summaryPath))
+        {
+            Assert.IsTrue(report.Delivered,
+                $"The suite-duration report could not be written to {StepSummaryEnvVar} " +
+                $"('{summaryPath}'). This is a fault in the reporting channel, not in the suite: " +
+                $"the run itself is fine, but the duration gate is now silent — which is the " +
+                $"failure mode issue #988 was.");
+        }
+
         if (report.Warn)
         {
             // Kept for local runs; under `dotnet test` this is swallowed with the rest of the
