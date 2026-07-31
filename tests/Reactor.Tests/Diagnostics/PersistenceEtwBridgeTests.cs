@@ -64,7 +64,11 @@ public class PersistenceEtwBridgeTests : IDisposable
     {
         var candidates = events.Where(e => e.EventName == name).ToArray();
         var match = candidates.FirstOrDefault(e =>
-            (e.Payload?[discriminatorIndex] as string) == discriminator);
+            e.Payload is { } payload
+            && discriminatorIndex >= 0
+            && discriminatorIndex < payload.Count
+            && payload[discriminatorIndex] is string value
+            && value == discriminator);
 
         if (match is null)
         {
