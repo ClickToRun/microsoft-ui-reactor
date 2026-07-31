@@ -89,6 +89,7 @@ TextBlock("Prominent text").Set(tb =>
 
    ```csharp
    TextBlock("\uE710")
+       .FontFamily((FontFamily)Application.Current.Resources["SymbolThemeFontFamily"])
        .Set(tb => tb.IsTextScaleFactorEnabled = false)
        .VAlign(VerticalAlignment.Center)
    ```

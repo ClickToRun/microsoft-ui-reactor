@@ -150,7 +150,8 @@ gap draggable.
     Content = HStack(8,
         AutoSuggestBox("", _ => {}).Width(200),          // interactive → excluded by default
         Button(Icon(FontIcon("\uE713", fontSize: 16)), () => {})
-            .IsDragRegion(false))                        // explicit: keep clickable
+            .AutomationName("Settings")                   // glyph-only: no text to infer a name from
+            .IsDragRegion(false))                         // explicit: keep clickable
 }).AutoRefreshDragRegions();
 ```
 
