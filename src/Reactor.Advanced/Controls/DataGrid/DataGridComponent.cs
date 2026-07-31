@@ -1445,27 +1445,31 @@ public class DataGridComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMe
     }
 
     /// <summary>
-    /// Routes a committed row edit to <c>OnRowChanged</c>, either through the DataGrid's
-    /// <c>UseMutation</c> handle or, when no handle is installed, through a thread-pool fallback.
-    /// No-op when the element has no <c>OnRowChanged</c>.
+    /// Routes a committed row edit to the installed <see cref="DataGridState{T}.CommitDispatcher"/>
+    /// — the DataGrid's <c>UseMutation</c> handle by default — or, when none is installed, straight
+    /// to <c>OnRowChanged</c> through a thread-pool fallback. No-op when the element has no
+    /// <c>OnRowChanged</c>.
     /// </summary>
     /// <remarks>
     /// <para>
     /// <b>Dispatcher path</b> — taken whenever <see cref="DataGridState{T}.CommitDispatcher"/> is
     /// installed, which every grid rendered through <see cref="DataGridComponent{T}"/> does on each
-    /// render that has an <c>OnRowChanged</c>. The dispatcher calls <c>Mutation.RunAsync</c>, whose
+    /// render that has an <c>OnRowChanged</c>. What this method guarantees here is narrow: the
+    /// delegate is <b>invoked on the calling thread</b>, and nothing else happens for the commit.
+    /// Where <c>OnRowChanged</c> ends up is then the delegate's business. The one
+    /// <see cref="DataGridComponent{T}"/> installs calls <c>Mutation.RunAsync</c>, whose
     /// <c>OnOptimistic</c> snapshots the pre-edit item into <see cref="DataGridState{T}"/>,
     /// <c>OnSuccess</c> clears the committing flag and <c>OnError</c> writes the error into the
-    /// row's banner. <c>RunAsync</c> invokes the mutator synchronously, and the mutator calls
-    /// <c>OnRowChanged</c> before its first <c>await</c>, so <c>OnRowChanged</c> is
-    /// <b>invoked on the calling thread</b> — the UI thread for an edit commit. (Whatever the
-    /// caller's own callback awaits internally may of course resume elsewhere.)
+    /// row's banner; <c>RunAsync</c> runs the mutator synchronously and the mutator calls
+    /// <c>OnRowChanged</c> before its first <c>await</c>, so under that dispatcher the callback
+    /// reaches the committing thread too — the UI thread for an edit commit. (Whatever the
+    /// callback itself awaits may of course resume elsewhere.) A dispatcher of your own owes
+    /// callers that contract if it wants to keep it.
     /// </para>
     /// <para>
-    /// <b>Fallback path</b> — taken when no dispatcher is installed, e.g. headless tests and other
-    /// consumers that drive <see cref="DataGridState{T}"/> without going through
-    /// <c>UseMutation</c>. It does <b>not</b> run on the calling thread: it mirrors the
-    /// pre-Phase-3 pattern and offloads <c>OnRowChanged</c> with <c>Task.Run</c>, so
+    /// <b>Fallback path</b> — taken when no dispatcher is installed: the headless unit tests, and
+    /// the stale-handler case in the next paragraph. It does <b>not</b> run on the calling thread:
+    /// it mirrors the pre-Phase-3 pattern and offloads <c>OnRowChanged</c> with <c>Task.Run</c>, so
     /// <b>the callback runs on a thread-pool thread</b>. The committing thread's
     /// <c>DispatcherQueue</c> is captured before the offload and the follow-up
     /// <see cref="DataGridState{T}.CompleteAsyncCommit"/> /
