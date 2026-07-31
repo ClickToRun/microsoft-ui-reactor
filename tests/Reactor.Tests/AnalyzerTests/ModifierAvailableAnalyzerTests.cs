@@ -253,6 +253,7 @@ class C
 {
     StackElement A(StackElement s) => {|REACTOR_MOD_002:s.Set(x => x.Padding = new Thickness(4))|};
     StackElement B(StackElement s) => {|REACTOR_MOD_002:s.Set(x => x.CornerRadius = new CornerRadius(4))|};
+    GridElement G(GridElement g) => {|REACTOR_MOD_002:g.Set(x => x.CornerRadius = new CornerRadius(4))|};
     RelativePanelElement R(RelativePanelElement r) => {|REACTOR_MOD_002:r.Set(x => x.CornerRadius = new CornerRadius(4))|};
 }";
         await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>

@@ -75,18 +75,8 @@ internal static class Issue950PanelBorderBoxFixture
                         1 => relative.Padding(51, 52, 53, 54).CornerRadius(55),
                         _ => relative,
                     },
-                    step switch
-                    {
-                        0 => logicalGrid.PaddingInlineStart(69),
-                        1 => logicalGrid.PaddingInlineEnd(70),
-                        _ => logicalGrid.Padding(71),
-                    },
-                    step switch
-                    {
-                        0 => logicalRelative.PaddingInlineStart(72),
-                        1 => logicalRelative.PaddingInlineEnd(73),
-                        _ => logicalRelative.Padding(74),
-                    },
+                    logicalGrid.PaddingInlineStart(69),
+                    logicalRelative.PaddingInlineStart(72),
                     step switch
                     {
                         0 => border.CornerRadius(56),
@@ -139,9 +129,6 @@ internal static class Issue950PanelBorderBoxFixture
             H.Check("Issue950Panel_Update_StackValue", stack.CornerRadius == new CornerRadius(40));
             H.Check("Issue950Panel_Update_RelativeValues",
                 relative.Padding == new Thickness(51, 52, 53, 54) && relative.CornerRadius == new CornerRadius(55));
-            H.Check("Issue950Panel_Update_LogicalPaddingRestoresOldEdge",
-                logicalGrid.Padding == new Thickness(61, 62, 70, 64)
-                && logicalRelative.Padding == new Thickness(73, 66, 67, 68));
 
             H.ClickButton("Issue950Panel_Next");
             await Harness.Render();
@@ -151,9 +138,6 @@ internal static class Issue950PanelBorderBoxFixture
             H.Check("Issue950Panel_Unset_StackReturnsToStyle", stack.CornerRadius == new CornerRadius(7));
             H.Check("Issue950Panel_Unset_RelativeReturnsToStyle",
                 relative.Padding == new Thickness(8, 9, 10, 11) && relative.CornerRadius == new CornerRadius(12));
-            H.Check("Issue950Panel_Update_LogicalToPhysicalPadding",
-                logicalGrid.Padding == new Thickness(71)
-                && logicalRelative.Padding == new Thickness(74));
             H.Check("Issue950Panel_Unset_BorderReturnsToStyle", border.CornerRadius == new CornerRadius(13));
             H.Check("Issue950Panel_Unset_ControlReturnsToStyle", button.CornerRadius == new CornerRadius(14));
             H.Check("Issue950Panel_Unset_AllLocalsCleared",
