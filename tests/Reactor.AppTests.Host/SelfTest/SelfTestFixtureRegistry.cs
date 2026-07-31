@@ -9,7 +9,8 @@ internal static class SelfTestFixtureRegistry
 {
     public static readonly string[] AllFixtures =
     [
-        "ErrorBoundary_CatchesRenderError",        "ErrorBoundary_Recovery",
+        "ErrorBoundary_CatchesRenderError",
+        "ErrorBoundary_Recovery",
         "Reconciler_MountText",
         "Reconciler_UpdateText",
         "Reconciler_AddRemoveChildren",
@@ -178,7 +179,8 @@ internal static class SelfTestFixtureRegistry
         "ItemsView_Rerender_DoesNotMarkContainersModified",
         "ItemsView_MultiSelect_CheckmarkDoesNotFlicker",
         // Spec 042 Phase 1 — keyed-list reconciliation end-to-end fixtures.
-        "KLR_ListView_MountsOcSource",        "KLR_ListView_InsertAtZero_EmitsSingleAdd",
+        "KLR_ListView_MountsOcSource",
+        "KLR_ListView_InsertAtZero_EmitsSingleAdd",
         "KLR_ListView_RemoveFromEnd_EmitsSingleRemove",
         "KLR_ListView_MoveOne_EmitsSingleMove",
         "KLR_ListView_BulkReplace_TriggersBailout",
