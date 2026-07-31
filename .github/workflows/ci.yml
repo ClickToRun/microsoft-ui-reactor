@@ -18,6 +18,7 @@ jobs:
       non-md: ${{ steps.filter.outputs.non-md }}
       docs-templates: ${{ steps.filter.outputs.docs-templates }}
       devtools-trim: ${{ steps.filter.outputs.devtools-trim }}
+      audit-ledger: ${{ steps.filter.outputs.audit-ledger }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -41,17 +42,19 @@ jobs:
             files=$(git diff --name-only "$PUSH_BEFORE" "$PUSH_SHA")
             rc=$?
           else
-            echo "No valid diff range; defaulting to non-md=true, docs-templates=true, and devtools-trim=true"
+            echo "No valid diff range; defaulting all change filters to true"
             echo "non-md=true" >> "$GITHUB_OUTPUT"
             echo "docs-templates=true" >> "$GITHUB_OUTPUT"
             echo "devtools-trim=true" >> "$GITHUB_OUTPUT"
+            echo "audit-ledger=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if [ "$rc" -ne 0 ]; then
-            echo "git diff failed; defaulting to non-md=true, docs-templates=true, and devtools-trim=true"
+            echo "git diff failed; defaulting all change filters to true"
             echo "non-md=true" >> "$GITHUB_OUTPUT"
             echo "docs-templates=true" >> "$GITHUB_OUTPUT"
             echo "devtools-trim=true" >> "$GITHUB_OUTPUT"
+            echo "audit-ledger=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "Changed files:"
@@ -74,6 +77,16 @@ jobs:
             echo "devtools-trim=true" >> "$GITHUB_OUTPUT"
           else
             echo "devtools-trim=false" >> "$GITHUB_OUTPUT"
+          fi
+          # Issue #959: the spec 044 swallowed-error audit is a Markdown file
+          # whose summary table is derived from its own rows and gated by
+          # Reactor.Tests. An audit-only edit is pure .md, so it sets
+          # non-md=false and would skip every test job above — skipping the one
+          # gate that change type exists for. This output re-arms it.
+          if echo "$files" | grep -qE '^docs/specs/044/swallowed-error-audit\.md$'; then
+            echo "audit-ledger=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "audit-ledger=false" >> "$GITHUB_OUTPUT"
           fi
 
   unit-tests:
@@ -116,6 +129,27 @@ jobs:
         # job still fails because the Reactor.Tests step's non-zero exit stands.
         if: ${{ !cancelled() }}
         run: dotnet test tests/Reactor.Advanced.Tests/Reactor.Advanced.Tests.csproj --no-restore -p:Platform=x64 --logger "console;verbosity=normal" --blame-hang-timeout 180s --blame-hang-dump-type none
+
+  audit-ledger:
+    name: Audit ledger gate
+    needs: changes
+    # Only when the audit doc changed *and* the full unit-test job was skipped
+    # for being Markdown-only — otherwise unit-tests already ran these facts.
+    if: needs.changes.outputs.audit-ledger == 'true' && needs.changes.outputs.non-md == 'false'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore tests/Reactor.Tests/Reactor.Tests.csproj -p:Platform=x64
+
+      - name: Test (swallowed-error audit ledger)
+        run: dotnet test tests/Reactor.Tests/Reactor.Tests.csproj --no-restore -p:Platform=x64 -p:SkipSignaturesGen=true -p:SkipReactorApiGen=true --filter "FullyQualifiedName~SwallowedErrorAudit" --logger "console;verbosity=normal"
 
   integration-tests:
     name: Integration Tests

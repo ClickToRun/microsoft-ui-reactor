@@ -163,10 +163,11 @@ For each `catch (Exception ex) { Debug.WriteLine(...); }` site in `src/Reactor/`
 - [ ] **Observed/expected failure modes** — at the HRESULT / Win32 code level, not just exception type.
 - [ ] **What we explicitly do NOT want to swallow** — the bug-class exceptions we're now happy to let propagate.
 - [ ] **Why we swallow the listed cases** — single-paragraph justification.
-- [ ] **Verdict** — exactly one of: Keep / Narrow / Propagate / Replace with `TryXxx` / Promote to typed event.
+- [ ] **Verdict** — exactly one canonical token: `Keep` / `Narrow` / `Propagate` / `TryFinally` / `TryXxx` / `PromoteEvent` / `Deleted` / `Trace`. The audit file's verdict-vocabulary section is authoritative; the gate rejects anything outside it.
+- [ ] **Sites** — how many sites the row adjudicates, as a positive integer. Rows that collapse several sites declare the collapse factor rather than leaving it implicit.
 - [ ] **Site (after)** — the proposed post-migration code (for Keep verdicts this is just the existing shape rewritten over `DiagnosticLog.SwallowedError`).
 - [ ] **Risk** — one line on what could break.
-- [ ] **Owner / PR / Status** — `☐ migrated  ☐ verdict shipped` checkboxes.
+- [ ] **Owner / PR / Status** — `Status` is one of the two ledger tokens, `shipped` or `deferred`. A partial delivery counts as `deferred`, with the part that did ship described in the row's Notes. (The older `☐ migrated ☐ verdict shipped` checkbox pair predates the ledger schema; the gate rejects both tokens.)
 
 ### 3.3 Group entries by file per first-pass categorization (spec §6.7.4)
 
@@ -181,8 +182,21 @@ For each `catch (Exception ex) { Debug.WriteLine(...); }` site in `src/Reactor/`
 
 ### 3.4 Sanity-check verdict distribution
 
-- [x] Verdict counts at the top of the audit file: 56 Keep, 9 Narrow (6 shipped, 3 deferred), 0 Propagate, 10 Replace-with-TryXxx (all deferred to 4.8), 18 Promote-to-typed-event (9 shipped, 9 deferred to 4.6).
-- [x] Propagate count is 0 — well under the spec §6.7.4 worry threshold of 20.
+> **Historical — audit pass 1. Do not update.** The figures below are a frozen
+> snapshot of what the first pass produced, not a current-state summary. The
+> live counts are the derived ledger at the top of
+> [`docs/specs/044/swallowed-error-audit.md`](../044/swallowed-error-audit.md),
+> which is computed from per-site rows and gated by
+> `tests/Reactor.Tests/Docs/SwallowedErrorAuditTests.cs`. The two are not
+> commensurable and must not be reconciled with each other (issue #959).
+
+- [x] Verdict counts **as pass 1 recorded them** — superseded, retained only as a record of that pass: 56 Keep, 9 Narrow (6 shipped, 3 deferred), 0 Propagate, 10 Replace-with-TryXxx (all deferred to 4.8), 18 Promote-to-typed-event (9 shipped, 9 deferred to 4.6). For today's numbers read the derived ledger linked above; do not compare these two sets of figures.
+- [x] Propagate count **at pass 1** was 0 — well under the spec §6.7.4 worry threshold of 20. The live Propagate total is derived, and the audit's own prose restates it under the same threshold.
+
+**Current process (not part of the frozen snapshot).** The distribution table is
+**derived** rather than asserted. Adding a G9 entry means adding a ledger row and
+re-running the gate — never hand-incrementing a cell, which git auto-merges into a
+silently dropped increment when two branches do it from the same base.
 
 ### 3.5 Phase C-audit acceptance
 
@@ -226,7 +240,7 @@ Mechanical migration driven by the audit. Each PR maps to one row of spec §6.3 
 
 - [ ] For the ~15 Shell sites with verdict "Promote to typed event", add the typed event to `ReactorEventSource` (specifically scoped — `JumpListSaveFailed`, `ThumbnailToolbarSetButtonsFailed`, etc., each with `int hr` payload).
 - [ ] Migrate each catch to the new typed event + narrow HRESULT filter.
-- [ ] Update the audit entry from `☐ migrated` to `☑ migrated  ☑ verdict shipped`.
+- [ ] Flip those rows' `Status` from `deferred` to `shipped` in the audit ledger and re-run the gate so the derived distribution table follows.
 
 ### 4.7 PR: Persistence narrowing
 
@@ -239,7 +253,7 @@ Mechanical migration driven by the audit. Each PR maps to one row of spec §6.3 
 ### 4.8 PR: TryXxx refactors
 
 - [ ] Convert the ~10 Win32 P/Invoke `GetLastError`-style swallows to `bool TryXxx(out int hr)` predicates. These usually already have a `bool` return; verify and finish.
-- [ ] Audit entries flip to `☑ verdict shipped`.
+- [ ] Flip those rows' `Status` from `deferred` to `shipped` in the audit ledger and re-run the gate so the derived distribution table follows.
 
 ### 4.9 PR: User-callback isolation sites (Keep verdicts)
 
