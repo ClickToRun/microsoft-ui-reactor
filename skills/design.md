@@ -532,7 +532,7 @@ Button("Go").Padding(12)           // ✓ works
 VStack(8, items).Padding(16)       // ✓ works
 TextBlock("Hello").Padding(8)      // ✓ works
 
-// Grid has no Padding — wrap in Border instead:
+// .Padding() is not applied to Grid — wrap in Border instead:
 Border(
     Grid(columns, rows, cells)
 ).Padding(16)  // ✓ padding applied to the Border

@@ -75,7 +75,7 @@ class SpacingPage : Component
     static Element MarginVsPaddingSection() =>
         SampleCard("Margin vs Padding",
             VStack(16,
-                TextBlock("Margin adds space outside an element; Padding adds space inside. In Reactor, .Padding() works on Border, Control-based elements (Button, TextBox, etc.), StackPanel-based layout panels (VStack, HStack), and TextBlock-based text. Grid and Image have no Padding property — wrap them in a Border if you need inner padding.")
+                TextBlock("Margin adds space outside an element; Padding adds space inside. In Reactor, .Padding() works on Border, Control-based elements (Button, TextBox, etc.), StackPanel-based layout panels (VStack, HStack), and TextBlock-based text. It is not applied to Grid or Image — wrap them in a Border if you need inner padding.")
                     .Foreground(Theme.SecondaryText)
                     .FontSize(13)
                     .TextWrapping(TextWrapping.Wrap)
@@ -159,7 +159,7 @@ Button(""Go"").Padding(12)          // ✓ works
 VStack(8, items).Padding(16)       // ✓ works
 TextBlock(""Hello"").Padding(8)     // ✓ works
 
-// Grid has no Padding — wrap in Border instead:
+// .Padding() is not applied to Grid — wrap in Border instead:
 Border(
     Grid(columns, rows, cells)
 ).Padding(16)  // ✓ padding applied to the Border");
