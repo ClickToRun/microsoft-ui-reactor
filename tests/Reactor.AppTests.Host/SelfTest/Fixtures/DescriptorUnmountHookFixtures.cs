@@ -2,7 +2,6 @@ using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Reactor.Core.V1Protocol;
 using Microsoft.UI.Reactor.Core.V1Protocol.Descriptor;
 using Microsoft.UI.Xaml.Controls;
-using WinUI = Microsoft.UI.Xaml.Controls;
 
 namespace Microsoft.UI.Reactor.AppTests.Host.SelfTest.Fixtures;
 
@@ -21,81 +20,46 @@ namespace Microsoft.UI.Reactor.AppTests.Host.SelfTest.Fixtures;
 /// <para><b>Why the TeachingTip fixture does not cover this.</b> A TeachingTip always ends up
 /// with <c>ReactorState</c> anyway — its <c>Target</c> reference entry calls
 /// <c>WireReferenceEdge</c> on every mount, and arming the deferred open allocates the payload
-/// box. Both mask the tag-forcing. The probe element below is deliberately barren: no callbacks,
-/// no key, no extensions, no modifiers, and a descriptor whose ONLY entry is the unmount hook —
-/// so the forcing in <c>DescriptorHandler.Mount</c> is the single reason the hook can fire.
-/// Delete that line and this fixture fails.</para>
+/// box. Both mask the tag-forcing. The probes below are deliberately barren so the forcing is
+/// the only thing that can tag them.</para>
+///
+/// <para><b>How "barren" is proved.</b> Not by re-stating <c>Reconciler.NeedsTag</c>'s clauses in
+/// the test — that mirror would silently rot the moment either side changed. Instead the two
+/// probes differ <i>only</i> by the presence of the hook, and the no-hook one is asserted to come
+/// back untagged. That is the same predicate the engine actually ran, so the tagged/untagged
+/// split can only be attributed to <c>OnUnmount</c>.</para>
 /// </summary>
 internal static class DescriptorUnmountHookFixtures
 {
-    /// <summary>Barren by design — see the class doc. Adding a callback, key, or modifier here
-    /// would make <c>NeedsTag</c> true on its own and quietly defeat the test.</summary>
+    /// <summary>Barren by design — no callbacks, key, extensions or modifiers. Adding any of
+    /// those would make <c>NeedsTag</c> true on its own and quietly defeat the test.</summary>
     private sealed record UnmountHookProbe : Element;
+
+    /// <summary>Identical shape to <see cref="UnmountHookProbe"/>; its descriptor declares no
+    /// hook. The control half of the differential.</summary>
+    private sealed record NoHookProbe : Element;
 
     private static int _unmountCalls;
 
-    private sealed class ProbeHandler : DescriptorHandler<UnmountHookProbe, TextBlock>
+    private sealed class HookHandler : DescriptorHandler<UnmountHookProbe, TextBlock>
     {
-        public ProbeHandler() : base(Descriptor) { }
+        public HookHandler() : base(Descriptor) { }
 
         private static readonly ControlDescriptor<UnmountHookProbe, TextBlock> Descriptor =
             new ControlDescriptor<UnmountHookProbe, TextBlock>()
                 .WithUnmount(static (in UnmountContext _, TextBlock _) => _unmountCalls++);
     }
 
+    private sealed class NoHookHandler : DescriptorHandler<NoHookProbe, TextBlock>
+    {
+        public NoHookHandler() : base(new ControlDescriptor<NoHookProbe, TextBlock>()) { }
+    }
+
     internal sealed class HookFiresForCallbackFreeElement(Harness h) : SelfTestFixtureBase(h)
     {
         public override async Task RunAsync()
         {
-            ControlRegistry.Register<UnmountHookProbe, TextBlock>(static () => new ProbeHandler());
-
-            var rec = new Reconciler();
-            var parent = new Grid();
-            H.SetContent(parent);
-
-            _unmountCalls = 0;
-            var element = new UnmountHookProbe();
-
-            if (rec.Mount(element, static () => { }) is not TextBlock control)
-            {
-                H.Check("DescriptorUnmount_ProbeMounted", false);
-                return;
-            }
-
-            parent.Children.Add(control);
-            await Harness.Render();
-
-            // Precondition, folded into the assertions below so neither can pass vacuously: the
-            // element really is tag-free by its own merits, so the state on the control can only
-            // have come from the OnUnmount forcing.
-            var wouldBeUntagged = element.Key is null && element.Extensions is null && element.Modifiers is null;
-
-            H.Check("DescriptorUnmount_HookNotCalledBeforeUnmount",
-                wouldBeUntagged && _unmountCalls == 0);
-
-            rec.UnmountChild(control);
-            await Harness.Render();
-
-            H.Check("DescriptorUnmount_HookFiresOnceForCallbackFreeElement",
-                wouldBeUntagged && _unmountCalls == 1);
-
-            parent.Children.Clear();
-        }
-    }
-
-    /// <summary>A descriptor that declares no hook must not pay for one, and must not somehow
-    /// invoke another descriptor's. Differential control for the fixture above.</summary>
-    internal sealed class NoHookDeclaredStaysSilent(Harness h) : SelfTestFixtureBase(h)
-    {
-        private sealed record NoHookProbe : Element;
-
-        private sealed class NoHookHandler : DescriptorHandler<NoHookProbe, TextBlock>
-        {
-            public NoHookHandler() : base(new ControlDescriptor<NoHookProbe, TextBlock>()) { }
-        }
-
-        public override async Task RunAsync()
-        {
+            ControlRegistry.Register<UnmountHookProbe, TextBlock>(static () => new HookHandler());
             ControlRegistry.Register<NoHookProbe, TextBlock>(static () => new NoHookHandler());
 
             var rec = new Reconciler();
@@ -104,18 +68,41 @@ internal static class DescriptorUnmountHookFixtures
 
             _unmountCalls = 0;
 
-            if (rec.Mount(new NoHookProbe(), static () => { }) is not TextBlock control)
+            if (rec.Mount(new NoHookProbe(), static () => { }) is not TextBlock baseline ||
+                rec.Mount(new UnmountHookProbe(), static () => { }) is not TextBlock control)
             {
-                H.Check("DescriptorUnmount_NoHookProbeMounted", false);
+                H.Check("DescriptorUnmount_ProbesMounted", false);
                 return;
             }
 
+            parent.Children.Add(baseline);
             parent.Children.Add(control);
             await Harness.Render();
+
+            // The engine's own verdict on this element shape: no hook -> no state -> unmount
+            // dispatch could never reach a handler. This is the load-bearing precondition, and it
+            // is measured rather than re-derived from NeedsTag's clauses.
+            var baselineUntagged = Reconciler.GetElementTag(baseline) is null;
+            H.Check("DescriptorUnmount_BarrenElementIsUntaggedWithoutTheHook", baselineUntagged);
+
+            // Same shape, hook declared -> state forced. Paired with the line above, the only
+            // difference that can explain the tag is OnUnmount.
+            H.Check("DescriptorUnmount_DeclaringTheHookForcesReactorState",
+                baselineUntagged && Reconciler.GetElementTag(control) is not null);
+
+            H.Check("DescriptorUnmount_HookNotCalledBeforeUnmount", _unmountCalls == 0);
+
             rec.UnmountChild(control);
             await Harness.Render();
 
-            H.Check("DescriptorUnmount_NoHookDeclaredInvokesNothing", _unmountCalls == 0);
+            H.Check("DescriptorUnmount_HookFiresOnceForCallbackFreeElement",
+                baselineUntagged && _unmountCalls == 1);
+
+            // The no-hook probe must contribute nothing on the way out either.
+            rec.UnmountChild(baseline);
+            await Harness.Render();
+
+            H.Check("DescriptorUnmount_NoHookDeclaredInvokesNothing", _unmountCalls == 1);
 
             parent.Children.Clear();
         }
