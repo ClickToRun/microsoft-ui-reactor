@@ -733,14 +733,19 @@ public sealed class GallerySampleLintTests
     }
 
 
-    /// <summary>
-    /// <c>new Uri(text)</c> throws <c>UriFormatException</c> on anything malformed, and a gallery
-    /// page evaluates its element tree inside <c>Render()</c> — so the throw lands in
-    /// <c>ErrorFallback</c> and the reader's whole page becomes a
-    /// <c>⚠ Render error: UriFormatException…</c> overlay. Half-typed text in a bound
-    /// <c>TextBox</c> is enough to trigger it (issue #982). A string that cannot vary at runtime
-    /// cannot do that, hence the rule below.
-    /// </summary>
+    // ---------------------------------------------------------------------------------------
+    // Rule 4 — `new Uri(...)` takes only compile-time constants.
+    //
+    // `new Uri(text)` throws `UriFormatException` on anything malformed, and a gallery page
+    // evaluates its element tree inside `Render()` — so the throw lands in `ErrorFallback` and
+    // the reader's whole page becomes a `⚠ Render error: UriFormatException…` overlay.
+    // Half-typed text in a bound `TextBox` is enough to trigger it (issue #982). A string that
+    // cannot vary at runtime cannot do that, hence the helpers below.
+    //
+    // Plain `//` rather than `///` deliberately: two adjacent doc-comment blocks merge onto the
+    // next declaration, which would give `RightmostName` a second, unrelated <summary>.
+    // ---------------------------------------------------------------------------------------
+
     /// <summary>
     /// The last identifier of any name form — <c>Uri</c>, <c>System.Uri</c>,
     /// <c>global::System.Uri</c>, <c>global::Uri</c>, <c>System.UriKind.Absolute</c>. Every
