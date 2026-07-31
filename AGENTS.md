@@ -203,6 +203,34 @@ Hard-won specifics that repeatedly cost sessions time. Prefer these exact comman
   corrupt-then-recompute oracles. **Copilot review does not catch vacuous assertions** —
   run the `.github/skills/pr-review/` multi-model dimension (different model family, high
   reasoning) on the *final* commit and fix every finding.
+- **Mutation testing does not reach an assertion whose *inputs* are environment-derived.**
+  It perturbs the code under test, so it only exposes an oracle whose value depends on that
+  code. `double preOffset = sv.VerticalOffset;` … `Math.Abs(sv.VerticalOffset - preOffset)
+  <= 3.0` passes identically in a healthy and a degraded environment when both sides are
+  `0.00` — no product mutation separates them. **Log the input once, not just the verdict:**
+  if a value read from live state is `0`, `NaN`, empty, or equal to the thing it is compared
+  against, the assertion is a tautology regardless of what the product does. Same shape as a
+  `-1` "not found" sentinel satisfying `bodyOn > bodyOff * 3` (`-1 > -3`) — prefer
+  `double.NaN`, which makes every comparison false. The bug is upstream of the comparison.
+- **The obvious remediation can itself be the vacuous one.** `Harness.WaitFor(P)` establishes
+  P *at the moment it returns* and nothing more — it evaluates P **before** its first
+  `Render`. So converting a fixed delay to a `WaitFor` is correct for an *eventual* assertion
+  (false at t=0, converges) and silently vacuous for a *survival* assertion ("still visible"),
+  which is true at t=0 and short-circuits at zero elapsed time. Before converting, ask: **if
+  the predicate is true the instant `WaitFor` is called, does the next assertion still mean
+  what I think it means?** Same question for a precondition `throw`: report-and-return when
+  the fixture's other checks remain meaningful, throw loudly when it is structurally invalid
+  (a renamed reflection target) and they do not.
+- **This applies to your verification tooling, not just to tests.** A check that cannot fail
+  loudly will eventually report something false with total confidence, and the direction is
+  arbitrary — it can manufacture an alarm or an all-clear, and nobody audits the one that says
+  what they hoped. A malformed `gh --jq` expression exits non-zero to stderr while a pipeline
+  reading stdout sees an empty string indistinguishable from a legitimate zero. Prefer
+  parameterised GraphQL (`-f`/`-F`, no interpolation), or fetch JSON and filter in the host
+  language so a parse failure throws. **The tell is implausible uniformity:** an identical
+  value across subjects that have nothing in common is a bug report about the instrument.
+  The unifying question for a test and a tool alike is the same — **could this have come out
+  the other way?**
 - **Fixture registration is two-place.** Selftest: add to `AllFixtures` **and** the
   `Create()` switch in `tests/Reactor.AppTests.Host/SelfTest/SelfTestFixtureRegistry.cs`.
   E2E: add to `AllFixtures` **and** the `Build` switch in
