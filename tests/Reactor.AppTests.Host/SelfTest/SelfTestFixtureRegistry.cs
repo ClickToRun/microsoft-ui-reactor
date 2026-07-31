@@ -9,8 +9,7 @@ internal static class SelfTestFixtureRegistry
 {
     public static readonly string[] AllFixtures =
     [
-        "ErrorBoundary_CatchesRenderError",
-        "ErrorBoundary_Recovery",
+        "ErrorBoundary_CatchesRenderError",        "ErrorBoundary_Recovery",
         "Reconciler_MountText",
         "Reconciler_UpdateText",
         "Reconciler_AddRemoveChildren",
@@ -179,8 +178,7 @@ internal static class SelfTestFixtureRegistry
         "ItemsView_Rerender_DoesNotMarkContainersModified",
         "ItemsView_MultiSelect_CheckmarkDoesNotFlicker",
         // Spec 042 Phase 1 — keyed-list reconciliation end-to-end fixtures.
-        "KLR_ListView_MountsOcSource",
-        "KLR_ListView_InsertAtZero_EmitsSingleAdd",
+        "KLR_ListView_MountsOcSource",        "KLR_ListView_InsertAtZero_EmitsSingleAdd",
         "KLR_ListView_RemoveFromEnd_EmitsSingleRemove",
         "KLR_ListView_MoveOne_EmitsSingleMove",
         "KLR_ListView_BulkReplace_TriggersBailout",
@@ -198,6 +196,14 @@ internal static class SelfTestFixtureRegistry
         "KLR_FlexColumn_KeyedChildren_Swap_SurvivorsKeepIdentity",
         "KLR_FlexColumn_KeyedChildren_Reverse_SurvivorsKeepIdentity",
         "KLR_FlexColumn_WithKeyItem_PreservesIdentityAcrossInsert",
+        // Issue #951 — keyed ListView/GridView rows must not announce Reactor's
+        // internal row identity, and must honor an author-declared item name.
+        "KLIA_NoRowIdentityLeak",
+        "KLIA_MatchesElementArray",
+        "KLIA_AuthorNameParityAcrossOverloads",
+        "KLIA_AuthorNameReachesItem",
+        "KLIA_AuthorNameTracksUpdates",
+        "KLIA_AuthorNameClearedWhenRemoved",
         // Spec 047 §14 — panel descriptor migration: keyed reconcile identity,
         // lockstep attached-prop reapply, stale-state clears, unmount cleanup.
         "PDM_Stack_KeyedSwap_PreservesIdentity",
@@ -1817,6 +1823,13 @@ internal static class SelfTestFixtureRegistry
         "KLR_FlexColumn_KeyedChildren_Swap_SurvivorsKeepIdentity" => new KeyedListReconciliationFixtures.FlexColumn_KeyedChildren_Swap_SurvivorsKeepIdentity(harness),
         "KLR_FlexColumn_KeyedChildren_Reverse_SurvivorsKeepIdentity" => new KeyedListReconciliationFixtures.FlexColumn_KeyedChildren_Reverse_SurvivorsKeepIdentity(harness),
         "KLR_FlexColumn_WithKeyItem_PreservesIdentityAcrossInsert" => new KeyedListReconciliationFixtures.FlexColumn_WithKeyItem_PreservesIdentityAcrossInsert(harness),
+        // Issue #951 — keyed list/grid row automation names.
+        "KLIA_NoRowIdentityLeak" => new KeyedListItemAutomationNameFixtures.NoRowIdentityLeak(harness),
+        "KLIA_MatchesElementArray" => new KeyedListItemAutomationNameFixtures.MatchesElementArray(harness),
+        "KLIA_AuthorNameParityAcrossOverloads" => new KeyedListItemAutomationNameFixtures.AuthorNameParityAcrossOverloads(harness),
+        "KLIA_AuthorNameReachesItem" => new KeyedListItemAutomationNameFixtures.AuthorNameReachesItem(harness),
+        "KLIA_AuthorNameTracksUpdates" => new KeyedListItemAutomationNameFixtures.AuthorNameTracksUpdates(harness),
+        "KLIA_AuthorNameClearedWhenRemoved" => new KeyedListItemAutomationNameFixtures.AuthorNameClearedWhenRemoved(harness),
         "PDM_Stack_KeyedSwap_PreservesIdentity" => new PanelDescriptorMigrationFixtures.Stack_KeyedSwap_PreservesIdentity(harness),
         "PDM_Grid_KeyedSwap_PreservesIdentity_And_RowFollows" => new PanelDescriptorMigrationFixtures.Grid_KeyedSwap_PreservesIdentity_And_RowFollows(harness),
         "PDM_Canvas_KeyedReorder_PreservesIdentity_And_PositionFollows" => new PanelDescriptorMigrationFixtures.Canvas_KeyedReorder_PreservesIdentity_And_PositionFollows(harness),
