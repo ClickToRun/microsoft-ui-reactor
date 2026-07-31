@@ -327,9 +327,13 @@ public sealed class SwallowedErrorAuditTests
     //
     // `Keep` was defined three incompatible ways (the table label said
     // "iteration sibling-independence", the Method section said every Keep entry
-    // shared one justification, and the second-pass prose added another). Four
-    // are actually in use. Tagging each row is what makes the aggregate row
-    // honest.
+    // shared one justification, and the second-pass prose added another). The
+    // document names four, three of which rows currently use — `framework-internal`
+    // is reserved for the §6.3 carve-out and no row uses it today. This fact
+    // requires all four to stay *defined* (so the vocabulary can't be closed by
+    // deletion) but only requires each row to open with one of them, so the
+    // reserved tag going unused is not a failure. Tagging each row is what makes
+    // the aggregate `Keep` row in the summary honest.
 
     [Fact]
     public void Every_keep_row_opens_its_notes_with_a_named_justification()
