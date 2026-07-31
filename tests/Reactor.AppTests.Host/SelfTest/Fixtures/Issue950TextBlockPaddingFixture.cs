@@ -334,7 +334,10 @@ internal static class Issue950TextBlockPaddingFixture
 
             H.Check("Issue950_Ownership_ModifierAppliedFirst", contestedTb.Padding == new Thickness(30));
             H.Check("Issue950_Ownership_SetterOnlyApplied", setterOnly.Padding == new Thickness(5));
-            H.Check("Issue950_Ownership_WidthModifierApplied", widthBtn.Width == 120);
+            // Tolerance rather than `== 120`: the value round-trips through a double DP.
+            // 1e-9 is deliberately tiny — this must still fail on the 55 the `.Set` arm
+            // writes and on the NaN the reset produces, or the differential below is vacuous.
+            H.Check("Issue950_Ownership_WidthModifierApplied", Math.Abs(widthBtn.Width - 120d) < 1e-9);
 
             H.ClickButton("Issue950_Ownership_Toggle");
             await Harness.Render();
