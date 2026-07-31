@@ -589,8 +589,8 @@ public sealed class SwallowedErrorAuditTests
             // actually read it, instead of taking down every fact with a
             // message about a table they don't examine.
             new Lazy<IReadOnlyDictionary<string, Tally>>(() => ParseDistribution(lines, distFrom, distTo)),
-            ParseFirstColumnTokens(lines, "## Verdict vocabulary"),
-            ParseFirstColumnTokens(lines, "### `Keep` justifications"));
+            ParseFirstColumnTokens(lines, "## Verdict vocabulary", "| Token | Meaning |"),
+            ParseFirstColumnTokens(lines, "### `Keep` justifications", "| Tag | Meaning |"));
     }
 
     static (int From, int To) Region(string[] lines, string begin, string end)
@@ -711,15 +711,17 @@ public sealed class SwallowedErrorAuditTests
 
             var verdict = cells![0].Trim('`');
 
-            Assert.True(
-                int.TryParse(cells[1], out var sites)
-                && int.TryParse(cells[2], out var shipped)
-                && int.TryParse(cells[3], out var deferred),
-                $"{AuditPath}:{i + 1}: distribution row for '{verdict}' has non-integer counts.");
+            // Parsed before the assertion, not inside it: `&&` short-circuits, so
+            // a non-integer in the first cell would leave the later out-variables
+            // unassigned and the compiler rejects reading them afterwards. Three
+            // separate calls keep all three assigned whatever fails.
+            var okSites = int.TryParse(cells[1], out var sites);
+            var okShipped = int.TryParse(cells[2], out var shipped);
+            var okDeferred = int.TryParse(cells[3], out var deferred);
 
-            int.TryParse(cells[1], out sites);
-            int.TryParse(cells[2], out shipped);
-            int.TryParse(cells[3], out deferred);
+            Assert.True(
+                okSites && okShipped && okDeferred,
+                $"{AuditPath}:{i + 1}: distribution row for '{verdict}' has non-integer counts.");
 
             Assert.True(
                 result.TryAdd(verdict, new Tally(sites, shipped, deferred)),
@@ -732,12 +734,13 @@ public sealed class SwallowedErrorAuditTests
         return result;
     }
 
-    static HashSet<string> ParseFirstColumnTokens(string[] lines, string heading)
+    static HashSet<string> ParseFirstColumnTokens(string[] lines, string heading, string expectedHeader)
     {
         var start = global::System.Array.FindIndex(lines, l => l.Trim() == heading);
         Assert.True(start >= 0, $"{AuditPath} is missing the '{heading}' heading.");
 
         var result = new HashSet<string>(global::System.StringComparer.Ordinal);
+        var found = false;
 
         for (var i = start + 1; i < lines.Length; i++)
         {
@@ -748,10 +751,17 @@ public sealed class SwallowedErrorAuditTests
                 break;
             }
 
-            if (!IsTableHeader(lines, i))
+            // Match the table by its header rather than taking whichever table
+            // comes first. These two tables define the closed vocabularies the
+            // gate validates against, so reading the wrong one silently swaps
+            // the standard rather than failing — an example or auxiliary table
+            // added above would quietly become the vocabulary.
+            if (!IsTableHeader(lines, i) || Normalize(lines[i]) != Normalize(expectedHeader))
             {
                 continue;
             }
+
+            found = true;
 
             for (var j = i + 2; j < lines.Length && lines[j].TrimStart().StartsWith('|'); j++)
             {
@@ -764,6 +774,12 @@ public sealed class SwallowedErrorAuditTests
 
             break;
         }
+
+        Assert.True(
+            found,
+            $"{AuditPath}: the '{heading}' section has no table headed '{expectedHeader}'. That table is the "
+            + $"vocabulary this gate validates against; if it was renamed or restructured, update the expected "
+            + $"header here in the same change so the gate keeps reading the intended token set.");
 
         return result;
     }
