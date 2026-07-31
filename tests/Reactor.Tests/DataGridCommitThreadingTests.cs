@@ -20,9 +20,9 @@ namespace Microsoft.UI.Reactor.Tests;
 /// body comment said the opposite. Nothing tested either arm, so there was nothing to consult and
 /// no way to tell which half was lying. These two tests are that reference.
 ///
-/// Both commit from a dedicated thread rather than the test's own: xUnit runs tests on the thread
-/// pool, so a pool thread is exactly what an offload could be handed, which would make the two ids
-/// match on a busy machine even though nothing ran on the committing thread.
+/// Both commit from a dedicated thread rather than the test's own. xUnit runs tests on the thread
+/// pool, and a pool thread is exactly what an offload could be handed — committing from one would
+/// leave "ran on the pool" saying nothing about whether the callback moved.
 /// </summary>
 public class DataGridCommitThreadingTests
 {
@@ -64,8 +64,6 @@ public class DataGridCommitThreadingTests
                 Name = name,
             };
         }
-
-        internal int ManagedThreadId => _thread.ManagedThreadId;
 
         internal void Start() => _thread.Start();
 
@@ -175,72 +173,47 @@ public class DataGridCommitThreadingTests
     {
         var ct = TestContext.Current.CancellationToken;
 
-        var callbackThreadId = 0;
-        var onPoolThread = false;
-        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        // The committing thread below is an explicit Thread, so it is never a pool thread. That is
+        // what makes "the callback ran on the pool" a proof that it left the committing thread —
+        // no managed-id comparison, which would be the fragile way to ask the same question, since
+        // ids are recycled once a thread ends and this committer ends as soon as the fallback
+        // returns. Assert.False(committerOnPool) below keeps that premise honest.
+        var callbackOnPool = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var (state, element) = NewGrid(async (_, _) =>
+        var (state, element) = NewGrid((_, _) =>
         {
-            // Published before entered fires; the await below is the happens-before edge.
-            callbackThreadId = Environment.CurrentManagedThreadId;
-            onPoolThread = Thread.CurrentThread.IsThreadPoolThread;
-            entered.TrySetResult();
-            await release.Task;
+            callbackOnPool.TrySetResult(Thread.CurrentThread.IsThreadPoolThread);
+            return Task.CompletedTask;
         });
 
         Assert.Null(state.CommitDispatcher); // precondition: this is the fallback arm
 
-        // Held until the assertions have run, so the committing thread stays alive and its managed
-        // id cannot be recycled onto the pool thread we are about to compare it against. Disposed
-        // by hand rather than with `using`: the committer blocks on this handle, and
-        // ManualResetEventSlim.Wait throws ObjectDisposedException even when already signalled —
-        // on a thread we own that would go unhandled and take the run down. So it is disposed only
-        // once the join below confirms nobody is left inside it.
-        var assertionsDone = new ManualResetEventSlim(false);
+        var committerOnPool = true;
         var committer = new Committer("HandleAsyncCommit caller (fallback arm)", () =>
         {
+            committerOnPool = Thread.CurrentThread.IsThreadPoolThread;
             InvokeHandleAsyncCommit(state, element, (RowKey)1, new TestItem(1, "Alice edited"), new TestItem(1, "Alice"));
-            assertionsDone.Wait(Timeout);
         });
-
-        // Watchdog: a regression that ran the callback to completion on the committing thread would
-        // block that thread until this fires, so the test fails on thread identity rather than
-        // hanging. Registered before the commit, and torn down with the test either way.
-        using var watchdog = new CancellationTokenSource(Timeout);
-        using var unblock = watchdog.Token.UnsafeRegister(_ => release.TrySetResult(), null);
 
         committer.Start();
 
-        var joined = false;
-        var neverEntered = false;
+        // The callback never blocks, so this join is safe against every shape being tested: the
+        // contracted arm offloads and returns, and a regression that ran the callback inline still
+        // returns promptly and fails below on where it ran rather than hanging the run.
+        var joined = committer.Join(Timeout);
+
+        var entered = true;
+        var onPool = false;
 
         try
         {
-            await entered.Task.WaitAsync(Timeout, ct);
-
-            Assert.NotEqual(committer.ManagedThreadId, callbackThreadId);
-            Assert.True(
-                onPoolThread,
-                $"{MethodName}'s fallback arm left the committing thread but did not land on the " +
-                "thread pool. Task.Run is what puts OnRowChanged on a thread-pool thread; the " +
-                "docs on this method describe that, so update them if the target has changed.");
+            onPool = await callbackOnPool.Task.WaitAsync(Timeout, ct);
         }
         catch (TimeoutException)
         {
-            // Recorded rather than asserted here so the finally below still joins the committer and
-            // the rethrow below still gets its turn — a commit that threw also never enters the
-            // callback, and that exception is the real story.
-            neverEntered = true;
-        }
-        finally
-        {
-            release.TrySetResult();
-            assertionsDone.Set();
-            joined = committer.Join(Timeout);
-
-            if (joined)
-                assertionsDone.Dispose();
+            // Recorded rather than asserted here so the rethrow below still gets its turn: a commit
+            // that threw also never reached the callback, and that exception is the real story.
+            entered = false;
         }
 
         committer.Rethrow();
@@ -248,13 +221,26 @@ public class DataGridCommitThreadingTests
         Assert.True(
             joined,
             $"{MethodName}'s caller thread was still running {Timeout.TotalSeconds:0}s after the " +
-            "fallback was released. The fallback offloads the callback and returns, so the " +
-            "committing thread has nothing left to block on.");
+            "commit. The fallback offloads the callback and returns, so it has nothing to block on.");
 
+        // Safe to read unsynchronised: the join above is the happens-before edge.
         Assert.False(
-            neverEntered,
+            committerOnPool,
+            "The commit was issued from a thread-pool thread, so landing on the pool no longer " +
+            "proves the callback left the committing thread. Committer must keep using a " +
+            "dedicated Thread for the assertion below to mean anything.");
+
+        Assert.True(
+            entered,
             $"{MethodName}'s fallback arm never invoked OnRowChanged. It is offloaded to the " +
             "thread pool, so something has to run it.");
+
+        Assert.True(
+            onPool,
+            $"{MethodName}'s fallback arm invoked OnRowChanged on the committing thread or on " +
+            "another dedicated thread, not the thread pool. Task.Run is what puts it on a pool " +
+            "thread, and the docs on that method describe it that way — update them together if " +
+            "the target has changed.");
     }
 
     /// <summary>
