@@ -305,6 +305,18 @@ public sealed class ElementPool : IDisposable
         {
             case WinUI.Panel panel:
                 panel.Children.Clear();
+                // These border-box properties are declared by the concrete panel types,
+                // not by Panel. Clear only the pairs ApplyModifiers writes so Canvas and
+                // the other Panel subclasses remain outside the gate.
+                if (panel is WinUI.Grid grid)
+                {
+                    grid.ClearValue(WinUI.Grid.PaddingProperty);
+                    grid.ClearValue(WinUI.Grid.CornerRadiusProperty);
+                }
+                else if (panel is WinUI.StackPanel stack)
+                {
+                    stack.ClearValue(WinUI.StackPanel.CornerRadiusProperty);
+                }
                 break;
             case WinUI.Border border:
                 border.Child = null;
