@@ -233,6 +233,7 @@ internal static class SelfTestFixtureRegistry
         "Issue950_PaddingDoesNotLeakAcrossPoolReuse",
         "Issue950_PaddingUnsetClearsInsteadOfZeroing",
         "Issue950_ModifierResetOutranksASetterWrite",
+        "Issue950_PaddingUnsetClearsOnEveryGatedType",
         "Issue950_RichTextBlockPaddingStillFlowsThroughItsDescriptor",
         // Spec 047 §4.5 — overlay handler-owned Unmount tears down side-mounted
         // Reactor subtrees (Flyout content, Popup child) the generic recursion
@@ -1866,6 +1867,7 @@ internal static class SelfTestFixtureRegistry
         "Issue950_PaddingDoesNotLeakAcrossPoolReuse" => new Issue950TextBlockPaddingFixture.PaddingDoesNotLeakAcrossPoolReuse(harness),
         "Issue950_PaddingUnsetClearsInsteadOfZeroing" => new Issue950TextBlockPaddingFixture.PaddingUnsetClearsInsteadOfZeroing(harness),
         "Issue950_ModifierResetOutranksASetterWrite" => new Issue950TextBlockPaddingFixture.ModifierResetOutranksASetterWrite(harness),
+        "Issue950_PaddingUnsetClearsOnEveryGatedType" => new Issue950TextBlockPaddingFixture.PaddingUnsetClearsOnEveryGatedType(harness),
         "Issue950_RichTextBlockPaddingStillFlowsThroughItsDescriptor" => new Issue950TextBlockPaddingFixture.RichTextBlockPaddingStillFlowsThroughItsDescriptor(harness),
         "OverlayTeardown_Flyout_Unmount_RunsFlyoutContentCleanup" => new OverlayTeardownFixtures.Flyout_Unmount_RunsFlyoutContentCleanup(harness),
         "OverlayTeardown_Flyout_Unmount_RunsPassThroughCleanup" => new OverlayTeardownFixtures.Flyout_Unmount_RunsPassThroughCleanup(harness),

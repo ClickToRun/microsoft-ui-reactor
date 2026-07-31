@@ -119,6 +119,25 @@ internal static class Issue950TextBlockPaddingFixture
                 // `basePad` ternary — the third site the gate widening touched.
                 TextBlock("Issue950_overlay")
                     .Set(tb => tb.Padding = new Thickness(5, 6, 7, 8))
+                    .PaddingInlineStart(1),
+                // InlineEnd maps to the opposite physical edge from InlineStart, so a
+                // resolution that ignored `m.PaddingInlineEnd` would still pass every
+                // InlineStart check above.
+                TextBlock("Issue950_end_ltr")
+                    .Set(tb => tb.FlowDirection = FlowDirection.LeftToRight)
+                    .PaddingInlineEnd(6),
+                TextBlock("Issue950_end_rtl")
+                    .Set(tb => tb.FlowDirection = FlowDirection.RightToLeft)
+                    .PaddingInlineEnd(6),
+                // basePad preservation under RTL: the surviving edge is the *left* one here,
+                // which is the edge the LTR overlay case overwrites — so this fails if the
+                // isRtl branch of the left/right resolution is wrong in either direction.
+                TextBlock("Issue950_overlay_rtl")
+                    .Set(tb =>
+                    {
+                        tb.FlowDirection = FlowDirection.RightToLeft;
+                        tb.Padding = new Thickness(5, 6, 7, 8);
+                    })
                     .PaddingInlineStart(1)));
 
             await Harness.Render();
@@ -126,17 +145,28 @@ internal static class Issue950TextBlockPaddingFixture
             var ltr = H.FindText("Issue950_ltr");
             var rtl = H.FindText("Issue950_rtl");
             var overlay = H.FindText("Issue950_overlay");
+            var endLtr = H.FindText("Issue950_end_ltr");
+            var endRtl = H.FindText("Issue950_end_rtl");
+            var overlayRtl = H.FindText("Issue950_overlay_rtl");
             H.Check("Issue950_BiDi_Mounted",
-                ltr is not null && rtl is not null && overlay is not null);
-            if (ltr is null || rtl is null || overlay is null) return;
+                ltr is not null && rtl is not null && overlay is not null
+                && endLtr is not null && endRtl is not null && overlayRtl is not null);
+            if (ltr is null || rtl is null || overlay is null
+                || endLtr is null || endRtl is null || overlayRtl is null) return;
 
             H.Check("Issue950_BiDi_LtrInlineStartIsLeft", ltr.Padding == new Thickness(8, 0, 0, 0));
             H.Check("Issue950_BiDi_RtlInlineStartIsRight", rtl.Padding == new Thickness(0, 0, 8, 0));
+            H.Check("Issue950_BiDi_LtrInlineEndIsRight", endLtr.Padding == new Thickness(0, 0, 6, 0));
+            H.Check("Issue950_BiDi_RtlInlineEndIsLeft", endRtl.Padding == new Thickness(6, 0, 0, 0));
 
             // Left replaced by the inline value; top/right/bottom survive from the control.
             // If basePad fell through to `new Thickness()` this would be (1, 0, 0, 0).
             H.Check("Issue950_BiDi_OverlayPreservesUnownedEdges",
                 overlay.Padding == new Thickness(1, 6, 7, 8));
+
+            // Mirror image: right is the owned edge, left/top/bottom survive.
+            H.Check("Issue950_BiDi_RtlOverlayPreservesUnownedEdges",
+                overlayRtl.Padding == new Thickness(5, 6, 1, 8));
         }
     }
 
@@ -327,6 +357,76 @@ internal static class Issue950TextBlockPaddingFixture
             // Width answers identically, which is the whole justification for the Padding answer.
             H.Check("Issue950_Ownership_WidthResetOutranksSetter",
                 double.IsNaN(H.FindControl<WinUI.Button>(b => (b.Content as string) == "Issue950_WidthTarget")?.Width ?? 0));
+        }
+    }
+
+    /// <summary>
+    /// The reset arm has four type branches and the fixture above only reaches the
+    /// <c>Control</c> and <c>TextBlock</c> ones. These cover the other two, plus the
+    /// <c>PaddingInlineEnd</c>-only case that <c>hadPadding</c> has to notice — dropping
+    /// <c>m.PaddingInlineEnd</c> from that expression leaves the overlay stuck on the control.
+    /// <para>
+    /// <c>Border</c> and <c>StackPanel</c> both default to zero padding, so reading
+    /// <c>.Padding</c> back cannot distinguish "cleared" from "written as a local zero" the
+    /// way the themed <c>Button</c> case can. <c>ReadLocalValue</c> is the distinguishing
+    /// probe: it returns <c>UnsetValue</c> only after a real <c>ClearValue</c>.
+    /// </para>
+    /// </summary>
+    internal class PaddingUnsetClearsOnEveryGatedType(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            using var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (padded, setPadded) = ctx.UseState(true);
+                var border = Border(TextBlock("Issue950_AllTypes_BorderChild"));
+                var stack = VStack(TextBlock("Issue950_AllTypes_StackChild"));
+                var inlineEnd = TextBlock("Issue950_AllTypes_InlineEnd");
+                return VStack(
+                    Button("Issue950_AllTypes_Toggle", () => setPadded(!padded)),
+                    padded ? border.Padding(21) : border,
+                    padded ? stack.Padding(22) : stack,
+                    padded ? inlineEnd.PaddingInlineEnd(23) : inlineEnd);
+            });
+
+            await Harness.Render();
+
+            var bdr = H.FindControl<WinUI.Border>(b =>
+                b.Child is WinUI.TextBlock c && c.Text == "Issue950_AllTypes_BorderChild");
+            var sp = H.FindControl<WinUI.StackPanel>(s =>
+                s.Children.Count == 1 && s.Children[0] is WinUI.TextBlock c
+                && c.Text == "Issue950_AllTypes_StackChild");
+            var tb = H.FindText("Issue950_AllTypes_InlineEnd");
+            H.Check("Issue950_AllTypes_Mounted", bdr is not null && sp is not null && tb is not null);
+            if (bdr is null || sp is null || tb is null) return;
+
+            H.Check("Issue950_AllTypes_BorderApplied", bdr.Padding == new Thickness(21));
+            H.Check("Issue950_AllTypes_StackApplied", sp.Padding == new Thickness(22));
+            H.Check("Issue950_AllTypes_InlineEndApplied", tb.Padding == new Thickness(0, 0, 23, 0));
+
+            H.ClickButton("Issue950_AllTypes_Toggle");
+            await Harness.Render();
+
+            H.Check("Issue950_AllTypes_BorderSameInstance",
+                ReferenceEquals(bdr, H.FindControl<WinUI.Border>(b =>
+                    b.Child is WinUI.TextBlock c && c.Text == "Issue950_AllTypes_BorderChild")));
+
+            H.Check("Issue950_AllTypes_BorderCleared",
+                ReferenceEquals(
+                    DependencyProperty.UnsetValue,
+                    bdr.ReadLocalValue(WinUI.Border.PaddingProperty)));
+            H.Check("Issue950_AllTypes_StackCleared",
+                ReferenceEquals(
+                    DependencyProperty.UnsetValue,
+                    sp.ReadLocalValue(WinUI.StackPanel.PaddingProperty)));
+
+            // oldM.Padding is null on this one — only PaddingInlineEnd was ever set — so a
+            // `hadPadding` that forgot the InlineEnd slot would leave (0,0,23,0) in place.
+            H.Check("Issue950_AllTypes_InlineEndCleared",
+                ReferenceEquals(
+                    DependencyProperty.UnsetValue,
+                    tb.ReadLocalValue(WinUI.TextBlock.PaddingProperty)));
         }
     }
 
