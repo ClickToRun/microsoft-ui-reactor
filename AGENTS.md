@@ -210,8 +210,8 @@ Hard-won specifics that repeatedly cost sessions time. Prefer these exact comman
 - **Coverage** starts from `tools/coverage/run-coverage.ps1` (`-UnitOnly`, `-SkipBuild`);
   output `coverage/merged.cobertura.xml`. The script **aborts before the merge step on any
   test failure** — if a known flake trips it (`CenterOnCurrent_UsesCursorMonitor`,
-  `PersistPlacement_FallbackWhenEmpty`, `PersistenceEtwBridgeTests.JsonFileStore_*`), merge
-  the legs manually with `dotnet-coverage merge coverage\unit.cobertura.xml coverage\selftest.cobertura.xml --output coverage\merged.cobertura.xml --output-format cobertura`.
+  `PersistPlacement_FallbackWhenEmpty`), merge the legs manually with
+  `dotnet-coverage merge coverage\unit.cobertura.xml coverage\selftest.cobertura.xml --output coverage\merged.cobertura.xml --output-format cobertura`.
 
 ### Analyzers, CLI checks, docs & public API
 
