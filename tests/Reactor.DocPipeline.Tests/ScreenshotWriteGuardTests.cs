@@ -84,8 +84,42 @@ public class ScreenshotWriteGuardTests
         Assert.Equal(committed, global::System.IO.File.ReadAllBytes(path));
     }
 
+    /// <summary>
+    /// The unpainted-composition-surface case, at the write seam. Before the
+    /// guard blended against white this frame was the one that got through:
+    /// every channel is zero, so an RGB-only threshold read it as content, and
+    /// it was written out as the solid-white stub the guard exists to stop.
+    /// </summary>
+    [Fact]
+    public void Transparent_frame_does_not_overwrite_an_existing_screenshot()
+    {
+        using var dir = new TempDir();
+        var path = dir.Path("widget.png");
+        var committed = MakePng(120, 90, painted: true);
+        global::System.IO.File.WriteAllBytes(path, committed);
+
+        Assert.Throws<BlankFrameException>(
+            () => ScreenshotCapture.ProcessAndWrite(MakeTransparentPng(400, 300), path, Config()));
+
+        Assert.Equal(committed, global::System.IO.File.ReadAllBytes(path));
+    }
+
     private static ScreenshotConfig Config() =>
         new() { Id = "widget", Format = "png", Crop = "content" };
+
+    private static byte[] MakeTransparentPng(int w, int h)
+    {
+        using var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(bmp))
+        {
+            g.CompositingMode = global::System.Drawing.Drawing2D.CompositingMode.SourceCopy;
+            g.Clear(Color.FromArgb(0, 0, 0, 0));
+        }
+
+        using var ms = new MemoryStream();
+        bmp.Save(ms, ImageFormat.Png);
+        return ms.ToArray();
+    }
 
     private static byte[] MakePng(int w, int h, bool painted)
     {

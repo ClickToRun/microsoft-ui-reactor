@@ -162,12 +162,21 @@ the compile still exited 0 ([issue #989][i989]). Two guards now prevent that:
 
 - `ImageProcessor` raises `REACTOR_DOC_SHOT_001` for a contentless frame
   **before** anything opens the output file, so the existing image is left
-  untouched and the failure is counted. A non-zero capture-failure count sets
-  the compile's error flag, which fails the run under `--ci`.
+  untouched and the failure is counted. "Contentless" is judged after
+  compositing against white, because an unrendered composition surface arrives
+  as transparent black — visually identical to the white stub once written, but
+  invisible to a naive RGB threshold.
+- A non-zero capture-failure count fails the compile **regardless of `--ci`**.
+  It describes an action the run just took: it was asked to refresh *N*
+  screenshots and refreshed fewer. Validation findings stay `--ci`-gated,
+  because they report pre-existing tree state an author may be part-way through
+  fixing.
 - Every compile re-checks the committed corpus and raises
   `REACTOR_DOC_IMAGE_002` for any referenced screenshot whose interior is
   blank, so a stub that reaches the tree from any source is caught on the next
-  compile rather than at review time.
+  compile rather than at review time. Full-size captures are scored with the
+  border/shadow chrome excluded; catalog thumbs (`<id>-thumb.<ext>`) carry no
+  chrome and are scored whole.
 
 If you are staging a docs change by hand, stage the specific `.md` / `.md.dt`
 paths rather than `git add -A`, and check `git status` for unexpected entries

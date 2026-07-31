@@ -297,14 +297,19 @@ internal static class DiagramProcessor
         try
         {
             using var bmp = new global::System.Drawing.Bitmap(path);
-            var interior = ImageProcessor.InteriorRegion(bmp.Width, bmp.Height);
-            return ImageProcessor.CountContentPixels(bmp, interior) == 0;
+            var region = ImageProcessor.ContentRegionFor(path, bmp.Width, bmp.Height);
+            return !ImageProcessor.HasContentPixel(bmp, region);
         }
-        catch (Exception ex) when (ex is ArgumentException or OutOfMemoryException or IOException)
+        catch (Exception ex) when (ex is ArgumentException or OutOfMemoryException or IOException
+                                      or UnauthorizedAccessException
+                                      or global::System.Runtime.InteropServices.ExternalException)
         {
-            // Undecodable — REACTOR_DOC_IMAGE_001 already proved the file
-            // exists, and misreporting a decode failure as "blank" would send
-            // an author chasing the wrong problem.
+            // Undecodable or unreadable — REACTOR_DOC_IMAGE_001 already proved
+            // the file exists, and misreporting a decode failure as "blank"
+            // would send an author chasing the wrong problem. GDI+ surfaces
+            // decode faults as ArgumentException *or* ExternalException
+            // depending on the fault, so both are caught here; a compile must
+            // not die on one bad byte in one image.
             return false;
         }
     }

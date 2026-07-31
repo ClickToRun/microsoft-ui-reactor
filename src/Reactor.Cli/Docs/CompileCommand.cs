@@ -345,6 +345,7 @@ internal static partial class CompileCommand
 
         // ── Phase 3: Capture ──────────────────────────────────────────────
         Console.WriteLine();
+        int captureFailed = 0;
         if (noScreenshots)
         {
             // Explicit about the guarantee: this phase is the only thing in the
@@ -377,7 +378,7 @@ internal static partial class CompileCommand
             }
 
             Console.WriteLine($"  Captured {captureWritten}/{captureRequested} screenshot(s).");
-            var captureFailed = captureRequested - captureWritten;
+            captureFailed = captureRequested - captureWritten;
             if (captureFailed > 0)
             {
                 // A capture pass that produced nothing used to exit 0 with a
@@ -516,6 +517,23 @@ internal static partial class CompileCommand
                 File.WriteAllText(readmePath, normalized);
                 Console.WriteLine($"   → {Path.GetRelativePath(repoRoot, readmePath)} (GitHub directory browser)");
             }
+        }
+
+        // A failed capture reports on an action this invocation just took: the
+        // run was asked to refresh N screenshots and refreshed fewer. That is
+        // wrong regardless of --ci, and printing "compiled successfully" after
+        // it is how a half-updated corpus reaches `git add -A` unnoticed
+        // (issue #989). Validation findings keep the existing --ci-gated
+        // behaviour because they report on pre-existing tree state, which an
+        // author may legitimately be part-way through fixing.
+        if (captureFailed > 0)
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(
+                $"Compile finished with {captureFailed} failed screenshot capture(s). " +
+                "Existing images were left untouched; re-run capture on an interactive desktop, " +
+                "or pass --no-screenshots to skip Phase 3 entirely.");
+            return 1;
         }
 
         if (hasErrors && ci)

@@ -200,6 +200,87 @@ public class ImageProcessorTests
     }
 
     /// <summary>
+    /// A composition surface that never rendered comes back as transparent
+    /// black — every channel zero, <em>including alpha</em>. Before the guard
+    /// blended against white, an RGB-only threshold scored all of those pixels
+    /// as content (0 &lt; 248), so the very frame most likely to be produced by
+    /// a window that never painted was the one shape that sailed straight
+    /// through and got written out as the solid-white stub.
+    /// </summary>
+    [Theory]
+    [InlineData("content")]
+    [InlineData("none")]
+    public void Process_rejects_transparent_frame(string cropMode)
+    {
+        var png = MakeSolidPng(400, 300, Color.FromArgb(0, 0, 0, 0));
+
+        Assert.Throws<BlankFrameException>(
+            () => ImageProcessor.Process(png, ImageProcessor.ParseCropMode(cropMode)));
+    }
+
+    [Fact]
+    public void ProcessThumb_rejects_transparent_frame()
+    {
+        Assert.Throws<BlankFrameException>(
+            () => ImageProcessor.ProcessThumb(MakeSolidPng(800, 600, Color.FromArgb(0, 0, 0, 0)), 320, 240));
+    }
+
+    /// <summary>
+    /// Non-vacuity pair for <see cref="Process_rejects_transparent_frame"/>:
+    /// translucency is not by itself blankness. A half-opaque black pixel
+    /// composites to mid-grey over white, which is visible content and must
+    /// survive.
+    /// </summary>
+    [Fact]
+    public void Process_accepts_translucent_content_that_composites_dark()
+    {
+        using var bmp = new Bitmap(120, 90, PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(bmp))
+        {
+            g.Clear(Color.FromArgb(0, 0, 0, 0));
+            using var ink = new SolidBrush(Color.FromArgb(128, 0, 0, 0));
+            g.FillRectangle(ink, 40, 30, 20, 20);
+        }
+        using var ms = new MemoryStream();
+        bmp.Save(ms, ImageFormat.Png);
+
+        Assert.NotEmpty(ImageProcessor.Process(ms.ToArray()));
+    }
+
+    [Fact]
+    public void FrameHasContent_is_false_for_a_transparent_frame()
+    {
+        Assert.False(ImageProcessor.FrameHasContent(MakeSolidPng(64, 64, Color.FromArgb(0, 0, 0, 0))));
+    }
+
+    /// <summary>
+    /// The poll-loop probe and the corpus gate must agree on what "content"
+    /// means, or a frame the poller waits out would be one the gate accepts
+    /// (or worse, the reverse). They share <c>IsContent</c>; this pins the two
+    /// entry points to the same answer over the same region.
+    /// </summary>
+    [Theory]
+    [InlineData(0, 0, 0, 0)]       // transparent black — the dangerous case
+    [InlineData(255, 255, 255, 255)] // opaque white
+    [InlineData(255, 0, 0, 0)]     // opaque black
+    [InlineData(128, 0, 0, 0)]     // translucent black
+    [InlineData(255, 250, 251, 252)] // near-white
+    public void HasContentPixel_agrees_with_CountContentPixels(int a, int r, int g, int b)
+    {
+        using var bmp = new Bitmap(24, 16, PixelFormat.Format32bppArgb);
+        using (var gfx = Graphics.FromImage(bmp))
+        {
+            gfx.CompositingMode = global::System.Drawing.Drawing2D.CompositingMode.SourceCopy;
+            gfx.Clear(Color.FromArgb(a, r, g, b));
+        }
+        var region = new Rectangle(0, 0, bmp.Width, bmp.Height);
+
+        Assert.Equal(
+            ImageProcessor.CountContentPixels(bmp, region) > 0,
+            ImageProcessor.HasContentPixel(bmp, region));
+    }
+
+    /// <summary>
     /// <see cref="ImageProcessor.InteriorRegion"/> must exclude every pixel the
     /// pipeline's own <c>AddBorderAndShadow</c> draws. If it did not, a blank
     /// screenshot would always score its border as content and the committed-
@@ -220,6 +301,52 @@ public class ImageProcessorTests
         Assert.True(interior.Y >= 2);
         Assert.True(interior.Right <= bmp.Width - 8);
         Assert.True(interior.Bottom <= bmp.Height - 8);
+    }
+
+    /// <summary>
+    /// Catalog thumbnails come out of <c>ProcessThumb</c>, which draws no border
+    /// and no shadow, so the chrome inset must not be applied to them. Applying
+    /// it would discard up to 10&#160;px along the right and bottom edges and
+    /// could report a perfectly good thumbnail as blank. The pipeline's
+    /// <c>-thumb</c> filename suffix is the only signal available from a file on
+    /// disk.
+    /// </summary>
+    [Theory]
+    [InlineData("images/controls/button-thumb.png")]
+    [InlineData(@"C:\repo\docs\guide\images\controls\button-thumb.png")]
+    [InlineData("images/controls/BUTTON-THUMB.PNG")]
+    public void ContentRegionFor_scans_thumbnails_whole(string path)
+    {
+        Assert.Equal(new Rectangle(0, 0, 320, 240), ImageProcessor.ContentRegionFor(path, 320, 240));
+    }
+
+    [Fact]
+    public void ContentRegionFor_insets_full_size_captures()
+    {
+        var region = ImageProcessor.ContentRegionFor("images/controls/button.png", 320, 240);
+
+        Assert.Equal(ImageProcessor.InteriorRegion(320, 240), region);
+        Assert.NotEqual(new Rectangle(0, 0, 320, 240), region);
+    }
+
+    /// <summary>
+    /// The failure the thumb branch exists to prevent, made concrete: content
+    /// that lives only in the strip the chrome inset would trim. Scored whole
+    /// it is content; scored with the full-size inset it vanishes.
+    /// </summary>
+    [Fact]
+    public void Thumbnail_content_in_the_inset_strip_is_not_scored_as_blank()
+    {
+        using var bmp = new Bitmap(320, 240, PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(bmp))
+        {
+            g.Clear(Color.White);
+            using var ink = new SolidBrush(Color.Black);
+            g.FillRectangle(ink, 315, 235, 4, 4); // inside the 10px trailing inset
+        }
+
+        Assert.False(ImageProcessor.HasContentPixel(bmp, ImageProcessor.InteriorRegion(320, 240)));
+        Assert.True(ImageProcessor.HasContentPixel(bmp, ImageProcessor.ContentRegionFor("x-thumb.png", 320, 240)));
     }
 
     [Fact]

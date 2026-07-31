@@ -57,10 +57,66 @@ public class DocImageIntegrityTests
         Assert.Empty(findings);
     }
 
+    /// <summary>
+    /// Catalog thumbnails are written by <c>ProcessThumb</c>, which draws no
+    /// border and no drop shadow, so the chrome inset must not be applied to
+    /// them. A thumbnail whose only content sits in the strip the inset would
+    /// trim is a real, non-blank asset; scoring it with the full-size inset
+    /// would condemn it and tell an author to restore a file that was never
+    /// broken.
+    /// </summary>
+    [Fact]
+    public void Gate_does_not_flag_a_thumbnail_with_edge_content()
+    {
+        using var tree = new TempGuideTree();
+        tree.WriteImage("controls/button-thumb.png", MakeEdgeContentThumb(320, 240));
+
+        var findings = DiagramProcessor.ValidateImageRefs(
+            "controls.md.dt", "![Button](images/controls/button-thumb.png)", tree.ImagesDir);
+
+        Assert.Empty(findings);
+    }
+
+    /// <summary>
+    /// Non-vacuity pair for <see cref="Gate_does_not_flag_a_thumbnail_with_edge_content"/>.
+    /// Byte-for-byte the same image under a name without the <c>-thumb</c>
+    /// suffix <em>is</em> flagged, because a full-size capture with nothing but
+    /// chrome-strip pixels really is a blank frame. Only the filename differs,
+    /// so this proves the suffix branch is what carries the behaviour rather
+    /// than the gate simply passing everything.
+    /// </summary>
+    [Fact]
+    public void Gate_flags_the_same_image_when_it_is_not_a_thumbnail()
+    {
+        using var tree = new TempGuideTree();
+        tree.WriteImage("controls/button.png", MakeEdgeContentThumb(320, 240));
+
+        var findings = DiagramProcessor.ValidateImageRefs(
+            "controls.md.dt", "![Button](images/controls/button.png)", tree.ImagesDir);
+
+        Assert.Equal("REACTOR_DOC_IMAGE_002", Assert.Single(findings).Code);
+    }
+
+    /// <summary>
+    /// A transparent PNG composites to white wherever it is drawn, so it is as
+    /// blank as a solid-white one — and it is the exact shape a never-rendered
+    /// composition surface produces.
+    /// </summary>
+    [Fact]
+    public void Gate_flags_a_fully_transparent_image()
+    {
+        using var tree = new TempGuideTree();
+        tree.WriteImage("hooks/usestate.png", MakeSolidPng(499, 196, Color.FromArgb(0, 0, 0, 0)));
+
+        var findings = DiagramProcessor.ValidateImageRefs(
+            "hooks.md.dt", "![UseState demo](images/hooks/usestate.png)", tree.ImagesDir);
+
+        Assert.Equal("REACTOR_DOC_IMAGE_002", Assert.Single(findings).Code);
+    }
+
     [Fact]
     public void Gate_ignores_vector_references()
-    {
-        // SVG diagrams are authored, not captured, and System.Drawing cannot
+    {        // SVG diagrams are authored, not captured, and System.Drawing cannot
         // decode them — reporting them as blank would be a false alarm on
         // every compile.
         using var tree = new TempGuideTree();
@@ -110,19 +166,28 @@ public class DocImageIntegrityTests
         var blank = new List<string>();
         var minRatio = double.MaxValue;
         var minFile = "";
+        var thumbs = 0;
 
         foreach (var file in files)
         {
             using var bmp = new Bitmap(file);
-            var interior = ImageProcessor.InteriorRegion(bmp.Width, bmp.Height);
-            var content = ImageProcessor.CountContentPixels(bmp, interior);
+            // Same region selection the gate uses, so a thumbnail whose content
+            // lives in the chrome-inset strip is scored the way it is in
+            // production rather than by a stricter rule only this test applies.
+            var region = ImageProcessor.ContentRegionFor(file, bmp.Width, bmp.Height);
+            if (region == new Rectangle(0, 0, bmp.Width, bmp.Height) &&
+                bmp.Width > 20 && bmp.Height > 20)
+            {
+                thumbs++;
+            }
+            var content = ImageProcessor.CountContentPixels(bmp, region);
             if (content == 0)
             {
                 blank.Add(global::System.IO.Path.GetRelativePath(imagesDir, file));
                 continue;
             }
 
-            var ratio = (double)content / (interior.Width * (long)interior.Height);
+            var ratio = (double)content / (region.Width * (long)region.Height);
             if (ratio < minRatio)
             {
                 minRatio = ratio;
@@ -130,7 +195,8 @@ public class DocImageIntegrityTests
             }
         }
 
-        _output.WriteLine($"scanned {files.Length} PNGs; sparsest interior = {minRatio:P4} ({minFile})");
+        _output.WriteLine(
+            $"scanned {files.Length} PNGs ({thumbs} scored whole); sparsest interior = {minRatio:P4} ({minFile})");
         Assert.Empty(blank);
     }
 
@@ -178,6 +244,39 @@ public class DocImageIntegrityTests
             g.DrawRectangle(border, 0, 0, w - 1, h - 1);
         }
 
+        using var ms = new MemoryStream();
+        bmp.Save(ms, ImageFormat.Png);
+        return ms.ToArray();
+    }
+
+    /// <summary>
+    /// A thumbnail-shaped image whose only content sits inside the strip the
+    /// full-size chrome inset would trim (2&#160;px leading, 10&#160;px trailing).
+    /// Real: scored whole it has content. Scored with the inset it is blank.
+    /// That difference is the whole point of the <c>-thumb</c> branch.
+    /// </summary>
+    private static byte[] MakeEdgeContentThumb(int w, int h)
+    {
+        using var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(bmp))
+        {
+            g.Clear(Color.White);
+            using var ink = new SolidBrush(Color.FromArgb(32, 32, 32));
+            g.FillRectangle(ink, w - 5, h - 5, 4, 4);
+        }
+        using var ms = new MemoryStream();
+        bmp.Save(ms, ImageFormat.Png);
+        return ms.ToArray();
+    }
+
+    private static byte[] MakeSolidPng(int w, int h, Color color)
+    {
+        using var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(bmp))
+        {
+            g.CompositingMode = global::System.Drawing.Drawing2D.CompositingMode.SourceCopy;
+            g.Clear(color);
+        }
         using var ms = new MemoryStream();
         bmp.Save(ms, ImageFormat.Png);
         return ms.ToArray();

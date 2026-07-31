@@ -127,7 +127,17 @@ internal static class ScreenshotCapture
             // Warm-up: the capture server starts its capture timer lazily on the
             // first /frame call. Kick it now and wait for the first frame so the
             // first manifest entry doesn't pay the timer-startup latency.
-            await PollForFrame(http, port, TimeSpan.FromSeconds(10));
+            // Best-effort: a warm-up that throws must not escape and abort the
+            // whole pass, because CaptureAsync's contract is that every
+            // requested screenshot comes back counted in Written or Failed.
+            try
+            {
+                await PollForFrame(http, port, TimeSpan.FromSeconds(10));
+            }
+            catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException)
+            {
+                Console.Error.WriteLine($"    ⚠ warm-up frame request failed ({ex.GetType().Name}); continuing");
+            }
 
             foreach (var screenshot in screenshots)
             {
@@ -183,8 +193,15 @@ internal static class ScreenshotCapture
                     Console.Error.WriteLine($" ✗ {ex.Message}{existing}");
                     failed++;
                 }
-                catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException)
+                catch (Exception ex) when (ex is HttpRequestException or IOException
+                                             or InvalidOperationException or ArgumentException
+                                             or TaskCanceledException)
                 {
+                    // ArgumentException covers a malformed manifest (unknown
+                    // crop mode) and a frame the processor rejects (non-image
+                    // bytes, over the size/dimension cap). Those used to escape
+                    // CaptureAsync entirely, aborting the pass mid-topic and
+                    // leaving the remaining screenshots uncounted.
                     Console.Error.WriteLine($" ✗ {ex}");
                     failed++;
                 }
