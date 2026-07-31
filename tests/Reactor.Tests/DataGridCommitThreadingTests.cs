@@ -131,8 +131,12 @@ public class DataGridCommitThreadingTests
         Assert.Null(state.CommitDispatcher); // precondition: this is the fallback arm
 
         // Held until the assertions have run, so the committing thread stays alive and its managed
-        // id cannot be recycled onto the pool thread we are about to compare it against.
-        using var assertionsDone = new ManualResetEventSlim(false);
+        // id cannot be recycled onto the pool thread we are about to compare it against. Disposed
+        // by hand rather than with `using`: the committer blocks on this handle, and
+        // ManualResetEventSlim.Wait throws ObjectDisposedException even when already signalled —
+        // on a thread we own that would go unhandled and take the run down. So it is disposed only
+        // once the join below confirms nobody is left inside it.
+        var assertionsDone = new ManualResetEventSlim(false);
         var committer = new Thread(() =>
         {
             InvokeHandleAsyncCommit(state, element, (RowKey)1, new TestItem(1, "Alice edited"), new TestItem(1, "Alice"));
@@ -150,6 +154,8 @@ public class DataGridCommitThreadingTests
         using var unblock = watchdog.Token.UnsafeRegister(_ => release.TrySetResult(), null);
 
         committer.Start();
+
+        var joined = false;
 
         try
         {
@@ -172,8 +178,17 @@ public class DataGridCommitThreadingTests
         {
             release.TrySetResult();
             assertionsDone.Set();
-            committer.Join(Timeout);
+            joined = committer.Join(Timeout);
+
+            if (joined)
+                assertionsDone.Dispose();
         }
+
+        Assert.True(
+            joined,
+            $"{MethodName}'s caller thread was still running {Timeout.TotalSeconds:0}s after the " +
+            "fallback was released. The fallback offloads the callback and returns, so the " +
+            "committing thread has nothing left to block on.");
     }
 
     /// <summary>

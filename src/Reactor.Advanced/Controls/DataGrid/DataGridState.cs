@@ -314,10 +314,12 @@ public class DataGridState<T>
     /// <summary>
     /// Delegate installed by <see cref="Controls.DataGridComponent{T}"/> each render to
     /// route row-commit dispatch through a <c>UseMutation</c> hook. Static helpers in
-    /// the component (<c>HandleKeyDown</c>, <c>RenderRow</c>) invoke it instead of
-    /// spinning up their own <c>Task.Run</c>, so <c>OnRowChanged</c> is invoked on the
-    /// calling thread. When null — e.g. in headless unit tests — callers fall back to
-    /// invoking <c>OnRowChanged</c> themselves on a thread-pool thread; see
+    /// the component (<c>HandleKeyDown</c>, <c>RenderRow</c>) invoke it synchronously, on
+    /// the thread that committed the edit, instead of spinning up their own <c>Task.Run</c>;
+    /// the component's own delegate goes on to reach <c>OnRowChanged</c> on that same
+    /// thread, but a delegate you install yourself is free to offload or marshal from
+    /// there. When null — e.g. in headless unit tests — callers fall back to invoking
+    /// <c>OnRowChanged</c> themselves on a thread-pool thread; see
     /// <c>DataGridComponent&lt;T&gt;.HandleAsyncCommit</c> for both threading contracts.
     /// </summary>
     /// <remarks>
