@@ -44,6 +44,7 @@ public class DataGridCommitThreadingTests
     {
         private readonly Thread _thread;
         private Exception? _failure;
+        private bool _joined;
 
         internal Committer(string name, Action body)
         {
@@ -68,17 +69,20 @@ public class DataGridCommitThreadingTests
 
         internal void Start() => _thread.Start();
 
-        internal bool Join(TimeSpan timeout) => _thread.Join(timeout);
+        internal bool Join(TimeSpan timeout) => _joined = _thread.Join(timeout);
 
         /// <summary>
-        /// Replays anything the committing thread threw, original stack intact. Call it after
-        /// <see cref="Join"/> — which is also the happens-before edge that makes the read safe —
-        /// and before asserting on what the commit observed, because a commit that threw recorded
-        /// nothing and its assertions would otherwise fail for the wrong reason.
+        /// Replays anything the committing thread threw, original stack intact. Silent unless
+        /// <see cref="Join"/> has succeeded — that join is the happens-before edge which makes
+        /// reading the captured exception safe, and a thread still running has not settled on a
+        /// failure to report anyway. Nothing is swallowed by that: the caller asserts on the join
+        /// result separately, so a thread that never finished is still a test failure. Call it
+        /// before asserting on what the commit observed, because a commit that threw recorded
+        /// nothing and those assertions would otherwise fail for the wrong reason.
         /// </summary>
         internal void Rethrow()
         {
-            if (_failure is { } ex)
+            if (_joined && _failure is { } ex)
                 ExceptionDispatchInfo.Capture(ex).Throw();
         }
     }
@@ -101,7 +105,11 @@ public class DataGridCommitThreadingTests
         var dispatcherThreadId = 0;
         state.CommitDispatcher = (_, _, _) =>
         {
-            dispatcherThreadId = Environment.CurrentManagedThreadId;
+            // Volatile to pair with the read below. On the contracted path this runs on the
+            // committing thread and the pairing is moot, but the regression this test exists to
+            // catch is precisely the one where it does not — and a stale 0 there would blame the
+            // wrong thread in the failure message.
+            Volatile.Write(ref dispatcherThreadId, Environment.CurrentManagedThreadId);
             Interlocked.Increment(ref dispatcherCalls);
         };
 
@@ -237,16 +245,16 @@ public class DataGridCommitThreadingTests
 
         committer.Rethrow();
 
-        Assert.False(
-            neverEntered,
-            $"{MethodName}'s fallback arm never invoked OnRowChanged. It is offloaded to the " +
-            "thread pool, so something has to run it.");
-
         Assert.True(
             joined,
             $"{MethodName}'s caller thread was still running {Timeout.TotalSeconds:0}s after the " +
             "fallback was released. The fallback offloads the callback and returns, so the " +
             "committing thread has nothing left to block on.");
+
+        Assert.False(
+            neverEntered,
+            $"{MethodName}'s fallback arm never invoked OnRowChanged. It is offloaded to the " +
+            "thread pool, so something has to run it.");
     }
 
     /// <summary>
