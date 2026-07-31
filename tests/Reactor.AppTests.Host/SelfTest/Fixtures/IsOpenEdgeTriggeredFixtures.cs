@@ -271,13 +271,21 @@ internal static class IsOpenEdgeTriggeredFixtures
         /// process-wide time cap.</summary>
         private const int StayClosedWindowMs = 75;
 
-        /// <summary>Number of popups open on the control's XamlRoot. A presented TeachingTip
-        /// lives in one, so a rise from a pre-open baseline is a genuine presentation signal —
-        /// unlike <c>IsOpen</c>, which only says the DP write stuck.</summary>
-        private static int OpenPopupCount(Microsoft.UI.Xaml.FrameworkElement fe)
+        /// <summary>Number of popups open on the control's XamlRoot, or <c>null</c> when the
+        /// count could not be taken. A presented TeachingTip lives in one, so a rise from a
+        /// pre-open baseline is a genuine presentation signal — unlike <c>IsOpen</c>, which only
+        /// says the DP write stuck.
+        ///
+        /// <para>Returns <c>int?</c> rather than <c>0</c> on an unavailable <c>XamlRoot</c> so
+        /// "I could not measure" cannot be mistaken for "I measured and found none". A zero
+        /// there would silently lower the baseline, making the comparison below <i>easier</i> to
+        /// satisfy — a leftover popup from an earlier fixture would then satisfy it on its own,
+        /// with no tip presented. Callers must treat <c>null</c> as a failed check, never as
+        /// a value (issue #992's fail-open class).</para></summary>
+        private static int? OpenPopupCount(Microsoft.UI.Xaml.FrameworkElement fe)
         {
             var root = fe.XamlRoot;
-            if (root is null) return 0;
+            if (root is null) return null;
             return Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root).Count;
         }
 
@@ -313,8 +321,12 @@ internal static class IsOpenEdgeTriggeredFixtures
             }
 
             // Parent AFTER mount — the ordering the reconciler itself uses, and the ordering
-            // that used to lose the open.
+            // that used to lose the open. Pump one pass first so XamlRoot is populated before
+            // the baseline is taken; an unmeasurable baseline is asserted below rather than
+            // silently treated as zero.
+            await Harness.Render();
             var popupsBeforeOpen = OpenPopupCount(parent);
+            H.Check("MountOpen_TeachingTip_PopupBaselineIsMeasurable", popupsBeforeOpen.HasValue);
             parent.Children.Add(tip);
 
             H.Check("MountOpen_TeachingTip_DeclaredOpenOnFirstRenderOpens",
@@ -323,9 +335,15 @@ internal static class IsOpenEdgeTriggeredFixtures
 
             // Wait for a REAL presentation signal rather than a blind animation dwell: a
             // presented tip lives in a popup on the XamlRoot. Counting from a pre-open baseline
-            // keeps this immune to a popup left over from an earlier fixture.
+            // keeps this immune to a popup left over from an earlier fixture — but only because
+            // an unmeasurable count is null rather than zero, so it can never lower the bar.
             var presented = await Harness.WaitFor(
-                () => OpenPopupCount(tip) > popupsBeforeOpen, maxPasses: 60, perPassMs: 25);
+                () =>
+                {
+                    var now = OpenPopupCount(tip);
+                    return popupsBeforeOpen.HasValue && now.HasValue && now.Value > popupsBeforeOpen.Value;
+                },
+                maxPasses: 60, perPassMs: 25);
             H.Check("MountOpen_TeachingTip_DeclaredOpenOnFirstRenderPresentsAPopup", presented);
 
             // WinUI raises Closed on the way down only for a tip that genuinely presented AND
