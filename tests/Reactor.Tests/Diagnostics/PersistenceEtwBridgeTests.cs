@@ -56,6 +56,14 @@ public class PersistenceEtwBridgeTests : IDisposable
         try { if (global::System.IO.File.Exists(_path)) global::System.IO.File.Delete(_path); } catch { }
     }
 
+    /// <summary>
+    /// Operation label used by
+    /// <see cref="AssertEvent_discriminates_against_a_concurrent_foreign_event"/> to stand in for
+    /// a concurrent subsystem's event. Namespaced so it can never collide with a real operation,
+    /// in either direction.
+    /// </summary>
+    private const string ForeignOperation = "PersistenceEtwBridgeTests.ForeignEventProbe";
+
     private static EventWrittenEventArgs AssertEvent(
         IReadOnlyList<EventWrittenEventArgs> events,
         string name,
@@ -182,6 +190,63 @@ public class PersistenceEtwBridgeTests : IDisposable
         Assert.DoesNotContain("not json", string.Join("|", evt.Payload?.OfType<string>() ?? Array.Empty<string>()));
     }
 
+    // ── The discriminator itself is load-bearing; pin it ────────────────
+
+    [Fact]
+    public void AssertEvent_discriminates_against_a_concurrent_foreign_event()
+    {
+        // Every other test in this class passes whether or not AssertEvent actually filters on
+        // the discriminator, because in an uncontended run the first same-name event IS the
+        // right one. Measured: with the filter removed, 9 of the 10 tests here still passed.
+        // That is why the fix needs its own guard — the flake it prevents is invisible to the
+        // coverage that already exists.
+        //
+        // ReactorEventSource.Log is process-global, so this listener also receives SwallowedError
+        // events raised by any test class running concurrently. Emitting one here turns that
+        // interleaving from a ~1-in-4 race into a certainty of write order on a single thread,
+        // so the guard is provable in milliseconds without sleeps or retries. LogCategory.Intl
+        // reproduces the exact reported symptom ("Expected: Persistence, Actual: Intl").
+        //
+        // Safe to emit globally: it goes out under Keywords.Errors, which this class has held
+        // open since its constructor either way, so no concurrent listener's keyword mask
+        // changes. ReactorTraceRegressionTests' allocation probe subscribes to Keywords.Reconcile
+        // only and already early-returns when Errors is enabled elsewhere; IntlEtwBridgeTests
+        // matches on per-test discriminators that ForeignOperation cannot collide with.
+        DiagnosticLog.SwallowedError(
+            LogCategory.Intl, ForeignOperation, new InvalidOperationException());
+
+        global::System.IO.File.WriteAllText(_path, "this is not json{{{");
+        var store = new JsonFileStore(_path);
+        Assert.False(store.TryRead("main", out _));
+
+        // Setup oracle: prove the foreign event actually landed, WITHOUT going through the
+        // helper under test — otherwise a broken AssertEvent could make this look fine.
+        Assert.Contains(_listener.Events, e =>
+            e.EventName == nameof(ReactorEventSource.SwallowedError)
+            && (e.Payload?[0] as string) == nameof(LogCategory.Intl)
+            && (e.Payload?[1] as string) == ForeignOperation);
+
+        // Guard the guard: the FIRST same-name event must not be the one we are looking for, or
+        // an undiscriminated lookup would return the right answer by luck and this test would
+        // prove nothing. Asserting "not the target" rather than "is our Intl event" keeps it
+        // deterministic even if a third class's event arrives first — the injected event always
+        // precedes the parse event in this thread's write order, so the target can never be first.
+        var firstByNameOnly = _listener.Events.First(e =>
+            e.EventName == nameof(ReactorEventSource.SwallowedError));
+        Assert.NotEqual("JsonFileStore.TryRead.parse", firstByNameOnly.Payload?[1] as string);
+
+        // The discriminated lookup must skip past it. Drop the payload[discriminatorIndex]
+        // clause from AssertEvent and this returns the Intl event, failing on the category
+        // assertion exactly as the original flake did.
+        var evt = AssertEvent(
+            _listener.Events,
+            nameof(ReactorEventSource.SwallowedError),
+            1,
+            "JsonFileStore.TryRead.parse");
+        Assert.Equal(nameof(LogCategory.Persistence), evt.Payload?[0]);
+        Assert.Equal("JsonFileStore.TryRead.parse", evt.Payload?[1]);
+    }
+
     [Fact]
     public void JsonFileStore_malformed_base64_emits_SwallowedError_FormatException()
     {
@@ -190,11 +255,12 @@ public class PersistenceEtwBridgeTests : IDisposable
 
         Assert.False(store.TryRead("main", out _));
 
-        var evt = _listener.Events.FirstOrDefault(e =>
-            e.EventName == nameof(ReactorEventSource.SwallowedError)
-            && (e.Payload?[1] as string) == "JsonFileStore.TryRead.base64");
-        Assert.NotNull(evt);
-        Assert.Equal(nameof(LogCategory.Persistence), evt!.Payload?[0]);
+        var evt = AssertEvent(
+            _listener.Events,
+            nameof(ReactorEventSource.SwallowedError),
+            1,
+            "JsonFileStore.TryRead.base64");
+        Assert.Equal(nameof(LogCategory.Persistence), evt.Payload?[0]);
         Assert.Equal(nameof(FormatException), evt.Payload?[2]);
     }
 
@@ -211,11 +277,12 @@ public class PersistenceEtwBridgeTests : IDisposable
         var result = store.TryRead("anything", out _);
 
         Assert.False(result);
-        var evt = _listener.Events.FirstOrDefault(e =>
-            e.EventName == nameof(ReactorEventSource.SwallowedError)
-            && (e.Payload?[1] as string) == "PackagedSettingsStore.TryRead");
-        Assert.NotNull(evt);
-        Assert.Equal(nameof(LogCategory.Persistence), evt!.Payload?[0]);
+        var evt = AssertEvent(
+            _listener.Events,
+            nameof(ReactorEventSource.SwallowedError),
+            1,
+            "PackagedSettingsStore.TryRead");
+        Assert.Equal(nameof(LogCategory.Persistence), evt.Payload?[0]);
     }
 
     [Fact]
@@ -225,11 +292,12 @@ public class PersistenceEtwBridgeTests : IDisposable
 
         store.Write("anything", new byte[] { 1, 2, 3 });
 
-        var evt = _listener.Events.FirstOrDefault(e =>
-            e.EventName == nameof(ReactorEventSource.SwallowedError)
-            && (e.Payload?[1] as string) == "PackagedSettingsStore.Write");
-        Assert.NotNull(evt);
-        Assert.Equal(nameof(LogCategory.Persistence), evt!.Payload?[0]);
+        var evt = AssertEvent(
+            _listener.Events,
+            nameof(ReactorEventSource.SwallowedError),
+            1,
+            "PackagedSettingsStore.Write");
+        Assert.Equal(nameof(LogCategory.Persistence), evt.Payload?[0]);
     }
 
     // ── WindowPlacementCodec rejects ────────────────────────────────────
@@ -247,11 +315,12 @@ public class PersistenceEtwBridgeTests : IDisposable
         var monitors = new[] { new MonitorRect(null, 0, 0, 1920, 1080) };
         Assert.False(WindowPlacementCodec.Restore(hwnd: 0, ms.ToArray(), monitors));
 
-        var evt = _listener.Events.FirstOrDefault(e =>
-            e.EventName == nameof(ReactorEventSource.PersistenceRejected)
-            && (e.Payload?[1] as string) == "implausible-monitor-count");
-        Assert.NotNull(evt);
-        Assert.Equal("placement", evt!.Payload?[0]);
+        var evt = AssertEvent(
+            _listener.Events,
+            nameof(ReactorEventSource.PersistenceRejected),
+            1,
+            "implausible-monitor-count");
+        Assert.Equal("placement", evt.Payload?[0]);
     }
 
     [Fact]
@@ -266,10 +335,11 @@ public class PersistenceEtwBridgeTests : IDisposable
         var monitors = new[] { new MonitorRect(null, 0, 0, 1920, 1080) };
         Assert.False(WindowPlacementCodec.Restore(hwnd: 0, ms.ToArray(), monitors));
 
-        var evt = _listener.Events.FirstOrDefault(e =>
-            e.EventName == nameof(ReactorEventSource.PersistenceRejected)
-            && (e.Payload?[1] as string) == "truncated");
-        Assert.NotNull(evt);
-        Assert.Equal("placement", evt!.Payload?[0]);
+        var evt = AssertEvent(
+            _listener.Events,
+            nameof(ReactorEventSource.PersistenceRejected),
+            1,
+            "truncated");
+        Assert.Equal("placement", evt.Payload?[0]);
     }
 }
