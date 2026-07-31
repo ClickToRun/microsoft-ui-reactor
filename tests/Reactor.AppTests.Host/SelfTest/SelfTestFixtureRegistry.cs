@@ -226,6 +226,14 @@ internal static class SelfTestFixtureRegistry
         "Issue522_SharedStyleAcrossMultipleElements_IsolatedRemoval",
         "Issue522_ThemeBindingsRemoval_AfterCacheClear_StillWorks",
         "Issue522_ThemeRef_CycleAcrossDifferentKeys",
+        // Issue #950 — the common Padding modifier (and the BiDi PaddingInline*
+        // pair that folds into it) must reach a TextBlock, which is not a Control.
+        "Issue950_PaddingMountUpdateUnset",
+        "Issue950_InlinePaddingResolvesPerFlowDirection",
+        "Issue950_PaddingDoesNotLeakAcrossPoolReuse",
+        "Issue950_PaddingUnsetClearsInsteadOfZeroing",
+        "Issue950_ModifierResetOutranksASetterWrite",
+        "Issue950_RichTextBlockPaddingStillFlowsThroughItsDescriptor",
         // Spec 047 §4.5 — overlay handler-owned Unmount tears down side-mounted
         // Reactor subtrees (Flyout content, Popup child) the generic recursion
         // cannot reach.
@@ -1852,6 +1860,13 @@ internal static class SelfTestFixtureRegistry
         "Issue522_SharedStyleAcrossMultipleElements_IsolatedRemoval" => new Issue522TextBlockStyleResetFixture.SharedStyleAcrossMultipleElements_IsolatedRemoval(harness),
         "Issue522_ThemeBindingsRemoval_AfterCacheClear_StillWorks" => new Issue522TextBlockStyleResetFixture.ThemeBindingsRemoval_AfterCacheClear_StillWorks(harness),
         "Issue522_ThemeRef_CycleAcrossDifferentKeys" => new Issue522TextBlockStyleResetFixture.ThemeRef_CycleAcrossDifferentKeys(harness),
+        // Issue #950 — Padding / PaddingInline* on a TextBlock.
+        "Issue950_PaddingMountUpdateUnset" => new Issue950TextBlockPaddingFixture.PaddingMountUpdateUnset(harness),
+        "Issue950_InlinePaddingResolvesPerFlowDirection" => new Issue950TextBlockPaddingFixture.InlinePaddingResolvesPerFlowDirection(harness),
+        "Issue950_PaddingDoesNotLeakAcrossPoolReuse" => new Issue950TextBlockPaddingFixture.PaddingDoesNotLeakAcrossPoolReuse(harness),
+        "Issue950_PaddingUnsetClearsInsteadOfZeroing" => new Issue950TextBlockPaddingFixture.PaddingUnsetClearsInsteadOfZeroing(harness),
+        "Issue950_ModifierResetOutranksASetterWrite" => new Issue950TextBlockPaddingFixture.ModifierResetOutranksASetterWrite(harness),
+        "Issue950_RichTextBlockPaddingStillFlowsThroughItsDescriptor" => new Issue950TextBlockPaddingFixture.RichTextBlockPaddingStillFlowsThroughItsDescriptor(harness),
         "OverlayTeardown_Flyout_Unmount_RunsFlyoutContentCleanup" => new OverlayTeardownFixtures.Flyout_Unmount_RunsFlyoutContentCleanup(harness),
         "OverlayTeardown_Flyout_Unmount_RunsPassThroughCleanup" => new OverlayTeardownFixtures.Flyout_Unmount_RunsPassThroughCleanup(harness),
         "OverlayTeardown_Popup_Unmount_RunsChildCleanup" => new OverlayTeardownFixtures.Popup_Unmount_RunsChildCleanup(harness),
