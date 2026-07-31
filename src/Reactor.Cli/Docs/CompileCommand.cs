@@ -515,7 +515,21 @@ internal static partial class CompileCommand
             foreach (var e in errors) Console.Error.WriteLine($"\n    ✗ {e}");
             foreach (var w in warnings) Console.WriteLine($"\n    ⚠ {w}");
 
-            var outputPath = Path.Combine(outputDir, $"{topicId}.md");
+            // Path.Join, not Path.Combine: topicId is derived from
+            // GetRelativePath, which yields a rooted path when the template
+            // lives on another volume and a ../-prefixed one when it resolves
+            // outside templatesDir (a junction or symlink is enough). Combine
+            // silently discards outputDir for the rooted case, so the base
+            // would come entirely from the discovered path. Join keeps the
+            // base; the containment check then covers the traversal case,
+            // which a rooted-only guard would miss.
+            var outputPath = Path.GetFullPath(Path.Join(outputDir, $"{topicId}.md"));
+            if (!IsUnder(outputPath, Path.GetFullPath(outputDir)))
+            {
+                throw new InvalidOperationException(
+                    $"topic '{topicId}' resolves to '{outputPath}', outside the docs output " +
+                    $"directory '{outputDir}'. Templates must live under the templates root.");
+            }
 
             // Image-ref validation per spec §10.3: every ![..](images/...)
             // path in the compiled output must resolve — and, since issue #989,
@@ -881,6 +895,19 @@ internal static partial class CompileCommand
         // endings — which still trips git's autocrlf detection.
         var lf = text.Replace("\r\n", "\n").Replace('\r', '\n');
         return Environment.NewLine == "\n" ? lf : lf.Replace("\n", Environment.NewLine);
+    }
+
+    /// <summary>
+    /// True when <paramref name="candidate"/> sits inside <paramref name="root"/>.
+    /// Both must already be absolute. The trailing separator matters: without
+    /// it "docs/guide-old" would count as inside "docs/guide".
+    /// </summary>
+    internal static bool IsUnder(string candidate, string root)
+    {
+        var rooted = root.EndsWith(Path.DirectorySeparatorChar)
+            ? root
+            : root + Path.DirectorySeparatorChar;
+        return candidate.StartsWith(rooted, StringComparison.OrdinalIgnoreCase);
     }
 
     // ── Reference extraction (for validation) ─────────────────────────────
