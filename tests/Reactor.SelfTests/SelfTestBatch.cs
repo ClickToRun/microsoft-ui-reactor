@@ -483,9 +483,9 @@ public class SelfTestBatch
         if (string.IsNullOrEmpty(stdout)) return null;
         const string marker = "# Suite elapsed: ";
         double? last = null;
-        foreach (var line in stdout.Split('\n', StringSplitOptions.TrimEntries))
+        foreach (var line in stdout.Split('\n', StringSplitOptions.TrimEntries)
+                     .Where(line => line.StartsWith(marker, StringComparison.Ordinal)))
         {
-            if (!line.StartsWith(marker, StringComparison.Ordinal)) continue;
             if (double.TryParse(line[marker.Length..].Trim(),
                     System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out var seconds))

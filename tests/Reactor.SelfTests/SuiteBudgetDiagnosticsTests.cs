@@ -52,8 +52,12 @@ public class SuiteBudgetDiagnosticsTests
 
     /// <summary>
     /// A malformed or hostile override must fall back, not produce a tiny budget. "0" and "-5" are
-    /// the dangerous ones: passed to <c>Process.WaitForExit</c> they would kill the Host instantly
-    /// and reproduce #988 on every single run.
+    /// the dangerous ones, and they are dangerous in two different ways — the budget is enforced by
+    /// <c>Task.Delay(timeoutMs)</c> racing <c>WaitForExitAsync</c> in <c>RunProcess</c>, not by a
+    /// <c>WaitForExit(timeoutMs)</c> overload: <c>Task.Delay(0)</c> completes at once, so the
+    /// timeout arm wins the race and the Host is killed immediately, reproducing #988 on every run;
+    /// a negative delay throws <c>ArgumentOutOfRangeException</c> instead, which fails the whole
+    /// batch during <c>ClassInitialize</c>. The resolver must reject both.
     /// </summary>
     [TestMethod]
     public void MalformedOverride_FallsBackToDefault()
@@ -69,10 +73,17 @@ public class SuiteBudgetDiagnosticsTests
 
     /// <summary>
     /// The resolved value is multiplied by 1000 to reach milliseconds, so a plausible-looking
-    /// large override silently overflows <see cref="int"/> and lands <b>negative</b> — which
-    /// <c>WaitForExit</c> treats as "kill now". That reproduces #988 on every run, from a knob
-    /// whose whole purpose is to prevent it, so the resolver must reject the value rather than
-    /// return it.
+    /// large override silently overflows <see cref="int"/> and lands <b>negative</b>. That value
+    /// reaches <c>Task.Delay</c> in <c>RunProcess</c>, which throws
+    /// <c>ArgumentOutOfRangeException</c> for any negative delay — taking the entire batch down in
+    /// <c>ClassInitialize</c> rather than running the suite. So the knob whose whole purpose is to
+    /// raise the budget destroys the run instead, and the resolver must reject the value rather
+    /// than return it.
+    /// <para>
+    /// The one negative <c>Task.Delay</c> accepts is <c>-1</c> (infinite), which would silently
+    /// remove the cap altogether. It is unreachable here: <c>seconds * 1000</c> wrapped mod 2^32 is
+    /// always a multiple of 8, and -1 is not — so every overflow lands in the throwing bucket.
+    /// </para>
     /// </summary>
     [TestMethod]
     public void OversizedOverride_FallsBackRatherThanOverflowing()
@@ -88,13 +99,14 @@ public class SuiteBudgetDiagnosticsTests
             Assert.AreEqual(expected, seconds, $"Override '{big}' should fall back to the default.");
             Assert.IsTrue(seconds <= int.MaxValue / 1000,
                 $"'{big}' resolved to {seconds}s, which is {(long)seconds * 1000}ms — outside int " +
-                $"range, so the ms conversion wraps negative and kills the Host immediately.");
+                $"range, so the ms conversion wraps negative and Task.Delay rejects it, failing " +
+                $"the batch in ClassInitialize.");
         }
     }
 
     /// <summary>
     /// Guards the conversion itself rather than the resolver: the constant the production code
-    /// actually passes to <c>WaitForExit</c> must be positive. This fails if someone changes the
+    /// actually passes to <c>Task.Delay</c> must be positive. This fails if someone changes the
     /// units of <c>SelfTestTimeoutMs</c> or introduces the overflow above at the field, where
     /// <see cref="SelfTestBatch.ResolveTimeoutSeconds"/> tests cannot see it.
     /// </summary>
