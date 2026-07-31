@@ -282,6 +282,28 @@ public class DataGridRowEditKeyboardTests
     }
 
     [Fact]
+    public async Task FocusPrevRowEditColumn_WithNoPriorColumnFocus_LandsOnLastEditableColumn()
+    {
+        var state = await LoadedState();
+
+        // BeginRowEdit from the Edit button leaves FocusedColIndex at -1. Forward from there lands
+        // on the FIRST editable column, so backward has to land on the LAST one. A traversal that
+        // just plugs -1 into the modulo starts at colCount - 2 and can never reach the last column.
+        Assert.True(state.BeginRowEdit(0));
+        Assert.Equal(-1, state.FocusedColIndex);
+
+        Assert.True(state.FocusPrevRowEditColumn());
+        Assert.Equal(ScoreCol, state.FocusedColIndex);
+
+        // Differential isolation against the forward direction from the same -1 start.
+        var forward = await LoadedState();
+        Assert.True(forward.BeginRowEdit(0));
+        Assert.Equal(-1, forward.FocusedColIndex);
+        Assert.True(forward.FocusNextRowEditColumn());
+        Assert.Equal(NameCol, forward.FocusedColIndex);
+    }
+
+    [Fact]
     public async Task FocusPrevRowEditColumn_ReturnsFalse_WhenNotRowEditing()
     {
         var state = await LoadedState();

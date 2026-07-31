@@ -1336,8 +1336,11 @@ public class DataGridComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMe
     private static bool ShouldHandleKey(DataGridState<T> state, DataGridElement<T> el, VirtualKey key)
     {
         // IsEditing is true in BOTH cell- and row-edit (BeginRowEdit also sets _editingRowKey), and
-        // both modes claim the same three keys — the grid must swallow them so they never reach the
-        // focused editor. HandleKeyDown is where the two modes diverge; keep them in sync here.
+        // both modes claim the same three keys. This gate runs in the grid root's handledEventsToo
+        // KeyDown handler, so the event has already bubbled up from the focused editor and WinUI's
+        // FocusManager has already moved focus for Tab: setting e.Handled here stops the key going
+        // further UP the tree, it does not stop the editor below from seeing it. HandleKeyDown is
+        // where the two modes diverge; keep the key set here in sync with it.
         if (state.IsEditing)
         {
             return key is VirtualKey.Enter or VirtualKey.Escape or VirtualKey.Tab;

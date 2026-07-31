@@ -1405,13 +1405,19 @@ public class DataGridState<T>
         // _rowEditValues holds exactly the columns BeginRowEdit turned into editors (non-read-only
         // with a SetValue), so this traversal skips read-only columns the same way the rendered
         // editors do. BeginRowEdit snapshots from the full column list, so hidden columns can be
-        // in there without a rendered editor — skip those too. _focusedColIndex is -1 when the row
-        // edit began from the Edit button with no prior cell focus; the double modulo maps that to
-        // the first column going forward. Indices are into the full _columns list, matching
-        // FocusNextCell and every other focus API.
+        // in there without a rendered editor — skip those too. Indices are into the full _columns
+        // list, matching FocusNextCell and every other focus API.
+        //
+        // _focusedColIndex is -1 when the row edit began from the Edit button with no prior cell
+        // focus. Walking forward from -1 naturally lands on column 0; walking backward has to
+        // mirror that and land on the LAST column, so treat "no focus" as one position PAST the
+        // end in that direction. Without this, backward from -1 would start at colCount - 2 and
+        // never reach the last column at all.
+        var origin = _focusedColIndex < 0 && direction < 0 ? colCount : _focusedColIndex;
+
         for (int step = 1; step <= colCount; step++)
         {
-            var idx = ((_focusedColIndex + (step * direction)) % colCount + colCount) % colCount;
+            var idx = ((origin + (step * direction)) % colCount + colCount) % colCount;
             var name = _columns[idx].Name;
             if (_rowEditValues.ContainsKey(name) && IsColumnVisible(name))
             {
