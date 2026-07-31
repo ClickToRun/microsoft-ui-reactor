@@ -274,7 +274,7 @@ internal static class Phase4WindowingFixtures
                 // window whose Spec.Level is Floating — it skips only _disposed, so a Floating
                 // window leaked by an earlier fixture would keep churning Z-order for the rest of
                 // the process. That made "leaked Floating windows accumulate over the suite" a
-                // strong candidate. Measured: `ReactorApp.Windows=1, Level==Floating=0` at this
+                // strong candidate. Measured: `ReactorApp.Windows=1, registered Spec.Level==Floating=0` at this
                 // point in BOTH a full ~6100-check run and `--filter WindowLevel`. Identical. So
                 // there is no leak, no accumulated population, and the whole cross-window
                 // coupling family is eliminated — including the version where the two preceding
@@ -287,18 +287,25 @@ internal static class Phase4WindowingFixtures
                 // call was rejected" from "something undid it afterwards", and neither is
                 // currently observable.
                 var allWindows = ReactorApp.Windows;
-                int liveFloating = 0;
+                int registeredFloatingSpecs = 0;
                 for (int i = 0; i < allWindows.Count; i++)
-                    if (allWindows[i].Spec.Level == WindowLevel.Floating) liveFloating++;
+                    if (allWindows[i].Spec.Level == WindowLevel.Floating) registeredFloatingSpecs++;
                 Console.WriteLine(
                     $"# WindowLevel_RuntimeFlip population (issue #927): ReactorApp.Windows={allWindows.Count}, " +
-                    $"Level==Floating={liveFloating}");
-                // Asserted, not merely reported — otherwise the falsification above decays into a
-                // comment nobody reads and a future leak would reintroduce the suspect silently.
-                // Only the Floating count is asserted: it is the precise subject of the refuted
-                // hypothesis, whereas total window count would red on any unrelated fixture's leak
-                // and misattribute it here.
-                H.Check("WindowLevel_RuntimeFlip_NoLeakedFloatingWindows", liveFloating == 0);
+                    $"registered Spec.Level==Floating={registeredFloatingSpecs} " +
+                    $"(disposal NOT checked — see below)");
+                // Deliberately a SUPERSET of what actually churns Z-order:
+                // ReassertFloatingWindowsForActivation additionally skips `_disposed`, which is
+                // private on ReactorWindow and unreachable from here even with InternalsVisibleTo.
+                // So this counts registered Floating specs, disposed or not. That asymmetry is
+                // safe in the direction that matters: an over-count of 0 implies the participating
+                // count is also 0, so the falsification above holds a fortiori. It would only
+                // mislead in the other direction — a non-zero reading here is a lead to
+                // investigate, not proof that anything is still reasserting.
+                //
+                // Only the Floating count is asserted, not the total window count: total would red
+                // on any unrelated fixture's leak and misattribute it to this fixture.
+                H.Check("WindowLevel_RuntimeFlip_NoRegisteredFloatingWindows", registeredFloatingSpecs == 0);
 
                 win.Update(spec with { Level = WindowLevel.AlwaysOnTop });
                 await win.Host.WaitForIdleAsync();
