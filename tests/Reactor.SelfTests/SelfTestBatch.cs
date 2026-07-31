@@ -146,9 +146,13 @@ public class SelfTestBatch
 
         if (exitCode is -1 or 1)
         {
-            return raw + "\n  -> Consistent with an external kill (Process.Kill / Stop-Process exit -1; " +
-                   "taskkill /F exits 1). A genuine fixture failure also exits 1, so use the TAP " +
-                   "trailer to tell them apart: present trailer = real failure, truncated = killed.";
+            return raw + "\n  -> Category is decidable, cause is NOT. This says the host did not fault; " +
+                   "it does not say who ended it. Beware: `RunProcess` SYNTHESIZES -1 for this " +
+                   "harness's own watchdog kill (it discards the real code), and an external " +
+                   "`Process.Kill` / `Stop-Process`, a parent reap and a CI job-object teardown all " +
+                   "land on -1 too — so -1 alone cannot name the agent. `taskkill /F` and a genuine " +
+                   "fixture failure both exit 1; use the TAP trailer to separate those two: present " +
+                   "trailer = real failure, truncated = killed.";
         }
 
         return raw;

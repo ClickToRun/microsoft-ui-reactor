@@ -50,9 +50,10 @@ public class ExitCodeDescriptionTests
     }
 
     /// <summary>
-    /// The killer codes must NOT be described as a crash, and must carry the trailer caveat —
-    /// exit 1 is ambiguous (a genuine fixture failure also exits 1), so the message has to say
-    /// what disambiguates it rather than asserting a verdict.
+    /// The killer codes must NOT be described as a crash, must carry the trailer caveat (exit 1
+    /// is ambiguous — a genuine fixture failure also exits 1), and must NOT name an agent. -1 is
+    /// reachable from this harness's own synthesized watchdog value, an external kill, a parent
+    /// reap and a CI job-object teardown, so claiming "external kill" would be a false verdict.
     /// </summary>
     [DataTestMethod]
     [DataRow(-1)]
@@ -62,10 +63,27 @@ public class ExitCodeDescriptionTests
         var text = SelfTestBatch.DescribeExitCode(exitCode);
 
         Assert.IsFalse(text.Contains("crashed on its own"),
-            $"exit {exitCode} is consistent with an external kill, not a fault");
-        StringAssert.Contains(text, "external kill");
+            $"exit {exitCode} does not indicate a fault");
+        StringAssert.Contains(text, "cause is NOT",
+            "the message must refuse to name an agent — -1 has at least four sources here");
         StringAssert.Contains(text, "trailer",
             "exit 1 is ambiguous, so the message must point at the TAP trailer to resolve it");
+    }
+
+    /// <summary>
+    /// -1 specifically must warn that this harness fabricates it. <c>RunProcess</c> returns
+    /// <c>timedOut ? -1 : process.ExitCode</c>, discarding the real code on its own watchdog kill
+    /// — so a reader who takes -1 as evidence of an *external* killer would be chasing a ghost.
+    /// This is the assertion that fails if the wording ever regresses to "external kill".
+    /// </summary>
+    [TestMethod]
+    public void MinusOne_warns_that_the_harness_synthesizes_it()
+    {
+        var text = SelfTestBatch.DescribeExitCode(-1);
+
+        StringAssert.Contains(text, "SYNTHESIZES",
+            "RunProcess returns -1 for its own watchdog kill, which is the most likely source " +
+            "of -1 in this harness and must not be mistaken for an external agent");
     }
 
     /// <summary>
