@@ -261,32 +261,30 @@ the one that bites hardest, because a broken instrument is trusted by default.
   running both the whole-tree grep is cheaper than remembering why.
 - **Coverage** starts from `tools/coverage/run-coverage.ps1` (`-UnitOnly`, `-SkipBuild`);
   output `coverage/merged.cobertura.xml`. The script **aborts before the merge step on any
-  test failure** — if a known flake trips it, merge the legs manually with
+  test failure** — if a known flake trips it (`CenterOnCurrent_UsesCursorMonitor`,
+  `PersistPlacement_FallbackWhenEmpty`), merge the legs manually with
   `dotnet-coverage merge coverage\unit.cobertura.xml coverage\selftest.cobertura.xml --output coverage\merged.cobertura.xml --output-format cobertura`.
-  Those known flakes span **two tiers** — don't go hunting for all three in `Reactor.Tests`:
-  - **selftest** — `CenterOnCurrent_UsesCursorMonitor` (`Phase1WindowingFixtures.cs`) and
-    `PersistPlacement_FallbackWhenEmpty` (`Phase3WindowingFixtures.cs`). These two are the
-    *same assertion twice*: both open a `WindowStartPosition.CenterOnCurrent` window and check
-    its centre lands in the work area of the monitor under the mouse, so they fail as a **pair**
-    — seeing only one of them is the surprise, not seeing both. Neither is a render-timing race,
-    so `WaitFor` will not help. **Two different mechanisms in two different environments — check
-    which one you are in before theorising:**
-    - **Non-interactive session (CI agents, RDP-disconnected, locked, headless).**
-      `GetCursorPos` returns **ACCESS_DENIED (err 5)** and never writes its `out` param, so the
-      cursor monitor cannot be determined at all. This is a **100% deterministic failure, not a
-      flake** — the pair simply cannot pass there. Confirmed by direct P/Invoke probe on two
-      separate machines. Fixed by skipping rather than asserting when the cursor is
-      undeterminable; if you see these fail, probe first:
-      `GetCursorPos(out p)` → `False` / `LastError=5` means you are in this case and the fixtures
-      are innocent. Note `System.Windows.Forms.Cursor.Position` **hides** this — it surfaces the
-      uninitialised `(0,0)` instead of the failure.
-    - **Interactive multi-monitor box.** A TOCTOU: `GetCursorPos` is sampled *before*
-      `OpenAndSettle`, so a cursor crossing a monitor boundary while the window opens invalidates
-      the captured work rect. Intermittent, and **structurally impossible on a single display** —
-      if you are on one virtual desktop with no boundary to cross, this is not your mechanism.
-    Do not assume "quiet machine ⇒ passes": that holds only in the interactive case.
-  - **unit** — `PersistenceEtwBridgeTests.JsonFileStore_*` (`Reactor.Tests/Diagnostics/`),
-    cross-test ETW/event-source bleed. Fails only in the full-suite run; passes in isolation.
+  Both are **selftest** fixtures (`Phase1WindowingFixtures.cs` / `Phase3WindowingFixtures.cs`),
+  not unit tests — don't go hunting for them in `Reactor.Tests`. They are the
+  *same assertion twice*: both open a `WindowStartPosition.CenterOnCurrent` window and check
+  its centre lands in the work area of the monitor under the mouse, so they fail as a **pair**
+  — seeing only one of them is the surprise, not seeing both. Neither is a render-timing race,
+  so `WaitFor` will not help. **Two different mechanisms in two different environments — check
+  which one you are in before theorising:**
+  - **Non-interactive session (CI agents, RDP-disconnected, locked, headless).**
+    `GetCursorPos` returns **ACCESS_DENIED (err 5)** and never writes its `out` param, so the
+    cursor monitor cannot be determined at all. This is a **100% deterministic failure, not a
+    flake** — the pair simply cannot pass there. Confirmed by direct P/Invoke probe on two
+    separate machines. Fixed by skipping rather than asserting when the cursor is
+    undeterminable; if you see these fail, probe first:
+    `GetCursorPos(out p)` → `False` / `LastError=5` means you are in this case and the fixtures
+    are innocent. Note `System.Windows.Forms.Cursor.Position` **hides** this — it surfaces the
+    uninitialised `(0,0)` instead of the failure.
+  - **Interactive multi-monitor box.** A TOCTOU: `GetCursorPos` is sampled *before*
+    `OpenAndSettle`, so a cursor crossing a monitor boundary while the window opens invalidates
+    the captured work rect. Intermittent, and **structurally impossible on a single display** —
+    if you are on one virtual desktop with no boundary to cross, this is not your mechanism.
+  Do not assume "quiet machine ⇒ passes": that holds only in the interactive case.
 - **Don't co-locate the E2E and selftest tiers.** CI runs them as separate jobs on separate
   runners today, and that isolation is load-bearing rather than incidental. E2E drives real
   pointer input, foregrounds windows and changes Z-order; several selftest fixtures read live

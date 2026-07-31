@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 
 namespace Microsoft.UI.Reactor.Core.Internal;
 
@@ -11,6 +12,7 @@ namespace Microsoft.UI.Reactor.Core.Internal;
 /// is what lets WinUI distinguish "this item moved" from
 /// "removed + inserted." See spec 042 §4.
 /// </summary>
+[DebuggerDisplay("{DebugDescription,nq}")]
 internal sealed class ReactorRow
 {
     /// <summary>
@@ -36,7 +38,37 @@ internal sealed class ReactorRow
     /// </summary>
     public AnimationKind? PendingEnterAnimation { get; set; }
 
-    public override string ToString() => $"Row[{Index}]={Key}";
+    /// <summary>
+    /// Human-readable identity for debugger watch windows, the
+    /// <see cref="DebuggerDisplayAttribute"/> on this type, and diagnostic
+    /// logging. Deliberately kept off <see cref="ToString"/> — see the
+    /// remarks there.
+    /// </summary>
+    public string DebugDescription => $"Row[{Index}]={Key}";
+
+    /// <summary>
+    /// Deliberately empty — this string reaches assistive technology.
+    /// </summary>
+    /// <remarks>
+    /// <para>Rows are the items of the <see cref="ObservableCollection{T}"/>
+    /// bound to a templated <c>ListView</c> / <c>GridView</c>, so WinUI builds
+    /// one <c>ItemAutomationPeer</c> (<c>ListViewItemDataAutomationPeer</c> /
+    /// <c>GridViewItemDataAutomationPeer</c>) per row <em>from the data item</em>.
+    /// That peer resolves its UIA <c>Name</c> as: the container peer's name when
+    /// non-empty, otherwise the data item's string representation. A container
+    /// peer composes a name only when the realized item view has plain text at
+    /// its root (a bare <c>TextBlock</c>); for a composite item view — a stack,
+    /// a border, a card — the container name is empty and the data item's
+    /// string representation becomes the announced name.</para>
+    /// <para>Returning the old <c>$"Row[{Index}]={Key}"</c> debug form therefore
+    /// made every item in a keyed list announce Reactor's internal bookkeeping,
+    /// down to a raw GUID when the author's key selector produced one
+    /// (issue #951). An empty string leaves the item unnamed, so assistive
+    /// technology falls through to the item's own content — the same behaviour
+    /// an author gets from a plain WinUI list whose data item has no string
+    /// representation. Use <see cref="DebugDescription"/> for diagnostics.</para>
+    /// </remarks>
+    public override string ToString() => string.Empty;
 }
 
 /// <summary>

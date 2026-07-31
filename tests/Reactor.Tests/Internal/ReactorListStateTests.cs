@@ -154,10 +154,14 @@ public class ReactorListStateTests
     }
 
     [Fact]
-    public void Row_ToString_Includes_Index_And_Key_For_Diagnostics()
+    public void Row_DebugDescription_Includes_Index_And_Key_For_Diagnostics()
     {
+        // Issue #951 — this used to assert on ToString(). That string is what
+        // WinUI announces for an unnamed keyed list row, so the diagnostic form
+        // moved to DebugDescription and ToString() is now deliberately empty
+        // (see the ToString_* tests below).
         var row = new ReactorRow { Index = 7, Key = "hello" };
-        var text = row.ToString();
+        var text = row.DebugDescription;
         Assert.Contains("7", text);
         Assert.Contains("hello", text);
     }
@@ -186,5 +190,59 @@ public class ReactorListStateTests
         Assert.True(state.ByKey.ContainsKey("A"));
         Assert.True(state.ByKey.ContainsKey("a"));
         Assert.NotSame(state.ByKey["A"], state.ByKey["a"]);
+    }
+
+    // ── Issue #951 — ReactorRow's string form reaches assistive technology ──
+    //
+    // Rows are the data items of the collection bound to a keyed ListView /
+    // GridView, and WinUI resolves an unnamed row's UIA Name from the data
+    // item's string representation. Anything ToString() returns is therefore
+    // announced verbatim by Narrator, so it has to stay empty. The live UIA
+    // measurement is in the KLIA_* selftest fixtures (headless tests can't
+    // construct AutomationPeers); these pin the contract at its source.
+
+    [Fact]
+    public void ToString_Is_Empty_So_Rows_Do_Not_Name_Their_List_Item()
+    {
+        var row = new ReactorRow { Index = 3, Key = "cb9f480f03954faaa2f8d69b739d31b8" };
+
+        // Not IsNullOrEmpty: object.ToString() (i.e. the override deleted)
+        // returns the type name, and any debug-ish form reintroduces the leak.
+        Assert.Equal(string.Empty, row.ToString());
+    }
+
+    [Fact]
+    public void ToString_Stays_Empty_For_Every_Row_In_A_Populated_State()
+    {
+        // Reset is the mount/bulk-replace path that builds the bound collection,
+        // so this covers the rows a real list actually hands to WinUI.
+        var state = new ReactorListState();
+        state.Reset([(0, "Apples"), (1, "Bananas"), (2, "Carrots")]);
+
+        Assert.All(state.Source, row => Assert.Equal(string.Empty, row.ToString()));
+    }
+
+    [Fact]
+    public void DebugDescription_Still_Carries_Index_And_Key()
+    {
+        // The identity string didn't disappear, it moved off ToString() —
+        // debugger display and diagnostics keep the readable form.
+        var row = new ReactorRow { Index = 3, Key = "beta" };
+
+        Assert.Equal("Row[3]=beta", row.DebugDescription);
+    }
+
+    [Fact]
+    public void DebugDescription_Tracks_Index_Reassignment()
+    {
+        // Rows are reused across diffs and their Index is rewritten in place;
+        // a cached/const string would silently drift from the row's real slot.
+        var row = new ReactorRow { Index = 0, Key = "beta" };
+        var before = row.DebugDescription;
+
+        row.Index = 7;
+
+        Assert.Equal("Row[0]=beta", before);
+        Assert.Equal("Row[7]=beta", row.DebugDescription);
     }
 }
