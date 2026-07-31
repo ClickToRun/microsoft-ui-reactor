@@ -125,6 +125,16 @@ Conventions for contributors:
 
 ### Fixed
 
+- **Context consumers inside a reference-stable child subtree now re-render when
+  the provided value changes (issue #811).** The reconciler's skip fast-paths
+  (positional, keyed prefix/suffix, the `UseMemoCellsByIndex` hint range, and the
+  element-level shallow skip) short-circuited before descending into a
+  structurally-unchanged child, so a `UseContext(...)` consumer behind such a skip
+  kept its stale value — and its captured click handlers kept dispatching the old
+  context. Every skip site now declines the skip when a consumed context changed in
+  the subtree, and the subtree walk covers `SplitView` (Pane/Content) and `Viewbox`
+  (Child) hosts in addition to the panel/border/content hosts.
+
 - **`Flyout(...)` no longer terminates the process when opened at its default
   placement.** Reactor's flyout elements default `Placement` to
   `FlyoutPlacementMode.Auto`, and that value was written straight onto the WinUI

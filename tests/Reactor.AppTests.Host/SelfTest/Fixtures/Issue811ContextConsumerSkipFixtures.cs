@@ -169,4 +169,112 @@ internal static class Issue811ContextConsumerSkipFixtures
             H.Check("Issue811_Hint_OverlayRerendered", probe.RenderCount >= 2);
         }
     }
+
+    internal sealed class SplitViewPane_ContextConsumerRerenders(Harness h)
+        : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var probe = new Probe();
+            // Reference-stable SplitView instance re-emitted every render, with the
+            // consumer hosted in its Pane slot — a named-slot host the subtree walk
+            // must descend into (issue #811 follow-up: SplitView traversal coverage).
+            var stableSplit = SplitView(
+                pane: Component<OverlayConsumer, OverlayProps>(new OverlayProps(probe)),
+                content: TextBlock("split-content"));
+
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (interactive, setInteractive) = ctx.UseState(true);
+
+                return VStack(
+                        Button("Toggle split interactive", () => setInteractive(!interactive)),
+                        stableSplit)
+                    .Provide(InteractiveCtx, interactive);
+            });
+
+            await Harness.Render();
+
+            H.Check("Issue811_Split_Mount_OverlayRenderedOnce", probe.RenderCount == 1);
+
+            H.ClickButton("Toggle split interactive");
+            await Harness.Render();
+
+            // Before the traversal fix the Pane consumer stayed at RenderCount 1
+            // because the walk never reached SplitView.Pane behind the stable skip.
+            H.Check("Issue811_Split_Toggle_PaneConsumerRerendered", probe.RenderCount >= 2);
+        }
+    }
+
+    internal sealed class ViewboxNested_ContextConsumerRerenders(Harness h)
+        : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var probe = new Probe();
+            // Consumer nested inside a reference-stable Viewbox (a single-content host
+            // that is a FrameworkElement, not a ContentControl) — exercises both the
+            // Viewbox traversal arm and the recursive descent.
+            var stableViewbox = Viewbox(Component<OverlayConsumer, OverlayProps>(new OverlayProps(probe)));
+
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (interactive, setInteractive) = ctx.UseState(true);
+
+                return VStack(
+                        Button("Toggle viewbox interactive", () => setInteractive(!interactive)),
+                        stableViewbox)
+                    .Provide(InteractiveCtx, interactive);
+            });
+
+            await Harness.Render();
+
+            H.Check("Issue811_Viewbox_Mount_LabelLock", H.FindText("Lock interactivity") is not null);
+            H.Check("Issue811_Viewbox_Mount_OverlayRenderedOnce", probe.RenderCount == 1);
+
+            H.ClickButton("Toggle viewbox interactive");
+            await Harness.Render();
+
+            H.Check("Issue811_Viewbox_Toggle_LabelUpdated", H.FindText("Unlock interactivity") is not null);
+            H.Check("Issue811_Viewbox_Toggle_NestedConsumerRerendered", probe.RenderCount >= 2);
+        }
+    }
+
+    internal sealed class ActiveButUnchangedContext_StillSkips(Harness h)
+        : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var probe = new Probe();
+            var stableOverlay = Component<OverlayConsumer, OverlayProps>(new OverlayProps(probe));
+
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                // A provider is active every render, but its value never changes.
+                var (tick, setTick) = ctx.UseState(0);
+
+                return VStack(
+                        TextBlock($"tick:{tick}"),
+                        Button("Bump tick", () => setTick(tick + 1)),
+                        stableOverlay)
+                    .Provide(InteractiveCtx, true);
+            });
+
+            await Harness.Render();
+
+            H.Check("Issue811_Negative_Mount_OverlayRenderedOnce", probe.RenderCount == 1);
+
+            // Re-render from unrelated state. HasActiveContextValues is true, but the
+            // provided value is unchanged, so the reference-stable consumer must still
+            // be skipped — the coarse gate must not regress into over-rendering.
+            H.ClickButton("Bump tick");
+            await Harness.Render();
+
+            H.Check("Issue811_Negative_TickUpdated", H.FindText("tick:1") is not null);
+            H.Check("Issue811_Negative_OverlayNotRerendered", probe.RenderCount == 1);
+        }
+    }
 }

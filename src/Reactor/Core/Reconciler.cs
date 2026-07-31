@@ -2174,6 +2174,26 @@ public sealed partial class Reconciler : IDisposable
         {
             visit(ucChild);
         }
+        // Named-slot / single-content hosts that are NOT Panel/Border/ScrollViewer/
+        // UserControl/ContentControl still host reactor children through their own
+        // WinUI child properties, so the subtree walks built on this helper — notably
+        // HasConsumedContextChangedInSubtree for the issue #811 context re-render fix —
+        // must descend into them or a consumer under one goes stale behind a
+        // reference-stable skip. SplitView is checked before the ContentControl arm
+        // because it is a plain Control (not a ContentControl) with two slots.
+        // The authoritative child slots live on each control's V1 children strategy
+        // (SingleContent.GetCurrentChild / NamedSlots); a fully strategy-driven walk is
+        // the principled generalization for the long tail (NavigationView, TitleBar,
+        // TeachingTip, SemanticZoom, …) and is tracked as a follow-up.
+        else if (control is WinUI.SplitView splitView)
+        {
+            if (splitView.Content is UIElement splitContent && !visit(splitContent)) return;
+            if (splitView.Pane is UIElement splitPane && !visit(splitPane)) return;
+        }
+        else if (control is WinUI.Viewbox viewbox && viewbox.Child is UIElement viewboxChild)
+        {
+            visit(viewboxChild);
+        }
         else if (control is WinUI.ContentControl cc && cc.Content is UIElement ccChild)
         {
             visit(ccChild);
