@@ -53,6 +53,39 @@ auditable against the working code.
 
 Spec §6.7.4 worry-threshold for `Propagate` is 20; we're at 12.
 
+> **Before you increment a row here, establish what it counts — the rule is not recorded.**
+> It is demonstrably **neither a row count nor a site count**: 17 site rows below carry a
+> `Keep` verdict against a `Keep` value of 8, and two of those rows collapse 12 sites into 2
+> (`LayoutEtwConsumer`'s "7 error-swallow catches" and "5 pure-trace `Debug.WriteLine`").
+> So `+1 per new entry` is a guess in the shape of a computation, and a wrong value here is
+> silent — nothing derives or gates these numbers. If you cannot determine the rule, add your
+> per-file entry and note that the counter does not yet include it, as the
+> `FrameNavigation.cs` section does. The entries are the record; the counts are downstream.
+>
+> That `17` is itself a derived number, so here is its rule rather than an assertion: every
+> row of a per-file table below this block whose **verdict** cell matches `Keep`. Re-derive it
+> before relying on it — a figure in a warning about unverifiable figures has no business
+> being taken on trust.
+>
+> The prose immediately below is a **historical** statement about what audit pass 2 produced.
+> Its figures are correctly frozen at that point and drift from the table above by design —
+> do not "fix" them to match.
+>
+> That is checkable rather than asserted: of the four verdicts the prose names, **three still
+> match the table exactly** (`Keep 8`, `Propagate 12`, `Deleted 9`) and only `Narrow` has moved
+> (prose `33`, table `37`) — precisely the row later narrowing work advanced. If the paragraph
+> were a current-state summary, someone would have updated it during that drift. Nobody did,
+> because it isn't one. **The divergence is the evidence, not the defect.**
+>
+> **Also note the `Keep` row's label under-describes its own contents.** It reads
+> "iteration sibling-independence", but entries filed under it include user-callback isolation
+> (`ContentDialog.ShowAsync + OnClosed`, navigation lifecycle dispatch) and fail-safe-to-default
+> (ConnectedAnimation, `ApplyThemeBindings`, `FrameNavigation`). The prose below names two of
+> those justifications and §6.7.3 adds the third, so the entries are filed correctly and the
+> *label* is the narrow thing. Read it as a heading, not as the admission criterion — otherwise
+> a correctly-filed entry looks misfiled. Left unedited here on the same principle as the count:
+> not restating a classification this PR cannot re-derive for the rows it did not write.
+
 The dramatic shift from "56 Keep" in the first audit pass to "8 Keep + 12 Propagate + 9 Deleted + 33 Narrow" came from applying the §6.7.2 narrowing properly to ReactorWindow.cs (29 sites) and the related Hosting code. The first pass migrated `Debug.WriteLine` → `DiagnosticLog.SwallowedError` with the catch shape unchanged ("Keep"); the second pass actually applied the §6.7.2 rule that broad `catch (Exception)` is wrong almost everywhere it isn't iteration sibling-independence or genuine fail-safe-to-default behavior.
 
 ---
@@ -157,6 +190,29 @@ the inventory in §3.3 of the task doc.
 |---|---|---|
 | 7 error-swallow catches (provider start, session enable, parser, etc.) | Keep + DiagnosticLog | LogCategory.LayoutCost. |
 | 5 pure-trace `Debug.WriteLine` (session started / parser output / orphan cleanup) | Keep as `Debug.WriteLine` | Framework-internal per spec §6.3 carve-out. |
+
+### `src/Reactor/Hosting/FrameNavigation.cs` — added with the Frame-navigation access-violation fix
+
+> **Not yet reflected in the verdict-distribution table above.** These two sites are
+> deliberately left out of the counter pending reconciliation once the concurrent PRs
+> touching this file have landed. The counter's derivation rule is not a plain row count
+> (the `Keep` row reads 8 while **17** rows across this document carry a `Keep` verdict —
+> 15 of them predating this entry — so it tracks a subcategory and/or collapses multi-site
+> rows), so incrementing it from a branch would risk writing a confidently wrong number
+> into the one figure this audit exists to make trustworthy. The entries below are the
+> load-bearing record; the count is derived from them.
+
+Both sites are new with that fix and are **fail-safe-to-default** per §6.7.2, not
+sibling-independence. They are deliberately broad and the code comments say so —
+note that `catch (Exception ex) when (ex is not A and not B)` still compiles to an
+IL filter region with a nil `CatchType`, so the carve-outs exclude the two fatal
+types without making it a narrowing. Same shape as the existing convention at
+`Reconciler.cs:1795`, `ElementPool.cs:93` and `ObservableTreeTracker.cs:124`.
+
+| Site | Verdict | Notes |
+|---|---|---|
+| `CanResolvePageType` resolver probe | Keep (fail-safe-to-default) | The method's contract is "true **only if** definitively resolvable". Any failure to answer means we cannot confirm, and returning `false` refuses the navigation — the safe direction, and the one that cannot produce the access violation. Expected types are `COMException` at the WinRT boundary and `InvalidOperationException` / `ArgumentException` from a generated or hand-written `IXamlMetadataProvider`; propagating anything else would convert a third-party provider's bug into a render-loop error **while the navigation is refused either way**, i.e. strictly worse for identical safety. `OutOfMemoryException` / `StackOverflowException` still propagate. |
+| `TryNavigate` around `Frame.Navigate` | Keep (user-callback isolation, §6.7.3) | What surfaces here is the **page constructor's** exception — arbitrary application code — and routing it into the element's declared `OnNavigationFailed` channel is the arm's entire purpose. Directly analogous to the `ContentDialog.ShowAsync + OnClosed` entry above. **Narrowing would reintroduce the defect this fix exists to remove:** an unanticipated page-constructor failure would escape the mount pass. **Coverage gap, stated rather than hidden:** reaching this arm needs a target that *resolves* but whose constructor then throws, i.e. a real `.xaml`-backed page. The selftest host ships no XAML, so every target it can offer is either refused before `Navigate` (code-only) or a framework type that constructs fine. The arm is therefore reasoned-about, not exercised — unlike the refusal path, which `FrameNav_CodeOnlyPageRefusedNotFatal` pins directly. |
 
 ### `src/Reactor/Hosting/ReactorWindow.cs` — Phase C.8 (commit `21cd6ef9`) + Phase C.9 narrowing
 

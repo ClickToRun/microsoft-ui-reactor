@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -21,19 +22,32 @@ namespace Microsoft.UI.Reactor.Hosting;
 /// </remarks>
 [global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(Frame))]
 [global::Microsoft.UI.Reactor.Wrappers.WrapDecorator(nameof(CreateFrame), OnUpdate = nameof(UpdateFrame), OnUnmount = nameof(TeardownFrame))]
-public partial record XamlPageElement(Type PageType, object? Parameter = null) : Element
+public partial record XamlPageElement(
+    Type PageType,
+    object? Parameter = null) : Element
 {
     private static Frame CreateFrame(XamlPageElement element)
     {
         var frame = new Frame();
-        frame.Navigate(element.PageType, element.Parameter);
+        Navigate(frame, element);
         return frame;
     }
 
     private static void UpdateFrame(XamlPageElement oldEl, XamlPageElement newEl, Frame frame)
     {
         if (oldEl.PageType != newEl.PageType || !Equals(oldEl.Parameter, newEl.Parameter))
-            frame.Navigate(newEl.PageType, newEl.Parameter);
+            Navigate(frame, newEl);
+    }
+
+    // Navigating to a page type the XAML metadata chain cannot resolve terminates the
+    // process with an access violation inside native WinUI, so the guarded seam is
+    // mandatory here too — XamlPage's whole purpose is hosting app-defined pages.
+    // XamlPageElement has no navigation-failed callback, so a refusal throws: a managed
+    // exception is catchable and diagnosable, an access violation is neither.
+    internal static void Navigate(Frame frame, XamlPageElement element)
+    {
+        var failure = FrameNavigation.TryNavigate(frame, element.PageType, element.Parameter);
+        if (failure is not null) throw failure;
     }
 
     // Navigate away (clear Content) to trigger Page.OnNavigatedFrom cleanup.
@@ -100,14 +114,14 @@ public static class XamlInterop
             mount: (r, el, rerender) =>
             {
                 var frame = new Frame();
-                frame.Navigate(el.PageType, el.Parameter);
+                XamlPageElement.Navigate(frame, el);
                 Reconciler.SetElementTag(frame, el);
                 return frame;
             },
             update: (r, oldEl, newEl, frame, rerender) =>
             {
                 if (oldEl.PageType != newEl.PageType || !Equals(oldEl.Parameter, newEl.Parameter))
-                    frame.Navigate(newEl.PageType, newEl.Parameter);
+                    XamlPageElement.Navigate(frame, newEl);
                 Reconciler.SetElementTag(frame, newEl);
                 return null; // updated in place
             },

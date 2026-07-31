@@ -24,7 +24,7 @@ class FrameNavigationPage : Component
     public override Element Render()
     {
         var (log, updateLog) = UseReducer<IReadOnlyList<LogEntry>>(Array.Empty<LogEntry>());
-        var (target, setTarget) = UseState<Type>(typeof(Pages.FrameSampleHomePage));
+        var (target, setTarget) = UseState<Type>(typeof(Page));
         // Bump on each Navigate request so the Frame re-resolves SourcePageType
         // even when target equals the current page (Frame coalesces identical
         // navigations otherwise).
@@ -46,16 +46,17 @@ class FrameNavigationPage : Component
         }
 
         return PageContent("Frame navigation events",
-            "Wire .Navigated / .Navigating / .NavigationFailed on FrameElement to observe Frame navigation transitions. Each fluent drops the leading 'On' per Phase 1's convention; the underlying record properties remain OnNavigated / OnNavigating / OnNavigationFailed.",
+            "Wire .Navigated / .Navigating / .NavigationFailed on FrameElement to observe Frame navigation transitions. Each fluent drops the leading 'On' per Phase 1's convention; the underlying record properties remain OnNavigated / OnNavigating / OnNavigationFailed. Note Frame is WinUI's XAML-page interop control — for navigation inside a Reactor app use UseNavigation<TRoute> with NavigationHost, which needs no XAML and no Page subclass.",
 
             SampleCard("Live demo",
                 VStack(12,
                     HStack(8,
-                        Button("Go Home").Click(() => NavigateTo(typeof(Pages.FrameSampleHomePage))).AccentButton(),
-                        Button("Go Details").Click(() => NavigateTo(typeof(Pages.FrameSampleDetailsPage))),
-                        Button("Force failure").Click(() => NavigateTo(typeof(Pages.FrameSampleBrokenPage))).SubtleButton(),
+                        Button("Navigate (resolvable)").Click(() => NavigateTo(typeof(Page))).AccentButton(),
+                        Button("Navigate (code-only page)").Click(() => NavigateTo(typeof(Pages.FrameSampleCodeOnlyPage))),
                         Button("Clear log").Click(() => updateLog(_ => Array.Empty<LogEntry>())).SubtleButton()
                     ),
+
+                    BodyStrong("A code-only Page has no XAML metadata, so WinUI cannot resolve it. Reactor refuses that navigation and reports it through .NavigationFailed instead of letting it fault."),
 
                     // The Frame itself. Re-keyed on navTick so identical-target
                     // re-navigations still fire Navigating + Navigated.
