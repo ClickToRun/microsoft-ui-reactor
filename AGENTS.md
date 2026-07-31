@@ -207,6 +207,25 @@ Hard-won specifics that repeatedly cost sessions time. Prefer these exact comman
   `Create()` switch in `tests/Reactor.AppTests.Host/SelfTest/SelfTestFixtureRegistry.cs`.
   E2E: add to `AllFixtures` **and** the `Build` switch in
   `tests/Reactor.AppTests.Host/FixtureRegistry.cs`.
+- **…which makes searching for a TAP name unsafe unless you search the whole tree.** TAP
+  carries two kinds of name and they live in different files: *fixture* names (registry only,
+  and the class they map to is often spelled differently — `CenterOnCurrent_UsesCursorMonitor`
+  → `CenterOnCurrentUsesCursorMonitor`) and *check* names (string literals in `H.Check(...)`
+  inside `Fixtures/`). Neither location is a superset:
+
+  | probe | blind spot |
+  |---|---|
+  | grep `SelfTest/Fixtures/` only | fixture names whose class name differs |
+  | grep `SelfTestFixtureRegistry.cs` only | check-only names — e.g. `WindowLevel_RuntimeFlip_Topmost`, `TabViewFill_Mounted`, `ExitTr_Removed` are all registry=0 |
+  | **grep `tests/Reactor.AppTests.Host/` whole** | **none — use this** |
+
+  Both narrow probes return a *confident zero*, which reads as "this fixture doesn't exist"
+  and invites re-attributing a real flake as branch-local or renamed. Both directions were hit
+  during one flakiness audit, and the check-only example above is the assertion at the centre
+  of issue #927 — a rule that silently fails on the most-discussed flake in the audit is worse
+  than no rule, because its user has no reason to doubt the answer. Two probes with
+  complementary blind spots don't compose into coverage unless you run both, and if you're
+  running both the whole-tree grep is cheaper than remembering why.
 - **Coverage** starts from `tools/coverage/run-coverage.ps1` (`-UnitOnly`, `-SkipBuild`);
   output `coverage/merged.cobertura.xml`. The script **aborts before the merge step on any
   test failure** — if a known flake trips it, merge the legs manually with
