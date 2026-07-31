@@ -72,10 +72,16 @@ public sealed class SwallowedErrorAuditTests
         var derived = Derive(audit.Rows);
         var published = audit.Distribution.Value;
 
+        // A verdict must appear in both, with the same tally. Comparing
+        // `GetValueOrDefault` alone is not enough: a phantom `| X | 0 | 0 | 0 |`
+        // row in the summary compares equal to a verdict the ledger never used,
+        // so the table could carry rows that are not derivations of anything.
         var mismatch = derived.Keys
             .Union(published.Keys)
             .Order(global::System.StringComparer.Ordinal)
-            .Where(v => !derived.GetValueOrDefault(v).Equals(published.GetValueOrDefault(v)))
+            .Where(v => !derived.ContainsKey(v)
+                        || !published.ContainsKey(v)
+                        || !derived[v].Equals(published[v]))
             .ToList();
 
         Assert.True(
@@ -461,21 +467,33 @@ public sealed class SwallowedErrorAuditTests
     /// </summary>
     /// <remarks>
     /// Every path this gate resolves comes out of the audit document, so it is
-    /// author-controlled. <c>Path.Combine</c> silently discards its earlier
-    /// arguments when a later one is rooted, which would let a heading naming
-    /// an absolute path escape the repository — and, worse, pass the
-    /// existence check by pointing at some unrelated file on the machine. The
-    /// escape is rejected here rather than followed.
+    /// author-controlled, and two shapes escape the tree. <c>Path.Combine</c>
+    /// silently discards its earlier arguments when a later one is rooted, and
+    /// a relative path can climb out with <c>..</c> segments. Either would let
+    /// a heading satisfy the existence check by naming an unrelated file
+    /// elsewhere on the machine. Both are rejected here rather than followed.
     /// </remarks>
     static string RepoPath(string relative, string what)
     {
+        var root = RepoRoot();
         var native = relative.Replace('/', Path.DirectorySeparatorChar);
+
         Assert.False(
             Path.IsPathRooted(native),
             $"{what} is '{relative}', which is an absolute path. Paths in the audit are relative to the "
             + $"repository root — an absolute one would resolve outside the tree and could satisfy the "
             + $"existence check by naming an unrelated file.");
-        return Path.Combine(RepoRoot(), native);
+
+        var full = Path.GetFullPath(Path.Combine(root, native));
+        var anchor = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)) + Path.DirectorySeparatorChar;
+
+        Assert.True(
+            full.StartsWith(anchor, Ordinal.OrdinalIgnoreCase),
+            $"{what} is '{relative}', which resolves to '{full}' — outside the repository root '{root}'. "
+            + $"Paths in the audit must stay inside the tree; a '..' segment that climbs out could satisfy "
+            + $"the existence check by naming an unrelated file.");
+
+        return full;
     }
 
     static Audit Load()

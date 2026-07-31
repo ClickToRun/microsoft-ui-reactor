@@ -50,8 +50,10 @@ any one of them. Three are currently in use; **framework-internal** is
 reserved for a §6.3 carve-out that stays a broad `Keep` rather than
 becoming `Trace`, and no row uses it today.
 
-Each entry also names the migration commit so the verdict is
-auditable against the working code.
+Entries whose verdict has **shipped** also name the migration commit, so
+the verdict is auditable against the working code. Entries still marked
+`deferred` have no commit yet by definition — their Notes name the phase
+the work is scheduled into instead.
 
 ## Ledger schema
 
