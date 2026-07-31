@@ -216,10 +216,18 @@ internal static class DiagramProcessor
     /// Validate every <c>![...](images/&lt;topic&gt;/...)</c> reference in
     /// <paramref name="body"/> resolves to a file under
     /// <paramref name="imagesRoot"/>. Missing files raise
-    /// <c>REACTOR_DOC_IMAGE_001</c>.
+    /// <c>REACTOR_DOC_IMAGE_001</c>; a raster image whose interior is blank
+    /// raises <c>REACTOR_DOC_IMAGE_002</c>.
     /// </summary>
+    /// <param name="blankCache">
+    /// Optional path-keyed cache of the blank verdict. The same screenshot is
+    /// referenced from several pages, and this runs once per compiled page, so
+    /// without a cache the corpus would be decoded many times over. Pass the
+    /// same instance across every call in one compile.
+    /// </param>
     public static List<TierLintFinding> ValidateImageRefs(
-        string filePath, string body, string imagesRoot)
+        string filePath, string body, string imagesRoot,
+        Dictionary<string, bool>? blankCache = null)
     {
         var findings = new List<TierLintFinding>();
         foreach (Match m in ImagePattern.Matches(body))
@@ -227,16 +235,78 @@ internal static class DiagramProcessor
             var rel = m.Groups[1].Value;
             var full = Path.Combine(imagesRoot, "..", rel.Replace('/', Path.DirectorySeparatorChar));
             full = Path.GetFullPath(full);
+            var line = body[..m.Index].Count(c => c == '\n') + 1;
             if (!File.Exists(full))
             {
-                var line = body[..m.Index].Count(c => c == '\n') + 1;
                 findings.Add(new TierLintFinding(
                     "REACTOR_DOC_IMAGE_001",
                     $"broken image reference: {rel}",
                     filePath, line, TierLintSeverity.Error));
+                continue;
+            }
+
+            if (IsBlankRaster(full, blankCache))
+            {
+                findings.Add(new TierLintFinding(
+                    "REACTOR_DOC_IMAGE_002",
+                    $"blank screenshot: {rel} has no visible content — it was most likely " +
+                    "overwritten by a capture whose doc-app window never painted. Restore it " +
+                    "from git and re-capture on an interactive desktop.",
+                    filePath, line, TierLintSeverity.Error));
             }
         }
         return findings;
+    }
+
+    /// <summary>
+    /// True when <paramref name="path"/> is a raster image whose interior
+    /// (excluding the border + drop shadow the capture pipeline draws) contains
+    /// no content at all. Non-raster references (SVG) and undecodable files are
+    /// never reported — this gate exists to catch the specific solid-white stub
+    /// a failed capture produces, not to second-guess authored assets.
+    /// </summary>
+    /// <remarks>
+    /// The predicate is strictly "zero content pixels", never "small". The
+    /// committed corpus contains legitimately tiny screenshots — the smallest
+    /// is 89×40 / 2127&#160;B — so any byte-size floor able to catch a ~3&#160;KB stub
+    /// would also condemn real assets. Measured margin: across all 227
+    /// committed PNGs the *sparsest* interior is 0.6084&#160;% content pixels
+    /// (<c>navigation/navigation-view.png</c>), i.e. ~600× the zero threshold.
+    /// <c>DocImageIntegrityTests.Committed_screenshot_corpus_has_no_blank_images</c>
+    /// re-measures this on every run and logs it.
+    /// </remarks>
+    private static bool IsBlankRaster(string path, Dictionary<string, bool>? cache)
+    {
+        if (cache is not null && cache.TryGetValue(path, out var cached)) return cached;
+
+        var blank = ComputeIsBlankRaster(path);
+        cache?[path] = blank;
+        return blank;
+    }
+
+    private static bool ComputeIsBlankRaster(string path)
+    {
+        var ext = Path.GetExtension(path);
+        if (!ext.Equals(".png", StringComparison.OrdinalIgnoreCase) &&
+            !ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) &&
+            !ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var bmp = new global::System.Drawing.Bitmap(path);
+            var interior = ImageProcessor.InteriorRegion(bmp.Width, bmp.Height);
+            return ImageProcessor.CountContentPixels(bmp, interior) == 0;
+        }
+        catch (Exception ex) when (ex is ArgumentException or OutOfMemoryException or IOException)
+        {
+            // Undecodable — REACTOR_DOC_IMAGE_001 already proved the file
+            // exists, and misreporting a decode failure as "blank" would send
+            // an author chasing the wrong problem.
+            return false;
+        }
     }
 
     /// <summary>

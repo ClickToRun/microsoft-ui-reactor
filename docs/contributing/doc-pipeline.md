@@ -145,6 +145,36 @@ mur docs render-diagrams --topic architecture-overview
 mur docs new-diagram architecture-overview overview
 ```
 
+### Screenshots and committed images
+
+Phase 3 (capture) is the **only** phase that writes under
+`docs/guide/images/`. `--skip-screenshots` (alias `--no-screenshots`) skips it
+outright, so a compile with that flag leaves every committed screenshot
+byte-identical — the CI `docs-build` job proves this on every PR with
+`git diff --exit-code -- docs/guide/images` immediately after the compile.
+
+Capture itself needs an **interactive desktop**. It launches each doc app,
+waits for the preview capture server, and reads real frames over HTTP. In a
+headless, locked, or RDP-disconnected session the app window never paints and
+the capture server returns a solid-white surface. Historically that surface was
+written straight over the committed screenshot as a ~3 KB white rectangle, and
+the compile still exited 0 ([issue #989][i989]). Two guards now prevent that:
+
+- `ImageProcessor` raises `REACTOR_DOC_SHOT_001` for a contentless frame
+  **before** anything opens the output file, so the existing image is left
+  untouched and the failure is counted. A non-zero capture-failure count sets
+  the compile's error flag, which fails the run under `--ci`.
+- Every compile re-checks the committed corpus and raises
+  `REACTOR_DOC_IMAGE_002` for any referenced screenshot whose interior is
+  blank, so a stub that reaches the tree from any source is caught on the next
+  compile rather than at review time.
+
+If you are staging a docs change by hand, stage the specific `.md` / `.md.dt`
+paths rather than `git add -A`, and check `git status` for unexpected entries
+under `docs/guide/images/` before committing.
+
+[i989]: https://github.com/microsoft/microsoft-ui-reactor/issues/989
+
 ## 5. Tier-lint diagnostic codes
 
 The validator emits diagnostics from `mur docs compile --validate-only`
@@ -180,6 +210,8 @@ reference-generation codes.
 | `REACTOR_DOC_SNIPPET_004`  | Nested region with same name as outer region               |
 | `REACTOR_DOC_DIAGRAM_001`  | `mermaid-cli` not on PATH but the topic has `.mmd` files   |
 | `REACTOR_DOC_IMAGE_001`    | `![..](images/<topic>/...)` reference resolves to nothing  |
+| `REACTOR_DOC_IMAGE_002`    | Referenced screenshot exists but its interior is blank — a failed capture overwrote it. Restore from git and re-capture on an interactive desktop |
+| `REACTOR_DOC_SHOT_001`     | Captured frame was contentless; nothing was written and the existing screenshot was left untouched |
 | `REACTOR_DOC_REGISTRY_W001`| Registry rule maps to a category with no `guide-pages`     |
 | `REACTOR_DOC_REGISTRY_W002`| Registry-declared guide page has no inbound `<!-- ref:Member -->` marker (doc-coverage gate, spec [041 §5.3](../specs/041-docs-comprehensive-uplift.md)) |
 

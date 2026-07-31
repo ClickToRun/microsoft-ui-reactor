@@ -22,12 +22,22 @@ internal static class ImageProcessor
     public const int MaxImageDimension = 16384;
 
     /// <summary>
+    /// Per-channel value at or above which a pixel counts as background. Shared
+    /// by content cropping and the blank-frame guard so both agree on what
+    /// "empty" means.
+    /// </summary>
+    internal const int ContentThreshold = 248;
+
+    /// <summary>
     /// Crops whitespace then downscales to <paramref name="targetW"/>×<paramref name="targetH"/>
     /// preserving aspect (letterboxed with white). Used by <c>kind: catalog-thumb</c>
     /// in <c>doc-manifest.yaml</c> for the controls-catalog index thumbnails (spec 041 §6.3 + §12 Q7).
     /// No border / drop shadow — the thumbnail itself is the visual; the catalog page
     /// renders it inside a table cell where additional chrome would be noise.
     /// </summary>
+    /// <exception cref="BlankFrameException">
+    /// The frame contains no content — see <see cref="Process"/>.
+    /// </exception>
     public static byte[] ProcessThumb(byte[] frameBytes, int targetW = 320, int targetH = 240)
     {
         if (frameBytes is null || frameBytes.Length == 0)
@@ -45,7 +55,8 @@ internal static class ImageProcessor
             throw new ArgumentException($"Image dimensions exceed {MaxImageDimension}px cap.", nameof(frameBytes));
 
         // Trim whitespace to focus the thumb on real content.
-        var bounds = FindContentBounds(source, threshold: 248);
+        var bounds = FindContentBounds(source, ContentThreshold)
+            ?? throw BlankFrameException.ForFrame(source.Width, source.Height);
         bounds = InflateClamp(bounds, ContentPadding, source.Width, source.Height);
         using var cropped = source.Clone(bounds, PixelFormat.Format32bppArgb);
 
@@ -74,6 +85,13 @@ internal static class ImageProcessor
     /// <summary>
     /// Processes a captured frame, adds border + drop shadow, and returns PNG bytes.
     /// </summary>
+    /// <exception cref="BlankFrameException">
+    /// The frame contains no content — every pixel is at or above
+    /// <see cref="ContentThreshold"/>. A doc app whose window never painted (no
+    /// interactive desktop, capture polled too early) yields exactly this, and
+    /// writing it would silently replace a good committed screenshot with a
+    /// solid-white stub. Callers must treat it as a failed capture, not a result.
+    /// </exception>
     public static byte[] Process(byte[] frameBytes, ScreenshotCropMode cropMode = ScreenshotCropMode.Content)
     {
         // SECURITY (TASK-044): validate magic bytes and size before handing
@@ -92,10 +110,16 @@ internal static class ImageProcessor
         if (source.Width > MaxImageDimension || source.Height > MaxImageDimension)
             throw new ArgumentException($"Image dimensions exceed {MaxImageDimension}px cap.", nameof(frameBytes));
 
+        // Blank check runs before the crop switch so it covers `crop: none`
+        // too — the question is whether the *frame* has content, not whether
+        // this particular crop mode would have trimmed it away.
+        var contentBounds = FindContentBounds(source, ContentThreshold)
+            ?? throw BlankFrameException.ForFrame(source.Width, source.Height);
+
         var bounds = cropMode switch
         {
             ScreenshotCropMode.Content => InflateClamp(
-                FindContentBounds(source, threshold: 248),
+                contentBounds,
                 ContentPadding,
                 source.Width,
                 source.Height),
@@ -112,6 +136,32 @@ internal static class ImageProcessor
         using var output = new MemoryStream();
         result.Save(output, ImageFormat.Png);
         return output.ToArray();
+    }
+
+    /// <summary>
+    /// True when <paramref name="frameBytes"/> decodes to an image with at
+    /// least one pixel below <see cref="ContentThreshold"/>. Cheap probe used
+    /// by the capture poller to hold out for a painted frame; returns
+    /// <see langword="true"/> for anything it cannot decode so an unexpected
+    /// format falls through to the normal validation path instead of being
+    /// silently discarded as "blank".
+    /// </summary>
+    internal static bool FrameHasContent(byte[] frameBytes)
+    {
+        if (frameBytes is null || frameBytes.Length == 0) return false;
+        if (frameBytes.Length > MaxImageBytes || !HasKnownImageMagic(frameBytes)) return true;
+        try
+        {
+            using var ms = new MemoryStream(frameBytes);
+            using var bmp = new Bitmap(ms);
+            if (bmp.Width > MaxImageDimension || bmp.Height > MaxImageDimension) return true;
+            return FindContentBounds(bmp, ContentThreshold) is not null;
+        }
+        catch (ArgumentException)
+        {
+            // GDI+ rejected the bytes — let the caller's normal path report it.
+            return true;
+        }
     }
 
     internal static ScreenshotCropMode ParseCropMode(string? value)
@@ -132,41 +182,57 @@ internal static class ImageProcessor
             nameof(value));
     }
 
-    private static Rectangle FindContentBounds(Bitmap bmp, int threshold)
+    /// <summary>
+    /// Locates the tight bounding box of non-background content, or
+    /// <see langword="null"/> when the bitmap has none at all.
+    /// </summary>
+    /// <remarks>
+    /// The scan samples every other row/column for speed, exactly as it always
+    /// has. A frame that looks empty under that sampling is re-scanned at full
+    /// resolution before we report <see langword="null"/> — a false "blank"
+    /// verdict costs a real screenshot, so the cheap scan is only allowed to
+    /// say "yes, content".
+    /// </remarks>
+    private static Rectangle? FindContentBounds(Bitmap bmp, int threshold) =>
+        ScanContentBounds(bmp, threshold, step: 2) ?? ScanContentBounds(bmp, threshold, step: 1);
+
+    private static Rectangle? ScanContentBounds(Bitmap bmp, int threshold, int step)
     {
-        int top = 0, bottom = bmp.Height - 1;
-        int left = 0, right = bmp.Width - 1;
+        int top = -1, bottom = -1, left = -1, right = -1;
 
         // Scan from top
         for (int y = 0; y < bmp.Height; y++)
         {
-            if (RowHasContent(bmp, y, threshold)) { top = y; break; }
+            if (RowHasContent(bmp, y, threshold, step)) { top = y; break; }
         }
+
+        // No sampled pixel anywhere is below the threshold — nothing to bound.
+        if (top < 0) return null;
 
         // Scan from bottom
         for (int y = bmp.Height - 1; y >= top; y--)
         {
-            if (RowHasContent(bmp, y, threshold)) { bottom = y; break; }
+            if (RowHasContent(bmp, y, threshold, step)) { bottom = y; break; }
         }
 
         // Scan from left
         for (int x = 0; x < bmp.Width; x++)
         {
-            if (ColumnHasContent(bmp, x, top, bottom, threshold)) { left = x; break; }
+            if (ColumnHasContent(bmp, x, top, bottom, threshold, step)) { left = x; break; }
         }
 
         // Scan from right
         for (int x = bmp.Width - 1; x >= left; x--)
         {
-            if (ColumnHasContent(bmp, x, top, bottom, threshold)) { right = x; break; }
+            if (ColumnHasContent(bmp, x, top, bottom, threshold, step)) { right = x; break; }
         }
 
         return new Rectangle(left, top, right - left + 1, bottom - top + 1);
     }
 
-    private static bool RowHasContent(Bitmap bmp, int y, int threshold)
+    private static bool RowHasContent(Bitmap bmp, int y, int threshold, int step)
     {
-        for (int x = 0; x < bmp.Width; x += 2) // sample every other pixel for speed
+        for (int x = 0; x < bmp.Width; x += step)
         {
             var p = bmp.GetPixel(x, y);
             if (p.R < threshold || p.G < threshold || p.B < threshold) return true;
@@ -174,14 +240,73 @@ internal static class ImageProcessor
         return false;
     }
 
-    private static bool ColumnHasContent(Bitmap bmp, int x, int yStart, int yEnd, int threshold)
+    private static bool ColumnHasContent(Bitmap bmp, int x, int yStart, int yEnd, int threshold, int step)
     {
-        for (int y = yStart; y <= yEnd; y += 2)
+        for (int y = yStart; y <= yEnd; y += step)
         {
             var p = bmp.GetPixel(x, y);
             if (p.R < threshold || p.G < threshold || p.B < threshold) return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Counts pixels darker than <see cref="ContentThreshold"/> inside
+    /// <paramref name="region"/>. Used by the committed-corpus gate, which has
+    /// to scan hundreds of images per compile, so this reads the locked bits a
+    /// row at a time rather than going through <see cref="Bitmap.GetPixel"/>.
+    /// </summary>
+    internal static int CountContentPixels(Bitmap bmp, Rectangle region)
+    {
+        region = Rectangle.Intersect(region, new Rectangle(0, 0, bmp.Width, bmp.Height));
+        if (region.Width <= 0 || region.Height <= 0) return 0;
+
+        var data = bmp.LockBits(region, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        try
+        {
+            var row = new byte[region.Width * 4];
+            int count = 0;
+            for (int y = 0; y < region.Height; y++)
+            {
+                global::System.Runtime.InteropServices.Marshal.Copy(
+                    data.Scan0 + (y * data.Stride), row, 0, row.Length);
+                for (int i = 0; i < row.Length; i += 4)
+                {
+                    // Format32bppArgb is BGRA in memory.
+                    if (row[i + 3] == 0) continue; // fully transparent — not content
+                    if (row[i] < ContentThreshold || row[i + 1] < ContentThreshold || row[i + 2] < ContentThreshold)
+                        count++;
+                }
+            }
+            return count;
+        }
+        finally
+        {
+            bmp.UnlockBits(data);
+        }
+    }
+
+    /// <summary>
+    /// Region of a <em>processed</em> screenshot that excludes the chrome
+    /// <see cref="AddBorderAndShadow"/> itself draws — the 1&#160;px border ring and
+    /// the <see cref="ShadowOffset"/>&#160;+&#160;<see cref="ShadowBlur"/> strip along the
+    /// right and bottom edges. Without this inset a blank capture would still
+    /// score its own border as "content" and the gate could never fire.
+    /// </summary>
+    internal static Rectangle InteriorRegion(int width, int height)
+    {
+        const int LeadingInset = 2;                                    // 1px border + 1px antialias margin
+        const int TrailingInset = ShadowOffset + ShadowBlur + 2;       // shadow strip + border + margin
+        var w = width - LeadingInset - TrailingInset;
+        var h = height - LeadingInset - TrailingInset;
+        if (w <= 0 || h <= 0)
+        {
+            // Too small to inset meaningfully (thumbnails and hand-authored
+            // assets can be tiny). Fall back to the whole image rather than an
+            // empty region — an empty region would count zero and false-fire.
+            return new Rectangle(0, 0, width, height);
+        }
+        return new Rectangle(LeadingInset, LeadingInset, w, h);
     }
 
     private static Bitmap AddBorderAndShadow(Bitmap source)

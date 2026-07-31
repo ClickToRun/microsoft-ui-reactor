@@ -9,7 +9,44 @@ namespace Microsoft.UI.Reactor.Cli.Docs;
 /// </summary>
 internal static class ScreenshotCapture
 {
-    public static async Task<bool> CaptureAsync(
+    /// <summary>
+    /// Outcome of one topic's capture pass. <see cref="Failed"/> counts
+    /// screenshots that were requested but produced no written file — the
+    /// caller turns a non-zero count into a compile error rather than letting
+    /// a silent mass-failure look like a clean run.
+    /// </summary>
+    internal sealed record CaptureResult(int Written, int Failed)
+    {
+        public int Requested => Written + Failed;
+    }
+
+    /// <summary>
+    /// Processes a captured frame and writes it to <paramref name="outputPath"/>.
+    /// </summary>
+    /// <remarks>
+    /// The ordering here is the fix for issue #989 and is load-bearing:
+    /// <see cref="ImageProcessor"/> throws <see cref="BlankFrameException"/> for a
+    /// contentless frame <em>before</em> this method touches the filesystem, so a
+    /// doc app that never painted can no longer replace a good committed
+    /// screenshot with a solid-white stub. Any refactor that opens the output
+    /// file first — or that catches the exception in here and writes anyway —
+    /// reintroduces the bug, which is why this seam is tested directly rather
+    /// than only through the (desktop-bound) capture loop.
+    /// </remarks>
+    /// <exception cref="BlankFrameException">
+    /// The frame has no visible content. Nothing is written; the existing file,
+    /// if any, is left exactly as it was.
+    /// </exception>
+    internal static void ProcessAndWrite(byte[] frameBytes, string outputPath, ScreenshotConfig screenshot)
+    {
+        var isThumb = string.Equals(screenshot.Kind, "catalog-thumb", StringComparison.OrdinalIgnoreCase);
+        var processed = isThumb
+            ? ImageProcessor.ProcessThumb(frameBytes, screenshot.ThumbWidth, screenshot.ThumbHeight)
+            : ImageProcessor.Process(frameBytes, ImageProcessor.ParseCropMode(screenshot.Crop));
+        File.WriteAllBytes(outputPath, processed);
+    }
+
+    public static async Task<CaptureResult> CaptureAsync(
         string appDir,
         string topicId,
         DocManifest manifest,
@@ -23,14 +60,14 @@ internal static class ScreenshotCapture
         if (screenshots.Count == 0)
         {
             Console.WriteLine("    No matching screenshots.");
-            return true;
+            return new CaptureResult(0, 0);
         }
 
         var csprojFiles = Directory.GetFiles(appDir, "*.csproj");
         if (csprojFiles.Length == 0)
         {
             Console.Error.WriteLine($"    ✗ No .csproj found in {appDir}");
-            return false;
+            return new CaptureResult(0, screenshots.Count);
         }
 
         var csproj = csprojFiles[0];
@@ -58,16 +95,17 @@ internal static class ScreenshotCapture
         if (process == null)
         {
             Console.Error.WriteLine("    ✗ Failed to start process");
-            return false;
+            return new CaptureResult(0, screenshots.Count);
         }
 
+        int written = 0, failed = 0;
         try
         {
             var (port, token) = await WaitForCaptureHandshake(process, TimeSpan.FromSeconds(30));
             if (port < 0 || token is null)
             {
                 Console.Error.WriteLine("    ✗ Timed out waiting for capture port");
-                return false;
+                return new CaptureResult(0, screenshots.Count);
             }
 
             Console.WriteLine($"    Capture server on port {port}");
@@ -94,6 +132,7 @@ internal static class ScreenshotCapture
             foreach (var screenshot in screenshots)
             {
                 Console.Write($"    Capturing {screenshot.Id}...");
+                string? outputPath = null;
                 try
                 {
                     // Switch to the target component if specified
@@ -105,6 +144,7 @@ internal static class ScreenshotCapture
                         if (!switchResp.IsSuccessStatusCode)
                         {
                             Console.Error.WriteLine($" ✗ Failed to switch to component '{screenshot.Component}' ({switchResp.StatusCode})");
+                            failed++;
                             continue;
                         }
                         // Wait for the component to render and a new frame to be captured
@@ -116,10 +156,11 @@ internal static class ScreenshotCapture
                     // The capture timer only starts once a reader hits /frame
                     // (TASK-025), so the first call returns 204 with no body.
                     // Poll until a frame is ready or we exceed the deadline.
-                    var frameBytes = await PollForFrame(http, port, TimeSpan.FromSeconds(5));
+                    var frameBytes = await PollForFrame(http, port, TimeSpan.FromSeconds(5), requireContent: true);
                     if (frameBytes.Length == 0)
                     {
                         Console.Error.WriteLine($" ✗ no frame produced within deadline");
+                        failed++;
                         continue;
                     }
                     // Catalog-thumb captures land at `<id>-thumb.<format>` so the
@@ -127,22 +168,29 @@ internal static class ScreenshotCapture
                     // a full-size screenshot of the same id (spec 041 §6.3 + §12 Q7).
                     var isThumb = string.Equals(screenshot.Kind, "catalog-thumb", StringComparison.OrdinalIgnoreCase);
                     var fileBase = isThumb ? $"{screenshot.Id}-thumb" : screenshot.Id;
-                    var outputPath = Path.GetFullPath(Path.Combine(topicDir, $"{fileBase}.{screenshot.Format}"));
+                    outputPath = Path.GetFullPath(Path.Combine(topicDir, $"{fileBase}.{screenshot.Format}"));
                     if (!outputPath.StartsWith(Path.GetFullPath(topicDir) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                         throw new InvalidOperationException($"Screenshot id '{screenshot.Id}' would escape output directory");
-                    var processed = isThumb
-                        ? ImageProcessor.ProcessThumb(frameBytes, screenshot.ThumbWidth, screenshot.ThumbHeight)
-                        : ImageProcessor.Process(frameBytes, ImageProcessor.ParseCropMode(screenshot.Crop));
-                    File.WriteAllBytes(outputPath, processed);
+                    ProcessAndWrite(frameBytes, outputPath, screenshot);
+                    written++;
                     Console.WriteLine(" ✓");
+                }
+                catch (BlankFrameException ex)
+                {
+                    var existing = outputPath is not null && File.Exists(outputPath)
+                        ? " — existing screenshot left untouched"
+                        : "";
+                    Console.Error.WriteLine($" ✗ {ex.Message}{existing}");
+                    failed++;
                 }
                 catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException)
                 {
                     Console.Error.WriteLine($" ✗ {ex}");
+                    failed++;
                 }
             }
 
-            return true;
+            return new CaptureResult(written, failed);
         }
         finally
         {
@@ -159,24 +207,40 @@ internal static class ScreenshotCapture
     }
 
     /// <summary>
-    /// Polls <c>/frame</c> until the server returns a non-empty body or the
-    /// deadline expires. The capture timer starts lazily on first reader, so
-    /// early calls return HTTP 204 with no content.
+    /// Polls <c>/frame</c> until the server returns a body the caller can use,
+    /// or the deadline expires. The capture timer starts lazily on first
+    /// reader, so early calls return HTTP 204 with no content.
     /// </summary>
-    private static async Task<byte[]> PollForFrame(HttpClient http, int port, TimeSpan deadline)
+    /// <param name="requireContent">
+    /// When true, a decoded frame with no visible content is treated as
+    /// "not ready yet" and polling continues. A cold window's first painted
+    /// frame is often still blank; holding out for a real one turns what used
+    /// to be a corrupt overwrite into a correct capture. The last blank frame
+    /// is still returned when the deadline expires, so the caller sees the
+    /// same <see cref="BlankFrameException"/> it would have seen anyway rather
+    /// than a misleading "no frame produced".
+    /// </param>
+    private static async Task<byte[]> PollForFrame(
+        HttpClient http, int port, TimeSpan deadline, bool requireContent = false)
     {
         var sw = global::System.Diagnostics.Stopwatch.StartNew();
+        var lastBytes = Array.Empty<byte>();
         while (sw.Elapsed < deadline)
         {
             using var resp = await http.GetAsync($"http://localhost:{port}/frame");
             if (resp.StatusCode == global::System.Net.HttpStatusCode.OK)
             {
                 var bytes = await resp.Content.ReadAsByteArrayAsync();
-                if (bytes.Length > 0) return bytes;
+                if (bytes.Length > 0)
+                {
+                    if (!requireContent) return bytes;
+                    lastBytes = bytes;
+                    if (ImageProcessor.FrameHasContent(bytes)) return bytes;
+                }
             }
             await Task.Delay(100);
         }
-        return Array.Empty<byte>();
+        return lastBytes;
     }
 
     /// <summary>

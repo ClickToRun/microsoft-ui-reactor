@@ -646,6 +646,23 @@ jobs:
       - name: Compile docs
         run: dotnet run --project src/Reactor.Cli -- docs compile --no-screenshots --ci
 
+      # Non-destructiveness gate for issue #989: a compile with
+      # --no-screenshots must never touch a committed screenshot. Phase 3 is
+      # the pipeline's only binary writer, and this proves — on a real runner,
+      # via the real invocation, on every PR — that skipping it leaves
+      # docs/guide/images byte-identical. The compile above is the subject;
+      # this step is only the assertion, so it genuinely can come out either
+      # way (it fails if anyone reintroduces a write on the skip path).
+      - name: Verify --no-screenshots left committed images untouched
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          git diff --exit-code --stat -- docs/guide/images
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error 'docs compile --no-screenshots modified files under docs/guide/images. That path must be non-destructive: capture (Phase 3) is skipped, so nothing may write a PNG. See issue #989 and docs/contributing/doc-pipeline.md section 4.'
+            exit 1
+          }
+
       # Docs version freshness gate. The compile above substitutes the
       # {{reactorVersion}} token — whose single source is <ReactorPublicVersion>
       # in Directory.Build.props — into the guide pages that name the package
@@ -670,6 +687,14 @@ jobs:
             Write-Error 'docs/guide is out of date with the doc templates and/or ReactorPublicVersion. Run: dotnet run --project src/Reactor.Cli -- docs compile --no-screenshots  then commit the regenerated docs/guide pages (the {{reactorVersion}} token is substituted from <ReactorPublicVersion> in Directory.Build.props).'
             exit 1
           }
+
+      # tests/Reactor.DocPipeline.Tests is in Reactor.slnx but ran in no
+      # workflow, so every assertion in it was a gate that could not fail.
+      # It covers the doc-pipeline internals this job exercises (template
+      # compilation, image processing, the blank-screenshot gate), so it
+      # belongs here rather than in the WinUI unit-test job.
+      - name: Doc-pipeline tests
+        run: dotnet test tests/Reactor.DocPipeline.Tests/Reactor.DocPipeline.Tests.csproj -p:Platform=x64 --nologo
 
       - uses: actions/setup-python@v7
         with:

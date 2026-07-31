@@ -347,11 +347,15 @@ internal static partial class CompileCommand
         Console.WriteLine();
         if (noScreenshots)
         {
-            Console.WriteLine("═══ Phase 3: Capture (skipped) ═══");
+            // Explicit about the guarantee: this phase is the only thing in the
+            // pipeline that writes under docs/guide/images/, so skipping it
+            // leaves every committed screenshot exactly as it was (issue #989).
+            Console.WriteLine("═══ Phase 3: Capture (skipped — existing screenshots left untouched) ═══");
         }
         else
         {
             Console.WriteLine("═══ Phase 3: Capture ═══");
+            int captureWritten = 0, captureRequested = 0;
             foreach (var (topicId, appDir) in apps)
             {
                 var manifestPath = Path.Combine(appDir, "doc-manifest.yaml");
@@ -365,8 +369,24 @@ internal static partial class CompileCommand
                 }
 
                 Console.WriteLine($"  Capturing for {topicId}...");
-                ScreenshotCapture.CaptureAsync(appDir, topicId, manifest, imagesDir, screenshotFilter)
+                var result = ScreenshotCapture
+                    .CaptureAsync(appDir, topicId, manifest, imagesDir, screenshotFilter)
                     .GetAwaiter().GetResult();
+                captureWritten += result.Written;
+                captureRequested += result.Requested;
+            }
+
+            Console.WriteLine($"  Captured {captureWritten}/{captureRequested} screenshot(s).");
+            var captureFailed = captureRequested - captureWritten;
+            if (captureFailed > 0)
+            {
+                // A capture pass that produced nothing used to exit 0 with a
+                // few lines of stderr nobody read. Surface it as an error so a
+                // headless run fails loudly instead of quietly shipping a
+                // half-updated screenshot corpus.
+                Console.Error.WriteLine(
+                    $"  ✗ {captureFailed} screenshot(s) failed to capture; their existing files were left unchanged.");
+                hasErrors = true;
             }
         }
 
@@ -446,6 +466,10 @@ internal static partial class CompileCommand
         Console.WriteLine("═══ Phase 6: Assemble ═══");
         Directory.CreateDirectory(outputDir);
 
+        // Shared across every page so the screenshot corpus is decoded once per
+        // compile rather than once per referencing page.
+        var blankImageCache = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var (topicId, template) in templates)
         {
             Console.Write($"  Assembling {topicId}...");
@@ -468,8 +492,9 @@ internal static partial class CompileCommand
             foreach (var w in warnings) Console.WriteLine($"\n    ⚠ {w}");
 
             // Image-ref validation per spec §10.3: every ![..](images/...)
-            // path in the compiled output must resolve.
-            foreach (var f in DiagramProcessor.ValidateImageRefs(template.FilePath, assembled, imagesDir))
+            // path in the compiled output must resolve — and, since issue #989,
+            // must not be a blank stub left behind by a failed capture.
+            foreach (var f in DiagramProcessor.ValidateImageRefs(template.FilePath, assembled, imagesDir, blankImageCache))
             {
                 Console.Error.WriteLine(f.Format());
                 hasErrors = true;
