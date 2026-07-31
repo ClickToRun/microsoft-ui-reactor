@@ -59,37 +59,6 @@ public class PersistenceEtwBridgeTests : IDisposable
     private static EventWrittenEventArgs? FindByName(IReadOnlyList<EventWrittenEventArgs> events, string name)
         => events.FirstOrDefault(e => e.EventName == name);
 
-    /// <summary>
-    /// Operation label used by <see cref="FindSwallowedError_discriminates_against_a_concurrent_foreign_event"/>
-    /// to stand in for a concurrent subsystem's event. Namespaced so it can never
-    /// collide with a real operation, in either direction.
-    /// </summary>
-    private const string ForeignOperation = "PersistenceEtwBridgeTests.ForeignEventProbe";
-
-    /// <summary>
-    /// Finds a <c>SwallowedError</c> by its <c>operation</c> payload field (index 1) —
-    /// never by event name alone.
-    ///
-    /// Matching on the name alone is not safe: <c>SwallowedError</c> is emitted by every
-    /// subsystem under <c>Keywords.Errors</c>, <c>ReactorEventSource.Log</c> is
-    /// process-global, and <see cref="CapturingListener"/> therefore also receives events
-    /// raised by any test class running concurrently. The malformed-JSON assertion below
-    /// used to take the FIRST <c>SwallowedError</c> in the buffer and then assert its
-    /// category, so a foreign event could win the race and fail it with
-    /// "Intl != Persistence" — observed ~1 full-suite run in 4, 9/9 in isolation. It was
-    /// the only one of this class's <c>SwallowedError</c> lookups missing the discriminator.
-    ///
-    /// Routing every lookup through here leaves no name-only variant to regress to, and
-    /// <see cref="FindSwallowedError_discriminates_against_a_concurrent_foreign_event"/>
-    /// pins it: drop the <paramref name="operation"/> filter and that test fails
-    /// deterministically rather than the flake silently returning.
-    /// </summary>
-    private static EventWrittenEventArgs? FindSwallowedError(
-        IReadOnlyList<EventWrittenEventArgs> events, string operation)
-        => events.FirstOrDefault(e =>
-            e.EventName == nameof(ReactorEventSource.SwallowedError)
-            && (e.Payload?[1] as string) == operation);
-
     // ── JsonFileStore round-trip emits Read + Write ─────────────────────
 
     [Fact]
@@ -150,10 +119,19 @@ public class PersistenceEtwBridgeTests : IDisposable
 
         Assert.False(store.TryRead("main", out _));
 
-        // Disambiguate by operation via FindSwallowedError — see its remarks for why
-        // matching on the event name alone was a 1-in-4 flake, and for the test that
-        // now pins the discriminator.
-        var evt = FindSwallowedError(_listener.Events, "JsonFileStore.TryRead.parse");
+        // Disambiguate by operation, exactly as the base64 and PackagedSettingsStore cases
+        // below already do, and as DiagnosticLogTests / IntlEtwBridgeTests /
+        // ReactorEventSourcePhaseBTests all document as the house rule. Matching on the event
+        // NAME alone is not safe: SwallowedError is emitted by every subsystem under
+        // Keywords.Errors, ReactorEventSource.Log is process-global, and CapturingListener
+        // therefore also receives events raised by any test class running concurrently. This
+        // assertion used to take the FIRST SwallowedError in the buffer and then assert its
+        // category — so a foreign event won the race and it failed with "Intl != Persistence"
+        // (observed ~1 full-suite run in 4; 9/9 in isolation). It was the only one of this
+        // class's three SwallowedError lookups missing the discriminator.
+        var evt = _listener.Events.FirstOrDefault(e =>
+            e.EventName == nameof(ReactorEventSource.SwallowedError)
+            && (e.Payload?[1] as string) == "JsonFileStore.TryRead.parse");
         Assert.NotNull(evt);
         Assert.Equal(nameof(LogCategory.Persistence), evt!.Payload?[0]);
         Assert.Equal("JsonFileStore.TryRead.parse", evt.Payload?[1]);
@@ -177,60 +155,12 @@ public class PersistenceEtwBridgeTests : IDisposable
 
         Assert.False(store.TryRead("main", out _));
 
-        var evt = FindSwallowedError(_listener.Events, "JsonFileStore.TryRead.base64");
+        var evt = _listener.Events.FirstOrDefault(e =>
+            e.EventName == nameof(ReactorEventSource.SwallowedError)
+            && (e.Payload?[1] as string) == "JsonFileStore.TryRead.base64");
         Assert.NotNull(evt);
         Assert.Equal(nameof(LogCategory.Persistence), evt!.Payload?[0]);
         Assert.Equal(nameof(FormatException), evt.Payload?[2]);
-    }
-
-    // ── Regression guard for the lookup itself ──────────────────────────
-
-    [Fact]
-    public void FindSwallowedError_discriminates_against_a_concurrent_foreign_event()
-    {
-        // Makes the 1-in-4 full-suite flake deterministic instead of hoping the race
-        // fires. ReactorEventSource.Log is process-global, so this listener also sees
-        // SwallowedError events raised by other test classes; emitting one here turns
-        // that interleaving from a race into a certainty. LogCategory.Intl reproduces
-        // the exact reported symptom ("Expected: Persistence, Actual: Intl").
-        //
-        // Safe to emit globally: it goes out under Keywords.Errors, which this class has
-        // held open since its constructor either way, so no concurrent listener's keyword
-        // mask changes. ReactorTraceRegressionTests' allocation probe subscribes to
-        // Keywords.Reconcile only and already skips when Errors is enabled elsewhere;
-        // IntlEtwBridgeTests matches on per-test discriminators that ForeignOperation
-        // cannot collide with.
-        DiagnosticLog.SwallowedError(
-            LogCategory.Intl, ForeignOperation, new InvalidOperationException());
-
-        global::System.IO.File.WriteAllText(_path, "this is not json{{{");
-        var store = new JsonFileStore(_path);
-        Assert.False(store.TryRead("main", out _));
-
-        // Setup oracle: prove the foreign event actually landed, without going through
-        // the helper under test — otherwise a broken helper could make this look fine.
-        Assert.Contains(_listener.Events, e =>
-            e.EventName == nameof(ReactorEventSource.SwallowedError)
-            && (e.Payload?[0] as string) == nameof(LogCategory.Intl)
-            && (e.Payload?[1] as string) == ForeignOperation);
-
-        // Guard the guard: the first SwallowedError in the buffer must NOT be the one
-        // we are looking for, or a name-only lookup would succeed by luck and this test
-        // would prove nothing. Asserting "not the target" rather than "is our Intl event"
-        // keeps it deterministic even if a third class's event arrives first — the
-        // injected event always precedes the parse event in this thread's write order,
-        // so the target can never be first.
-        var nameOnly = _listener.Events.First(e =>
-            e.EventName == nameof(ReactorEventSource.SwallowedError));
-        Assert.NotEqual("JsonFileStore.TryRead.parse", nameOnly.Payload?[1] as string);
-
-        // The discriminated lookup must skip past it. Remove the operation filter from
-        // FindSwallowedError and this returns the Intl event, failing on the category
-        // assertion exactly as the original flake did.
-        var evt = FindSwallowedError(_listener.Events, "JsonFileStore.TryRead.parse");
-        Assert.NotNull(evt);
-        Assert.Equal(nameof(LogCategory.Persistence), evt!.Payload?[0]);
-        Assert.Equal("JsonFileStore.TryRead.parse", evt.Payload?[1]);
     }
 
     // ── PackagedSettingsStore (unpackaged context throws WinRT) ─────────
@@ -246,7 +176,9 @@ public class PersistenceEtwBridgeTests : IDisposable
         var result = store.TryRead("anything", out _);
 
         Assert.False(result);
-        var evt = FindSwallowedError(_listener.Events, "PackagedSettingsStore.TryRead");
+        var evt = _listener.Events.FirstOrDefault(e =>
+            e.EventName == nameof(ReactorEventSource.SwallowedError)
+            && (e.Payload?[1] as string) == "PackagedSettingsStore.TryRead");
         Assert.NotNull(evt);
         Assert.Equal(nameof(LogCategory.Persistence), evt!.Payload?[0]);
     }
@@ -258,7 +190,9 @@ public class PersistenceEtwBridgeTests : IDisposable
 
         store.Write("anything", new byte[] { 1, 2, 3 });
 
-        var evt = FindSwallowedError(_listener.Events, "PackagedSettingsStore.Write");
+        var evt = _listener.Events.FirstOrDefault(e =>
+            e.EventName == nameof(ReactorEventSource.SwallowedError)
+            && (e.Payload?[1] as string) == "PackagedSettingsStore.Write");
         Assert.NotNull(evt);
         Assert.Equal(nameof(LogCategory.Persistence), evt!.Payload?[0]);
     }
