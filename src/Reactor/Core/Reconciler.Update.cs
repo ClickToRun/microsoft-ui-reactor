@@ -93,11 +93,18 @@ public sealed partial class Reconciler
         // in UpdateXxx never gets to attach the WinRT event. If presence
         // changes, force Update so EnsureXxxWiring (poolable) or the diff-based
         // null→non-null checks (non-poolable) can subscribe.
+        // Context-consumer subtree check is placed LAST in the skip predicate so
+        // the recursive HasConsumedContextChangedInSubtree walk only runs after the
+        // cheap structural gates pass (via && short-circuiting). Elements that can't
+        // be skipped (e.g. ShallowEquals false) never pay for the subtree traversal,
+        // and HasActiveContextValues short-circuits it away entirely when no provider
+        // is on the stack.
         if (Element.ShallowEquals(oldEl, newEl)
             && Element.ModifiersEqual(oldModifiers, modifiers)
             && oldEl.HasCallbacks == newEl.HasCallbacks
             && !ForceRenderThroughWrapper(newEl)
-            && !IsOnDirtyAncestorPath(control))
+            && !IsOnDirtyAncestorPath(control)
+            && !ShouldDeclineSkip(control))
         {
             DebugElementsSkipped++;
             // Refresh Tag so the event trampoline dispatches into the new element's

@@ -1315,6 +1315,8 @@ public sealed partial class Reconciler : IDisposable
     // without exposing the traversal stack itself.
     internal T ReadContext<T>(Context<T> context) => _contextScope.Read(context);
 
+    internal bool HasActiveContextValues => _contextScope.HasActiveValues;
+
     /// <summary>
     /// Spec 047 §14 Phase 1 (1.6) — push a stagger scope for child enter
     /// transitions. Returns an <see cref="IDisposable"/> that pops the
@@ -1908,6 +1910,30 @@ public sealed partial class Reconciler : IDisposable
         }
         return false;
     }
+
+    internal bool HasConsumedContextChangedInSubtree(UIElement control)
+    {
+        if (_componentNodes.TryGetValue(control, out var node)
+            && HasConsumedContextChanged(node))
+            return true;
+
+        bool found = false;
+        ForEachReactorChildControl(control, child =>
+        {
+            if (HasConsumedContextChangedInSubtree(child))
+            {
+                found = true;
+                return false;
+            }
+
+            return true;
+        });
+
+        return found;
+    }
+
+    internal bool ShouldDeclineSkip(UIElement control)
+        => HasActiveContextValues && HasConsumedContextChangedInSubtree(control);
 
     /// <summary>
     /// Calls ShouldUpdate(oldProps, newProps) on a Component&lt;TProps&gt; via interface dispatch.

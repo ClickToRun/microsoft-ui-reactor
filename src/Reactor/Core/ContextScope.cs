@@ -48,5 +48,7 @@ internal sealed class ContextScope
         return context.DefaultValueBoxed;
     }
 
+    internal bool HasActiveValues => _stack.Count > 0;
+
     internal long Version => _version;
 }
