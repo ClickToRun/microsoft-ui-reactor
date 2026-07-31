@@ -44,9 +44,9 @@ public sealed class SwallowedErrorAuditTests
     const string Deferred = "deferred";
 
     // Floor, not the exact list: the vocabulary lives in the document and may
-    // grow (it already grew by `TryFinally` and `Trace`, which is what issue #959
-    // exposed). These eight must remain present, so "close the vocabulary by
-    // deleting tokens until nothing is left over" is not a way to pass.
+    // grow (it already grew by `TryFinally`, `Deleted` and `Trace`, which is what
+    // issue #959 exposed). These eight must remain present, so "close the
+    // vocabulary by deleting tokens until nothing is left over" is not a way to pass.
     static readonly string[] RequiredVocabulary =
     [
         "Keep", "Narrow", "Propagate", "TryFinally",
@@ -813,23 +813,19 @@ public sealed class SwallowedErrorAuditTests
     }
 
     // Ordered to match the vocabulary table's reading order so the printed fix
-    // is a drop-in replacement, not a reshuffle.
+    // is a drop-in replacement, not a reshuffle. Iterating the tallies directly
+    // means presence needs no filtering step at all: a required verdict the
+    // ledger never used simply is not in `derived`, so it contributes no row.
     static string RenderTable(IReadOnlyDictionary<string, Tally> derived)
     {
-        var ordered = RequiredVocabulary
-            .Concat(derived.Keys.Where(k => !RequiredVocabulary.Contains(k)).Order(global::System.StringComparer.Ordinal));
+        var rank = RequiredVocabulary
+            .Select((token, index) => (token, index))
+            .ToDictionary(x => x.token, x => x.index, global::System.StringComparer.Ordinal);
 
-        // Presence and value come from the same lookup: a required verdict the
-        // ledger never used simply has no row, rather than being filtered out
-        // by one dictionary probe and then read back by a second.
-        var body = new List<string>();
-        foreach (var v in ordered)
-        {
-            if (derived.TryGetValue(v, out var t))
-            {
-                body.Add($"| `{v}` | {t.Sites} | {t.ShippedSites} | {t.DeferredSites} |");
-            }
-        }
+        var body = derived
+            .OrderBy(kv => rank.TryGetValue(kv.Key, out var i) ? i : int.MaxValue)
+            .ThenBy(kv => kv.Key, global::System.StringComparer.Ordinal)
+            .Select(kv => $"| `{kv.Key}` | {kv.Value.Sites} | {kv.Value.ShippedSites} | {kv.Value.DeferredSites} |");
 
         return string.Join(
             global::System.Environment.NewLine,
