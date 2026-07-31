@@ -524,7 +524,7 @@ internal static partial class CompileCommand
             // base; the containment check then covers the traversal case,
             // which a rooted-only guard would miss.
             var outputPath = Path.GetFullPath(Path.Join(outputDir, $"{topicId}.md"));
-            if (!IsUnder(outputPath, Path.GetFullPath(outputDir)))
+            if (!DocPaths.IsUnder(outputPath, Path.GetFullPath(outputDir)))
             {
                 throw new InvalidOperationException(
                     $"topic '{topicId}' resolves to '{outputPath}', outside the docs output " +
@@ -895,19 +895,6 @@ internal static partial class CompileCommand
         // endings — which still trips git's autocrlf detection.
         var lf = text.Replace("\r\n", "\n").Replace('\r', '\n');
         return Environment.NewLine == "\n" ? lf : lf.Replace("\n", Environment.NewLine);
-    }
-
-    /// <summary>
-    /// True when <paramref name="candidate"/> sits inside <paramref name="root"/>.
-    /// Both must already be absolute. The trailing separator matters: without
-    /// it "docs/guide-old" would count as inside "docs/guide".
-    /// </summary>
-    internal static bool IsUnder(string candidate, string root)
-    {
-        var rooted = root.EndsWith(Path.DirectorySeparatorChar)
-            ? root
-            : root + Path.DirectorySeparatorChar;
-        return candidate.StartsWith(rooted, StringComparison.OrdinalIgnoreCase);
     }
 
     // ── Reference extraction (for validation) ─────────────────────────────

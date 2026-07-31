@@ -20,7 +20,7 @@ namespace Microsoft.UI.Reactor.Cli.Docs.Tests;
 /// </para>
 /// <para>
 /// Scope, stated precisely because the gap was measured rather than assumed:
-/// these pin <see cref="CompileCommand.IsUnder"/> and the Combine-vs-Join
+/// these pin <see cref="DocPaths.IsUnder"/> and the Combine-vs-Join
 /// difference, and mutating <c>IsUnder</c> (dropping the trailing-separator
 /// normalisation) does turn the prefix-sibling case red. They do <em>not</em>
 /// cover the call site in <c>Run</c> — reverting line 518 to
@@ -47,7 +47,7 @@ public class OutputPathContainmentTests
         var full = global::System.IO.Path.GetFullPath(
             global::System.IO.Path.Join(Root, $"{topicId}.md"));
 
-        Assert.True(CompileCommand.IsUnder(full, Root),
+        Assert.True(DocPaths.IsUnder(full, Root),
             $"'{topicId}' should compile inside the output dir but resolved to {full}");
     }
 
@@ -60,7 +60,7 @@ public class OutputPathContainmentTests
         var full = global::System.IO.Path.GetFullPath(
             global::System.IO.Path.Join(Root, $"{topicId}.md"));
 
-        Assert.False(CompileCommand.IsUnder(full, Root),
+        Assert.False(DocPaths.IsUnder(full, Root),
             $"'{topicId}' escapes the output dir ({full}) and must be rejected");
     }
 
@@ -82,20 +82,20 @@ public class OutputPathContainmentTests
         var joined = global::System.IO.Path.GetFullPath(
             global::System.IO.Path.Join(Root, $"{rooted}.md"));
 
-        Assert.False(CompileCommand.IsUnder(global::System.IO.Path.GetFullPath(combined), Root),
+        Assert.False(DocPaths.IsUnder(global::System.IO.Path.GetFullPath(combined), Root),
             "Path.Combine should drop the base for a rooted segment — if this fails the premise changed");
-        Assert.True(CompileCommand.IsUnder(joined, Root),
+        Assert.True(DocPaths.IsUnder(joined, Root),
             "Path.Join must preserve the base so the rooted segment stays contained");
     }
 
     /// <summary>
     /// A sibling directory sharing a prefix is not "inside". Without the
-    /// trailing separator in <see cref="CompileCommand.IsUnder"/> this passes
+    /// trailing separator in <see cref="DocPaths.IsUnder"/> this passes
     /// containment and writes outside the tree.
     /// </summary>
     [Fact]
     public void Prefix_sibling_directory_is_not_treated_as_inside()
     {
-        Assert.False(CompileCommand.IsUnder(Root + "-old" + global::System.IO.Path.DirectorySeparatorChar + "x.md", Root));
+        Assert.False(DocPaths.IsUnder(Root + "-old" + global::System.IO.Path.DirectorySeparatorChar + "x.md", Root));
     }
 }

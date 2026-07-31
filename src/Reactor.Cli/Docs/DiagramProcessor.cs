@@ -256,7 +256,7 @@ internal static class DiagramProcessor
             // Anything that resolves outside the images tree is a malformed
             // reference — including one whose ../ run doesn't match its page
             // depth — not a file to go probing for.
-            if (!IsUnder(full, imagesFull) || !File.Exists(full))
+            if (!DocPaths.IsUnder(full, imagesFull) || !File.Exists(full))
             {
                 findings.Add(new TierLintFinding(
                     "REACTOR_DOC_IMAGE_001",
@@ -276,14 +276,6 @@ internal static class DiagramProcessor
             }
         }
         return findings;
-    }
-
-    private static bool IsUnder(string candidate, string root)
-    {
-        var rooted = root.EndsWith(Path.DirectorySeparatorChar)
-            ? root
-            : root + Path.DirectorySeparatorChar;
-        return candidate.StartsWith(rooted, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
