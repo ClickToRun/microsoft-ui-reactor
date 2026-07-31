@@ -245,19 +245,26 @@ internal static class Phase4WindowingFixtures
             var win = await OpenAndSettle(spec);
             try
             {
-                // NOT a settled fix — issue #927 remains open. Two hypotheses have now been
-                // tested and refuted on this fixture:
+                // NOT a settled fix — issue #927 remains open. Four hypotheses tested and
+                // refuted on this fixture, recorded so nobody re-runs them:
                 //   1. "the fixed 80ms wait is too tight" — replaced with WaitFor polling;
                 //      still failed on a later full run.
-                //   2. "the secondary window's host is never awaited" — real gap (Harness.Render
-                //      only awaits ReactorApp.PrimaryWindow's host, and OpenAndSettle above does
-                //      await win.Host, but this fixture did not). Fixed below, and the flake STILL
-                //      reproduced 1 run in 4 with a 1.4s poll budget.
-                // So the topmost bit genuinely does not always get set; this is not a
-                // wait-longer problem. Next suspect is the Level update being coalesced away, or
-                // Z-order contention from the Floating windows the two preceding fixtures create.
-                // The await + poll below are kept because both are correct regardless, and the
-                // assertion stays strict: it fails if the bit never flips.
+                //   2. "the secondary window's host is never awaited" — a REAL gap, fixed
+                //      below (Harness.Render only awaits ReactorApp.PrimaryWindow's host;
+                //      OpenAndSettle awaits win.Host, the Update path did not). Still failed
+                //      1 run in 4 afterwards with a 1.4s poll budget.
+                //   3. "intrinsic to the fixture" — 20/20 clean run in isolation
+                //      (`--self-test --filter WindowLevel_RuntimeFlip`).
+                //   4. "the two preceding Floating fixtures leave topmost/Z-order state" —
+                //      20/20 clean with them included (`--filter WindowLevel`).
+                // So: ~25% in the full 6122-check run, 0/40 across two narrow scopes. What
+                // remains is accumulated state from the hundreds of windows earlier fixtures
+                // open and close, or full-run load/duration. Note (1) only rules out sampling
+                // too early — an event that never fires, an ordering race decided before the
+                // first poll, or a lost wakeup are all budget-insensitive, so "not a
+                // too-short-poll problem" is the sound claim, NOT "not a race".
+                // The await + poll below are kept because both are correct regardless, and
+                // the assertion stays strict: it fails if the bit never flips.
                 win.Update(spec with { Level = WindowLevel.AlwaysOnTop });
                 await win.Host.WaitForIdleAsync();
                 H.Check("WindowLevel_RuntimeFlip_Topmost",

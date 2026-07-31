@@ -226,6 +226,21 @@ Hard-won specifics that repeatedly cost sessions time. Prefer these exact comman
     `--self-test`; both are clean on a quiet machine.
   - **unit** — `PersistenceEtwBridgeTests.JsonFileStore_*` (`Reactor.Tests/Diagnostics/`),
     cross-test ETW/event-source bleed. Fails only in the full-suite run; passes in isolation.
+- **Judging whether a flake fix worked.** N clean runs only supports a fix if `(1-p)^N` is
+  small for the *observed* failure rate `p`. At `p = 0.25`, three consecutive passes happen
+  **42%** of the time — so "3 clean runs" is consistent with the bug being entirely unfixed,
+  and roughly `N = 10` is needed for ~95% confidence. This is the "did this check have the
+  power to return the other answer?" test in probabilistic clothing, and it is the same
+  question the non-vacuous-assertion rule above asks. Prefer a *mechanism* that explains the
+  observed failure text over any number of green runs; run counts corroborate a cause, they
+  don't establish one.
+- **Budget increases only refute one class of race.** Raising a poll/wait budget and still
+  failing rules out "we sampled too early". It does not rule out an event that never fires,
+  an ordering race decided before the first poll, or a lost wakeup — all budget-insensitive.
+  The sound conclusion is "not a *too-short-poll* problem", which is narrower than "not a
+  race". Don't let the narrower finding promote a fixture into an "environmental" bucket it
+  then stops being investigated in; confirm that label by running it on a quiet machine with
+  a known window-manager state, and only apply it if it goes clean there.
 
 ### Analyzers, CLI checks, docs & public API
 
