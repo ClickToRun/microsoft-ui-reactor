@@ -141,9 +141,10 @@ internal static class Phase4WindowingFixtures
                 H.Check("WindowStyle_RuntimeUpdate_None", noneSettled && (none & (Native.WS_CAPTION | Native.WS_SYSMENU | Native.WS_BORDER)) == 0);
 
                 win.Update(spec with { Style = WindowStyle.Default });
-                await Harness.Render(80);
+                bool caption = await Harness.WaitFor(
+                    () => (StyleBits(win) & Native.WS_CAPTION) != 0, maxPasses: 12, perPassMs: 10);
                 long normal = StyleBits(win);
-                H.Check("WindowStyle_RuntimeUpdate_DefaultCaption", (normal & Native.WS_CAPTION) != 0);
+                H.Check("WindowStyle_RuntimeUpdate_DefaultCaption", caption);
                 H.Check("WindowStyle_RuntimeUpdate_DefaultSysMenu", (normal & Native.WS_SYSMENU) != 0);
             }
             finally { await CloseAndSettle(win); }

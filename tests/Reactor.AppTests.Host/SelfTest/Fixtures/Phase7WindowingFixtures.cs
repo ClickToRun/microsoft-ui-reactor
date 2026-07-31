@@ -306,9 +306,10 @@ internal static class Phase7WindowingFixtures
             // Direct dispose — bypasses Close()/the Window.Closed -> Unregister ->
             // Dispose flow. The prep runs first, so the flip is observable after.
             win.Dispose();
-            await Harness.Render(50);
 
-            H.Check("TitleBar_DisposeNoClose_Flipped", win.NativeWindow.ExtendsContentIntoTitleBar);
+            H.Check("TitleBar_DisposeNoClose_Flipped",
+                await Harness.WaitFor(() => win.NativeWindow.ExtendsContentIntoTitleBar,
+                    maxPasses: 12, perPassMs: 10));
 
             // Dispose() alone does not unregister (the normal flow is
             // Window.Closed -> UnregisterWindow -> Dispose). Clean up the

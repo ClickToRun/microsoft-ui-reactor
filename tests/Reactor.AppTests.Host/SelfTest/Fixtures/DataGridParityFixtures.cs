@@ -106,10 +106,9 @@ internal static class DataGridParityFixtures
                 ).Height(500);
             });
 
-            await Harness.Render(500);
-
             H.Check("HookPaging_Mount_FirstRowVisible",
-                H.FindTextContaining("Emp-000000") is not null);
+                await Harness.WaitFor(() => H.FindTextContaining("Emp-000000") is not null,
+                    maxPasses: 25, perPassMs: 20));
 
             H.Check("HookPaging_Mount_SecondRowVisible",
                 H.FindTextContaining("Emp-000001") is not null);
@@ -145,10 +144,9 @@ internal static class DataGridParityFixtures
                 ).Height(500);
             });
 
-            await Harness.Render(500);
-
             H.Check("HookPaging_Scroll_InitialRender",
-                H.FindTextContaining("Emp-") is not null);
+                await Harness.WaitFor(() => H.FindTextContaining("Emp-") is not null,
+                    maxPasses: 25, perPassMs: 20));
 
             var sv = H.FindControl<ScrollViewer>(s => s.Content is ItemsRepeater);
             H.Check("HookPaging_Scroll_ScrollViewerFound", sv is not null);
@@ -195,10 +193,9 @@ internal static class DataGridParityFixtures
                 ).Height(400);
             });
 
-            await Harness.Render(500);
-
             H.Check("HookPaging_ScrollBack_InitialData",
-                H.FindTextContaining("Emp-000000") is not null);
+                await Harness.WaitFor(() => H.FindTextContaining("Emp-000000") is not null,
+                    maxPasses: 25, perPassMs: 20));
 
             var sv = H.FindControl<ScrollViewer>(s => s.Content is ItemsRepeater);
             if (sv is null) { H.Check("HookPaging_ScrollBack_SVFound", false); return; }
@@ -207,10 +204,10 @@ internal static class DataGridParityFixtures
             await Harness.Render(600);
 
             sv.ChangeView(null, 0, null, disableAnimation: true);
-            await Harness.Render(600);
 
             H.Check("HookPaging_ScrollBack_OrigRestored",
-                H.FindTextContaining("Emp-000000") is not null);
+                await Harness.WaitFor(() => H.FindTextContaining("Emp-000000") is not null,
+                    maxPasses: 25, perPassMs: 20));
         }
     }
 
@@ -240,10 +237,9 @@ internal static class DataGridParityFixtures
                 ).Height(600);
             });
 
-            await Harness.Render(500);
-
             H.Check("HookPaging_Small_FirstRowVisible",
-                H.FindTextContaining("Emp-000000") is not null);
+                await Harness.WaitFor(() => H.FindTextContaining("Emp-000000") is not null,
+                    maxPasses: 25, perPassMs: 20));
 
             H.Check("HookPaging_Small_LastRowVisible",
                 H.FindTextContaining("Emp-000011") is not null);
