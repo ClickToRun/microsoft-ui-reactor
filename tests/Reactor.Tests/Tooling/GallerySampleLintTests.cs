@@ -418,24 +418,41 @@ public sealed class GallerySampleLintTests
     // ── sibling SampleCards do not share one UseState slot ──────────────────
 
     /// <summary>
-    /// The names bound by one <c>var (x, setX) = UseState(...)</c>. Deconstruction parses as an
-    /// assignment whose left side is a declaration expression, not as a local declaration.
+    /// The names bound by one <c>UseState</c> call. Deconstruction — the form every gallery page
+    /// uses — parses as an assignment whose left side is a declaration expression, not as a local
+    /// declaration, so both shapes have to be matched separately.
     /// </summary>
     static IEnumerable<List<string>> StateSlots(SyntaxNode root)
     {
-        foreach (var assignment in root.DescendantNodes().OfType<AssignmentExpressionSyntax>())
+        foreach (var node in root.DescendantNodes())
         {
-            if (assignment.Right is not InvocationExpressionSyntax invocation) continue;
-            if (InvokedName(invocation) is not ("UseState" or "UseReducer")) continue;
-            if (assignment.Left is not DeclarationExpressionSyntax { Designation: ParenthesizedVariableDesignationSyntax parenthesized }) continue;
+            switch (node)
+            {
+                // var (x, setX) = UseState(...)
+                case AssignmentExpressionSyntax
+                {
+                    Right: InvocationExpressionSyntax deconstructed,
+                    Left: DeclarationExpressionSyntax { Designation: ParenthesizedVariableDesignationSyntax parenthesized }
+                } when InvokedName(deconstructed) is "UseState" or "UseReducer":
+                {
+                    var names = parenthesized.Variables
+                        .OfType<SingleVariableDesignationSyntax>()
+                        .Select(v => v.Identifier.Text)
+                        .Where(n => n != "_")
+                        .ToList();
 
-            var names = parenthesized.Variables
-                .OfType<SingleVariableDesignationSyntax>()
-                .Select(v => v.Identifier.Text)
-                .Where(n => n != "_")
-                .ToList();
+                    if (names.Count > 0) yield return names;
+                    break;
+                }
 
-            if (names.Count > 0) yield return names;
+                // var state = UseState(...) — the tuple kept whole, then read as state.Item1.
+                case VariableDeclaratorSyntax { Initializer.Value: InvocationExpressionSyntax whole } declarator
+                    when InvokedName(whole) is "UseState" or "UseReducer":
+                {
+                    yield return [declarator.Identifier.Text];
+                    break;
+                }
+            }
         }
     }
 
@@ -448,27 +465,91 @@ public sealed class GallerySampleLintTests
             .ToList();
 
     /// <summary>
+    /// Names bound by declarations inside <paramref name="scope"/> — locals, lambda parameters,
+    /// deconstruction designations, foreach variables. A card that declares its own <c>url</c> is
+    /// not touching a page-level slot that merely shares the name, so counting the bare identifier
+    /// would report a page that has no coupling at all.
+    /// </summary>
+    static HashSet<string> NamesBoundInside(SyntaxNode scope)
+    {
+        var bound = new HashSet<string>(global::System.StringComparer.Ordinal);
+
+        foreach (var node in scope.DescendantNodes())
+        {
+            switch (node)
+            {
+                case VariableDeclaratorSyntax v: bound.Add(v.Identifier.Text); break;
+                case SingleVariableDesignationSyntax d: bound.Add(d.Identifier.Text); break;
+                case ParameterSyntax p: bound.Add(p.Identifier.Text); break;
+                case ForEachStatementSyntax f: bound.Add(f.Identifier.Text); break;
+            }
+        }
+
+        return bound;
+    }
+
+    /// <summary>
+    /// Every name a card reaches, following locals declared beside it to a fixed point. A page that
+    /// lifts a card's body out — <c>var first = WebView2(url);</c> then <c>SampleCard("one", first, …)</c>
+    /// — mentions only <c>first</c> inside the card, so a detector reading the card subtree alone
+    /// would report the page clean while it still shares <c>url</c> with its neighbour.
+    /// </summary>
+    static HashSet<string> ReachableNames(InvocationExpressionSyntax card)
+    {
+        var shadowed = NamesBoundInside(card);
+
+        var reachable = new HashSet<string>(
+            card.DescendantNodes().OfType<IdentifierNameSyntax>().Select(i => i.Identifier.Text),
+            global::System.StringComparer.Ordinal);
+        reachable.ExceptWith(shadowed);
+
+        var member = card.FirstAncestorOrSelf<MemberDeclarationSyntax>();
+        if (member is null) return reachable;
+
+        // Locals of the enclosing member that are declared outside every card — the ones a card can
+        // name without containing them.
+        var lifted = member.DescendantNodes()
+            .OfType<VariableDeclaratorSyntax>()
+            .Where(v => v.Initializer is not null)
+            .Where(v => v.Ancestors().OfType<InvocationExpressionSyntax>().All(a => InvokedName(a) != "SampleCard"))
+            .GroupBy(v => v.Identifier.Text, global::System.StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), global::System.StringComparer.Ordinal);
+
+        // A lifted local can be built from another, so widen until nothing new appears.
+        bool grew;
+        do
+        {
+            grew = false;
+
+            foreach (var name in reachable.ToList())
+            {
+                if (!lifted.TryGetValue(name, out var local)) continue;
+
+                foreach (var id in local.Initializer!.Value.DescendantNodesAndSelf().OfType<IdentifierNameSyntax>())
+                    grew |= reachable.Add(id.Identifier.Text);
+            }
+        } while (grew);
+
+        return reachable;
+    }
+
+    /// <summary>
     /// State slots read or written by more than one card. Each card is an independently
     /// copy-pasteable demo, so a slot spanning two of them means driving one silently retargets the
-    /// other — the reader sees a control move that they did not touch (issue #982, and #980 on
-    /// NumberBox).
+    /// other — the reader sees a control move that they did not touch (issue #982, and #980 for the
+    /// pages that still do it).
     /// </summary>
     static IReadOnlyList<(string Names, List<InvocationExpressionSyntax> Cards)> CrossCardState(SyntaxNode root)
     {
         var cards = SampleCards(root);
         if (cards.Count < 2) return [];
 
+        var reachable = cards.ToDictionary(c => c, ReachableNames);
         var shared = new List<(string, List<InvocationExpressionSyntax>)>();
 
         foreach (var slot in StateSlots(root))
         {
-            var names = new HashSet<string>(slot, global::System.StringComparer.Ordinal);
-
-            var touched = cards
-                .Where(card => card.DescendantNodes()
-                    .OfType<IdentifierNameSyntax>()
-                    .Any(id => names.Contains(id.Identifier.Text)))
-                .ToList();
+            var touched = cards.Where(card => slot.Any(reachable[card].Contains)).ToList();
 
             if (touched.Count > 1) shared.Add((string.Join("/", slot), touched));
         }
@@ -499,12 +580,28 @@ public sealed class GallerySampleLintTests
     }
 
     /// <summary>
-    /// Pages that predate the rule, tracked by issue #980. Pinned as an exact count rather than a
-    /// floor or a ceiling: a floor stays green when a page regresses, and a ceiling stays green
-    /// when one is fixed and another breaks. The failure message names the pages, so neither
-    /// direction needs a hand-maintained list here.
+    /// Pages that predate the rule, tracked by issue #980. Pinned as an explicit set rather than a
+    /// count: a count stays green when one page is fixed and another regresses in the same change,
+    /// which is exactly the drift the rule exists to stop. A floor and a ceiling each miss one of
+    /// those two directions too.
     /// </summary>
-    const int KnownSharedStatePages = 14;
+    static readonly string[] KnownSharedStatePages =
+    [
+        "samples/ReactorGallery/ControlPages/BasicInput/NumberBoxPage.cs: value/setValue",
+        "samples/ReactorGallery/ControlPages/BasicInput/RatingControlPage.cs: rating/setRating",
+        "samples/ReactorGallery/ControlPages/DateAndTime/CalendarDatePickerPage.cs: date/setDate",
+        "samples/ReactorGallery/ControlPages/DateAndTime/DatePickerPage.cs: date/setDate",
+        "samples/ReactorGallery/ControlPages/DateAndTime/TimePickerPage.cs: time/setTime",
+        "samples/ReactorGallery/ControlPages/DialogsAndFlyouts/CommandBarFlyoutPage.cs: lastAction/setLastAction",
+        "samples/ReactorGallery/ControlPages/DialogsAndFlyouts/MenuFlyoutPage.cs: lastAction/setLastAction",
+        "samples/ReactorGallery/ControlPages/Layout/StackPanelPage.cs: spacing/setSpacing",
+        "samples/ReactorGallery/ControlPages/MenusAndToolbars/CommandBarPage.cs: lastAction/setLastAction",
+        "samples/ReactorGallery/ControlPages/MenusAndToolbars/MenuBarPage.cs: lastAction/setLastAction",
+        "samples/ReactorGallery/ControlPages/Navigation/NavigationViewPage.cs: selectedTag/setSelectedTag",
+        "samples/ReactorGallery/ControlPages/Text/AutoSuggestBoxPage.cs: query/setQuery",
+        "samples/ReactorGallery/ControlPages/Text/RichEditBoxPage.cs: charCount/setCharCount",
+        "samples/ReactorGallery/ControlPages/Text/RichEditBoxPage.cs: text/setText",
+    ];
 
     [Fact]
     public void SampleCards_SharedStateDoesNotSpread()
@@ -516,8 +613,7 @@ public sealed class GallerySampleLintTests
         {
             if (SampleCards(root).Count > 1) pagesWithMultipleCards++;
 
-            offenders.AddRange(CrossCardState(root)
-                .Select(s => $"{Where(path, s.Cards[0])}: `{s.Names}` is read by {s.Cards.Count} SampleCards"));
+            offenders.AddRange(CrossCardState(root).Select(s => $"{Rel(path)}: {s.Names}"));
         }
 
         // The rule can only fire on a page with two or more cards, so a loader or a card matcher
@@ -525,11 +621,16 @@ public sealed class GallerySampleLintTests
         Assert.True(pagesWithMultipleCards >= 20,
             $"only {pagesWithMultipleCards} gallery pages were seen to have multiple SampleCards — the rule would pass near-vacuously.");
 
-        Assert.True(offenders.Count == KnownSharedStatePages,
-            $"expected the {KnownSharedStatePages} shared-state pages tracked by #980, found {offenders.Count}. " +
-            "If you fixed one, lower KnownSharedStatePages. If you added one, give each card its own " +
-            "UseState slot instead — driving one card must not retarget its neighbour (#982).\n" +
-            string.Join("\n", offenders));
+        var added = offenders.Except(KnownSharedStatePages).Order().ToList();
+        var fixedUp = KnownSharedStatePages.Except(offenders).Order().ToList();
+
+        Assert.True(added.Count == 0,
+            "these SampleCards share a UseState slot, so driving one silently retargets its " +
+            "neighbour (#982). Give each card its own slot:\n  " + string.Join("\n  ", added));
+
+        Assert.True(fixedUp.Count == 0,
+            "these pages no longer share state — thank you. Remove them from KnownSharedStatePages " +
+            "so the list keeps meaning something:\n  " + string.Join("\n  ", fixedUp));
     }
 
     [Theory]
@@ -581,6 +682,42 @@ public sealed class GallerySampleLintTests
     [InlineData(0, @"
         var (a, setA) = UseState(""x"");
         return SampleCard(""one"", VStack(TextBox(a, setA), TextBlock(a)), ""snippet"");")]
+    // The card bodies lifted into locals: neither card mentions the slot, but both still close over
+    // it. Reading the card subtree alone reports this clean — which is #982, undetected.
+    [InlineData(1, @"
+        var (a, setA) = UseState(""x"");
+        var first = TextBox(a, setA);
+        var second = Button(""bing"", () => setA(""bing""));
+        return VStack(
+            SampleCard(""one"", first, ""snippet""),
+            SampleCard(""two"", second, ""snippet""));")]
+    // Lifted through a second local, so widening has to reach a fixed point rather than one hop.
+    [InlineData(1, @"
+        var (a, setA) = UseState(""x"");
+        var inner = TextBlock(a);
+        var wrapped = VStack(inner);
+        return VStack(
+            SampleCard(""one"", TextBox(a, setA), ""snippet""),
+            SampleCard(""two"", wrapped, ""snippet""));")]
+    // A lambda parameter that shadows the slot name is not the slot — reporting it would redden a
+    // page that has no coupling at all.
+    [InlineData(0, @"
+        var (a, setA) = UseState(""x"");
+        return VStack(
+            SampleCard(""one"", TextBox(a, setA), ""snippet""),
+            SampleCard(""two"", ItemsRepeater(items, a => TextBlock(a)), ""snippet""));")]
+    // Same for a local declared inside the other card.
+    [InlineData(0, @"
+        var (a, setA) = UseState(""x"");
+        return VStack(
+            SampleCard(""one"", TextBox(a, setA), ""snippet""),
+            SampleCard(""two"", Wrap(() => { var a = ""local""; return TextBlock(a); }), ""snippet""));")]
+    // The tuple kept whole rather than deconstructed.
+    [InlineData(1, @"
+        var slot = UseState(""x"");
+        return VStack(
+            SampleCard(""one"", TextBox(slot.Item1, slot.Item2), ""snippet""),
+            SampleCard(""two"", TextBlock(slot.Item1), ""snippet""));")]
     public void CrossCardRule_ReportsOnlySlotsSpanningCards(int expected, string body)
     {
         var root = CSharpSyntaxTree.ParseText($@"
