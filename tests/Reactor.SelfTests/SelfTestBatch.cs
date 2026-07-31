@@ -483,9 +483,8 @@ public class SelfTestBatch
         if (string.IsNullOrEmpty(stdout)) return null;
         const string marker = "# Suite elapsed: ";
         double? last = null;
-        foreach (var raw in stdout.Split('\n'))
+        foreach (var line in stdout.Split('\n', StringSplitOptions.TrimEntries))
         {
-            var line = raw.Trim();
             if (!line.StartsWith(marker, StringComparison.Ordinal)) continue;
             if (double.TryParse(line[marker.Length..].Trim(),
                     System.Globalization.NumberStyles.Float,
@@ -497,13 +496,23 @@ public class SelfTestBatch
         return last;
     }
 
-    private static int? TryGetFixtureCount()
-    {
-        // Discovery has normally already resolved this (DynamicData drives AllFixtures), but a
-        // failure here must not replace a useful timeout message with a discovery exception.
-        try { return FixtureNames.Value.Length; }
-        catch { return null; }
-    }
+    /// <summary>
+    /// The fixture count for a diagnostic message, or <see langword="null"/> when it is not already
+    /// known.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately reads <see cref="Lazy{T}.IsValueCreated"/> rather than <c>Value</c>. Two
+    /// reasons, both about the caller: this runs while reporting a run that already failed, and
+    /// (a) forcing the value there would launch a Host subprocess (<c>--list-fixtures</c>) from a
+    /// failure path, while (b) a factory that already threw leaves <c>IsValueCreated</c> false, so
+    /// the guard makes the read total without swallowing exceptions to achieve it. Discovery
+    /// normally forces the value long before any of this — <c>DynamicData</c> drives
+    /// <see cref="AllFixtures"/> — so the count is present in practice.
+    /// </remarks>
+    internal static int? FixtureCountIfKnown(Lazy<string[]> names)
+        => names.IsValueCreated ? names.Value.Length : null;
+
+    private static int? TryGetFixtureCount() => FixtureCountIfKnown(FixtureNames);
 
     private static string? ExtractHangSignal(string output)
     {

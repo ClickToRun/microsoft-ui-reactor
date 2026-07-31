@@ -436,8 +436,7 @@ public class SuiteBudgetDiagnosticsTests
     [TestMethod]
     public void StepSummary_WritesTheReportWhenAPathIsProvided()
     {
-        var path = global::System.IO.Path.Combine(
-            global::System.IO.Path.GetTempPath(), $"reactor-988-summary-{Guid.NewGuid():N}.md");
+        var path = TempSummaryPath();
 
         try
         {
@@ -511,14 +510,23 @@ public class SuiteBudgetDiagnosticsTests
 
     /// <summary>
     /// The marker is parsed with <c>\n</c> splitting but the Host writes CRLF on Windows, so a
-    /// naive implementation leaves a stray <c>\r</c> and fails to parse. Guard the real shape.
+    /// naive implementation leaves a stray <c>\r</c> and fails to parse. Guard the real shape,
+    /// and the leading-whitespace tolerance alongside it — a trailing <c>\r</c> alone is caught
+    /// downstream by the value's own <c>Trim</c>, so it does not actually exercise the per-line
+    /// trim, and a line that lost it would regress silently.
     /// </summary>
     [TestMethod]
-    public void SuiteElapsed_ToleratesWindowsLineEndings()
+    public void SuiteElapsed_ToleratesWindowsLineEndingsAndIndentation()
     {
         Assert.AreEqual(287.0,
             SelfTestBatch.ExtractSuiteElapsedSeconds("# Total failures: 0\r\n# Suite elapsed: 287.0\r\n")!.Value,
             0.001);
+
+        Assert.AreEqual(287.0,
+            SelfTestBatch.ExtractSuiteElapsedSeconds("\t  # Suite elapsed: 287.0\r\n")!.Value,
+            0.001,
+            "The marker is matched with StartsWith, so any leading whitespace hides the line " +
+            "entirely and the wrapper silently falls back to its own elapsed time.");
     }
 
     // ------------------------------------------------------- classify -> apply wiring
@@ -837,6 +845,50 @@ public class SuiteBudgetDiagnosticsTests
         }
     }
 
-    private static string TempSummaryPath() => global::System.IO.Path.Combine(
+    /// <summary>
+    /// <c>FixtureCountIfKnown</c> reads the count only when it is already resolved. The property
+    /// under test is the <i>absence</i> of a force: this runs while reporting a run that already
+    /// failed, and forcing the value there launches a Host subprocess from a failure path.
+    /// </summary>
+    [TestMethod]
+    public void FixtureCount_NeverForcesTheLazy()
+    {
+        var invoked = 0;
+        var names = new Lazy<string[]>(() => { invoked++; return ["A", "B", "C"]; });
+
+        Assert.IsNull(SelfTestBatch.FixtureCountIfKnown(names),
+            "An unresolved count must read as unknown, not be materialised on demand.");
+        Assert.AreEqual(0, invoked,
+            "Reporting a failed run must not launch `--list-fixtures` to decorate the message.");
+
+        _ = names.Value;
+
+        Assert.AreEqual(3, SelfTestBatch.FixtureCountIfKnown(names),
+            "Once discovery has resolved the names — the normal case — the count must be reported.");
+        Assert.AreEqual(1, invoked);
+    }
+
+    /// <summary>
+    /// The case the deleted <c>catch { return null; }</c> existed for: a discovery failure must
+    /// degrade to "unknown" rather than replace the timeout message with a discovery exception.
+    /// A <see cref="Lazy{T}"/> whose factory threw reports <c>IsValueCreated == false</c>, so the
+    /// guard covers it without a catch — but that is a claim about the BCL, so it is asserted.
+    /// </summary>
+    [TestMethod]
+    public void FixtureCount_SurvivesADiscoveryFailureWithoutRethrowing()
+    {
+        var names = new Lazy<string[]>(
+            () => throw new InvalidOperationException("`--list-fixtures` failed with exit code 3."));
+
+        Assert.Throws<InvalidOperationException>(() => _ = names.Value,
+            "Guard on the premise: this Lazy must genuinely be in the faulted state.");
+
+        Assert.IsNull(SelfTestBatch.FixtureCountIfKnown(names),
+            "A faulted discovery must not propagate out of the diagnostic path.");
+    }
+
+    // Path.Join, not Path.Combine: Combine silently discards everything before a rooted segment,
+    // so a name that ever gains a leading separator would quietly write outside the temp directory.
+    private static string TempSummaryPath() => global::System.IO.Path.Join(
         global::System.IO.Path.GetTempPath(), $"reactor-988-summary-{Guid.NewGuid():N}.md");
 }
