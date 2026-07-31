@@ -119,7 +119,19 @@ public class PersistenceEtwBridgeTests : IDisposable
 
         Assert.False(store.TryRead("main", out _));
 
-        var evt = FindByName(_listener.Events, nameof(ReactorEventSource.SwallowedError));
+        // Disambiguate by operation, exactly as the base64 and PackagedSettingsStore cases
+        // below already do, and as DiagnosticLogTests / IntlEtwBridgeTests /
+        // ReactorEventSourcePhaseBTests all document as the house rule. Matching on the event
+        // NAME alone is not safe: SwallowedError is emitted by every subsystem under
+        // Keywords.Errors, ReactorEventSource.Log is process-global, and CapturingListener
+        // therefore also receives events raised by any test class running concurrently. This
+        // assertion used to take the FIRST SwallowedError in the buffer and then assert its
+        // category — so a foreign event won the race and it failed with "Intl != Persistence"
+        // (observed ~1 full-suite run in 4; 9/9 in isolation). It was the only one of this
+        // class's three SwallowedError lookups missing the discriminator.
+        var evt = _listener.Events.FirstOrDefault(e =>
+            e.EventName == nameof(ReactorEventSource.SwallowedError)
+            && (e.Payload?[1] as string) == "JsonFileStore.TryRead.parse");
         Assert.NotNull(evt);
         Assert.Equal(nameof(LogCategory.Persistence), evt!.Payload?[0]);
         Assert.Equal("JsonFileStore.TryRead.parse", evt.Payload?[1]);
