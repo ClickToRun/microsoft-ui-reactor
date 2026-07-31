@@ -291,10 +291,11 @@ internal static class TitleBarHeightFixtures
                     ExtendsContentIntoTitleBar = true,
                     TitleBarHeight = WindowTitleBarHeight.Tall,
                 });
-                await Harness.Render(150);
+                bool reApplied = await Harness.WaitFor(
+                    () => win.AppWindow.TitleBar.Height == CaptionPx(win, TallCaptionDip),
+                    maxPasses: 16, perPassMs: 15);
                 Report("nowExtended", win, null);
-                H.Check("TitleBarHeight_ReAppliedOnceExtended",
-                    win.AppWindow.TitleBar.Height == CaptionPx(win, TallCaptionDip));
+                H.Check("TitleBarHeight_ReAppliedOnceExtended", reApplied);
             }
             finally { await CloseAndSettle(win); }
         }
@@ -331,11 +332,12 @@ internal static class TitleBarHeightFixtures
                     && comp.Bar is { } bar && Math.Abs(bar.ActualHeight - TallCaptionDip) < 0.5);
 
                 win.Update(spec with { TitleBarHeight = WindowTitleBarHeight.Standard });
-                await Harness.Render(150);
+                bool loweredAgain = await Harness.WaitFor(
+                    () => win.AppWindow.TitleBar.Height == CaptionPx(win, StandardCaptionDip)
+                          && comp.Bar is { } b && Math.Abs(b.ActualHeight - StandardCaptionDip) < 0.5,
+                    maxPasses: 16, perPassMs: 15);
                 Report("afterSpecStandard", win, comp.Bar);
-                H.Check("TitleBarHeight_SpecUpdate_LowersControlAgain",
-                    win.AppWindow.TitleBar.Height == CaptionPx(win, StandardCaptionDip)
-                    && comp.Bar is { } bar2 && Math.Abs(bar2.ActualHeight - StandardCaptionDip) < 0.5);
+                H.Check("TitleBarHeight_SpecUpdate_LowersControlAgain", loweredAgain);
             }
             finally { await CloseAndSettle(win); }
         }
@@ -441,9 +443,11 @@ internal static class TitleBarHeightFixtures
                 // now infer false — the element that justified the inference is
                 // gone. This is the half the "ever mounted" latch got wrong.
                 win.Update(spec with { Title = "Unmount withdraws 2" });
-                await Harness.Render(150);
+                bool withdrew = await Harness.WaitFor(
+                    () => !win.NativeWindow.ExtendsContentIntoTitleBar,
+                    maxPasses: 16, perPassMs: 15);
                 H.Check("TitleBarHeight_Unmount_WithdrawsExtendInference",
-                    mountedExtended && !win.NativeWindow.ExtendsContentIntoTitleBar);
+                    mountedExtended && withdrew);
             }
             finally { await CloseAndSettle(win); }
         }
