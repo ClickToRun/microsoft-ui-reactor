@@ -107,23 +107,49 @@ public class FlyoutPlacementGuardTests
     private const string HelperFileName = "FlyoutPlacement.cs";
 
     /// <summary>
-    /// The <c>CommandBarFlyout</c> reconciler methods, which used to carry their own
-    /// placement helper (<c>Reconciler.ApplyFlyoutPlacement</c>) and their own exemption from
-    /// the bypass test below. The two helpers silently diverged while that exemption stood, so
-    /// these names are kept — now to assert the opposite: that they route through the one
-    /// choke point like every other flyout site.
+    /// The choke point's repo-relative path. Matched as a path suffix rather than by file
+    /// name alone, so a second <c>FlyoutPlacement.cs</c> dropped elsewhere under
+    /// <c>src/Reactor</c> is a bypass rather than a self-granted exemption.
     /// </summary>
-    private static readonly string[] CommandBarFlyoutPlacementMethods =
+    private static readonly string HelperPathSuffix =
+        Path.DirectorySeparatorChar + Path.Combine("Core", HelperFileName);
+
+    private static bool IsChokePointFile(string file)
+        => file.EndsWith(HelperPathSuffix, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Every method in <c>src/Reactor</c> that applies a flyout placement. The bypass test
+    /// below cannot see a site that stops applying placement <i>altogether</i> — no write is
+    /// no bypass — so this list is the positive half of the invariant.
+    /// </summary>
+    /// <remarks>
+    /// The two <c>CommandBarFlyout</c> entries are the reason this list exists at all: they
+    /// used to carry their own placement helper (<c>Reconciler.ApplyFlyoutPlacement</c>) and
+    /// their own exemption from the bypass test, and the two helpers silently diverged while
+    /// that exemption stood. Hand-maintained, so a site added without a corresponding entry is
+    /// unguarded — but adding one is cheap and the failure message says so.
+    /// </remarks>
+    private static readonly string[] PlacementApplyingMethods =
     [
+        "CreateFlyoutFromElement",
         "MountCommandBarFlyout",
+        "MountFlyout",
         "UpdateCommandBarFlyout",
+        "UpdateFlyoutElement",
+        "UpdateFlyoutInPlace",
     ];
 
     [Fact]
     public void No_Flyout_Placement_Write_Bypasses_FlyoutPlacement()
     {
-        var bypasses = ScanCoreForFlyoutPlacementWrites()
-            .Where(w => !string.Equals(Path.GetFileName(w.File), HelperFileName, StringComparison.Ordinal))
+        var writes = ScanCoreForFlyoutPlacementWrites();
+
+        // Anti-vacuity: the choke point itself writes the DP, so an empty scan means the file
+        // walk or the matcher broke — not that the invariant holds.
+        Assert.NotEmpty(writes);
+
+        var bypasses = writes
+            .Where(w => !IsChokePointFile(w.File))
             .Select(w => $"{Path.GetFileName(w.File)}({w.Line}) in {w.Method}: {w.Text}")
             .OrderBy(s => s, StringComparer.Ordinal)
             .ToList();
@@ -139,49 +165,32 @@ public class FlyoutPlacementGuardTests
     }
 
     [Fact]
-    public void FlyoutPlacement_Is_The_Only_File_That_Writes_The_Dp()
+    public void Every_Flyout_Site_Routes_Through_The_Choke_Point()
     {
-        // The class summary claims FlyoutPlacement is "the single choke point for pushing a
-        // Reactor element's Placement onto a live WinUI FlyoutBase". Make that literally true
-        // rather than aspirational. Equality (not "contains") so this fails in both
-        // directions: a second writer fails, and so does a scan that silently found nothing.
-        var files = ScanCoreForFlyoutPlacementWrites()
-            .Select(w => Path.GetFileName(w.File))
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(f => f, StringComparer.Ordinal)
-            .ToList();
-
-        Assert.Equal([HelperFileName], files);
-    }
-
-    [Fact]
-    public void CommandBarFlyout_Sites_Route_Through_The_Choke_Point()
-    {
-        // The half the bypass test cannot see: a method that stopped applying placement
+        // The half the bypass test cannot see: a site that stopped applying placement
         // altogether writes nothing, so it would pass "no direct write" vacuously. Assert the
-        // positive — these methods still call FlyoutPlacement.Apply — so dropping the call,
-        // renaming the method, or reintroducing a private helper all fail here.
+        // positive — each of these methods still calls FlyoutPlacement.Apply — so dropping the
+        // call, or reintroducing a private helper alongside it, fails here.
         //
         // Scope: method granularity, deliberately. A syntactic scan cannot tell which branch
-        // of UpdateCommandBarFlyout a call sits in, so per-branch coverage is left to the
-        // selftests that open a real flyout (CbfReset_AutoRestoresDefaultPlacement drives the
-        // reuse-existing branch; CbfAuto_OpenedWithoutFailFast the mount branch).
+        // of a multi-branch method a call sits in — deleting one of UpdateCommandBarFlyout's
+        // two calls still leaves the method "routed" here. Per-branch coverage is therefore
+        // the selftests' job, and each branch has an assertion that fails without its call:
+        // CbfReset_AutoRestoresDefaultPlacement (reuse-existing arm),
+        // CmdBarFlyout_FreshPlacementBottom (fresh-flyout arm), and
+        // CbfAuto_OpenedWithoutFailFast (mount).
         var routed = ScanCoreForChokePointCalls()
             .Select(c => c.Method)
             .ToHashSet(StringComparer.Ordinal);
 
-        // Anti-vacuity: a call scanner that matched nothing would make the assertion below
-        // fail rather than pass, but pin a known-routed non-CommandBarFlyout site too so a
-        // scanner that only ever matches one shape is visible.
-        Assert.Contains("MountFlyout", routed);
-
         Assert.All(
-            CommandBarFlyoutPlacementMethods,
+            PlacementApplyingMethods,
             method => Assert.True(
                 routed.Contains(method),
-                $"{method} no longer calls FlyoutPlacement.Apply. It is one of the two sites " +
-                "that used to own a duplicate placement helper; placement there must go " +
-                "through the shared choke point."));
+                $"{method} no longer calls FlyoutPlacement.Apply. Either it stopped applying " +
+                "placement — which the bypass test cannot detect, because a missing write is " +
+                "not a bypass — or it was renamed, in which case update " +
+                $"{nameof(PlacementApplyingMethods)}."));
     }
 
     [Fact]
@@ -191,7 +200,7 @@ public class FlyoutPlacementGuardTests
         // pass unconditionally. Prove it finds both legitimate writes in the choke point —
         // the explicit assignment and the ClearValue that handles Auto.
         var inHelper = ScanCoreForFlyoutPlacementWrites()
-            .Where(w => string.Equals(Path.GetFileName(w.File), HelperFileName, StringComparison.Ordinal))
+            .Where(w => IsChokePointFile(w.File))
             .Select(w => w.Text)
             .ToList();
 
@@ -246,6 +255,62 @@ public class FlyoutPlacementGuardTests
         Assert.Contains(hits, h => h.Contains("SetValue(WinPrim.FlyoutBase.PlacementProperty", StringComparison.Ordinal));
         Assert.Contains(hits, h => h.Contains("SetCurrentValue(FlyoutBase.PlacementProperty", StringComparison.Ordinal));
         Assert.Contains(hits, h => h.Contains("ClearValue(WinPrim.FlyoutBase.PlacementProperty", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Scanner_Flags_A_Target_Typed_Flyout_Initializer()
+    {
+        // `X x = new() { ... }` is an ImplicitObjectCreationExpression, which carries no type
+        // of its own — a matcher that only understood `new X { ... }` would let this shape
+        // write Auto straight to the DP. An element record built the same way must still be
+        // ignored, so the declared type is what decides.
+        const string source = """
+            class Sample
+            {
+                void M()
+                {
+                    WinUI.CommandBarFlyout a = new() { Placement = n.Placement };
+                    WinUI.Flyout b = new() { Content = null, Placement = n.Placement };
+                    SomeElement c = new() { Placement = n.Placement };
+                    TeachingTip d = new() { PreferredPlacement = n.Placement };
+                }
+
+                // The shape every DSL flyout factory uses: the target type is the method's
+                // return type, and it is an immutable element record, not a live control.
+                static ContentFlyoutElement ContentFlyout(Element content, FlyoutPlacementMode placement) =>
+                    new(content) { Placement = placement };
+            }
+            """;
+
+        var hits = FindPlacementWrites("synthetic.cs", source)
+            .Select(w => w.Text)
+            .ToList();
+
+        Assert.Equal(2, hits.Count);
+        // A target-typed `new()` carries no type text, so the two hits are told apart by the
+        // second's extra initializer member. Mutually exclusive predicates, so matching both
+        // proves two distinct shapes were found rather than one shape found twice.
+        Assert.Contains(hits, h => !h.Contains("Content", StringComparison.Ordinal));
+        Assert.Contains(hits, h => h.Contains("Content = null", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Scanner_Flags_A_Target_Typed_Initializer_It_Cannot_Type()
+    {
+        // When the declared type is unreadable (var, or assignment to an existing local) the
+        // matcher fails closed. A false positive here is a one-line fix; a false negative is
+        // the process-terminating crash coming back unnoticed.
+        const string source = """
+            class Sample
+            {
+                void M(WinUI.Flyout existing)
+                {
+                    existing = new() { Placement = n.Placement };
+                }
+            }
+            """;
+
+        Assert.Single(FindPlacementWrites("synthetic.cs", source));
     }
 
     [Fact]
@@ -460,8 +525,8 @@ public class FlyoutPlacementGuardTests
     /// <summary>
     /// Nearest enclosing method/accessor/local-function name. Names the offending site in the
     /// bypass failure message, and is what
-    /// <see cref="CommandBarFlyout_Sites_Route_Through_The_Choke_Point"/> matches against —
-    /// a stable identifier rather than a file or a line number.
+    /// <see cref="Every_Flyout_Site_Routes_Through_The_Choke_Point"/> matches against — a
+    /// stable identifier rather than a file or a line number.
     /// </summary>
     private static string EnclosingMethodName(SyntaxNode node)
     {
@@ -484,19 +549,77 @@ public class FlyoutPlacementGuardTests
     private static bool IsFlyoutObjectInitializer(AssignmentExpressionSyntax assignment)
     {
         if (assignment.Parent is not InitializerExpressionSyntax initializer) return false;
-        if (initializer.Parent is not ObjectCreationExpressionSyntax creation) return false;
 
-        var typeName = creation.Type switch
+        return initializer.Parent switch
         {
-            QualifiedNameSyntax qualified => qualified.Right.Identifier.Text,
-            SimpleNameSyntax simple => simple.Identifier.Text,
-            _ => creation.Type.ToString(),
+            // new WinUI.Flyout { Placement = ... }
+            ObjectCreationExpressionSyntax creation => TypeLeafName(creation.Type).EndsWith("Flyout", StringComparison.Ordinal),
+            // WinUI.CommandBarFlyout f = new() { Placement = ... } — the type lives on the
+            // declaration, not the creation. Unresolvable shapes (an assignment to an
+            // existing local, say) are treated as writes: a false positive is a loud,
+            // one-line fix, a false negative is the process-terminating crash coming back.
+            ImplicitObjectCreationExpressionSyntax implicitCreation => DeclaredTypeName(implicitCreation) is not { } declared
+                                                                       || declared.EndsWith("Flyout", StringComparison.Ordinal),
+            _ => false,
         };
-        return typeName.EndsWith("Flyout", StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Type a target-typed <c>new()</c> is being converted to, read from the declaration,
+    /// return type, or cast that supplies it; <see langword="null"/> when no syntactic
+    /// answer exists (assignment to an existing local, a lambda body, <c>var</c>).
+    /// </summary>
+    private static string? DeclaredTypeName(ImplicitObjectCreationExpressionSyntax creation)
+    {
+        for (SyntaxNode n = creation; n.Parent is not null; n = n.Parent)
+        {
+            switch (n.Parent)
+            {
+                case EqualsValueClauseSyntax { Parent: VariableDeclaratorSyntax { Parent: VariableDeclarationSyntax decl } }:
+                    return decl.Type.IsVar ? null : TypeLeafName(decl.Type);
+                case EqualsValueClauseSyntax { Parent: PropertyDeclarationSyntax prop }:
+                    return TypeLeafName(prop.Type);
+                case CastExpressionSyntax cast:
+                    return TypeLeafName(cast.Type);
+                case ReturnStatementSyntax or ArrowExpressionClauseSyntax:
+                    return EnclosingReturnTypeName(n.Parent);
+            }
+
+            if (n.Parent is StatementSyntax or MemberDeclarationSyntax) break;
+        }
+
+        return null;
+    }
+
+    private static string? EnclosingReturnTypeName(SyntaxNode node)
+    {
+        for (SyntaxNode? n = node; n is not null; n = n.Parent)
+        {
+            switch (n)
+            {
+                // A lambda's target type is not syntactically knowable — give up rather
+                // than pick up the enclosing method's return type by accident.
+                case AnonymousFunctionExpressionSyntax: return null;
+                case MethodDeclarationSyntax method: return TypeLeafName(method.ReturnType);
+                case LocalFunctionStatementSyntax local: return TypeLeafName(local.ReturnType);
+                case PropertyDeclarationSyntax property: return TypeLeafName(property.Type);
+                case ConversionOperatorDeclarationSyntax conversion: return TypeLeafName(conversion.Type);
+                case OperatorDeclarationSyntax op: return TypeLeafName(op.ReturnType);
+            }
+        }
+
+        return null;
+    }
+
+    private static string TypeLeafName(TypeSyntax type) => type switch
+    {
+        QualifiedNameSyntax qualified => qualified.Right.Identifier.Text,
+        SimpleNameSyntax simple => simple.Identifier.Text,
+        _ => type.ToString(),
+    };
+
     private static string Flatten(AssignmentExpressionSyntax assignment)
-        => Flatten(assignment.Parent is InitializerExpressionSyntax { Parent: ObjectCreationExpressionSyntax creation }
+        => Flatten(assignment.Parent is InitializerExpressionSyntax { Parent: BaseObjectCreationExpressionSyntax creation }
             ? creation.ToString()
             : assignment.ToString());
 

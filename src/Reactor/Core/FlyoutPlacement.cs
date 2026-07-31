@@ -51,11 +51,10 @@ namespace Microsoft.UI.Reactor.Core;
 /// and folded together. <c>CommandBarFlyout</c> is affected by the same crash: it simply never
 /// reached the validator beforehand, because the flyout was installed as <c>AttachedFlyout</c>
 /// metadata that nothing ever called <c>ShowAttachedFlyout</c> on. A latent crash masked by a
-/// separate defect reads exactly like a working code path. The
-/// <c>FlyoutPlacement_Is_The_Only_File_That_Writes_The_Dp</c> unit guard now holds this file
-/// to being the only one under <c>src/Reactor</c> that writes the DP, and
-/// <c>CommandBarFlyout_Sites_Route_Through_The_Choke_Point</c> holds those three sites to
-/// calling <see cref="Apply"/>, so a second helper cannot reappear unnoticed.
+/// separate defect reads exactly like a working code path. <c>FlyoutPlacementGuardTests</c>
+/// now holds this file to being the only one under <c>src/Reactor</c> that writes the DP, and
+/// holds every flyout mount/update site to calling <see cref="Apply"/>, so a second helper
+/// cannot reappear unnoticed.
 /// </para>
 /// </remarks>
 internal static class FlyoutPlacement
