@@ -93,7 +93,10 @@ internal static class TabViewFillContentAreaFixtures
                 maxPasses: 25, perPassMs: 20);
             var tabView = H.FindControl<TabView>(_ => true);
             H.Check("TabViewFill_Mounted", tabView is not null && Body(H) is not null);
-            if (tabView is null) throw new InvalidOperationException("TabView was not mounted.");
+            // Report and stop rather than throw: an exception aborts the fixture and
+            // truncates TAP output, which reads downstream as an unattributable flake
+            // rather than as this precondition failing.
+            if (tabView is null) return;
 
             // Phase 0 — opt-out: WinUI's style default is untouched and the body is
             // content-sized (this is the pre-fix behaviour, deliberately preserved).
@@ -167,7 +170,11 @@ internal static class TabViewFillContentAreaFixtures
                 () => H.FindControl<TabView>(_ => true) is not null && Body(H) is not null,
                 maxPasses: 25, perPassMs: 20);
             var tabView = H.FindControl<TabView>(_ => true);
-            if (tabView is null) throw new InvalidOperationException("TabView was not mounted.");
+            // Same rationale as ToggleFillContentArea: a missing mount is a reportable
+            // check, not an exception. Throwing here truncates TAP and disguises the
+            // precondition failure as a flake.
+            H.Check("TabViewFill_ExplicitMounted", tabView is not null);
+            if (tabView is null) return;
 
             double bodyPinned = (await WaitForBody(H))?.ActualHeight ?? NoBody;
             H.Check("TabViewFill_ExplicitCenterBeatsOptIn",
