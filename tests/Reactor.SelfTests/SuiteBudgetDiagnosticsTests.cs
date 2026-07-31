@@ -554,12 +554,12 @@ public class SuiteBudgetDiagnosticsTests
         var disposition = SelfTestBatch.ApplyAbortOutcome(
             outcome, timedOut: true, budgetMs: 900_000, fullOutput: "OUT", byFixture: map);
 
-        Assert.IsTrue(map.ContainsKey("VictimFixture"),
+        Assert.IsTrue(map.TryGetValue("VictimFixture", out var victim),
             "The attribution has to land in the map the Fixture test method reads, or the run " +
             "reports every fixture as simply 'not reported'.");
-        Assert.IsFalse(map["VictimFixture"].Passed);
-        Assert.IsTrue(map["VictimFixture"].Detail.Contains("NOT PROVEN", StringComparison.Ordinal),
-            map["VictimFixture"].Detail);
+        Assert.IsFalse(victim.Passed);
+        Assert.IsTrue(victim.Detail.Contains("NOT PROVEN", StringComparison.Ordinal),
+            victim.Detail);
 
         Assert.IsNotNull(disposition.AbortReason);
         Assert.IsNull(disposition.InitError);
@@ -620,7 +620,13 @@ public class SuiteBudgetDiagnosticsTests
         var disposition = SelfTestBatch.ApplyAbortOutcome(
             outcome, timedOut: false, budgetMs: 900_000, fullOutput: "OUT", byFixture: map);
 
-        Assert.IsTrue(map.ContainsKey("HangingFixture"));
+        Assert.IsTrue(map.TryGetValue("HangingFixture", out var stamped),
+            "A hang names its culprit causally, so that name must reach the map even though the " +
+            "wrapper's own budget never fired.");
+        Assert.IsFalse(stamped.Passed);
+        Assert.IsTrue(stamped.Detail.Contains("HangingFixture", StringComparison.Ordinal),
+            "Unlike a budget kill this attribution IS causal, so the detail has to name the " +
+            "fixture rather than hedge about position.\n" + stamped.Detail);
         Assert.IsTrue(disposition.RunEarlyAbortCheck,
             "Only a timeout suppresses the scan. The scan itself is a no-op once an abort reason " +
             "exists, so gating on the outcome instead of on timedOut would silently change which " +
@@ -812,6 +818,47 @@ public class SuiteBudgetDiagnosticsTests
             "The existing prefix is load-bearing: published triage procedures grep for it.\n" + midRun);
         Assert.IsTrue(teardown.StartsWith("Run aborted after fixture 'F'", StringComparison.Ordinal),
             teardown);
+    }
+
+    /// <summary>
+    /// The trailer decides the whole message, not one line of it.
+    ///
+    /// <para>This test exists because it was missing. Every other case here passes
+    /// <c>sawTotalFailures: false</c>, so the <c>true</c> arm was written and never asserted — and
+    /// it contradicted itself: a headline of "STOPPED MID-RUN" and a remaining line of "never RUN"
+    /// sat directly above a trailer line saying the Host reached the end of its run. A triager
+    /// reading top-down would have started hunting a mid-run crash that did not happen.</para>
+    /// </summary>
+    [TestMethod]
+    public void SilentDeath_TrailerPresent_DoesNotAlsoClaimTheRunStoppedMidWay()
+    {
+        var finished = SelfTestBatch.DescribeSilentDeath(
+            "F", exitCode: -1, sawTotalFailures: true,
+            elapsedSeconds: 57.7, budgetMs: 900_000, tail: Tail);
+
+        Assert.IsTrue(finished.Contains("reached the end of its run", StringComparison.Ordinal),
+            finished);
+
+        Assert.IsFalse(finished.Contains("STOPPED MID-RUN", StringComparison.Ordinal),
+            "The headline is the first thing read and it must agree with the diagnosis three " +
+            "lines below it.\n" + finished);
+        Assert.IsFalse(finished.Contains("never RUN", StringComparison.Ordinal),
+            "The Host printed its trailer, so it did not stop before these fixtures — they were " +
+            "never REPORTED, which is a different and much more specific fault.\n" + finished);
+        Assert.IsFalse(finished.Contains("#978", StringComparison.Ordinal),
+            "#978 is the no-trailer failure specifically; citing it here sends the reader to the " +
+            "wrong issue.\n" + finished);
+
+        var midRun = SelfTestBatch.DescribeSilentDeath(
+            "F", exitCode: -1, sawTotalFailures: false,
+            elapsedSeconds: 57.7, budgetMs: 900_000, tail: Tail);
+
+        Assert.IsTrue(midRun.Contains("STOPPED MID-RUN", StringComparison.Ordinal), midRun);
+        Assert.IsTrue(midRun.Contains("#978", StringComparison.Ordinal), midRun);
+        Assert.IsTrue(
+            finished.Contains("NOT a suite-budget kill", StringComparison.Ordinal)
+            && midRun.Contains("NOT a suite-budget kill", StringComparison.Ordinal),
+            "Both arms must still rule out #988 — that is the whole reason this message exists.");
     }
 
     // ------------------------------------------------------- locale independence

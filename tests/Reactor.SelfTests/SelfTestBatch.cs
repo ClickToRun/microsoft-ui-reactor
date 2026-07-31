@@ -734,6 +734,11 @@ public class SelfTestBatch
     /// reaches it. Elapsed time corroborates but cannot decide on its own — a slow machine and a
     /// fast crash produce overlapping durations — so the timing sentence below is hedged when the
     /// run did land near the cap.</para>
+    ///
+    /// <para>The trailer decides the <i>whole</i> message, not one line of it. A Host that printed
+    /// the trailer did reach the end of its run, so a headline saying it stopped mid-run — or a
+    /// remaining-fixtures line saying they were never run — contradicts the diagnosis directly
+    /// underneath it and points triage at a mid-run crash that did not happen.</para>
     /// </summary>
     internal static string DescribeSilentDeath(
         string fixture, int exitCode, bool sawTotalFailures, double elapsedSeconds, int budgetMs, string tail)
@@ -741,27 +746,44 @@ public class SelfTestBatch
         var budgetSeconds = budgetMs / 1000.0;
         var fractionOfBudget = budgetSeconds > 0 ? elapsedSeconds / budgetSeconds : 1.0;
 
-        var trailer = sawTotalFailures
-            ? "The Host DID print its `# Total failures:` trailer, so it reached the end of its run " +
-              "and then failed to exit cleanly — look at teardown, not at this fixture."
-            : "The Host never printed its `# Total failures:` trailer, so it did not reach the end " +
-              "of its run: it stopped mid-fixture. That is the discriminator against issue #988, " +
-              "whose kills always leave one.";
-
         var timing = fractionOfBudget < 0.75
             ? "— the run ended well short of the cap, so nothing was killed for running long"
             : "— close enough to the cap that timing alone cannot rule out a budget interaction; " +
               "the trailer line above is the reliable signal";
 
-        return $"SELFTEST HOST STOPPED MID-RUN — this is NOT a suite-budget kill.\n" +
+        var (headline, trailer, remaining, advice) = sawTotalFailures
+            ? ("SELFTEST HOST FINISHED ITS RUN, THEN EXITED ABNORMALLY — NOT a suite-budget kill.",
+
+               "The Host DID print its `# Total failures:` trailer, so it reached the end of its " +
+               "run. Whatever went wrong happened after the fixtures — or the names below were " +
+               "never scheduled at all.",
+
+               "reported Skipped (Assert.Inconclusive). The Host ran to completion without ever " +
+               "naming them, so the likely cause is two-place fixture registration: a name that " +
+               "`--list-fixtures` reports but the run's `Create()` switch does not produce.",
+
+               $"Start at teardown and at the fixture registry, not at '{fixture}' — it is named " +
+               "here only because it started last.")
+
+            : ("SELFTEST HOST STOPPED MID-RUN — this is NOT a suite-budget kill.",
+
+               "The Host never printed its `# Total failures:` trailer, so it did not reach the " +
+               "end of its run: it stopped mid-fixture. That is the discriminator against issue " +
+               "#988, whose kills always leave one.",
+
+               "reported Skipped (Assert.Inconclusive) — never RUN",
+
+               $"Because the victim is positional here too, do not start by debugging '{fixture}'. " +
+               "A native crash in the Host is the usual cause and the exit-code line above is the " +
+               "first thing to read; issue #978 tracks this failure.");
+
+        return $"{headline}\n" +
                $"'{fixture}' was the last fixture to start. {DescribeExitCode(exitCode)}\n" +
                $"  trailer   : {trailer}\n" +
                $"  elapsed   : {Fixed1(elapsedSeconds)}s against a {Fixed0(budgetSeconds)}s budget " +
                $"{timing}\n" +
-               $"  remaining : reported Skipped (Assert.Inconclusive) — never RUN\n" +
-               $"Because the victim is positional here too, do not start by debugging '{fixture}'. " +
-               $"A native crash in the Host is the usual cause and the exit-code line above is the " +
-               $"first thing to read; issue #978 tracks this failure.\n" +
+               $"  remaining : {remaining}\n" +
+               $"{advice}\n" +
                $"--- tail of full output ---\n{tail}";
     }
 
