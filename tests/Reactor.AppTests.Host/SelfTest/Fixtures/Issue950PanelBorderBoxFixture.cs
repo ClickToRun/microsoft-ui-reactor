@@ -200,15 +200,12 @@ internal static class Issue950PanelBorderBoxFixture
             H.Check("Issue950Panel_Pool_RelativeRemainsNonPoolable",
                 relative is not null && recycledRelative is not null
                 && !ReferenceEquals(relative, recycledRelative));
-            H.Check("Issue950Panel_Pool_NewPropertiesCleared",
+            H.Check("Issue950Panel_Pool_PoolablePropertiesCleared",
                 recycledGrid is not null
                 && IsUnset(recycledGrid, WinUI.Grid.PaddingProperty)
                 && IsUnset(recycledGrid, WinUI.Grid.CornerRadiusProperty)
                 && recycledStack is not null
-                && IsUnset(recycledStack, WinUI.StackPanel.CornerRadiusProperty)
-                && recycledRelative is not null
-                && IsUnset(recycledRelative, WinUI.RelativePanel.PaddingProperty)
-                && IsUnset(recycledRelative, WinUI.RelativePanel.CornerRadiusProperty));
+                && IsUnset(recycledStack, WinUI.StackPanel.CornerRadiusProperty));
         }
     }
 
