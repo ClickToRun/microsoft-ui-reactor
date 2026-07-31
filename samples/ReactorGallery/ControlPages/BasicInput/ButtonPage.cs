@@ -24,7 +24,7 @@ class ButtonPage: Component
                 VStack(8,
                     Button("Save").Click(() => setBasicOutput("Saved!")),
                     TextBlock(basicOutput).Foreground(Theme.SecondaryText)),
-                sourceCode: @"Button(""Save"").Click(() => setOutput(""Saved!""))"),
+                sourceCode: @"Button(""Save"").Click(() => setBasicOutput(""Saved!""))"),
 
             SampleCard("Disabled Button",
                 Button("Can't Click").IsEnabled(false),
@@ -35,14 +35,14 @@ class ButtonPage: Component
                 VStack(8,
                     Button("Confirm").Click(() => setAccentOutput("Confirmed!")).AccentButton(),
                     TextBlock(accentOutput).Foreground(Theme.SecondaryText)),
-                sourceCode: @"Button(""Confirm"").Click(() => setOutput(""Confirmed!"")).AccentButton()"),
+                sourceCode: @"Button(""Confirm"").Click(() => setAccentOutput(""Confirmed!"")).AccentButton()"),
 
             // Phase 8.1 — .SubtleButton() named-style fluent (spec 039 §17.1).
             SampleCard("Subtle style — .SubtleButton()",
                 VStack(8,
                     Button("Cancel").Click(() => setSubtleOutput("Cancelled.")).SubtleButton(),
                     TextBlock(subtleOutput).Foreground(Theme.SecondaryText)),
-                sourceCode: @"Button(""Cancel"").Click(() => setOutput(""Cancelled."")).SubtleButton()"),
+                sourceCode: @"Button(""Cancel"").Click(() => setSubtleOutput(""Cancelled."")).SubtleButton()"),
 
             // Phase 8.1 / 2.2 — .TextLink() for inline "Learn more" pattern (spec 039 §17.2).
             SampleCard("Text-link style — .TextLink()",

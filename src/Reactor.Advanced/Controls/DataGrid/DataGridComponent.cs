@@ -1500,13 +1500,63 @@ public class DataGridComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMe
     }
 
     /// <summary>
-    /// Routes the post-edit commit through the DataGrid's <c>UseMutation</c> handle.
-    /// The handle's OnOptimistic snapshots the pre-edit item into <see cref="DataGridState{T}"/>,
-    /// OnSuccess clears the committing flag, OnError writes the error into the row's
-    /// banner. When no dispatcher is installed (e.g. headless tests), this method
-    /// falls back to invoking <c>OnRowChanged</c> inline so the legacy tests that
-    /// never go through <c>UseMutation</c> continue to pass.
+    /// Routes a committed row edit to the installed <see cref="DataGridState{T}.CommitDispatcher"/>
+    /// — the DataGrid's <c>UseMutation</c> handle by default — or, when none is installed, straight
+    /// to <c>OnRowChanged</c> through a thread-pool fallback. No-op when the element has no
+    /// <c>OnRowChanged</c>.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Dispatcher path</b> — taken whenever <see cref="DataGridState{T}.CommitDispatcher"/> is
+    /// installed, which every grid rendered through <see cref="DataGridComponent{T}"/> does on each
+    /// render that has an <c>OnRowChanged</c>. What this method guarantees here is narrow: the
+    /// delegate is <b>invoked on the calling thread</b>, and nothing else happens for the commit.
+    /// Where <c>OnRowChanged</c> ends up is then the delegate's business. The one
+    /// <see cref="DataGridComponent{T}"/> installs calls <c>Mutation.RunAsync</c>, whose
+    /// <c>OnOptimistic</c> snapshots the pre-edit item into <see cref="DataGridState{T}"/>,
+    /// <c>OnSuccess</c> clears the committing flag and <c>OnError</c> writes the error into the
+    /// row's banner; <c>RunAsync</c> runs the mutator synchronously and the mutator calls
+    /// <c>OnRowChanged</c> before its first <c>await</c>, so under that dispatcher the callback
+    /// reaches the committing thread too — the UI thread for an edit commit. (Whatever the
+    /// callback itself awaits may of course resume elsewhere.) A dispatcher of your own owes
+    /// callers that contract if it wants to keep it.
+    /// </para>
+    /// <para>
+    /// <b>Fallback path</b> — taken when no dispatcher is installed: the headless unit tests, and
+    /// the stale-handler case in the next paragraph. It does <b>not</b> run on the calling thread:
+    /// it mirrors the pre-Phase-3 pattern and offloads <c>OnRowChanged</c> with <c>Task.Run</c>, so
+    /// <b>the callback runs on a thread-pool thread</b>. The committing thread's
+    /// <c>DispatcherQueue</c> is captured before the offload and the follow-up
+    /// <see cref="DataGridState{T}.CompleteAsyncCommit"/> /
+    /// <see cref="DataGridState{T}.FailAsyncCommit"/> writes are posted back onto it with
+    /// <c>TryEnqueue</c> — best-effort, since its result is not checked, so a queue that is
+    /// shutting down can drop them. When the committing thread has no dispatcher queue those
+    /// writes are applied directly on the pool thread instead.
+    /// </para>
+    /// <para>
+    /// A grid rendered through <see cref="DataGridComponent{T}"/> does not normally reach the
+    /// fallback: each render assigns <c>CommitDispatcher</c> non-null exactly when that render's
+    /// <c>OnRowChanged</c> is non-null, and this method returns early when <c>OnRowChanged</c> is
+    /// null. It is not dead code, though — the two can disagree. The blur-commit <c>LostFocus</c>
+    /// handler is built once and captures its first render's element, so if <c>OnRowChanged</c> is
+    /// later dropped that stale closure can still call in after <c>CommitDispatcher</c> has been
+    /// cleared. This method is <c>private static</c>, so that disagreement is the only route in
+    /// at runtime — a consumer holding its own <see cref="DataGridState{T}"/> cannot call it, and
+    /// the unit tests reach it by reflection.
+    /// </para>
+    /// <para>
+    /// <c>originalItem</c> is declared non-nullable, but every call site resolves it by row index
+    /// immediately before committing and passes <c>default!</c> when that lookup fails — no row
+    /// being edited, or a key that no longer maps to a loaded row. Both arms forward it as-is
+    /// (the fallback into <see cref="DataGridState{T}.BeginAsyncCommit"/>), so the pre-edit
+    /// snapshot a revert would restore can be <c>default</c>.
+    /// </para>
+    /// <para>
+    /// Keep this description in step with the two arms below. <c>DataGridCommitThreadingTests</c>
+    /// pins what each arm actually does with the callback's thread, so it is the thing to consult
+    /// — and to re-run — if you change either one (issue #958).
+    /// </para>
+    /// </remarks>
     private static void HandleAsyncCommit(
         DataGridState<T> state,
         DataGridElement<T> el,
@@ -1522,8 +1572,10 @@ public class DataGridComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMe
             return;
         }
 
-        // Fallback — no UseMutation dispatcher installed. Mirror the pre-Phase-3
-        // Task.Run pattern so headless / non-hook consumers keep working.
+        // Fallback — no UseMutation dispatcher installed. Mirror the pre-Phase-3 Task.Run
+        // pattern so headless / non-hook consumers keep working: OnRowChanged runs on a
+        // thread-pool thread, not on this one. This is the fallback path described in the
+        // <remarks> above — change the two together.
         var dq = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
         state.BeginAsyncCommit(key, originalItem);
         _ = Task.Run(async () =>

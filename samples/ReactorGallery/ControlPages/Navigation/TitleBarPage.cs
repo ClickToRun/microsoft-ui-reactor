@@ -43,14 +43,19 @@ class TitleBarPage : Component
                         {
                             Content = HStack(8,
                                 AutoSuggestBox("", _ => { }).Width(200),
-                                Button("\uE713", () => { }).Width(36).Height(36).IsDragRegion(false)
+                                Button(Icon(FontIcon("\uE713", fontSize: 16)), () => { })
+                                    .Width(36).Height(36).Padding(0)
+                                    .ToolTip("Settings")
+                                    .AutomationName("Settings")
+                                    .IsDragRegion(false)
                             ),
                         }).AutoRefreshDragRegions()
                     ).Background(Theme.LayerFill).CornerRadius(4).Height(48),
                     @"(TitleBar(""Gallery"") with {
     Content = HStack(8,
         AutoSuggestBox("""", _ => {}).Width(200),
-        Button(""⚙"", () => {}).IsDragRegion(false))
+        Button(Icon(FontIcon(""\uE713"", fontSize: 16)), OnSettings)
+            .AutomationName(""Settings"").IsDragRegion(false))
 }).AutoRefreshDragRegions()")
             ).Margin(36, 24, 36, 36)
         );
