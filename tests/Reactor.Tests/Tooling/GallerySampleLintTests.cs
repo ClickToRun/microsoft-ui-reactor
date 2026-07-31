@@ -530,7 +530,14 @@ public sealed class GallerySampleLintTests
 
             foreach (var initializer in initializers)
             {
-                foreach (var id in initializer.DescendantNodesAndSelf().OfType<IdentifierNameSyntax>())
+                // Same exclusion the card subtree gets above: a lambda parameter or local bound
+                // *inside* the initializer is not the page-level slot that happens to share its
+                // name. `Repeat(items, value => Text(value))` must not make a slot named `value`
+                // reachable, or a page with no coupling at all reports as coupled.
+                var boundHere = NamesBoundInside(initializer);
+
+                foreach (var id in initializer.DescendantNodesAndSelf().OfType<IdentifierNameSyntax>()
+                             .Where(id => !boundHere.Contains(id.Identifier.Text)))
                     grew |= reachable.Add(id.Identifier.Text);
             }
         } while (grew);
@@ -717,6 +724,16 @@ public sealed class GallerySampleLintTests
         return VStack(
             SampleCard(""one"", TextBox(a, setA), ""snippet""),
             SampleCard(""two"", Wrap(() => { var a = ""local""; return TextBlock(a); }), ""snippet""));")]
+    // The same shadowing question one level out, where the widening pass rather than the card scan
+    // is what walks the identifier: the lambda parameter is bound inside a *lifted* local's
+    // initializer. Widening without excluding it makes `a` reachable from card two and reports a
+    // page that shares nothing.
+    [InlineData(0, @"
+        var (a, setA) = UseState(""x"");
+        var listing = ItemsRepeater(items, a => TextBlock(a));
+        return VStack(
+            SampleCard(""one"", TextBox(a, setA), ""snippet""),
+            SampleCard(""two"", listing, ""snippet""));")]
     // The tuple kept whole rather than deconstructed.
     [InlineData(1, @"
         var slot = UseState(""x"");
