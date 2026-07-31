@@ -151,14 +151,18 @@ Phase 3 (capture) is the **only** phase that writes under
 `docs/guide/images/`. `--skip-screenshots` (alias `--no-screenshots`) skips it
 outright, so a compile with that flag leaves every committed screenshot
 byte-identical — the CI `docs-build` job proves this on every PR with
-`git diff --exit-code -- docs/guide/images` immediately after the compile.
+`git status --porcelain -- docs/guide/images` immediately after the compile.
+`git status`, not `git diff`: `git diff` reports tracked modifications only, so
+it is blind to a *new* PNG appearing under `docs/guide/images/`. That is the
+shape the near-miss in [issue #989][i989] actually took, because `git add -A`
+stages precisely the untracked files `git diff` never reports.
 
 Capture itself needs an **interactive desktop**. It launches each doc app,
 waits for the preview capture server, and reads real frames over HTTP. In a
 headless, locked, or RDP-disconnected session the app window never paints and
 the capture server returns a solid-white surface. Historically that surface was
 written straight over the committed screenshot as a ~3 KB white rectangle, and
-the compile still exited 0 ([issue #989][i989]). Two guards now prevent that:
+the compile still exited 0 ([issue #989][i989]). Several guards now prevent that:
 
 - `ImageProcessor` raises `REACTOR_DOC_SHOT_001` for a contentless frame
   **before** anything opens the output file, so the existing image is left
@@ -182,8 +186,11 @@ the compile still exited 0 ([issue #989][i989]). Two guards now prevent that:
   `REACTOR_DOC_SHOT_002` — otherwise a full-size screenshot could claim the
   chrome-free scoring rule and hide a blank capture behind its own border.
 - Image-reference validation runs on the *assembled* page, where `DocAssembler`
-  prefixes one `../` per level of topic nesting. Both image gates accept that
-  prefix, so nested topics (`recipes/*`) are checked like flat ones.
+  prefixes one `../` per level of topic nesting. References resolve **relative
+  to the page**, so nested topics (`recipes/*`) are checked like flat ones — and
+  a `../` run that doesn't match the page's own depth now lands outside
+  `docs/guide/images/` and is reported as `REACTOR_DOC_IMAGE_001` instead of
+  being silently accepted.
 
 If you are staging a docs change by hand, stage the specific `.md` / `.md.dt`
 paths rather than `git add -A`, and check `git status` for unexpected entries

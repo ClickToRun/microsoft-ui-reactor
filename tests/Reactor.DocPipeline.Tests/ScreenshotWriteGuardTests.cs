@@ -17,7 +17,9 @@ namespace Microsoft.UI.Reactor.Cli.Docs.Tests;
 /// <c>CaptureAsync</c> loop needs a live WinUI desktop and a doc-app subprocess,
 /// so exercising it in a unit test is not possible. The end-to-end guarantee is
 /// covered instead by the <c>docs-build</c> CI job, which runs a real compile
-/// and then <c>git diff --exit-code -- docs/guide/images</c>.
+/// and then <c>git status --porcelain -- docs/guide/images</c> — <c>git status</c>
+/// rather than <c>git diff</c>, because <c>git diff</c> reports tracked
+/// modifications only and would miss a newly created PNG.
 /// </remarks>
 public class ScreenshotWriteGuardTests
 {
