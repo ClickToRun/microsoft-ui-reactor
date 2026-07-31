@@ -623,6 +623,464 @@ public class ModifierTableIntegrityTests
     }
 
     /// <summary>
+    /// The reverse of <see cref="Every_ControlGate_Matches_The_Types_ApplyModifiers_Writes_To"/>:
+    /// every control gate that exists in <c>ApplyModifiers</c> must be accounted for here.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// That test iterates <see cref="ModifierTable.Properties"/> and skips entries whose
+    /// <see cref="ModifierInfo.ControlGate"/> is <see langword="null"/>, so a gate the reconciler
+    /// enforces but the table does not name is invisible to it — including a brand-new type-gated
+    /// modifier, and the <c>IsEnabled</c> / <c>H|VContentAlignment</c> trio whose gate is
+    /// deliberately left null for the <c>.Set</c> direction.
+    /// </para>
+    /// <para>
+    /// That gap matters because <see cref="NoOpModifierAnalyzer"/> (<c>REACTOR_MOD_003</c>) reads the
+    /// same table in the opposite direction — "you wrote the modifier, does it reach this control?"
+    /// — where a null gate means "never report" rather than "no predicate needed". Requiring every
+    /// reconciler gate to be either declared or listed in
+    /// <see cref="ModifierTable.GateOnlyInReconciler"/> makes adding one a deliberate decision for
+    /// both rules instead of a silent no-op for one of them.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Every_ApplyModifiers_ControlGate_Is_Declared_Or_Explicitly_Recorded()
+    {
+        var actualGates = ReadApplyModifierControlGates();
+
+        // Self-validation: the extraction must actually have found the gates. Without this the
+        // test would pass vacuously if ReadApplyModifierControlGates ever stopped matching (a
+        // rename of `fe`, a restructure of the guards), whereas the forward test would fail loudly.
+        Assert.True(
+            actualGates.Count >= 8,
+            $"Only {actualGates.Count} control gates were read out of ApplyModifiers; expected at least 8 " +
+            "(Padding, CornerRadius, BorderThickness, BorderBrush, Background, Foreground, and the fonts). " +
+            "The gate reader has probably stopped matching — fix it rather than lowering this floor.");
+
+        var problems = new List<string>();
+
+        foreach (var (prop, actual) in actualGates.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        {
+            if (ModifierTable.Properties.TryGetValue(prop, out var info) && info.ControlGate is not null)
+                continue;   // covered by the forward test above.
+
+            if (ModifierTable.GateOnlyInReconciler.ContainsKey(prop))
+                continue;
+
+            problems.Add(
+                $"{prop}: ApplyModifiers gates it on [{string.Join("|", actual.OrderBy(t => t, StringComparer.Ordinal))}] " +
+                "but ModifierTable neither declares a ControlGate for it nor records it in " +
+                "GateOnlyInReconciler. Declare the gate (so REACTOR_MOD_002 withholds its suggestion and " +
+                "REACTOR_MOD_003 reports the silent drop), or add a GateOnlyInReconciler entry saying why " +
+                "neither rule needs it.");
+        }
+
+        Assert.True(
+            problems.Count == 0,
+            "Reconciler.ApplyModifiers gates modifiers that ModifierTable does not account for:\n  " +
+            string.Join("\n  ", problems));
+    }
+
+    /// <summary>
+    /// Every entry in <see cref="ModifierTable.GateOnlyInReconciler"/> must name a gate that
+    /// <c>ApplyModifiers</c> really enforces, and carry a reason — otherwise the exclusion list
+    /// accumulates stale rows that quietly suppress the completeness check above.
+    /// </summary>
+    [Fact]
+    public void Every_GateOnlyInReconciler_Entry_Is_Real_And_Explained()
+    {
+        var actualGates = ReadApplyModifierControlGates();
+        var problems = new List<string>();
+
+        foreach (var (prop, reason) in ModifierTable.GateOnlyInReconciler)
+        {
+            if (!actualGates.ContainsKey(prop))
+            {
+                problems.Add(
+                    $"{prop}: recorded as gated-only-in-the-reconciler, but ApplyModifiers has no " +
+                    "'fe is <Type>' test for it. Remove the row.");
+            }
+
+            if (string.IsNullOrWhiteSpace(reason))
+                problems.Add($"{prop}: no reason recorded.");
+
+            if (ModifierTable.Properties.TryGetValue(prop, out var info) && info.ControlGate is not null)
+            {
+                problems.Add(
+                    $"{prop}: declares a ControlGate AND appears in GateOnlyInReconciler. The declared " +
+                    "gate wins, so the row is dead — remove it.");
+            }
+        }
+
+        Assert.True(problems.Count == 0, string.Join("\n  ", problems));
+    }
+
+    /// <summary>
+    /// <c>Reconciler</c> carries a <b>second</b> copy of the same allow-list:
+    /// <c>GetDependencyPropertyName</c> decides which properties a <c>ThemeRef</c> binding may emit
+    /// a <c>&lt;Setter&gt;</c> for. Nothing pins it to <c>ApplyModifiers</c>, so
+    /// <c>.Background(Theme.X)</c> and <c>.Background("#fff")</c> can silently disagree about which
+    /// controls they reach — and both analyzers would be right about only one of them.
+    /// </summary>
+    [Fact]
+    public void GetDependencyPropertyName_Agrees_With_ApplyModifiers_And_The_Table()
+    {
+        var applyGates = ReadApplyModifierControlGates();
+        var themeGates = ReadGetDependencyPropertyNameGates();
+
+        // Self-validation: Background, Foreground, BorderBrush.
+        Assert.True(
+            themeGates.Count >= 3,
+            $"Only {themeGates.Count} gates were read out of GetDependencyPropertyName; expected at least 3. " +
+            "The reader has probably stopped matching.");
+
+        var problems = new List<string>();
+
+        foreach (var (prop, themeGate) in themeGates.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        {
+            if (!applyGates.TryGetValue(prop, out var applyGate))
+            {
+                problems.Add(
+                    $"{prop}: GetDependencyPropertyName gates the ThemeRef path on " +
+                    $"[{string.Join("|", themeGate.OrderBy(t => t, StringComparer.Ordinal))}] but ApplyModifiers " +
+                    "has no control gate for it at all.");
+                continue;
+            }
+
+            if (!themeGate.SetEquals(applyGate))
+            {
+                problems.Add(
+                    $"{prop}: the ThemeRef path reaches [{string.Join("|", themeGate.OrderBy(t => t, StringComparer.Ordinal))}] " +
+                    $"but the brush path reaches [{string.Join("|", applyGate.OrderBy(t => t, StringComparer.Ordinal))}]. " +
+                    "A modifier that works with a literal brush and not with a Theme token (or vice versa) is a " +
+                    "silent, overload-dependent bug.");
+            }
+
+            if (ModifierTable.Properties.TryGetValue(prop, out var info)
+                && info.ControlGate is { } declared
+                && !themeGate.SetEquals(declared))
+            {
+                problems.Add(
+                    $"{prop}: ModifierTable declares [{string.Join("|", declared.OrderBy(t => t, StringComparer.Ordinal))}] " +
+                    $"but the ThemeRef path reaches [{string.Join("|", themeGate.OrderBy(t => t, StringComparer.Ordinal))}].");
+            }
+        }
+
+        Assert.True(
+            problems.Count == 0,
+            "Reconciler's two applicability copies have drifted:\n  " + string.Join("\n  ", problems));
+    }
+
+    /// <summary>
+    /// Property name → the WinUI type names <c>Reconciler.GetDependencyPropertyName</c> will emit a
+    /// <c>{ThemeResource}</c> setter for, read out of <c>Reconciler.cs</c>. The method's body is a
+    /// chain of <c>if (property == "X" &amp;&amp; (fe is A || fe is B)) return "X";</c>, so each
+    /// branch's string comparison names the property and the type tests are the gate.
+    /// </summary>
+    private static Dictionary<string, HashSet<string>> ReadGetDependencyPropertyNameGates()
+    {
+        var root = RepoRootFinder.FindRepoRoot();
+        Assert.NotNull(root);
+        var file = Path.Join(root!, "src", "Reactor", "Core", "Reconciler.cs");
+        Assert.True(File.Exists(file), $"Reconciler.cs not found at {file}");
+
+        var tree = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(File.ReadAllText(file));
+        var method = tree.GetRoot()
+            .DescendantNodes()
+            .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.MethodDeclarationSyntax>()
+            .FirstOrDefault(m => m.Identifier.Text == "GetDependencyPropertyName");
+
+        Assert.NotNull(method);
+
+        var gates = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+
+        foreach (var ifStatement in method!.DescendantNodes()
+            .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.IfStatementSyntax>())
+        {
+            var property = ifStatement.Condition
+                .DescendantNodesAndSelf()
+                .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.LiteralExpressionSyntax>()
+                .Select(literal => literal.Token.ValueText)
+                .FirstOrDefault();
+
+            if (property is null)
+                continue;
+
+            var typeNames = ifStatement.Condition
+                .DescendantNodesAndSelf()
+                .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.BinaryExpressionSyntax>()
+                .Where(b => b.RawKind == (int)Microsoft.CodeAnalysis.CSharp.SyntaxKind.IsExpression
+                            && b.Left is Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax { Identifier.Text: "fe" })
+                .Select(b => SimpleTypeName(b.Right))
+                .Where(typeName => typeName is not null);
+
+            foreach (var typeName in typeNames)
+            {
+                if (!gates.TryGetValue(property, out var set))
+                    gates[property] = set = new HashSet<string>(StringComparer.Ordinal);
+                set.Add(typeName!);
+            }
+        }
+
+        return gates;
+    }
+
+    /// <summary>
+    /// Unqualified name of a type reference written as either <c>Type</c> or <c>Ns.Type</c>, or
+    /// <see langword="null"/> for any other shape (array, generic, tuple, …), which the gates never
+    /// use.
+    /// </summary>
+    private static string? SimpleTypeName(Microsoft.CodeAnalysis.SyntaxNode type) => type switch
+    {
+        Microsoft.CodeAnalysis.CSharp.Syntax.QualifiedNameSyntax qualified => qualified.Right.Identifier.Text,
+        Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax simple => simple.Identifier.Text,
+        _ => null,
+    };
+
+    /// <summary>
+    /// <see cref="NoOpModifierAnalyzer"/> resolves an element's mounted control from Reactor's
+    /// public <c>Set(this TElement, Action&lt;TControl&gt;)</c> overload, because the generator
+    /// attributes do not flow to consumers (<c>Reactor.Wrappers.Abstractions</c> is referenced with
+    /// <c>PrivateAssets="all"</c>). That is only sound while the <c>Set</c> overload names the same
+    /// control the descriptor was generated for — so pin the two together for every element that
+    /// declares the attribute.
+    /// </summary>
+    /// <remarks>
+    /// Reflection reads metadata only; no WinUI object is constructed, so this is safe in the
+    /// headless host. Changing an element's <c>Set</c> signature without changing its descriptor —
+    /// or vice versa — fails here rather than silently moving the analyzer's gate.
+    /// </remarks>
+    [Fact]
+    [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage(
+        "Trimming", "IL2026",
+        Justification = "Test-only contract guard: enumerates the Reactor assembly's element types and the ElementExtensions surface by design. This host is never trimmed; behaviour-neutral.")]
+    [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage(
+        "Trimming", "IL2075",
+        Justification = "Test-only contract guard: reflects the public static methods of ElementExtensions, resolved by name from the Reactor assembly. Intentional and JIT-only; behaviour-neutral.")]
+    public void Every_Element_Set_Overload_Names_The_Control_Its_Descriptor_Mounts()
+    {
+        var elementType = typeof(Microsoft.UI.Reactor.Core.Element);
+        var elementExtensions = elementType.Assembly.GetType("Microsoft.UI.Reactor.ElementExtensions");
+        Assert.NotNull(elementExtensions);
+
+        var setControls = new Dictionary<Type, HashSet<Type>>();
+        var setOverloads = elementExtensions!.GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Where(m => m.Name == "Set")
+            .Select(m => m.GetParameters())
+            .Where(parameters => parameters.Length == 2
+                                 && parameters[1].ParameterType.IsGenericType
+                                 && parameters[1].ParameterType.GetGenericTypeDefinition() == typeof(Action<>));
+
+        foreach (var parameters in setOverloads)
+        {
+            var receiver = parameters[0].ParameterType;
+            if (receiver.IsGenericType)
+                receiver = receiver.GetGenericTypeDefinition();
+
+            if (!setControls.TryGetValue(receiver, out var controls))
+                setControls[receiver] = controls = new HashSet<Type>();
+            controls.Add(parameters[1].ParameterType.GetGenericArguments()[0]);
+        }
+
+        var checkedElements = 0;
+        var problems = new List<string>();
+
+        // Projected + filtered in the pipeline (CodeQL cs/linq/missed-where); this also avoids
+        // resolving the declared control twice.
+        var attributed = elementType.Assembly.GetTypes()
+            .Where(t => elementType.IsAssignableFrom(t) && !t.IsAbstract)
+            .Select(element => (Element: element, Declared: DeclaredControl(element)))
+            .Where(pair => pair.Declared is not null)
+            .OrderBy(pair => pair.Element.Name, StringComparer.Ordinal);
+
+        foreach (var (element, declared) in attributed)
+        {
+            var key = element.IsGenericType ? element.GetGenericTypeDefinition() : element;
+            if (!setControls.TryGetValue(key, out var fromSet))
+                continue;   // no Set overload; the analyzer skips these elements entirely.
+
+            checkedElements++;
+
+            if (!fromSet.Contains(declared!))
+            {
+                problems.Add(
+                    $"{element.Name}: the descriptor mounts {declared!.Name}, but its Set overload(s) take " +
+                    $"[{string.Join("|", fromSet.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal))}]. " +
+                    "REACTOR_MOD_003 reads the mounted control off Set, so it would gate against the wrong type.");
+            }
+        }
+
+        Assert.True(
+            problems.Count == 0,
+            "An element's Set overload has drifted from the control its descriptor mounts:\n  " +
+            string.Join("\n  ", problems));
+
+        // Self-validation: dozens of elements carry both. A collapse to zero would mean the
+        // attribute or Set reflection stopped resolving and the guard is running vacuously.
+        Assert.True(
+            checkedElements >= 40,
+            $"Only {checkedElements} elements were cross-checked; expected 40+. The Set/attribute " +
+            "reflection has probably stopped resolving.");
+    }
+
+    [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage(
+        "Trimming", "IL2075",
+        Justification = "Test-only contract guard: reads the generator attribute off a type enumerated by the surrounding Assembly.GetTypes scan. Behaviour-neutral.")]
+    private static Type? DeclaredControl(Type element)
+    {
+        for (var current = element; current is not null; current = current.BaseType)
+        {
+            foreach (var attribute in current.GetCustomAttributesData())
+            {
+                var name = attribute.AttributeType.Name;
+                if (name is not ("GenerateReactorWrapperAttribute" or "GenerateReactorDescriptorAttribute")
+                    || attribute.ConstructorArguments.Count < 1)
+                    continue;
+
+                if (attribute.ConstructorArguments[0].Value is Type control)
+                    return control;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// A generated descriptor's <c>Customize</c> hook may read a <b>common modifier</b> off the
+    /// element and write it to the control itself — <c>RichTextBlockElement</c> does exactly that
+    /// for <c>Padding</c>. On such an element <c>ApplyModifiers</c>' control gate is not the
+    /// authority: the value is applied even though the gate says it would be dropped, so
+    /// <see cref="NoOpModifierAnalyzer"/> must stay silent or it reports a false positive on correct
+    /// code. That exception list is hand-maintained, so pin it to the descriptors.
+    /// </summary>
+    [Fact]
+    public void Descriptor_Applied_Common_Modifiers_Match_The_Analyzer_Exception_List()
+    {
+        var (found, customizeHooks) = ReadDescriptorAppliedCommonModifiers();
+
+        // Self-validation: descriptor Customize hooks are everywhere in Element.cs; a collapse to
+        // zero means the reader stopped matching and the comparison below would pass vacuously.
+        Assert.True(
+            customizeHooks >= 20,
+            $"Only {customizeHooks} descriptor Customize hooks were parsed; expected 20+. The reader " +
+            "has probably stopped matching.");
+
+        var declared = new HashSet<string>(
+            NoOpModifierAnalyzer.DescriptorAppliedModifiers, StringComparer.Ordinal);
+
+        var missing = found.Except(declared, StringComparer.Ordinal).OrderBy(k => k, StringComparer.Ordinal).ToArray();
+        var stale = declared.Except(found, StringComparer.Ordinal).OrderBy(k => k, StringComparer.Ordinal).ToArray();
+
+        Assert.True(
+            missing.Length == 0,
+            "A descriptor now applies a gated common modifier itself, but NoOpModifierAnalyzer still " +
+            "treats ApplyModifiers' gate as the authority for it — REACTOR_MOD_003 would report a false " +
+            "positive on correct code. Add to NoOpModifierAnalyzer.DescriptorAppliedModifiers:\n  " +
+            string.Join("\n  ", missing));
+
+        Assert.True(
+            stale.Length == 0,
+            "NoOpModifierAnalyzer.DescriptorAppliedModifiers suppresses a modifier no descriptor applies " +
+            "any more, so a real silent drop is going unreported. Remove:\n  " +
+            string.Join("\n  ", stale));
+    }
+
+    /// <summary>
+    /// Scans every generated-descriptor <c>Customize</c> hook in <c>src/Reactor</c> for reads of a
+    /// gated common modifier off the element lambda parameter (e.g.
+    /// <c>get: static e =&gt; e.Padding…</c>), keyed as <c>Namespace.ElementType|Modifier</c>.
+    /// Returns the set plus the number of hooks inspected, for the non-vacuity floor.
+    /// </summary>
+    private static (HashSet<string> Keys, int CustomizeHooks) ReadDescriptorAppliedCommonModifiers()
+    {
+        var root = RepoRootFinder.FindRepoRoot();
+        Assert.NotNull(root);
+        var sourceDir = Path.Join(root!, "src", "Reactor");
+        Assert.True(Directory.Exists(sourceDir), $"src/Reactor not found at {sourceDir}");
+
+        // Only the modifiers REACTOR_MOD_003 reports on can produce a false positive.
+        var gated = new HashSet<string>(
+            ModifierTable.Properties.Where(p => p.Value.ControlGate is not null).Select(p => p.Key),
+            StringComparer.Ordinal);
+
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        var hooks = 0;
+
+        foreach (var file in Directory.GetFiles(sourceDir, "*.cs", SearchOption.AllDirectories)
+                     .Select(File.ReadAllText)
+                     .Where(text => text.Contains("Customize")))
+        {
+            var tree = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(file);
+            foreach (var method in tree.GetRoot()
+                .DescendantNodes()
+                .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.MethodDeclarationSyntax>()
+                .Where(m => m.Identifier.Text == "Customize"
+                            && m.Parent is Microsoft.CodeAnalysis.CSharp.Syntax.TypeDeclarationSyntax))
+            {
+                hooks++;
+
+                var elementName = QualifiedTypeName(
+                    (Microsoft.CodeAnalysis.CSharp.Syntax.TypeDeclarationSyntax)method.Parent!);
+
+                var gatedReads = method.DescendantNodes()
+                    .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.MemberAccessExpressionSyntax>()
+                    .Where(access =>
+                        access.Expression is Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax receiver
+                        && gated.Contains(access.Name.Identifier.Text)
+                        && IsLambdaParameter(access, receiver.Identifier.Text));
+
+                foreach (var access in gatedReads)
+                    keys.Add(NoOpModifierAnalyzer.ElementModifierKey(elementName, access.Name.Identifier.Text));
+            }
+        }
+
+        return (keys, hooks);
+    }
+
+    /// <summary>Namespace-qualified name of the type declaration owning a member.</summary>
+    private static string QualifiedTypeName(Microsoft.CodeAnalysis.CSharp.Syntax.TypeDeclarationSyntax type)
+    {
+        for (Microsoft.CodeAnalysis.SyntaxNode? node = type.Parent; node is not null; node = node.Parent)
+        {
+            var ns = node switch
+            {
+                Microsoft.CodeAnalysis.CSharp.Syntax.FileScopedNamespaceDeclarationSyntax file => file.Name.ToString(),
+                Microsoft.CodeAnalysis.CSharp.Syntax.NamespaceDeclarationSyntax block => block.Name.ToString(),
+                _ => null,
+            };
+            if (ns is not null)
+                return ns + "." + type.Identifier.Text;
+        }
+
+        return type.Identifier.Text;
+    }
+
+    /// <summary>
+    /// True when <paramref name="name"/> is a parameter of some lambda enclosing
+    /// <paramref name="node"/> — i.e. the member access reads the descriptor's element/control
+    /// argument rather than an unrelated local of the same name.
+    /// </summary>
+    private static bool IsLambdaParameter(Microsoft.CodeAnalysis.SyntaxNode node, string name)
+    {
+        for (var current = node.Parent; current is not null; current = current.Parent)
+        {
+            switch (current)
+            {
+                case Microsoft.CodeAnalysis.CSharp.Syntax.SimpleLambdaExpressionSyntax simple
+                    when simple.Parameter.Identifier.Text == name:
+                    return true;
+                case Microsoft.CodeAnalysis.CSharp.Syntax.ParenthesizedLambdaExpressionSyntax paren
+                    when paren.ParameterList.Parameters.Any(p => p.Identifier.Text == name):
+                    return true;
+                case Microsoft.CodeAnalysis.CSharp.Syntax.MethodDeclarationSyntax:
+                    return false;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Modifier property name → the WinUI type names <c>ApplyModifiers</c> actually writes it
     /// to, read out of <c>Reconciler.cs</c>.
     /// </summary>
@@ -669,39 +1127,42 @@ public class ModifierTableIntegrityTests
             foreach (var ifStatement in method.DescendantNodes()
                 .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.IfStatementSyntax>())
             {
-                // Which modifier does this branch guard? `m.Background is not null`,
-                // `resolvedPadding.HasValue`, `oldM?.FontSize.HasValue == true`, …
+                // Which modifier(s) does this branch guard? `m.Background is not null`,
+                // `resolvedPadding.HasValue`, `oldM?.FontSize.HasValue == true`, … A guard can name
+                // more than one — `m.PaddingInlineStart.HasValue || m.PaddingInlineEnd.HasValue`
+                // gates BOTH on the same control set — so every name is attributed, not just the
+                // first. Taking only the first left PaddingInlineEnd invisible to
+                // Every_ApplyModifiers_ControlGate_Is_Declared_Or_Explicitly_Recorded, which is
+                // precisely the bookkeeping hole that test exists to close.
                 var guarded = ModifierPropertyNames(ifStatement.Condition)
                     .Concat(ifStatement.Condition
                         .DescendantNodesAndSelf()
                         .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax>()
                         .Select(id => localToProperty.TryGetValue(id.Identifier.Text, out var mapped) ? mapped : null)
                         .Where(name => name is not null)!)
-                    .FirstOrDefault();
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
 
-                if (guarded is null)
+                if (guarded.Length == 0)
                     continue;
 
                 // Type tests on the FrameworkElement inside this branch (and its else clauses)
                 // are the gate: `fe is WinUI.Control padCtrl`.
                 var typeNames = ifStatement.DescendantNodes()
                     .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.IsPatternExpressionSyntax>()
-                    .Where(pattern =>
-                        pattern.Expression is Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax { Identifier.Text: "fe" }
-                        && pattern.Pattern is Microsoft.CodeAnalysis.CSharp.Syntax.DeclarationPatternSyntax)
-                    .Select(pattern => ((Microsoft.CodeAnalysis.CSharp.Syntax.DeclarationPatternSyntax)pattern.Pattern).Type switch
-                    {
-                        Microsoft.CodeAnalysis.CSharp.Syntax.QualifiedNameSyntax qualified => qualified.Right.Identifier.Text,
-                        Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax simple => simple.Identifier.Text,
-                        _ => null,
-                    })
+                    .Where(p => p.Expression is Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax { Identifier.Text: "fe" }
+                                && p.Pattern is Microsoft.CodeAnalysis.CSharp.Syntax.DeclarationPatternSyntax)
+                    .Select(p => SimpleTypeName(((Microsoft.CodeAnalysis.CSharp.Syntax.DeclarationPatternSyntax)p.Pattern).Type))
                     .Where(typeName => typeName is not null);
 
                 foreach (var typeName in typeNames)
                 {
-                    if (!gates.TryGetValue(guarded, out var set))
-                        gates[guarded] = set = new HashSet<string>(StringComparer.Ordinal);
-                    set.Add(typeName!);
+                    foreach (var modifier in guarded)
+                    {
+                        if (!gates.TryGetValue(modifier!, out var set))
+                            gates[modifier!] = set = new HashSet<string>(StringComparer.Ordinal);
+                        set.Add(typeName!);
+                    }
                 }
             }
         }
