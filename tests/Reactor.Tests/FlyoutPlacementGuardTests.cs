@@ -107,12 +107,14 @@ public class FlyoutPlacementGuardTests
     private const string HelperFileName = "FlyoutPlacement.cs";
 
     /// <summary>
-    /// The choke point's repo-relative path. Matched as a path suffix rather than by file
-    /// name alone, so a second <c>FlyoutPlacement.cs</c> dropped elsewhere under
-    /// <c>src/Reactor</c> is a bypass rather than a self-granted exemption.
+    /// The choke point's repo-relative path, anchored at the scan root rather than at the
+    /// file name or a bare <c>Core/</c> segment. A second <c>FlyoutPlacement.cs</c> dropped
+    /// anywhere else under <c>src/Reactor</c> — including under some other <c>Core/</c>
+    /// folder — is therefore a bypass rather than a self-granted exemption.
     /// </summary>
     private static readonly string HelperPathSuffix =
-        Path.DirectorySeparatorChar + Path.Combine("Core", HelperFileName);
+        Path.DirectorySeparatorChar +
+        string.Join(Path.DirectorySeparatorChar, "src", "Reactor", "Core", HelperFileName);
 
     private static bool IsChokePointFile(string file)
         => file.EndsWith(HelperPathSuffix, StringComparison.OrdinalIgnoreCase);
@@ -203,6 +205,36 @@ public class FlyoutPlacementGuardTests
             $"{nameof(PlacementApplyingMethods)}. Add them — and if a new site has more than one " +
             "branch, add a selftest per branch, because this test is method-granular and cannot " +
             "tell them apart.");
+    }
+
+    [Fact]
+    public void Choke_Point_Exemption_Is_Pinned_To_The_One_Real_File()
+    {
+        var root = RepoRootFinder.FindRepoRoot();
+        Assert.NotNull(root);
+
+        // The exemption is what makes the bypass test tolerable at all, so it has to be
+        // narrow: the real file is recognised...
+        Assert.True(
+            IsChokePointFile(Path.Join(root!, "src", "Reactor", "Core", HelperFileName)),
+            "The real choke point is no longer recognised as one, which makes the bypass " +
+            "test fail on the very file it is supposed to exempt.");
+
+        // ...and nothing else is. A decoy under some other Core/ folder inside the scan root
+        // would otherwise grant itself the exemption this class exists to deny — the same
+        // fail-open shape as the allow-lists issue #953 removed.
+        Assert.All(
+            new[]
+            {
+                Path.Join(root!, "src", "Reactor", "Flex", "Core", HelperFileName),
+                Path.Join(root!, "src", "Reactor", "Core", "Nested", HelperFileName),
+                Path.Join(root!, "src", "Reactor", HelperFileName),
+            },
+            decoy => Assert.False(
+                IsChokePointFile(decoy),
+                $"'{decoy}' exempts itself from the bypass test despite not being the choke " +
+                "point. Anchor HelperPathSuffix at the scan root, not at a file name or a " +
+                "bare Core/ segment."));
     }
 
     [Fact]
@@ -441,21 +473,24 @@ public class FlyoutPlacementGuardTests
     /// rather than merely to contain no direct write.
     /// </summary>
     private static IEnumerable<ChokePointCall> FindChokePointCalls(string file, string source)
-    {
-        var tree = CSharpSyntaxTree.ParseText(source);
-
-        foreach (var invocation in tree.GetCompilationUnitRoot().DescendantNodes().OfType<InvocationExpressionSyntax>())
-        {
-            if (invocation.Expression is not MemberAccessExpressionSyntax
-                { Name.Identifier.Text: "Apply", Expression: var owner }) continue;
-            if (LeafName(owner) != nameof(FlyoutPlacement)) continue;
-
-            yield return new ChokePointCall(
+        => CSharpSyntaxTree.ParseText(source)
+            .GetCompilationUnitRoot()
+            .DescendantNodes()
+            .OfType<InvocationExpressionSyntax>()
+            .Where(IsChokePointCall)
+            .Select(invocation => new ChokePointCall(
                 file,
                 invocation.GetLocation().GetLineSpan().StartLinePosition.Line + 1,
-                EnclosingMethodName(invocation));
-        }
-    }
+                EnclosingMethodName(invocation)));
+
+    /// <summary>
+    /// A call to <c>FlyoutPlacement.Apply(...)</c> under any qualification — bare,
+    /// namespace-qualified, or through an alias whose leaf name is still the type name.
+    /// </summary>
+    private static bool IsChokePointCall(InvocationExpressionSyntax invocation)
+        => invocation.Expression is MemberAccessExpressionSyntax
+           { Name.Identifier.Text: "Apply", Expression: var owner }
+           && LeafName(owner) == nameof(FlyoutPlacement);
 
     /// <summary>
     /// Finds writes that land on a live WinUI <c>FlyoutBase.Placement</c> DP:
