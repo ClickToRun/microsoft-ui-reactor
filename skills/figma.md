@@ -78,14 +78,18 @@ Pass the full URL to the Figma MCP tool — the server handles node scoping.
 | `layoutMode` | `HORIZONTAL` | `HStack(gap, children)` |
 | `itemSpacing` | `N` | Gap parameter: `VStack(N, ...)` or `HStack(N, ...)` |
 | `paddingTop/Right/Bottom/Left` | all equal `P` | `.Padding(P)` on the stack (or wrapping `Border`) |
-| `paddingTop/Right/Bottom/Left` | symmetric (h≠v) | `.Padding(vertical, horizontal)` on the stack (or wrapping `Border`) |
+| `paddingTop/Right/Bottom/Left` | symmetric (h≠v) | `.Padding(horizontal, vertical)` on the stack (or wrapping `Border`) |
 | `paddingTop/Right/Bottom/Left` | mixed | `.Padding(left: L, top: T, right: R, bottom: B)` on the stack (or wrapping `Border`) |
 
 **Important:** `.Padding()` works on `Border`, control-based elements, `VStack`/`HStack`, and `TextBlock`-based text — so a padded auto-layout frame can map straight onto the stack without a wrapping `Border`. Reach for a `Border` when the frame also carries a fill, stroke, or corner radius, or when the container is a `Grid` (which has no padding). Use `.Margin()` when the spacing is between the element and its siblings rather than internal padding.
 
 **Margin overloads:**
 - `.Margin(uniform)` — all four sides equal
-- `.Margin(vertical, horizontal)` — top/bottom share one value, left/right share another
+- `.Margin(horizontal, vertical)` — **horizontal first.** Left/right share the first
+  value, top/bottom the second. `.Padding(...)` and `.FlexPadding(...)` use the same
+  order, matching `Thickness(left, top, right, bottom)`. A Figma frame with
+  `paddingLeft/Right = 16` and `paddingTop/Bottom = 8` is `.Margin(16, 8)`, not
+  `.Margin(8, 16)`.
 - `.Margin(left: L, top: T, right: R, bottom: B)` — use named args for per-side values
 
 ### Sizing
