@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Reactor.Localization;
 using Microsoft.UI.Xaml;
@@ -1723,7 +1724,18 @@ public static partial class Factories
 
     // ── Frame ───────────────────────────────────────────────────────
 
-    public static FrameElement Frame(Type? sourcePageType = null, object? navigationParameter = null)
+    /// <summary>
+    /// A WinUI <c>Frame</c> that navigates to <paramref name="sourcePageType"/> once on mount.
+    ///
+    /// <para><c>Frame</c> is for interop with pages that already have a <c>.xaml</c> file. A
+    /// <c>Page</c> declared only in C# is absent from the XAML metadata the compiler generates,
+    /// so WinUI cannot resolve it; Reactor refuses such a navigation and reports it through
+    /// <c>.NavigationFailed(...)</c> rather than letting it fault. For navigation inside a
+    /// Reactor app use <c>UseNavigation&lt;TRoute&gt;</c> with <c>NavigationHost</c>.</para>
+    /// </summary>
+    public static FrameElement Frame(
+        Type? sourcePageType = null,
+        object? navigationParameter = null)
     {
         return new() { SourcePageType = sourcePageType, NavigationParameter = navigationParameter };
     }

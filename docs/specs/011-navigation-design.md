@@ -58,6 +58,15 @@ WinUI's `Frame.Navigate()` requires:
    access violation in `ActivationAPI::ActivateInstance()` because
    `GetXamlTypeNoRef()` returns null.
 
+   > **Failure mode guarded (2026-07).** The constraint is unchanged — a code-only
+   > `Page` still cannot be navigated to. What changed is what happens when you try:
+   > `FrameNavigation.TryNavigate` checks resolvability before calling `Navigate`, so
+   > the outcome is a reported `NavigationFailed` naming `UseNavigation<TRoute>`
+   > instead of a process kill that `Application.UnhandledException` never sees.
+   > Deliberately *not* fixed by publishing synthesized metadata: that would breach
+   > goal 3 below and would still leave constraints 2–4 in force. See
+   > `src/Reactor/Hosting/FrameNavigation.cs`.
+
 2. **IPage interface** — `PageStackEntry::PrepareContent()` hard-casts content
    to `IPage` via `ctl::query_interface<IPage>()` (Frame_Partial.cpp:642).
    Non-Page content fails.

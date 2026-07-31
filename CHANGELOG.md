@@ -71,6 +71,40 @@ Conventions for contributors:
   `NavigationViewElement.SettingsTag` sentinel lets `SelectedTag` select the
   built-in settings item, and `.WithNavigation()` now routes it.
 
+- **ToolTip positioning is declarative (spec 002 §1.6).** `.ToolTipPlacement(mode)`
+  and `.ToolTipPlacementTarget(elementRef)` expose the two `ToolTipService`
+  attached properties that previously had no modifier, so positioning a tooltip
+  no longer needs a `.Set(fe => ToolTipService.SetPlacement(fe, …))` escape hatch.
+  Paired overloads `.ToolTip(text, placement)` and
+  `.WithToolTip(element, placement)` cover the common case in one call. The
+  placement target rides the same deferred reference-edge machinery as the
+  XYFocus refs, so the target does not have to mount first. This completes the
+  `ToolTipService` surface — §1.6 now reads 7/7 exposed. (WinUI has no tooltip
+  show/hide delay knobs; `InitialShowDelay`/`BetweenShowDelay` are WPF-only.)
+
+- **`REACTOR_POOL_001` now covers attached-property writes (spec 060 §3.1).**
+  The rule previously matched only assignment-shaped `.Set` writes
+  (`.Set(fe => fe.Margin = ...)`), so an attached-property write — a static call
+  such as `.Set(fe => AutomationProperties.SetName(fe, "Save"))` — was
+  structurally invisible to it. `ElementPool.CleanElement` clears 29 further
+  attached properties across `AutomationProperties`, `FlexPanel`,
+  `ToolTipService` and `TitleBar.IsDragRegion`, all of which are silently
+  discarded on pool reuse, so the rule's subject matter grows from 12 properties
+  to 41. **Consumer builds that were clean may start reporting
+  `REACTOR_POOL_001` on upgrade**; each report is a write that really is lost when
+  the control is recycled. Matching is gated on the write's target being the
+  lambda parameter itself and on the setter's owner resolving to the real WinUI
+  (or Reactor) type, so a write to some other object — or to a lookalike type of
+  the same name — stays silent. Most map 1:1 and ship a codefix
+  (`AutomationProperties.SetName` → `.AutomationName(...)`,
+  `ToolTipService.SetToolTip` → `.ToolTip(...)`,
+  `TitleBar.SetIsDragRegion` → `.IsDragRegion(...)`); the rest are
+  diagnostic-only because the modifier's shape differs —
+  `.PositionInSet(position, size)` takes two values, `.Required()` takes none,
+  and every `FlexPanel.*` property funnels into one `.Flex(grow: ...)`. Attached
+  owners the pool does not clear (`Canvas`, `ScrollViewer`, `Grid`) are
+  unaffected.
+
 ### Changed
 
 - **`WithNavigation` gained an optional `settingsRoute` argument (binary-breaking,
@@ -91,6 +125,32 @@ Conventions for contributors:
 
 ### Fixed
 
+- **`Flyout(...)` no longer terminates the process when opened at its default
+  placement.** Reactor's flyout elements default `Placement` to
+  `FlyoutPlacementMode.Auto`, and that value was written straight onto the WinUI
+  `FlyoutBase.Placement` dependency property. WinUI's show-time validator
+  (`FlyoutBase::ValidateAndSetParameters`) only accepts placements `0..12`, so
+  `Auto` (13) failed with `E_INVALIDARG` and the resulting stowed
+  `ArgumentException` killed the app the first time the flyout was shown —
+  reproducible from the gallery's Dialogs and Flyouts → Flyout page. Reactor now
+  leaves the dependency property alone when the element says `Auto`, so it keeps
+  its own documented default of `Top` and WinUI repositions from there. Applies
+  to `Flyout(...)`, `ContentFlyout(...)` / `.WithFlyout(...)` /
+  `.WithContextFlyout(...)` and `MenuItems(...)`. `CommandBarFlyout(...)` was
+  affected by the same defect and is guarded by the companion fix that made it
+  open from its target at all — before that it never reached the validator,
+  because nothing ever showed it. Explicit placements are unaffected
+  everywhere; a guarded flyout whose placement changes from an explicit value
+  back to `Auto` returns to that default, rather than leaving a stale local value
+  that would outrank a `Style` setter.
+
+- **Pooled controls no longer inherit a stale tooltip (spec 002 §1.6).**
+  `ElementPool.CleanElement` never cleared the `ToolTipService` attached
+  properties. The in-place update path clears them on a set → unset transition,
+  but a full unmount does not, so a recycled control carried the previous
+  element's tooltip — and now its placement and placement target — into the next
+  unrelated renter.
+
 - **`NavigationView` pane state no longer desyncs when the control moves its own
   pane (issue #916).** `IsPaneOpen` could be written but had no change
   notification, so a light dismiss or an adaptive display-mode change on resize
@@ -109,6 +169,20 @@ Conventions for contributors:
   mapping, so hiding the back button or the hamburger — the usual setup when a
   `TitleBar` already owns that chrome — forced an imperative
   `.Set(nv => ...)` escape hatch that the reconciler could not diff.
+
+- **`REACTOR_POOL_001` / `REACTOR_MOD_002` no longer offer a codefix that drops
+  a repeated write (spec 060 §3.1).** Both the reported and the fixable property
+  bags handed to `PoolResetSetCodeFix` are keyed by property name, but the fix
+  authorized each write independently — so when a `.Set` body wrote the same
+  property twice and only one of them qualified, the verdict earned by the first
+  was applied to the second as well. `.Set(fe => { fe.AccessKey = "F";
+  fe.AccessKey = null; })` was rewritten to `.AccessKey("F").AccessKey(null)`,
+  and `ApplyModifiers` only writes a modifier value that is non-null (or clears
+  when the *previous* render carried one), so the explicit clear silently stopped
+  happening. A property is now fixable only when *every* occurrence of it in the
+  body qualified — exact rather than conservative, since the fix is already
+  all-or-nothing over the whole body. Predates the attached-property work above,
+  where the same shape would have emitted a call that does not compile.
 
 ### Security
 

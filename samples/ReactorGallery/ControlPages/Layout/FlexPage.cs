@@ -52,12 +52,16 @@ class FlexPage : Component
                         }
                     ).Size(400, 250).Background(Theme.SubtleFill).CornerRadius(ThemeResource.CornerRadius("ControlCornerRadius").TopLeft),
                     """
+                    // Every axis below is driven by the Options combos, so the
+                    // snippet tracks whatever the live sample is showing.
                     new FlexElement(children)
                     {
-                        Direction = FlexDirection.Row,
-                        JustifyContent = FlexJustify.SpaceBetween,
-                        AlignItems = FlexAlign.Center,
-                        Wrap = FlexWrap.Wrap,
+                        Direction = direction,
+                        JustifyContent = justify,
+                        AlignItems = align,
+                        Wrap = wrap,
+                        ColumnGap = 8,
+                        RowGap = 8,
                     }
                     """,
                     OptionPanel(

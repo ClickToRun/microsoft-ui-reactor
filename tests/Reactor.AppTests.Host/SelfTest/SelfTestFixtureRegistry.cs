@@ -224,6 +224,20 @@ internal static class SelfTestFixtureRegistry
         "OverlayTeardown_Flyout_Unmount_RunsFlyoutContentCleanup",
         "OverlayTeardown_Flyout_Unmount_RunsPassThroughCleanup",
         "OverlayTeardown_Popup_Unmount_RunsChildCleanup",
+        // Flyout placement guard — Reactor must never write FlyoutPlacementMode.Auto
+        // onto a WinUI FlyoutBase, because the show-time validator rejects it and
+        // fail-fasts the process. The Flyout/ContentFlyout/fresh-create fixtures
+        // actually open the flyout, which is the only thing that catches the crash;
+        // the button-slot one pins the DP value only. CommandBarFlyout was affected
+        // too and is guarded by the fix that made it open from its target at all.
+        "FlyoutPlacement_Platform_FlyoutBase_PlacementDefault",
+        "FlyoutPlacement_Flyout_DefaultPlacement_Opens",
+        "FlyoutPlacement_Flyout_ExplicitPlacement_ReachesTheControl",
+        "FlyoutPlacement_Flyout_PlacementUpdate_NeverWritesAuto",
+        "FlyoutPlacement_ContentFlyout_DefaultPlacement_Opens",
+        "FlyoutPlacement_MenuFlyout_ContextFlyout_DefaultPlacement",
+        "FlyoutPlacement_ButtonFlyoutSlots_DefaultPlacement",
+        "FlyoutPlacement_Flyout_TargetTypeChange_FreshFlyoutNotAuto",
         // Issue #480 — InlineUIContainer rich-text inline (Route A + Route B + unmount)
         "InlineUI_RouteA_ReactorChild",
         "InlineUI_RouteB_NativeFactory",
@@ -371,6 +385,8 @@ internal static class SelfTestFixtureRegistry
         "ModifierEvent_EventHandlers",
         "ModifierEvent_Brushes",
         "ModifierEvent_Tooltip",
+        "ModifierEvent_TooltipPlacement",
+        "ModifierEvent_TooltipPoolClean",
         "ModifierEvent_Automation",
         "ModifierEvent_ImplicitTransitions",
         "ModifierEvent_BorderModifiers",
@@ -629,6 +645,13 @@ internal static class SelfTestFixtureRegistry
         "CoreCov2_InfoBarActionButton",
         "CoreCov2_CalendarPipsPagerUpdate",
         "CoreCov2_FrameAnimatedIconUpdate",
+        "FrameNav_CodeOnlyPageRefusedNotFatal",
+        "FrameNav_ResolvablePageStillNavigates",
+        "FrameNav_NavigatingPrecedesNavigated",
+        "FrameNav_UpdateDoesNotRenavigate",
+        "FrameNav_RefusalWithoutHandlerSurfacesError",
+        "FrameNav_ReactorDoesNotPublishAppPages",
+        "FrameNav_XamlPageUsesTheSameGuard",
         "CoreCov2_ParallaxViewMount",
         "CoreCov2_XamlHostMount",
         // Mount/unmount/lifecycle torture tests (real WinUI controls)
@@ -982,6 +1005,7 @@ internal static class SelfTestFixtureRegistry
         "SelectionEvt_TabView",
         "SelectionEvt_Pivot",
         "SelectionEvt_NavigationView",
+        "SelectionEvt_NavigationViewProgrammaticIsNotInvoked",
 
         // NavigationView pane-state round-trip (issue #916)
         "NavPane_OpenChangedFires",
@@ -1542,6 +1566,8 @@ internal static class SelfTestFixtureRegistry
         "Spec048_IconAndInteropGroupFactoriesRegisterHandlers",
         "Spec048_RegisterAllBuiltIns_DirectRecordMounts",
         "PropEntryOptional_Execution",
+        "IsOpenEdge_InfoBar",
+        "IsOpenEdge_TeachingTip",
         "ElementPoolOptionalReset",
         "ControlledOptionalCustomerRepro",
         "ControlledOptionalSelectionFamily",
@@ -1578,6 +1604,18 @@ internal static class SelfTestFixtureRegistry
         "CoreRRC_RenderContextThreadSafeState",
         "CoreRRC_RenderContextWindowEnvHooks",
         "CoreRRC_UntypedTreeViewReconcile",
+
+        // CommandBarFlyout target wiring + IsOpen (CommandBarFlyoutWiringFixtures).
+        "CmdBarFlyout_TargetWiring",
+        "CmdBarFlyout_NonButtonTargetUsesAttachedSlot",
+        "CmdBarFlyout_IsOpenOnUpdate",
+        "CmdBarFlyout_IsOpenOnMount",
+        "CmdBarFlyout_DefaultPlacementOpens",
+        "CmdBarFlyout_SplitButtonTargetWiring",
+        "CmdBarFlyout_PlacementExplicitToAutoResets",
+        "CmdBarFlyout_UnmountDetachesFlyout",
+        "CmdBarFlyout_KeyedReorderKeepsSiblingFlyouts",
+        "CmdBarFlyout_TargetKeepsItsOwnCallbacks",
     ];
 
     public static SelfTestFixtureBase? Create(string name, Harness harness) => name switch
@@ -1795,6 +1833,15 @@ internal static class SelfTestFixtureRegistry
         "OverlayTeardown_Flyout_Unmount_RunsFlyoutContentCleanup" => new OverlayTeardownFixtures.Flyout_Unmount_RunsFlyoutContentCleanup(harness),
         "OverlayTeardown_Flyout_Unmount_RunsPassThroughCleanup" => new OverlayTeardownFixtures.Flyout_Unmount_RunsPassThroughCleanup(harness),
         "OverlayTeardown_Popup_Unmount_RunsChildCleanup" => new OverlayTeardownFixtures.Popup_Unmount_RunsChildCleanup(harness),
+        // Flyout placement guard — Auto must never reach FlyoutBase.Placement.
+        "FlyoutPlacement_Platform_FlyoutBase_PlacementDefault" => new FlyoutPlacementFixtures.Platform_FlyoutBase_PlacementDefault(harness),
+        "FlyoutPlacement_Flyout_DefaultPlacement_Opens" => new FlyoutPlacementFixtures.Flyout_DefaultPlacement_Opens(harness),
+        "FlyoutPlacement_Flyout_ExplicitPlacement_ReachesTheControl" => new FlyoutPlacementFixtures.Flyout_ExplicitPlacement_ReachesTheControl(harness),
+        "FlyoutPlacement_Flyout_PlacementUpdate_NeverWritesAuto" => new FlyoutPlacementFixtures.Flyout_PlacementUpdate_NeverWritesAuto(harness),
+        "FlyoutPlacement_ContentFlyout_DefaultPlacement_Opens" => new FlyoutPlacementFixtures.ContentFlyout_DefaultPlacement_Opens(harness),
+        "FlyoutPlacement_MenuFlyout_ContextFlyout_DefaultPlacement" => new FlyoutPlacementFixtures.MenuFlyout_ContextFlyout_DefaultPlacement(harness),
+        "FlyoutPlacement_ButtonFlyoutSlots_DefaultPlacement" => new FlyoutPlacementFixtures.ButtonFlyoutSlots_DefaultPlacement(harness),
+        "FlyoutPlacement_Flyout_TargetTypeChange_FreshFlyoutNotAuto" => new FlyoutPlacementFixtures.Flyout_TargetTypeChange_FreshFlyoutNotAuto(harness),
         // Issue #480 — InlineUIContainer rich-text inline.
         "InlineUI_RouteA_ReactorChild" => new InlineUIContainerFixtures.InlineUI_RouteA_ReactorChild(harness),
         "InlineUI_RouteB_NativeFactory" => new InlineUIContainerFixtures.InlineUI_RouteB_NativeFactory(harness),
@@ -1928,6 +1975,8 @@ internal static class SelfTestFixtureRegistry
         "ModifierEvent_EventHandlers" => new ModifierEventFixtures.EventHandlerModifiers(harness),
         "ModifierEvent_Brushes" => new ModifierEventFixtures.BrushModifiers(harness),
         "ModifierEvent_Tooltip" => new ModifierEventFixtures.TooltipModifier(harness),
+        "ModifierEvent_TooltipPlacement" => new ModifierEventFixtures.TooltipPlacementModifier(harness),
+        "ModifierEvent_TooltipPoolClean" => new ModifierEventFixtures.TooltipPoolCleanOnRent(harness),
         "ModifierEvent_Automation" => new ModifierEventFixtures.AutomationModifiers(harness),
         "ModifierEvent_ImplicitTransitions" => new ModifierEventFixtures.ImplicitTransitionModifier(harness),
         "ModifierEvent_BorderModifiers" => new ModifierEventFixtures.BorderModifiers(harness),
@@ -2183,6 +2232,13 @@ internal static class SelfTestFixtureRegistry
         "CoreCov2_InfoBarActionButton" => new CoreCoverageFixtures2.InfoBarActionButton(harness),
         "CoreCov2_CalendarPipsPagerUpdate" => new CoreCoverageFixtures2.CalendarPipsPagerUpdate(harness),
         "CoreCov2_FrameAnimatedIconUpdate" => new CoreCoverageFixtures2.FrameAnimatedIconUpdate(harness),
+        "FrameNav_CodeOnlyPageRefusedNotFatal" => new FrameNavigationFixtures.CodeOnlyPageRefusedNotFatal(harness),
+        "FrameNav_ResolvablePageStillNavigates" => new FrameNavigationFixtures.ResolvablePageStillNavigates(harness),
+        "FrameNav_NavigatingPrecedesNavigated" => new FrameNavigationFixtures.NavigatingPrecedesNavigated(harness),
+        "FrameNav_UpdateDoesNotRenavigate" => new FrameNavigationFixtures.UpdateDoesNotRenavigate(harness),
+        "FrameNav_RefusalWithoutHandlerSurfacesError" => new FrameNavigationFixtures.RefusalWithoutHandlerSurfacesError(harness),
+        "FrameNav_ReactorDoesNotPublishAppPages" => new FrameNavigationFixtures.ReactorDoesNotPublishAppPages(harness),
+        "FrameNav_XamlPageUsesTheSameGuard" => new FrameNavigationFixtures.XamlPageUsesTheSameGuard(harness),
         "CoreCov2_ParallaxViewMount" => new CoreCoverageFixtures2.ParallaxViewMount(harness),
         "CoreCov2_XamlHostMount" => new CoreCoverageFixtures2.XamlHostMount(harness),
         "LT_OnMountUnmountBalanced" => new LT_OnMountUnmountBalanced(harness),
@@ -2546,6 +2602,7 @@ internal static class SelfTestFixtureRegistry
         "SelectionEvt_TabView" => new SelectionEventFixtures.TabViewSelectionFires(harness),
         "SelectionEvt_Pivot" => new SelectionEventFixtures.PivotSelectionFires(harness),
         "SelectionEvt_NavigationView" => new SelectionEventFixtures.NavigationViewSelectionFires(harness),
+        "SelectionEvt_NavigationViewProgrammaticIsNotInvoked" => new SelectionEventFixtures.NavigationViewProgrammaticSelectionIsNotAnInvoke(harness),
 
         // NavigationView pane-state round-trip (issue #916)
         "NavPane_OpenChangedFires" => new NavigationViewPaneFixtures.PaneOpenChangedFires(harness),
@@ -3062,6 +3119,8 @@ internal static class SelfTestFixtureRegistry
         "Spec048_IconAndInteropGroupFactoriesRegisterHandlers" => new Spec048RegistrationFixtures.IconAndInteropGroupFactoriesRegisterHandlers(harness),
         "Spec048_RegisterAllBuiltIns_DirectRecordMounts" => new Spec048RegistrationFixtures.RegisterAllBuiltInsEnablesDirectRecordMount(harness),
         "PropEntryOptional_Execution" => new PropEntryOptionalFixture.Execution(harness),
+        "IsOpenEdge_InfoBar" => new IsOpenEdgeTriggeredFixtures.InfoBarEdgeTriggered(harness),
+        "IsOpenEdge_TeachingTip" => new IsOpenEdgeTriggeredFixtures.TeachingTipEdgeTriggered(harness),
         "ElementPoolOptionalReset" => new ElementPoolOptionalResetFixture.Execution(harness),
         "ControlledOptionalCustomerRepro" => new ControlledOptionalCustomerRepro.Execution(harness),
         "ControlledOptionalSelectionFamily" => new ControlledOptionalSelectionFamilyFixture.Execution(harness),
@@ -3096,6 +3155,18 @@ internal static class SelfTestFixtureRegistry
         "CoreRRC_RenderContextThreadSafeState" => new CoreReconcilerRenderCoverageFixtures.RenderContextThreadSafeState(harness),
         "CoreRRC_RenderContextWindowEnvHooks" => new CoreReconcilerRenderCoverageFixtures.RenderContextWindowEnvHooks(harness),
         "CoreRRC_UntypedTreeViewReconcile" => new CoreReconcilerRenderCoverageFixtures.UntypedTreeViewReconcile(harness),
+
+        // CommandBarFlyout target wiring + IsOpen.
+        "CmdBarFlyout_TargetWiring" => new CommandBarFlyoutWiringFixtures.TargetWiring(harness),
+        "CmdBarFlyout_NonButtonTargetUsesAttachedSlot" => new CommandBarFlyoutWiringFixtures.NonButtonTargetUsesAttachedSlot(harness),
+        "CmdBarFlyout_IsOpenOnUpdate" => new CommandBarFlyoutWiringFixtures.IsOpenOnUpdate(harness),
+        "CmdBarFlyout_IsOpenOnMount" => new CommandBarFlyoutWiringFixtures.IsOpenOnMount(harness),
+        "CmdBarFlyout_DefaultPlacementOpens" => new CommandBarFlyoutWiringFixtures.DefaultPlacementOpens(harness),
+        "CmdBarFlyout_SplitButtonTargetWiring" => new CommandBarFlyoutWiringFixtures.SplitButtonTargetWiring(harness),
+        "CmdBarFlyout_PlacementExplicitToAutoResets" => new CommandBarFlyoutWiringFixtures.PlacementExplicitToAutoResets(harness),
+        "CmdBarFlyout_UnmountDetachesFlyout" => new CommandBarFlyoutWiringFixtures.UnmountDetachesFlyout(harness),
+        "CmdBarFlyout_KeyedReorderKeepsSiblingFlyouts" => new CommandBarFlyoutWiringFixtures.KeyedReorderKeepsSiblingFlyouts(harness),
+        "CmdBarFlyout_TargetKeepsItsOwnCallbacks" => new CommandBarFlyoutWiringFixtures.TargetKeepsItsOwnCallbacks(harness),
 
         _ => null,
     };

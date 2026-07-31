@@ -1,7 +1,19 @@
 using Microsoft.UI.Reactor;
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Reactor.Hosting;
+using WinUIGalleryReactor;
 using static Microsoft.UI.Reactor.Factories;
+
+// Deep linking, step 1: if a `reactor-gallery://` link launched us while a gallery
+// is already running, hand the activation over and exit instead of opening a second
+// window. Must happen before WinUI bootstraps.
+if (GalleryActivation.TryRedirectToRunningInstance())
+    return;
+
+// Deep linking, step 2: make `reactor-gallery://` clickable. Unpackaged builds have
+// to register themselves under HKCU; the MSIX flavour declares the scheme in
+// Package.appxmanifest instead, so this call no-ops there.
+GalleryProtocol.EnsureRegistered();
 
 // No explicit width/height: the gallery is content-heavy and benefits from a
 // window proportional to the display, which is what the OS default gives

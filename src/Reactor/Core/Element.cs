@@ -1164,6 +1164,8 @@ public abstract record Element
         return a.IsEnabled == b.IsEnabled
             && a.ElementSoundMode == b.ElementSoundMode
             && a.ToolTip == b.ToolTip
+            && a.ToolTipPlacement == b.ToolTipPlacement
+            && ReferenceEquals(a.ToolTipPlacementTargetRef, b.ToolTipPlacementTargetRef)
             && a.AutomationName == b.AutomationName
             && a.AutomationId == b.AutomationId
             && a.FontSize == b.FontSize
@@ -1884,6 +1886,21 @@ public record ElementModifiers
     }
     public string? ToolTip { get; init; }
     public Element? RichToolTip { get; init; }
+    /// <summary>
+    /// <c>ToolTipService.Placement</c> — which side of the element the tooltip
+    /// opens on. Applies to both <see cref="ToolTip"/> and <see cref="RichToolTip"/>.
+    /// <c>PlacementMode</c> has exactly five members (<c>Top</c>, <c>Bottom</c>,
+    /// <c>Left</c>, <c>Right</c>, <c>Mouse</c>); the edge-aligned placements belong to
+    /// the separate <c>FlyoutPlacementMode</c> enum and are not expressible here.
+    /// </summary>
+    public Microsoft.UI.Xaml.Controls.Primitives.PlacementMode? ToolTipPlacement { get; init; }
+    /// <summary>
+    /// <c>ToolTipService.PlacementTarget</c> — position the tooltip relative to a
+    /// different element than the one it is attached to. Resolved through the same
+    /// deferred reference-edge machinery as the XYFocus refs, so the target does not
+    /// have to be mounted before this element.
+    /// </summary>
+    public Microsoft.UI.Reactor.Input.ElementRef? ToolTipPlacementTargetRef { get; init; }
     public Element? AttachedFlyout { get; init; }
     public Element? ContextFlyout { get; init; }
     public Brush? Background
@@ -2062,6 +2079,8 @@ public record ElementModifiers
             Visual = mergedVisual,
             ToolTip = other.ToolTip ?? ToolTip,
             RichToolTip = other.RichToolTip ?? RichToolTip,
+            ToolTipPlacement = other.ToolTipPlacement ?? ToolTipPlacement,
+            ToolTipPlacementTargetRef = other.ToolTipPlacementTargetRef ?? ToolTipPlacementTargetRef,
             AttachedFlyout = other.AttachedFlyout ?? AttachedFlyout,
             ContextFlyout = other.ContextFlyout ?? ContextFlyout,
             IsEnabled = other.IsEnabled ?? IsEnabled,
@@ -4452,6 +4471,14 @@ public partial record SplitViewElement(
     Element? Content = null
 ) : Element
 {
+    /// <summary>
+    /// Whether the pane is open. Defaults to <c>true</c>.
+    /// <para><b>Edge-triggered.</b> This declares a <i>transition</i>, not a mirror: Reactor
+    /// writes the control only when the declared value <i>changes</i>. The control opens and
+    /// closes its own pane (light dismiss, display-mode changes on resize) without touching the
+    /// declared value, so re-rendering the same declared value will not force the pane back.
+    /// Feed <see cref="OnPaneOpenChanged"/> into the state that drives this property.</para>
+    /// </summary>
     public bool IsPaneOpen { get; init; } = true;
     public double OpenPaneLength { get; init; } = 320;
     public double CompactPaneLength { get; init; } = 48;
@@ -4637,6 +4664,15 @@ public partial record NavigationViewElement(
     /// Carries the item's tag, or <see cref="SettingsTag"/> for the settings item.
     /// </summary>
     public Action<string?>? OnItemInvoked { get; init; }
+    /// <summary>
+    /// Whether the pane is open. Defaults to <c>true</c>.
+    /// <para><b>Edge-triggered.</b> This declares a <i>transition</i>, not a mirror: Reactor
+    /// writes the control only when the declared value <i>changes</i>. The control opens and
+    /// closes its own pane (light dismiss, adaptive display-mode changes on resize) without
+    /// touching the declared value, so re-rendering the same declared value will not force the
+    /// pane back. Feed <see cref="OnPaneOpenChanged"/> into the state that drives this
+    /// property (issue #916).</para>
+    /// </summary>
     public bool IsPaneOpen { get; init; } = true;
     /// <summary>
     /// Fires whenever the realized control's <c>IsPaneOpen</c> changes — including changes the
@@ -5254,6 +5290,16 @@ public record FlyoutElement(
 ) : Element
 {
     public bool IsOpen { get; init; }
+    /// <summary>
+    /// Preferred position of the flyout relative to its target. Defaults to
+    /// <see cref="FlyoutPlacementMode.Auto"/>, which means "no opinion — let WinUI decide":
+    /// Reactor clears <c>FlyoutBase.Placement</c> so it falls back to the control's own
+    /// default (<see cref="FlyoutPlacementMode.Top"/>) instead of writing <c>Auto</c>,
+    /// because WinUI's show-time validator rejects <c>Auto</c> and terminates the process.
+    /// Changing an already-mounted flyout from an explicit placement back to
+    /// <see cref="FlyoutPlacementMode.Auto"/> therefore returns it to that default, rather
+    /// than leaving a stale local value that would outrank a <c>Style</c> setter.
+    /// </summary>
     public FlyoutPlacementMode Placement { get; init; } = FlyoutPlacementMode.Auto;
     public Action? OnOpened { get; init; }
     public Action? OnClosed { get; init; }
@@ -5273,6 +5319,16 @@ public record FlyoutElement(
 /// </summary>
 public record ContentFlyoutElement(Element Content) : Element
 {
+    /// <summary>
+    /// Preferred position of the flyout relative to its target. Defaults to
+    /// <see cref="FlyoutPlacementMode.Auto"/>, which means "no opinion — let WinUI decide":
+    /// Reactor clears <c>FlyoutBase.Placement</c> so it falls back to the control's own
+    /// default (<see cref="FlyoutPlacementMode.Top"/>) instead of writing <c>Auto</c>,
+    /// because WinUI's show-time validator rejects <c>Auto</c> and terminates the process.
+    /// Changing an already-mounted flyout from an explicit placement back to
+    /// <see cref="FlyoutPlacementMode.Auto"/> therefore returns it to that default, rather
+    /// than leaving a stale local value that would outrank a <c>Style</c> setter.
+    /// </summary>
     public FlyoutPlacementMode Placement { get; init; } = FlyoutPlacementMode.Auto;
 }
 
@@ -5282,6 +5338,16 @@ public record ContentFlyoutElement(Element Content) : Element
 /// </summary>
 public record MenuFlyoutContentElement(MenuFlyoutItemBase[] Items) : Element
 {
+    /// <summary>
+    /// Preferred position of the flyout relative to its target. Defaults to
+    /// <see cref="FlyoutPlacementMode.Auto"/>, which means "no opinion — let WinUI decide":
+    /// Reactor clears <c>FlyoutBase.Placement</c> so it falls back to the control's own
+    /// default (<see cref="FlyoutPlacementMode.Top"/>) instead of writing <c>Auto</c>,
+    /// because WinUI's show-time validator rejects <c>Auto</c> and terminates the process.
+    /// Changing an already-mounted flyout from an explicit placement back to
+    /// <see cref="FlyoutPlacementMode.Auto"/> therefore returns it to that default, rather
+    /// than leaving a stale local value that would outrank a <c>Style</c> setter.
+    /// </summary>
     public FlyoutPlacementMode Placement { get; init; } = FlyoutPlacementMode.Auto;
 }
 
@@ -5302,6 +5368,15 @@ public partial record TeachingTipElement(
     string? Subtitle = null
 ) : Element
 {
+    /// <summary>
+    /// Whether the tip is shown. Defaults to <c>false</c> — drive it from state.
+    /// <para><b>Edge-triggered.</b> This declares a <i>transition</i>, not a mirror: Reactor
+    /// writes the control only when the declared value <i>changes</i>. A light dismiss or the
+    /// tip's own close button sets <c>IsOpen</c> to <c>false</c> on the control without touching
+    /// the declared value, so re-rendering the same declared <c>true</c> will not re-open it.
+    /// Wire <see cref="OnClosed"/> back into the state that drives this property; a later
+    /// <c>false → true</c> transition then re-opens the tip.</para>
+    /// </summary>
     public bool IsOpen { get; init; }
     public Element? Content { get; init; }
     public string? ActionButtonContent { get; init; }
@@ -5410,7 +5485,19 @@ public partial record InfoBarElement(
 ) : Element
 {
     public InfoBarSeverity Severity { get; init; } = InfoBarSeverity.Informational;
+    /// <summary>
+    /// Whether the bar is shown. Defaults to <c>true</c>, so <c>InfoBar("Title", "Message")</c>
+    /// is visible without ceremony.
+    /// <para><b>Edge-triggered.</b> This declares a <i>transition</i>, not a mirror: Reactor
+    /// writes the control only when the declared value <i>changes</i>. The user can dismiss the
+    /// bar with its built-in close button, which sets <c>IsOpen</c> to <c>false</c> on the
+    /// control without touching the declared value — re-rendering the same declared <c>true</c>
+    /// will <b>not</b> bring it back, and is not meant to. Wire <see cref="OnClosed"/> (or
+    /// <c>.Closed(...)</c>) into the state that drives this property; a later <c>false → true</c>
+    /// transition then re-opens the bar.</para>
+    /// </summary>
     public bool IsOpen { get; init; } = true;
+    /// <summary>Whether the bar shows its built-in close button. Defaults to <c>true</c>.</summary>
     public bool IsClosable { get; init; } = true;
     public string? ActionButtonContent { get; init; }
     public Action? OnActionButtonClick { get; init; }
@@ -6635,6 +6722,26 @@ public record CommandBarFlyoutElement(
     AppBarItemBase[]? SecondaryCommands = null
 ) : Element
 {
+    /// <summary>
+    /// Opens the flyout declaratively. Like <see cref="FlyoutElement.IsOpen"/> this is a
+    /// one-shot trigger: the flyout is shown on mount when already <c>true</c>, and on the
+    /// <c>false</c> → <c>true</c> edge of an update. Setting it back to <c>false</c> does not
+    /// close the flyout — the user dismisses it (outside click, Esc, or invoking a command).
+    /// The target normally opens the flyout on click without this.
+    /// </summary>
+    public bool IsOpen { get; init; }
+    /// <summary>
+    /// Preferred position of the flyout relative to its target. Defaults to
+    /// <see cref="FlyoutPlacementMode.Auto"/>, meaning "no opinion — let the platform decide".
+    /// </summary>
+    /// <remarks>
+    /// These sites are guarded by <c>Reconciler.ApplyFlyoutPlacement</c> rather than by
+    /// <c>FlyoutPlacement.Apply</c>, because they are owned by the change that fixed
+    /// <c>CommandBarFlyout</c> never opening from its target. Both prevent <c>Auto</c> from
+    /// reaching WinUI's show-time validator, which rejects it; they differ only on an update
+    /// back to <c>Auto</c>, where this one clears the DP so it returns to the platform
+    /// default rather than retaining the last explicit value.
+    /// </remarks>
     public FlyoutPlacementMode Placement { get; init; } = FlyoutPlacementMode.Auto;
     internal Action<WinUI.CommandBarFlyout>[] Setters { get; init; } = [];
 }
@@ -6867,18 +6974,33 @@ public partial record MapControlElement() : Element
 //  Frame
 // ════════════════════════════════════════════════════════════════════════
 
-// Spec 058 §15 (P5.6) — navigation is mount-only (Navigate once), modeled via a
-// [WrapManual] Customize `.Initial` projecting SourcePageType + NavigationParameter.
-// The three navigation events use [WrapEvent] typed projections; NavigationFailed
-// is a MULTI-arg projection (SourcePageType + Exception).
+// Spec 058 §15 (P5.6) — navigation is mount-only (Navigate once). It runs from the
+// descriptor's AfterChildrenMount hook rather than an `.Initial` prop entry because
+// DescriptorHandler.Mount applies every prop write BEFORE it subscribes any event: an
+// `.Initial` navigate therefore completed before Navigating/Navigated/NavigationFailed
+// had a single subscriber, so none of the three could ever fire for the initial
+// navigation. AfterChildrenMount runs after EnsureSubscribed and is still mount-only,
+// which preserves the navigate-once semantics.
+//
+// The three navigation events are hand-written `.HandCodedEvent` entries sharing one
+// FrameEventPayload (a control carries a single typed event-payload box, so all three must
+// use the same payload type). NavigationFailed is hand-written rather than a [WrapEvent]
+// projection because it also has to mark the args Handled — WinUI rethrows an unhandled
+// navigation failure, which would propagate out of the mount pass and kill the app.
 [global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.Frame))]
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("SourcePageType")]
-[global::Microsoft.UI.Reactor.Wrappers.WrapEvent("Navigated", Arg = "SourcePageType")]
-[global::Microsoft.UI.Reactor.Wrappers.WrapEvent("Navigating", Arg = "SourcePageType")]
-[global::Microsoft.UI.Reactor.Wrappers.WrapEvent("NavigationFailed", Args = new[] { "SourcePageType", "Exception" })]
 public partial record FrameElement() : Element
 {
+    /// <summary>
+    /// The <see cref="WinUI.Page"/>-derived type to navigate to on mount.
+    /// </summary>
+    /// <remarks>
+    /// Must be a <c>Page</c> the XAML metadata chain can resolve — in practice one with a
+    /// <c>.xaml</c> file, since that is what makes the XAML compiler emit it. A code-only
+    /// <c>Page</c> is refused and reported through <see cref="OnNavigationFailed"/>.
+    /// </remarks>
     public Type? SourcePageType { get; init; }
+
     public object? NavigationParameter { get; init; }
 
     /// <summary>Raised after a successful navigation. Receives the new <c>SourcePageType</c>.</summary>
@@ -6887,22 +7009,78 @@ public partial record FrameElement() : Element
     /// <summary>Raised before navigation begins. Receives the target <c>SourcePageType</c>. Cancellation is not supported via this fluent — use <c>.Set(...)</c> to wire the raw <c>Navigating</c> event for that.</summary>
     public Action<Type>? OnNavigating { get; init; }
 
-    /// <summary>Raised when a navigation fails. Receives the target <c>SourcePageType</c> and the failure exception.</summary>
+    /// <summary>
+    /// Raised when a navigation fails. Receives the target <c>SourcePageType</c> and the failure exception.
+    /// Wiring this also marks the failure handled, so a page whose constructor throws degrades
+    /// into this callback instead of tearing down the application.
+    /// </summary>
     public Action<Type, Exception>? OnNavigationFailed { get; init; }
 
     internal Action<WinUI.Frame>[] Setters { get; init; } = [];
 
-    // Mount-only navigation: re-running on Update would re-navigate on every
-    // record-with. A single .Initial entry projects both SourcePageType +
-    // NavigationParameter so the set lambda has both pieces.
+    private static readonly global::Microsoft.UI.Xaml.Navigation.NavigatedEventHandler s_navigatedTrampoline =
+        static (s, args) =>
+        {
+            if (Reconciler.GetElementTag((FrameworkElement)s) is FrameElement live)
+                live.OnNavigated?.Invoke(args.SourcePageType);
+        };
+
+    private static readonly global::Microsoft.UI.Xaml.Navigation.NavigatingCancelEventHandler s_navigatingTrampoline =
+        static (s, args) =>
+        {
+            if (Reconciler.GetElementTag((FrameworkElement)s) is FrameElement live)
+                live.OnNavigating?.Invoke(args.SourcePageType);
+        };
+
+    private static readonly global::Microsoft.UI.Xaml.Navigation.NavigationFailedEventHandler s_navigationFailedTrampoline =
+        static (s, args) =>
+        {
+            if (Reconciler.GetElementTag((FrameworkElement)s) is not FrameElement live) return;
+            if (live.OnNavigationFailed is not { } callback) return;
+            // Mark handled BEFORE invoking the callback: if the user's handler throws, the
+            // failure must still count as handled, otherwise WinUI rethrows the original
+            // navigation exception on top and the app goes down anyway.
+            args.Handled = true;
+            callback(args.SourcePageType, args.Exception);
+        };
+
+    private static void NavigateOnMount(WinUI.Frame frame, FrameElement element)
+    {
+        if (element.SourcePageType is not { } pageType) return;
+
+        var failure = global::Microsoft.UI.Reactor.Hosting.FrameNavigation.TryNavigate(
+            frame, pageType, element.NavigationParameter);
+        if (failure is null) return;
+
+        // WinUI never got the chance to raise NavigationFailed (calling Navigate would have
+        // faulted the process), so report the refusal through the same channel.
+        if (element.OnNavigationFailed is { } callback) callback(pageType, failure);
+        else throw failure;
+    }
+
     private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<FrameElement, WinUI.Frame> Customize(
         global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<FrameElement, WinUI.Frame> d)
-        => d.Initial<(Type? pageType, object? param)>(
-            get: static e => (e.SourcePageType, e.NavigationParameter),
-            set: static (c, v) =>
-            {
-                if (v.pageType is not null) c.Navigate(v.pageType, v.param);
-            });
+        => d
+            .WithAfterChildrenMount(static (in global::Microsoft.UI.Reactor.Core.V1Protocol.MountContext _, FrameElement el, WinUI.Frame frame)
+                => NavigateOnMount(frame, el))
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.FrameEventPayload, global::Microsoft.UI.Xaml.Navigation.NavigatedEventHandler>(
+                subscribe: static (c, h) => c.Navigated += h,
+                callbackPresent: static el => el.OnNavigated,
+                trampoline: s_navigatedTrampoline,
+                slotIsNull: static p => p.NavigatedTrampoline is null,
+                setSlot: static (p, h) => p.NavigatedTrampoline = h)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.FrameEventPayload, global::Microsoft.UI.Xaml.Navigation.NavigatingCancelEventHandler>(
+                subscribe: static (c, h) => c.Navigating += h,
+                callbackPresent: static el => el.OnNavigating,
+                trampoline: s_navigatingTrampoline,
+                slotIsNull: static p => p.NavigatingTrampoline is null,
+                setSlot: static (p, h) => p.NavigatingTrampoline = h)
+            .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.FrameEventPayload, global::Microsoft.UI.Xaml.Navigation.NavigationFailedEventHandler>(
+                subscribe: static (c, h) => c.NavigationFailed += h,
+                callbackPresent: static el => el.OnNavigationFailed,
+                trampoline: s_navigationFailedTrampoline,
+                slotIsNull: static p => p.NavigationFailedTrampoline is null,
+                setSlot: static (p, h) => p.NavigationFailedTrampoline = h);
 }
 
 // ════════════════════════════════════════════════════════════════════════

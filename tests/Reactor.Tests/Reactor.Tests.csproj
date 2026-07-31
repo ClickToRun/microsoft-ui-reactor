@@ -19,6 +19,13 @@
          the analyzer keeps guarding against *new*, unintended reflection. See README.md
          for the per-category rationale and the native-AOT-run verdict. -->
     <IsAotCompatible>true</IsAotCompatible>
+    <!-- Required by the [LibraryImport] source generator, which emits an unsafe stub.
+         Used by the kernel32 package-identity probes in PackageRuntimeTests /
+         GalleryPackageIdentityTests; no hand-written unsafe code in this project.
+         LibraryImport is preferred over DllImport here because its marshalling is
+         source-generated at compile time, which is what keeps the interop honest under
+         the IsAotCompatible analysis above. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Show every individual trimmer warning instead of collapsing them into one. -->
     <TrimmerSingleWarn>false</TrimmerSingleWarn>
     <UseWinUI>true</UseWinUI>
@@ -48,6 +55,21 @@
 
   <ItemGroup>
     <Compile Include="..\_shared\BuiltInHandlerBootstrap.cs" Link="BuiltInHandlerBootstrap.cs" />
+  </ItemGroup>
+
+  <!--
+    ReactorGallery's deep-link routing (samples/ReactorGallery/DeepLink/GalleryRoutes.cs)
+    is the piece that interprets untrusted `reactor-gallery://` URIs, so it is written
+    free of any WinUI/WinRT dependency and compiled into this headless suite by source
+    link rather than via a ProjectReference — pulling in the gallery *app* would drag
+    WinUI app packaging into unit tests for no benefit. ControlRegistry.cs comes along
+    because the route validator checks resolved tags against it.
+  -->
+  <ItemGroup>
+    <Compile Include="..\..\samples\ReactorGallery\ControlRegistry.cs" Link="Samples\ReactorGallery\ControlRegistry.cs" />
+    <Compile Include="..\..\samples\ReactorGallery\DeepLink\GalleryRoutes.cs" Link="Samples\ReactorGallery\GalleryRoutes.cs" />
+    <Compile Include="..\..\samples\ReactorGallery\DeepLink\GalleryActivationRouting.cs" Link="Samples\ReactorGallery\GalleryActivationRouting.cs" />
+    <Compile Include="..\..\samples\ReactorGallery\DeepLink\GalleryPackageIdentity.cs" Link="Samples\ReactorGallery\GalleryPackageIdentity.cs" />
   </ItemGroup>
 
   <ItemGroup>

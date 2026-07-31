@@ -43,15 +43,20 @@ class NavigationViewPage : Component
                         SelectedTag = selectedTag,
                         OnSelectedTagChanged = tag => { if (tag != null) setSelectedTag(tag); },
                         PaneTitle = "Nav Demo",
+                        PaneDisplayMode = modes[paneMode],
                         IsSettingsVisible = false,
                     }).Height(300),
-                    @"NavigationView(items, content: TextBlock(""Selected: ...""))
+                    @"NavigationView(items, content: TextBlock($""Selected: {selectedTag}""))
 with {
-    SelectedTag = tag,
-    OnSelectedTagChanged = t => setTag(t),
+    SelectedTag = selectedTag,
+    // The tag is nullable — guard before writing it back to state.
+    OnSelectedTagChanged = tag => { if (tag != null) setSelectedTag(tag); },
     PaneTitle = ""Nav Demo"",
+    PaneDisplayMode = modes[paneMode],   // driven by the Options combo below
+    IsSettingsVisible = false,
 }",
                     options: OptionPanel(
+                        TextBlock("Pane display mode"),
                         ComboBox(modeNames, paneMode, i => setPaneMode(i))
                     )),
 

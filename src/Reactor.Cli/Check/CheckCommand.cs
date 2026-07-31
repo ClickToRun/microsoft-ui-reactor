@@ -412,6 +412,7 @@ public static class CheckCommand
             "REACTOR_A11Y_001"  => "skills/design.md §a11y (set AutomationName on icon-only controls)",
             "REACTOR_DSL_001"   => "SKILL.md gotcha #6 (.WithKey on dynamic list items)",
             "REACTOR_DOCK_001"  => "skills/reactor-docking SKILL.md (OnLiveLayoutChanged is observation-only)",
+            "REACTOR_ITEMS_002" => "skills/reactor-build-and-check SKILL.md (ItemsView viewBuilder must return an ItemContainer root)",
             _ => null,
         };
     }

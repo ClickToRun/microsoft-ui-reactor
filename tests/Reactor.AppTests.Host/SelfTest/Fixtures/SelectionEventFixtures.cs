@@ -290,4 +290,73 @@ internal static class SelectionEventFixtures
             H.Check("NavViewSel_PayloadTag", lastTag == "about");
         }
     }
+
+    /// <summary>
+    /// Pins the difference between the two NavigationView navigation callbacks, which is
+    /// load-bearing for any app that drives <c>SelectedTag</c> as controlled output:
+    /// <c>OnSelectedTagChanged</c> is raised by a <b>programmatic</b> selection write as
+    /// well as by the user, while <c>OnItemInvoked</c> is user-only.
+    ///
+    /// <para>ReactorGallery's deep linking depends on exactly this: it navigates by
+    /// writing <c>SelectedTag</c>, so handling navigation on <c>OnSelectedTagChanged</c>
+    /// makes every deep link immediately undo itself (the echo clears the search query the
+    /// link set and overwrites the back target). If WinUI or the reconciler ever started
+    /// raising <c>ItemInvoked</c> for programmatic writes, that regression would be silent
+    /// — the app would still "work", just navigate to the wrong place — so it is asserted
+    /// here rather than left to an E2E click test.</para>
+    /// </summary>
+    internal class NavigationViewProgrammaticSelectionIsNotAnInvoke(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            int selectionChanged = 0;
+            int invoked = 0;
+            string? lastSelectionTag = null;
+            string? lastInvokedTag = null;
+
+            var host = H.CreateHost();
+            host.Mount(ctx => VStack(
+                new NavigationViewElement(
+                    [
+                        NavItem("Home", tag: "home"),
+                        NavItem("About", tag: "about"),
+                    ],
+                    TextBlock("nav content"))
+                {
+                    OnSelectedTagChanged = tag => { selectionChanged++; lastSelectionTag = tag; },
+                    OnItemInvoked = tag => { invoked++; lastInvokedTag = tag; },
+                    IsSettingsVisible = false,
+                }.Set(n => n.Name = "navEcho")
+            ));
+            await Harness.Render();
+
+            var nv = H.FindControl<NavigationView>(n => n.Name == "navEcho");
+            H.Check("NavViewEcho_Mounted", nv is not null);
+
+            // Mount-time selection wiring can fire once on some controls.
+            selectionChanged = 0;
+            invoked = 0;
+            lastSelectionTag = null;
+            lastInvokedTag = null;
+
+            NavigationViewItem? target = null;
+            if (nv is not null)
+            {
+                target = nv.MenuItems.OfType<NavigationViewItem>()
+                    .FirstOrDefault(item => (item.Tag as string) == "about");
+            }
+            H.Check("NavViewEcho_TargetItemFound", target is not null);
+
+            if (nv is not null && target is not null)
+                nv.SelectedItem = target;
+            await Harness.Render();
+
+            // Both halves matter. Without the first, the second would pass trivially on a
+            // NavigationView that raised nothing at all.
+            H.Check("NavViewEcho_SelectedTagChangedSeesProgrammaticWrite",
+                selectionChanged >= 1 && lastSelectionTag == "about");
+            H.Check("NavViewEcho_ItemInvokedIgnoresProgrammaticWrite",
+                invoked == 0 && lastInvokedTag is null);
+        }
+    }
 }
