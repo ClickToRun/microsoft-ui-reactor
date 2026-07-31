@@ -114,6 +114,16 @@ public class SelfTestBatch
     /// <c>UINT</c>, so the caller picks it; nothing structurally prevents a killer choosing
     /// <c>0xC0000005</c>. It just isn't what any killer in this environment does.</para>
     ///
+    /// <para><b>Scope of the prior, and when it expires.</b> The inference is not over
+    /// <c>TerminateProcess</c> — it is over <i>the population of things that kill this process</i>.
+    /// It holds because every killer present today (this harness's own watchdog, an external
+    /// <c>Process.Kill</c>/<c>Stop-Process</c>, <c>taskkill /F</c>) lands on <c>-1</c> or
+    /// <c>1</c>. It weakens the moment that population changes — a new harness, a CI job-object
+    /// teardown, a container runtime, or any watchdog that deliberately propagates the child's
+    /// status. <b>If you add something that can kill the Host, check what exit code it produces
+    /// and revisit this method.</b> A reader with no cue that the prior is environment-scoped
+    /// would keep trusting it after it stopped being true.</para>
+    ///
     /// <para>The raw value is always printed alongside the interpretation so nobody has to trust
     /// the mapping. A triager who reads "external kill" as certain stops looking, and the cost of
     /// a false certainty here is chasing the wrong cause.</para>
