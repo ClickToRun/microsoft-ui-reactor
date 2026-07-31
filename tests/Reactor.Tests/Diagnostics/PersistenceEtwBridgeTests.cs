@@ -154,6 +154,16 @@ public class PersistenceEtwBridgeTests : IDisposable
 
         Assert.False(store.TryRead("main", out _));
 
+        // Why this lookup is discriminated by operation rather than matched on event name:
+        // SwallowedError is emitted by every subsystem under Keywords.Errors,
+        // ReactorEventSource.Log is process-global, and CapturingListener therefore also
+        // receives events raised by any test class running concurrently. This assertion used
+        // to take the FIRST SwallowedError in the buffer and then assert its category, so a
+        // foreign event won the race and it failed with "Intl != Persistence" — observed
+        // ~1 full-suite run in 4, and 9/9 passing in isolation, which is why it was
+        // mis-triaged for so long. It was the only one of this class's three SwallowedError
+        // lookups missing the discriminator; AssertEvent now makes that omission
+        // unrepresentable rather than something each author has to remember.
         var evt = AssertEvent(
             _listener.Events,
             nameof(ReactorEventSource.SwallowedError),

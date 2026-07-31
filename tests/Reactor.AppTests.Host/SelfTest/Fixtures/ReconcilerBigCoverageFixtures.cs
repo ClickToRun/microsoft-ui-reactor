@@ -1440,8 +1440,9 @@ internal static class ReconcilerBigCoverageFixtures
             H.Check("ExitRpl_Initial", H.FindText("ex-old") is not null);
 
             H.ClickButton("ExitReplace");
-            await Harness.Render(150);
-            H.Check("ExitRpl_NewVisible", H.FindText("ex-new") is not null);
+            H.Check("ExitRpl_NewVisible",
+                await Harness.WaitFor(() => H.FindText("ex-new") is not null,
+                    maxPasses: 16, perPassMs: 15));
         }
     }
 
@@ -1660,8 +1661,9 @@ internal static class ReconcilerBigCoverageFixtures
             H.Check("KFUnmount_Mounted", H.FindText("kf-unmount-target") is not null);
 
             H.ClickButton("KFTriggerUnmount");
-            await Harness.Render(120);
-            H.Check("KFUnmount_Unmounted", H.FindText("kf-unmount-target") is null);
+            H.Check("KFUnmount_Unmounted",
+                await Harness.WaitFor(() => H.FindText("kf-unmount-target") is null,
+                    maxPasses: 16, perPassMs: 15));
         }
     }
 
@@ -1727,8 +1729,9 @@ internal static class ReconcilerBigCoverageFixtures
             H.Check("Asym_Initial", H.FindText("asym-target") is not null);
 
             H.ClickButton("AsymExit");
-            await Harness.Render(450);
-            H.Check("Asym_Removed", H.FindText("asym-target") is null);
+            H.Check("Asym_Removed",
+                await Harness.WaitFor(() => H.FindText("asym-target") is null,
+                    maxPasses: 20, perPassMs: 30));
         }
     }
 
@@ -1747,8 +1750,9 @@ internal static class ReconcilerBigCoverageFixtures
                 TextBlock("stagger-3").Transition(Microsoft.UI.Reactor.Animation.Transition.Fade)
             ).Stagger(TimeSpan.FromMilliseconds(20)));
 
-            await Harness.Render(80);
-            H.Check("Stagger_Mounted", H.FindText("stagger-3") is not null);
+            H.Check("Stagger_Mounted",
+                await Harness.WaitFor(() => H.FindText("stagger-3") is not null,
+                    maxPasses: 12, perPassMs: 10));
         }
     }
 

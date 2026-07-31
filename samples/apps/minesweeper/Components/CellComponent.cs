@@ -77,12 +77,10 @@ public sealed class CellComponent : Component<CellProps>
                     .VAlign(VerticalAlignment.Center)
                     .TextAlignment(TextAlignment.Center)
                     .LineHeight(p.Size)                // pin baseline so emoji descenders don't clip
+                    .Padding(0)                        // no glyph inset; the bevel owns the spacing
                     .Set(tb =>
                     {
                         tb.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
-                        // TextBlock is not a Control/Border/StackPanel, so .Padding() would
-                        // silently no-op here (see ApplyModifiers in Reconciler.cs).
-                        tb.Padding = new Thickness(0);
                     }),
                 glyphColor);
 

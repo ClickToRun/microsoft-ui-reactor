@@ -36,7 +36,7 @@ internal sealed class ValueList : Component<ValueListProps>
             TextBlock(Strings.ColumnData).SemiBold().VAlign(VerticalAlignment.Center).Grid(row: 0, column: 2)
         ).Set(g =>
          {
-             // Grid is not a Control/Border/StackPanel, so the .Padding()/.BorderThickness()
+             // Grid is not a Control/Border/StackPanel/TextBlock, so the .Padding()/.BorderThickness()
              // modifiers silently no-op on it (see ApplyModifiers in Reconciler.cs) — these
              // must stay imperative until the modifier path grows Grid support.
              g.Padding = new Thickness(8, 0, 8, 0);
