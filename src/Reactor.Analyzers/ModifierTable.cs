@@ -224,7 +224,7 @@ internal sealed class AttachedModifierInfo
 internal static class ModifierTable
 {
     // Type groups, named once so the intent is legible at each use site.
-    private static readonly string[] ControlBorderStack = { "Control", "Border", "StackPanel" };
+    private static readonly string[] ControlBorderStackText = { "Control", "Border", "StackPanel", "TextBlock" };
     private static readonly string[] ControlBorder = { "Control", "Border" };
     private static readonly string[] PanelControlBorder = { "Panel", "Control", "Border" };
     private static readonly string[] ControlOrTextBlock = { "Control", "TextBlock" };
@@ -263,9 +263,9 @@ internal static class ModifierTable
 
             // ── Generic modifier, control-gated (REACTOR_MOD_002, Info) ──────────────
             // WinUI declares these on Panel subclasses too, which ApplyModifiers skips. The
-            // allow-lists genuinely differ: StackPanel takes Padding but not CornerRadius;
-            // Grid takes Background but not Padding.
-            { "Padding",         new ModifierInfo("Padding",         controlGate: ControlBorderStack) },
+            // allow-lists genuinely differ: StackPanel and TextBlock take Padding but not
+            // CornerRadius; Grid takes Background but not Padding.
+            { "Padding",         new ModifierInfo("Padding",         controlGate: ControlBorderStackText) },
             { "CornerRadius",    new ModifierInfo("CornerRadius",    controlGate: ControlBorder) },
             { "BorderThickness", new ModifierInfo("BorderThickness", controlGate: ControlBorder) },
             { "BorderBrush",     new ModifierInfo("BorderBrush",     controlGate: ControlBorder) },
@@ -396,7 +396,7 @@ internal static class ModifierTable
             // name written inside a .Set lambda — so mapping them there would add rows REACTOR_MOD_002
             // can never match. Covering them in REACTOR_MOD_003 needs a modifier-keyed gate table;
             // recorded here so the omission is deliberate rather than invisible.
-            ["PaddingInlineStart"] = "Reactor-only BiDi logical modifier; folds into the Padding write and inherits its Control/Border/StackPanel gate. Not a WinUI property name, so it has no home in Properties (which is keyed on those). REACTOR_MOD_003 coverage needs a modifier-keyed table.",
+            ["PaddingInlineStart"] = "Reactor-only BiDi logical modifier; folds into the Padding write and inherits its Control/Border/StackPanel/TextBlock gate. Not a WinUI property name, so it has no home in Properties (which is keyed on those). REACTOR_MOD_003 coverage needs a modifier-keyed table.",
             ["PaddingInlineEnd"] = "Reactor-only BiDi logical modifier, the mirror of PaddingInlineStart; same guard, same gate, same reasoning.",
             ["BorderInlineStart"] = "Reactor-only BiDi logical modifier; folds into the BorderThickness write and inherits its Control/Border gate. Not a WinUI property name — same reasoning as PaddingInlineStart. (There is no BorderInlineEnd modifier.)",
         };

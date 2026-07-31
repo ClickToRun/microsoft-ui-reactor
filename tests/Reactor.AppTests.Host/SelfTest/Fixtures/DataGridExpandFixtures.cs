@@ -92,17 +92,22 @@ internal static class DataGridExpandFixtures
                 return VStack(TextBlock($"tick {tick}"), grid).Height(420);
             });
 
-            await Harness.Render(600);
-
-            H.Check("DataGridExpand_Mounted", state is not null);
+            H.Check("DataGridExpand_Mounted",
+                await Harness.WaitFor(() => state is not null, maxPasses: 25, perPassMs: 20));
             if (state is null) return;
 
-            H.Check("DataGridExpand_RowsRendered", H.FindTextContaining("Product 0") is not null);
+            H.Check("DataGridExpand_RowsRendered",
+                await Harness.WaitFor(() => H.FindTextContaining("Product 0") is not null,
+                    maxPasses: 25, perPassMs: 20));
 
+            await Harness.WaitFor(() => H.FindControl<ItemsRepeater>(_ => true) is not null,
+                maxPasses: 25, perPassMs: 20);
             var repeater = H.FindControl<ItemsRepeater>(_ => true);
             H.Check("DataGridExpand_RepeaterFound", repeater is not null);
             if (repeater is null) return;
 
+            await Harness.WaitFor(() => (repeater.TryGetElement(0) as FrameworkElement)?.ActualHeight > 0,
+                maxPasses: 25, perPassMs: 20);
             var collapsedRow = repeater.TryGetElement(0) as FrameworkElement;
             var collapsedHeight = collapsedRow?.ActualHeight ?? 0;
             H.Check($"DataGridExpand_CollapsedRowRealized (h={collapsedHeight:F1})",

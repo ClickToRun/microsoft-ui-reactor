@@ -36,7 +36,7 @@ public sealed class WeeklyForecastSample : GallerySample
                 (TextBlock("day") with { FontSize = 8 }).Foreground(ChartMutedForeground))
                 .HAlign(HorizontalAlignment.Center))
             .YTickLabelView(t => HStack(4,
-                Rectangle().Width(10).Height(10).CornerRadius(2).Fill(SwatchFor(t)),
+                (Rectangle() with { RadiusX = 2, RadiusY = 2 }).Width(10).Height(10).Fill(SwatchFor(t)),
                 (TextBlock($"{Math.Round(t):F0}°") with { FontSize = 11 })
                     .Foreground(ChartAxis))
                 .VAlign(VerticalAlignment.Center))
@@ -63,7 +63,7 @@ public sealed class WeeklyForecastSample : GallerySample
                 (TextBlock("day") with { FontSize = 8 }).Foreground(ChartMutedForeground)
             ).HAlign(HorizontalAlignment.Center))
             .YTickLabelView(t => HStack(4,
-                Rectangle().Width(10).Height(10).CornerRadius(2).Fill(SwatchFor(t)),
+                (Rectangle() with { RadiusX = 2, RadiusY = 2 }).Width(10).Height(10).Fill(SwatchFor(t)),
                 (TextBlock($"{Math.Round(t):F0}°") with { FontSize = 11 })
                     .Foreground(ChartAxis)
             ).VAlign(VerticalAlignment.Center));

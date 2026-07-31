@@ -132,6 +132,11 @@ Rules of thumb:
 
 - **`Render` only when you literally need an event-queue pump.** Anything that may be delayed (layout, control realization, template part materialization, `Loaded` cascades, lazy content presenters) needs `WaitFor` (predicate-based) or a bounded `WaitForIdleAsync` loop — not `Render` alone.
 - **`WaitFor` over a single `Render` + snapshot probe.** A one-shot probe right after `Render()` is the classic flake source on contended/AOT runners. `WaitFor` re-queries; `Render` is a single wave.
+- **But NOT for negative or exact-count assertions — `WaitFor` short-circuits.** `WaitFor` evaluates the predicate *before* its first `Render`, so it returns immediately when the predicate is already true. That makes it the wrong primitive whenever the delay is itself the observation window:
+  - *"X did not happen"* / *"fired exactly once"* / *"state is unchanged"* — e.g. `count == 0`, `CycleCountForTests == 1`, `IsExpanded` still true. Converting these to `WaitFor` makes them **vacuous**: they pass at t=0 without ever giving a violation time to appear. Keep an explicit `Render(N)` window and assert after it.
+  - Conversely, `WaitFor` is correct for *positive eventual* conditions — a control appears, a bit flips, a callback lands — because the predicate is false until the transition completes.
+  - The test: **can the predicate be true before the action you are testing?** If yes, either keep the fixed window or strengthen the predicate so it cannot (e.g. gate on `sv.VerticalOffset < 1` as well as the row text, so a still-realized row can't satisfy it while scrolled away).
+- **Converting a gate can strip a settle a *later* assertion relied on.** If a following `H.Check` depended on the removed `Render(N)` rather than on its own wait, it will start failing. Give each check its own `WaitFor` instead of letting it inherit someone else's delay.
 - **`host.WaitForIdleAsync()` for isolated hosts.** If you constructed your own `ReactorHost`, neither `Harness.Render` nor `Harness.WaitFor` knows about it.
 - **Save and restore `ReactorApp.ActiveHostInternal`** when using an isolated host so subsequent fixtures see the shared host they expect (`var prev = ReactorApp.ActiveHostInternal; try { … } finally { if (prev is not null) ReactorApp.ActiveHostInternal = prev; }`).
 

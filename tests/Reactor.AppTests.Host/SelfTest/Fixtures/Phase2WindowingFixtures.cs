@@ -153,8 +153,9 @@ internal static class Phase2WindowingFixtures
             {
                 H.Check("ResizeMode_RuntimeUpdate_InitiallyResizable", HasStyle(win, Native.WS_THICKFRAME));
                 win.Update(spec with { ResizeMode = WindowResizeMode.NoResize });
-                await Harness.Render(50);
-                H.Check("ResizeMode_RuntimeUpdate_ResizeDisabled", !HasStyle(win, Native.WS_THICKFRAME));
+                H.Check("ResizeMode_RuntimeUpdate_ResizeDisabled",
+                    await Harness.WaitFor(() => !HasStyle(win, Native.WS_THICKFRAME),
+                        maxPasses: 12, perPassMs: 10));
                 H.Check("ResizeMode_RuntimeUpdate_MinMaxDisabled", !HasStyle(win, Native.WS_MINIMIZEBOX) && !HasStyle(win, Native.WS_MAXIMIZEBOX));
             }
             finally { await CloseAndSettle(win); }

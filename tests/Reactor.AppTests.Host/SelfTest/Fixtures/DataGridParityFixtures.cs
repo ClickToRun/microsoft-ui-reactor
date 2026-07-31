@@ -106,13 +106,13 @@ internal static class DataGridParityFixtures
                 ).Height(500);
             });
 
-            await Harness.Render(500);
-
             H.Check("HookPaging_Mount_FirstRowVisible",
-                H.FindTextContaining("Emp-000000") is not null);
+                await Harness.WaitFor(() => H.FindTextContaining("Emp-000000") is not null,
+                    maxPasses: 25, perPassMs: 20));
 
             H.Check("HookPaging_Mount_SecondRowVisible",
-                H.FindTextContaining("Emp-000001") is not null);
+                await Harness.WaitFor(() => H.FindTextContaining("Emp-000001") is not null,
+                    maxPasses: 25, perPassMs: 20));
 
             // Hook should fetch only a small number of pages to fill the viewport
             // (page-0 plus the prefetch window). Allow slack for framerate settle.
@@ -145,10 +145,9 @@ internal static class DataGridParityFixtures
                 ).Height(500);
             });
 
-            await Harness.Render(500);
-
             H.Check("HookPaging_Scroll_InitialRender",
-                H.FindTextContaining("Emp-") is not null);
+                await Harness.WaitFor(() => H.FindTextContaining("Emp-") is not null,
+                    maxPasses: 25, perPassMs: 20));
 
             var sv = H.FindControl<ScrollViewer>(s => s.Content is ItemsRepeater);
             H.Check("HookPaging_Scroll_ScrollViewerFound", sv is not null);
@@ -195,22 +194,40 @@ internal static class DataGridParityFixtures
                 ).Height(400);
             });
 
-            await Harness.Render(500);
-
             H.Check("HookPaging_ScrollBack_InitialData",
-                H.FindTextContaining("Emp-000000") is not null);
+                await Harness.WaitFor(() => H.FindTextContaining("Emp-000000") is not null,
+                    maxPasses: 25, perPassMs: 20));
 
             var sv = H.FindControl<ScrollViewer>(s => s.Content is ItemsRepeater);
             if (sv is null) { H.Check("HookPaging_ScrollBack_SVFound", false); return; }
 
             sv.ChangeView(null, 5000, null, disableAnimation: true);
-            await Harness.Render(600);
+
+            // Assert the scroll-away actually happened before relying on it. The restore oracle
+            // below is only meaningful if the view really left the top: if this ChangeView clamps
+            // or no-ops, VerticalOffset stays 0, and `VerticalOffset < 1.0` is then already true
+            // when WaitFor first evaluates it — putting the check straight back into the vacuous
+            // state this whole gate was strengthened to escape. Same guard idiom as
+            // ChartKeyboardNavTests.InvokeAndAssertFreshIndex: prove the precondition is NOT the
+            // state you are about to wait for.
+            bool scrolledAway = await Harness.WaitFor(() => sv.VerticalOffset > 1.0,
+                maxPasses: 25, perPassMs: 20);
+            H.Check("HookPaging_ScrollBack_ScrolledAwayFirst", scrolledAway);
+            if (!scrolledAway) return;
 
             sv.ChangeView(null, 0, null, disableAnimation: true);
-            await Harness.Render(600);
 
+            // The row check alone is NOT a valid oracle here: measured, `Emp-000000` is still
+            // findable while scrolled 5000px away (offset=5000, scrollable=179647), because the
+            // repeater keeps it realized. So `FindTextContaining("Emp-000000") is not null` is
+            // true before the scroll-back as well as after, and asserting it alone proves
+            // nothing about restoration — it passed identically with the old fixed
+            // `Render(600)` gate. Gate on the offset returning to the top, which the guard above
+            // has now proven is false before this ChangeView.
             H.Check("HookPaging_ScrollBack_OrigRestored",
-                H.FindTextContaining("Emp-000000") is not null);
+                await Harness.WaitFor(
+                    () => sv.VerticalOffset < 1.0 && H.FindTextContaining("Emp-000000") is not null,
+                    maxPasses: 25, perPassMs: 20));
         }
     }
 
@@ -240,13 +257,13 @@ internal static class DataGridParityFixtures
                 ).Height(600);
             });
 
-            await Harness.Render(500);
-
             H.Check("HookPaging_Small_FirstRowVisible",
-                H.FindTextContaining("Emp-000000") is not null);
+                await Harness.WaitFor(() => H.FindTextContaining("Emp-000000") is not null,
+                    maxPasses: 25, perPassMs: 20));
 
             H.Check("HookPaging_Small_LastRowVisible",
-                H.FindTextContaining("Emp-000011") is not null);
+                await Harness.WaitFor(() => H.FindTextContaining("Emp-000011") is not null,
+                    maxPasses: 25, perPassMs: 20));
 
             H.Check($"HookPaging_Small_SinglePageFetch (calls={source!.CallCount})",
                 source.CallCount == 1);
