@@ -371,6 +371,12 @@ public sealed class SwallowedErrorAuditTests
     // place. This is the only live figure quoted outside the table; historical
     // snapshots are quarantined under their own heading and deliberately not
     // checked.
+    //
+    // Uniqueness is enforced for the same reason as the ledger markers in
+    // assertion 10: matching only the first occurrence would validate one copy
+    // and let every later one drift, which is precisely the failure this file
+    // exists to prevent. A second copy is also indistinguishable from a live
+    // figure to a reader, so it cannot be waved through as harmless prose.
 
     [Fact]
     public void Worry_threshold_sentence_quotes_the_derived_propagate_total()
@@ -378,11 +384,21 @@ public sealed class SwallowedErrorAuditTests
         var audit = Load();
         var derived = Derive(audit.Rows);
 
-        var match = Regex.Match(
+        var matches = Regex.Matches(
             audit.Text,
             @"worry-threshold for `Propagate` is (?<threshold>\d+); we're at (?<actual>\d+)\.");
 
-        Assert.True(match.Success, $"The §6.7.4 worry-threshold sentence is missing from {AuditPath}.");
+        Assert.True(matches.Count > 0, $"The §6.7.4 worry-threshold sentence is missing from {AuditPath}.");
+
+        Assert.True(
+            matches.Count == 1,
+            $"The §6.7.4 worry-threshold sentence appears {matches.Count} times in {AuditPath}. Quote "
+            + "the live figure exactly once: this check would otherwise validate the first copy and "
+            + "leave the others to drift, which is the defect this gate exists to prevent. If you "
+            + "meant to record a past value, move it under `### Historical snapshots (do not update)` "
+            + "and reword it so it no longer reads as the current figure.");
+
+        var match = matches[0];
 
         var actual = int.Parse(match.Groups["actual"].Value);
         var threshold = int.Parse(match.Groups["threshold"].Value);
