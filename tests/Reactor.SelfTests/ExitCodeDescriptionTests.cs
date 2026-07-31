@@ -129,24 +129,34 @@ public class ExitCodeDescriptionTests
         var clr = SelfTestBatch.DescribeExitCode(unchecked((int)0xE0434352u));
         var nt = SelfTestBatch.DescribeExitCode(unchecked((int)0xC0000005u));
 
-        Assert.AreNotEqual(clr, nt, "the two crash classes must not produce identical guidance");
-        StringAssert.Contains(nt, "NTSTATUS");
+        // Both classifications must actually be PRESENT. Asserting only that `clr` lacks
+        // "NTSTATUS" would pass if the CLR branch were deleted and `clr` fell through to the bare
+        // raw line — a negative assertion satisfied by the feature's absence, which is precisely
+        // the vacuous shape this suite exists to avoid.
+        StringAssert.Contains(clr, "MANAGED", "the CLR branch must be reached at all");
+        StringAssert.Contains(nt, "NTSTATUS", "the NTSTATUS branch must be reached at all");
+
+        // ...and they must be DIFFERENT classifications, not merely different raw codes.
         Assert.IsFalse(clr.Contains("NTSTATUS"),
             "widening the 0xC mask to cover the CLR tag would route it to the NTSTATUS wording");
+        Assert.IsFalse(nt.Contains("MANAGED"),
+            "the native-fault branch must not claim a managed exception");
     }
 
     /// <summary>
-    /// A plain code with no story attached gets the raw value and nothing invented. This is the
-    /// assertion that fails if the method ever grows a default verdict.
+    /// A plain code with no story attached gets the raw value and nothing invented. Asserted as
+    /// EXACT equality rather than as a pair of "does not contain" guards: those would pass for
+    /// any newly-invented default verdict that merely avoided the two phrases they name, so they
+    /// could not actually detect the thing this test claims to detect.
     /// </summary>
     [TestMethod]
     public void Ordinary_exit_code_gets_no_invented_verdict()
     {
         var text = SelfTestBatch.DescribeExitCode(3);
 
-        StringAssert.Contains(text, "Exit code: 3");
-        Assert.IsFalse(text.Contains("crashed on its own"));
-        Assert.IsFalse(text.Contains("external kill"));
+        Assert.AreEqual("Exit code: 3 (0x00000003)", text,
+            "an ordinary code must produce the raw line and nothing else — no verdict, no arrow, " +
+            "no guidance. Exact equality is what makes this non-vacuous.");
     }
 
     /// <summary>

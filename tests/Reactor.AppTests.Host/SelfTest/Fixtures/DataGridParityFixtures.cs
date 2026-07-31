@@ -201,7 +201,18 @@ internal static class DataGridParityFixtures
             if (sv is null) { H.Check("HookPaging_ScrollBack_SVFound", false); return; }
 
             sv.ChangeView(null, 5000, null, disableAnimation: true);
-            await Harness.Render(600);
+
+            // Assert the scroll-away actually happened before relying on it. The restore oracle
+            // below is only meaningful if the view really left the top: if this ChangeView clamps
+            // or no-ops, VerticalOffset stays 0, and `VerticalOffset < 1.0` is then already true
+            // when WaitFor first evaluates it — putting the check straight back into the vacuous
+            // state this whole gate was strengthened to escape. Same guard idiom as
+            // ChartKeyboardNavTests.InvokeAndAssertFreshIndex: prove the precondition is NOT the
+            // state you are about to wait for.
+            bool scrolledAway = await Harness.WaitFor(() => sv.VerticalOffset > 1.0,
+                maxPasses: 25, perPassMs: 20);
+            H.Check("HookPaging_ScrollBack_ScrolledAwayFirst", scrolledAway);
+            if (!scrolledAway) return;
 
             sv.ChangeView(null, 0, null, disableAnimation: true);
 
@@ -210,8 +221,8 @@ internal static class DataGridParityFixtures
             // repeater keeps it realized. So `FindTextContaining("Emp-000000") is not null` is
             // true before the scroll-back as well as after, and asserting it alone proves
             // nothing about restoration — it passed identically with the old fixed
-            // `Render(600)` gate. Gate on the offset returning to the top, which IS false
-            // before this ChangeView, so the assertion must observe a real transition.
+            // `Render(600)` gate. Gate on the offset returning to the top, which the guard above
+            // has now proven is false before this ChangeView.
             H.Check("HookPaging_ScrollBack_OrigRestored",
                 await Harness.WaitFor(
                     () => sv.VerticalOffset < 1.0 && H.FindTextContaining("Emp-000000") is not null,
