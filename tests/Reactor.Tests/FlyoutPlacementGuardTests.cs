@@ -180,7 +180,10 @@ public class FlyoutPlacementGuardTests
         // the selftests' job, and each branch has an assertion that fails without its call:
         // CbfReset_AutoRestoresDefaultPlacement (reuse-existing arm),
         // CmdBarFlyout_FreshPlacementBottom (fresh-flyout arm), and
-        // CbfAuto_OpenedWithoutFailFast (mount).
+        // CbfReset_ExplicitPlacementApplied (mount) — that last one mounts an explicit
+        // Bottom, so dropping the mount call strands WinUI's own default and fails it.
+        // CbfAuto_OpenedWithoutFailFast is *not* the mount oracle: an Auto mount clears the
+        // DP to that same default, which is exactly what deleting the call also produces.
         var routed = ScanCoreForChokePointCalls()
             .Select(c => c.Method)
             .ToHashSet(StringComparer.Ordinal);
@@ -339,6 +342,45 @@ public class FlyoutPlacementGuardTests
                                 && !h.Contains("Target", StringComparison.Ordinal));
         Assert.Contains(hits, h => h.Contains("Content = null", StringComparison.Ordinal));
         Assert.Contains(hits, h => h.Contains("Target = null", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Scanner_Flags_A_Target_Typed_Flyout_Inside_A_Collection()
+    {
+        // An array's or single-argument generic's leaf is still the element type. Left
+        // unpeeled the declared name comes back non-null but wrong — "WinUI.Flyout[]",
+        // "List" — which fails the Flyout suffix check *and* slips past the fail-closed arm,
+        // so a real write to a real flyout goes unseen. Same shape as the nullable hole.
+        //
+        // The two non-flyout cases matter just as much: peeling, rather than giving up on
+        // every collection, is what keeps the guard off Reactor's own element records when
+        // they are held in an array or list — an ordinary DSL shape, not an exotic one.
+        const string source = """
+            class Sample
+            {
+                void M()
+                {
+                    WinUI.Flyout[] a = [new() { Content = null, Placement = n.Placement }];
+                    List<WinUI.MenuFlyout> b = new() { new() { Target = null, Placement = n.Placement } };
+                    System.Collections.Generic.List<WinUI.Flyout> c = new() { new() { IsOpen = false, Placement = n.Placement } };
+                    SomeElement[] d = [new() { Placement = n.Placement }];
+                    List<SomeElement> e = new() { new() { Placement = n.Placement } };
+                }
+            }
+            """;
+
+        var hits = FindPlacementWrites("synthetic.cs", source)
+            .Select(w => w.Text)
+            .ToList();
+
+        // Exactly the three live-control shapes; the element-record array and list are not
+        // flagged. Asserting the count both ways is what makes this non-vacuous: dropping
+        // the array peel loses `a`, dropping the generic peel entirely loses `b` and `c`,
+        // and replacing the peel with a blanket fail-closed wrongly gains `e`.
+        Assert.Equal(3, hits.Count);
+        Assert.Contains(hits, h => h.Contains("Content = null", StringComparison.Ordinal));
+        Assert.Contains(hits, h => h.Contains("Target = null", StringComparison.Ordinal));
+        Assert.Contains(hits, h => h.Contains("IsOpen = false", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -620,7 +662,8 @@ public class FlyoutPlacementGuardTests
         return initializer.Parent switch
         {
             // new WinUI.Flyout { Placement = ... }
-            ObjectCreationExpressionSyntax creation => TypeLeafName(creation.Type).EndsWith("Flyout", StringComparison.Ordinal),
+            ObjectCreationExpressionSyntax creation => TypeLeafName(creation.Type) is not { } name
+                                                       || name.EndsWith("Flyout", StringComparison.Ordinal),
             // WinUI.CommandBarFlyout f = new() { Placement = ... } — the type lives on the
             // declaration, not the creation. Unresolvable shapes (an assignment to an
             // existing local, say) are treated as writes: a false positive is a loud,
@@ -678,16 +721,31 @@ public class FlyoutPlacementGuardTests
         return null;
     }
 
-    private static string TypeLeafName(TypeSyntax type) => type switch
+    /// <summary>
+    /// The leaf type name, peeling the wrappers that hide it; <see langword="null"/> when no
+    /// unambiguous syntactic answer exists, so every caller fails closed on it.
+    /// </summary>
+    /// <remarks>
+    /// Each peeled wrapper is a shape that otherwise returns a name that is non-null but
+    /// wrong — <c>"CommandBarFlyout?"</c>, <c>"WinUI.Flyout[]"</c>, <c>"List"</c> — and so
+    /// fails the <c>Flyout</c> suffix check while still slipping past the fail-closed arm.
+    /// A guard whose job is to fail closed must not have a shape that fails open.
+    /// </remarks>
+    private static string? TypeLeafName(TypeSyntax type) => type switch
     {
-        // `CommandBarFlyout? f = new() { Placement = ... }` — without this the leaf name is
-        // "CommandBarFlyout?", which fails the Flyout suffix check while still being non-null,
-        // so it slips past the fail-closed arm too. A guard whose job is to fail closed must
-        // not have a shape that fails open.
         NullableTypeSyntax nullable => TypeLeafName(nullable.ElementType),
-        QualifiedNameSyntax qualified => qualified.Right.Identifier.Text,
+        ArrayTypeSyntax array => TypeLeafName(array.ElementType),
+        // One type argument is unambiguous (List<Flyout>, IReadOnlyList<Flyout>); two or more
+        // is not, so give up rather than guess which one the initializer targets. Peeling
+        // rather than always giving up keeps the guard off Reactor's own element records when
+        // they are held in a collection, which is an ordinary DSL shape.
+        GenericNameSyntax { TypeArgumentList.Arguments: [var only] } => TypeLeafName(only),
+        GenericNameSyntax => null,
+        // Recurse rather than take Right's identifier directly, so the right-hand side gets
+        // the same peeling (Some.Namespace.List<WinUI.Flyout> resolves to Flyout).
+        QualifiedNameSyntax qualified => TypeLeafName(qualified.Right),
         SimpleNameSyntax simple => simple.Identifier.Text,
-        _ => type.ToString(),
+        _ => null,
     };
 
     private static string Flatten(AssignmentExpressionSyntax assignment)
