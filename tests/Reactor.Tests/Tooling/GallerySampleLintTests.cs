@@ -751,13 +751,17 @@ public sealed class GallerySampleLintTests
 
 
     // ---------------------------------------------------------------------------------------
-    // Rule 4 — `new Uri(...)` takes only compile-time constants.
+    // `new Uri(...)` takes only compile-time constants.
     //
     // `new Uri(text)` throws `UriFormatException` on anything malformed, and a gallery page
     // evaluates its element tree inside `Render()` — so the throw lands in `ErrorFallback` and
     // the reader's whole page becomes a `⚠ Render error: UriFormatException…` overlay.
     // Half-typed text in a bound `TextBox` is enough to trigger it (issue #982). A string that
     // cannot vary at runtime cannot do that, hence the helpers below.
+    //
+    // Unnumbered on purpose: the class doc lists the guarded mistakes in a different order than
+    // the file declares them, so any number here is right against one of the two and wrong
+    // against the other. It was "Rule 4" and had already drifted.
     //
     // Plain `//` rather than `///` deliberately: two adjacent doc-comment blocks merge onto the
     // next declaration, which would give `RightmostName` a second, unrelated <summary>.
@@ -797,12 +801,29 @@ public sealed class GallerySampleLintTests
     }
 
     /// <summary>
-    /// Factories whose parameter is a <c>Uri</c>. Target-typed <c>new(...)</c> carries no type at
-    /// all in the syntax, so in argument position this list is the only thing that can recover it —
-    /// and <c>WebView2(new(text))</c> is issue #982 spelled with three fewer characters.
+    /// Every DSL surface with a <c>Uri</c> parameter, mapped to <em>which</em> parameter that is.
+    /// Target-typed <c>new(...)</c> carries no type at all in the syntax, so in argument position
+    /// this table is the only thing that can recover it — and <c>WebView2(new(text))</c> is issue
+    /// #982 spelled with three fewer characters.
     /// </summary>
-    static readonly HashSet<string> UriTakingFactories =
-        new(global::System.StringComparer.Ordinal) { "WebView2" };
+    /// <remarks>
+    /// The whole set, not just the one this bug used: <c>HyperlinkButton</c>, <c>Hyperlink</c>,
+    /// <c>BitmapIcon</c>, <c>ImageIcon</c> and the <c>.NavigateUri(...)</c> modifier all take a
+    /// <c>Uri</c> too, so listing only <c>WebView2</c> left four ways to write the same defect.
+    /// The parameter is recorded rather than just the name because widening the set also widens
+    /// the false-positive surface — a <c>new(...)</c> in <c>BitmapIcon</c>'s <c>showAsMonochrome</c>
+    /// slot is not a Uri, and matching on the factory name alone would say it was.
+    /// </remarks>
+    static readonly Dictionary<string, (int Index, string Name)> UriTakingFactories =
+        new(global::System.StringComparer.Ordinal)
+        {
+            ["WebView2"] = (0, "source"),
+            ["HyperlinkButton"] = (1, "navigateUri"),
+            ["Hyperlink"] = (1, "navigateUri"),
+            ["BitmapIcon"] = (0, "source"),
+            ["ImageIcon"] = (0, "source"),
+            ["NavigateUri"] = (0, "uri"),
+        };
 
     /// <summary>
     /// The declared type a target-typed <c>new(...)</c> is initializing, where the syntax carries
@@ -820,9 +841,14 @@ public sealed class GallerySampleLintTests
     };
 
     static bool IsArgumentToUriTakingFactory(ExpressionSyntax expression) =>
-        expression.Parent is ArgumentSyntax { Parent: ArgumentListSyntax { Parent: InvocationExpressionSyntax invocation } }
+        expression.Parent is ArgumentSyntax argument
+        && argument.Parent is ArgumentListSyntax arguments
+        && arguments.Parent is InvocationExpressionSyntax invocation
         && RightmostName(invocation.Expression) is { } factory
-        && UriTakingFactories.Contains(factory);
+        && UriTakingFactories.TryGetValue(factory, out var parameter)
+        && (argument.NameColon is { } named
+            ? named.Name.Identifier.Text == parameter.Name
+            : arguments.Arguments.IndexOf(argument) == parameter.Index);
 
     static bool IsUriCreation(BaseObjectCreationExpressionSyntax creation, HashSet<string> uriTypeNames) => creation switch
     {
@@ -1078,6 +1104,17 @@ public sealed class GallerySampleLintTests
     [InlineData(@"class P { Element R(string t) { return WebView2(new global::Uri(t)); } }", 1)]
     [InlineData(@"class P { Element R(string t) { Uri u = new(t); return WebView2(u); } }", 1)]
     [InlineData(@"class P { Element R(string t) { return WebView2(new(t)); } }", 1)]
+    // The rest of the DSL's Uri-taking surface. Listing only WebView2 left four other ways to
+    // write the same defect, including the `.NavigateUri(...)` modifier, whose invocation is a
+    // member access rather than a bare factory name.
+    [InlineData(@"class P { Element R(string t) { return HyperlinkButton(""Go"", new(t)); } }", 1)]
+    [InlineData(@"class P { Element R(string t) { return HyperlinkButton(""Go"", navigateUri: new(t)); } }", 1)]
+    [InlineData(@"class P { Element R(string t) { return HyperlinkButton(""Go"").NavigateUri(new(t)); } }", 1)]
+    [InlineData(@"class P { Element R(string t) { return ImageIcon(new(t)); } }", 1)]
+    // …but it has to be the Uri *parameter*. `showAsMonochrome` is a bool, so a target-typed
+    // `new(...)` there is not a Uri — keying off the factory name alone would say it was, and
+    // widening the set from one entry to six is exactly what makes that reachable.
+    [InlineData(@"class P { Element R(string t) { return BitmapIcon(new Uri(""https://example.com""), new(t)); } }", 0)]
     public void UriConstantRule_AcceptsCompileTimeValues_AndReportsRuntimeOnes(string source, int expected)
     {
         var root = CSharpSyntaxTree
