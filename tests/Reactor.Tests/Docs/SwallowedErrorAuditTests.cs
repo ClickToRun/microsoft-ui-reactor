@@ -402,12 +402,14 @@ public sealed class SwallowedErrorAuditTests
     // `Region()` takes the first occurrence — an early stray `ledger:end`
     // silently truncates the ledger, and re-deriving the summary against the
     // truncated set makes every other assertion agree with itself. So this
-    // checks exact-line uniqueness and ordering, not mere presence. (Presence
+    // checks whole-line uniqueness and ordering, not mere presence. (Presence
     // alone would also be vacuous: the Derivation prose names both ledger
-    // markers inline.)
+    // markers inline.) The match trims, so surrounding whitespace does not
+    // create a second marker or hide one — only a line whose entire content is
+    // the marker counts. That mirrors `Region()`, which trims the same way.
 
     [Fact]
-    public void Region_markers_are_unique_exact_lines_in_the_right_order()
+    public void Region_markers_are_unique_whole_lines_in_the_right_order()
     {
         var lines = File.ReadAllLines(RepoPath(AuditPath, "The audit path"));
 
@@ -419,7 +421,8 @@ public sealed class SwallowedErrorAuditTests
 
             Assert.True(
                 at[marker].Count == 1,
-                $"{AuditPath} contains {at[marker].Count} line(s) that are exactly '{marker}' "
+                $"{AuditPath} contains {at[marker].Count} line(s) whose entire content — ignoring leading "
+                + $"and trailing whitespace — is '{marker}' "
                 + $"(lines {string.Join(", ", at[marker].Select(i => i + 1))}); it must contain exactly one. "
                 + $"The markers delimit what the derivation counts — a duplicate silently truncates or "
                 + $"extends the counted region, and a missing one zeroes it.");
