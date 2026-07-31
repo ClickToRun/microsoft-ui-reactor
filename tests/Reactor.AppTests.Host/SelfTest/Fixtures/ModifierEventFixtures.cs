@@ -618,41 +618,628 @@ internal static class ModifierEventFixtures
             H.Check("ModifierClear_ButtonPresent", button is not null);
             if (button is not null)
             {
-                H.Check("ModifierClear_ThemeCleared", button.RequestedTheme == ElementTheme.Default);
+                H.Check("ModifierClear_ThemeCleared",
+                    button.ReadLocalValue(FrameworkElement.RequestedThemeProperty) == DependencyProperty.UnsetValue
+                    && button.RequestedTheme == ElementTheme.Default);
+                // Asserted as "the local value was released" rather than "the property
+                // reads its DP default": the two are only the same on a control with no
+                // style, and Button's default style supplies alignment, border thickness,
+                // corner radius and padding (issue #952).
                 H.Check("ModifierClear_SizeCleared",
-                    double.IsNaN(button.Width) && double.IsNaN(button.Height)
-                    && button.MinWidth == 0 && button.MinHeight == 0
-                    && double.IsPositiveInfinity(button.MaxWidth)
-                    && double.IsPositiveInfinity(button.MaxHeight));
+                    button.ReadLocalValue(FrameworkElement.WidthProperty) == DependencyProperty.UnsetValue
+                    && button.ReadLocalValue(FrameworkElement.HeightProperty) == DependencyProperty.UnsetValue
+                    && button.ReadLocalValue(FrameworkElement.MinWidthProperty) == DependencyProperty.UnsetValue
+                    && button.ReadLocalValue(FrameworkElement.MinHeightProperty) == DependencyProperty.UnsetValue
+                    && button.ReadLocalValue(FrameworkElement.MaxWidthProperty) == DependencyProperty.UnsetValue
+                    && button.ReadLocalValue(FrameworkElement.MaxHeightProperty) == DependencyProperty.UnsetValue);
                 H.Check("ModifierClear_AlignmentCleared",
-                    button.HorizontalAlignment == HorizontalAlignment.Stretch
-                    && button.VerticalAlignment == VerticalAlignment.Stretch);
+                    button.ReadLocalValue(FrameworkElement.HorizontalAlignmentProperty) == DependencyProperty.UnsetValue
+                    && button.ReadLocalValue(FrameworkElement.VerticalAlignmentProperty) == DependencyProperty.UnsetValue);
+                H.Check("ModifierClear_MarginCleared",
+                    button.ReadLocalValue(FrameworkElement.MarginProperty) == DependencyProperty.UnsetValue);
+                H.Check("ModifierClear_PaddingCleared",
+                    button.ReadLocalValue(Control.PaddingProperty) == DependencyProperty.UnsetValue);
+                H.Check("ModifierClear_OpacityCleared",
+                    button.ReadLocalValue(UIElement.OpacityProperty) == DependencyProperty.UnsetValue);
                 H.Check("ModifierClear_ContentAlignmentCleared",
                     button.ReadLocalValue(Control.HorizontalContentAlignmentProperty) == DependencyProperty.UnsetValue
                     && button.ReadLocalValue(Control.VerticalContentAlignmentProperty) == DependencyProperty.UnsetValue
                     && button.HorizontalContentAlignment == HorizontalAlignment.Center
                     && button.VerticalContentAlignment == VerticalAlignment.Center);
                 H.Check("ModifierClear_VisibleEnabled",
-                    button.Visibility == Visibility.Visible && button.IsEnabled);
+                    button.ReadLocalValue(UIElement.VisibilityProperty) == DependencyProperty.UnsetValue
+                    && button.ReadLocalValue(Control.IsEnabledProperty) == DependencyProperty.UnsetValue
+                    && button.Visibility == Visibility.Visible && button.IsEnabled);
                 H.Check("ModifierClear_TooltipCleared",
                     ToolTipService.GetToolTip(button) is null);
                 H.Check("ModifierClear_AutomationCleared",
                     Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(button) != "clear-name"
                     && Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(button) != "clear-id");
-                H.Check("ModifierClear_AccessKeyCleared", button.AccessKey == "");
+                H.Check("ModifierClear_AccessKeyCleared",
+                    button.ReadLocalValue(UIElement.AccessKeyProperty) == DependencyProperty.UnsetValue
+                    && button.AccessKey == "");
                 H.Check("ModifierClear_HitTestVisibleRestored", button.IsHitTestVisible);
-                H.Check("ModifierClear_BorderCleared", button.BorderThickness == new Thickness(0));
+                H.Check("ModifierClear_BorderCleared",
+                    button.ReadLocalValue(Control.BorderThicknessProperty) == DependencyProperty.UnsetValue
+                    && button.ReadLocalValue(Control.CornerRadiusProperty) == DependencyProperty.UnsetValue);
             }
 
             var border = H.FindControl<Border>(b => b.Child is TextBlock tb && tb.Text == "ClearBorderChild");
             H.Check("ModifierClear_BorderPresent", border is not null);
             if (border is not null)
             {
-                H.Check("ModifierClear_BorderThicknessCleared", border.BorderThickness == new Thickness(0));
-                H.Check("ModifierClear_BorderCornerCleared", border.CornerRadius == new CornerRadius(0));
+                // Border is not a Control and has no default style, so the effective value
+                // would be 0 either way — the local-value read is what discriminates.
+                H.Check("ModifierClear_BorderThicknessCleared",
+                    border.ReadLocalValue(Microsoft.UI.Xaml.Controls.Border.BorderThicknessProperty) == DependencyProperty.UnsetValue
+                    && border.BorderThickness == new Thickness(0));
+                H.Check("ModifierClear_BorderCornerCleared",
+                    border.ReadLocalValue(Microsoft.UI.Xaml.Controls.Border.CornerRadiusProperty) == DependencyProperty.UnsetValue
+                    && border.CornerRadius == new CornerRadius(0));
+                H.Check("ModifierClear_BorderPaddingCleared",
+                    border.ReadLocalValue(Microsoft.UI.Xaml.Controls.Border.PaddingProperty) == DependencyProperty.UnsetValue);
                 H.Check("ModifierClear_BorderAutomationCleared",
                     Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(border) != "border-clear-name");
             }
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  Issue #952 — unsetting a common modifier must RELEASE the local
+    //  value (ClearValue) so the control falls back to its Style, not pin
+    //  the DP's default as a local value.
+    //
+    //  The explicit Style is the load-bearing part of this fixture. With no
+    //  Style attached, "wrote the DP default" and "released the local
+    //  value" produce identical effective values on every property here —
+    //  which is exactly why the bug survived. Each setter below therefore
+    //  uses a value distinct from BOTH the DP default and the modifier
+    //  value, so one H.Check can tell all three states apart.
+    // ════════════════════════════════════════════════════════════════════
+
+    internal class ModifierStyleUnsetRestore(Harness h) : SelfTestFixtureBase(h)
+    {
+        private static readonly Thickness StyleMargin = new(11);
+        private static readonly Thickness StylePadding = new(13);
+        private static readonly CornerRadius StyleCornerRadius = new(9);
+        private static readonly Thickness StyleBorderThickness = new(4);
+        private const double StyleWidth = 150;
+        private const double StyleHeight = 55;
+        private const double StyleMinWidth = 90;
+        private const double StyleMinHeight = 35;
+        private const double StyleMaxWidth = 260;
+        private const double StyleMaxHeight = 95;
+        private const double StyleOpacity = 0.75;
+        private const string StyleAccessKey = "S";
+
+        /// <summary>
+        /// An explicit Style whose every setter differs from the DP default AND from the
+        /// modifier value the fixture applies, so "restored the style" is distinguishable
+        /// from "wrote the default". Based on the shipped Button style when it can be
+        /// resolved, so the control still templates normally; the assertions do not
+        /// depend on that lookup succeeding.
+        /// </summary>
+        private static Microsoft.UI.Xaml.Style BuildStyle()
+        {
+            Microsoft.UI.Xaml.Style? baseStyle = null;
+            if (Application.Current?.Resources is { } resources
+                && resources.TryGetValue("DefaultButtonStyle", out var resource))
+            {
+                baseStyle = resource as Microsoft.UI.Xaml.Style;
+            }
+
+            var style = new Microsoft.UI.Xaml.Style(typeof(Button)) { BasedOn = baseStyle };
+            style.Setters.Add(new Setter(FrameworkElement.MarginProperty, StyleMargin));
+            style.Setters.Add(new Setter(Control.PaddingProperty, StylePadding));
+            style.Setters.Add(new Setter(FrameworkElement.WidthProperty, StyleWidth));
+            style.Setters.Add(new Setter(FrameworkElement.HeightProperty, StyleHeight));
+            style.Setters.Add(new Setter(FrameworkElement.MinWidthProperty, StyleMinWidth));
+            style.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, StyleMinHeight));
+            style.Setters.Add(new Setter(FrameworkElement.MaxWidthProperty, StyleMaxWidth));
+            style.Setters.Add(new Setter(FrameworkElement.MaxHeightProperty, StyleMaxHeight));
+            // Center/Top rather than the shipped Button style's Left/Center, so the
+            // assertion still discriminates if BasedOn resolved.
+            style.Setters.Add(new Setter(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center));
+            style.Setters.Add(new Setter(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Top));
+            style.Setters.Add(new Setter(UIElement.OpacityProperty, StyleOpacity));
+            style.Setters.Add(new Setter(Control.IsEnabledProperty, false));
+            style.Setters.Add(new Setter(Control.CornerRadiusProperty, StyleCornerRadius));
+            style.Setters.Add(new Setter(Control.BorderThicknessProperty, StyleBorderThickness));
+            style.Setters.Add(new Setter(UIElement.AccessKeyProperty, StyleAccessKey));
+            return style;
+        }
+
+        /// <summary>
+        /// Tolerance comparison for the <c>double</c>-valued dependency properties under
+        /// test. Every value here is a literal round-tripped through a DP with no
+        /// arithmetic, so <c>==</c> would be exact — but the buggy code produces
+        /// <c>NaN</c> (Width/Height), <c>0</c> (Opacity) or <c>PositiveInfinity</c>
+        /// (MaxWidth/MaxHeight), none of which land inside any small epsilon. The
+        /// assertions are exactly as discriminating either way.
+        /// </summary>
+        private static bool NearlyEqual(double actual, double expected) =>
+            global::System.Math.Abs(actual - expected) < 0.0001;
+
+        public override async Task RunAsync()
+        {
+            var style = BuildStyle();
+            var host = H.CreateHost();
+
+            host.Mount(ctx =>
+            {
+                var (phase, setPhase) = ctx.UseState(0);
+
+                // OnMountAction is in both bags on purpose — it only ever runs at mount
+                // (gated on oldM is null), and keeping it identical means the two bags
+                // differ solely by the properties under test.
+                var mods = phase == 0
+                    ? new ElementModifiers
+                    {
+                        Margin = new Thickness(3, 4, 5, 6),
+                        Padding = new Thickness(7, 8, 9, 10),
+                        Width = 120,
+                        Height = 44,
+                        MinWidth = 80,
+                        MinHeight = 30,
+                        MaxWidth = 240,
+                        MaxHeight = 90,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        VerticalAlignment = VerticalAlignment.Bottom,
+                        Opacity = 0.5,
+                        IsVisible = false,
+                        IsEnabled = true,
+                        CornerRadius = new CornerRadius(6),
+                        BorderThickness = new Thickness(2),
+                        AccessKey = "C",
+                        OnMountAction = fe => fe.Style = style,
+                    }
+                    : new ElementModifiers { OnMountAction = fe => fe.Style = style };
+
+                return VStack(
+                    Button("StyleUnsetPhase", () => setPhase(1)),
+                    Button("StyleUnsetTarget") with { Modifiers = mods });
+            });
+
+            await Harness.Render();
+            var button = H.FindButton("StyleUnsetTarget");
+            H.Check("StyleUnset_Phase0_Present", button is not null);
+            if (button is null) return;
+
+            // Without the Style the phase-1 checks below degenerate into "the DP has its
+            // default value", which the buggy code also satisfies.
+            H.Check("StyleUnset_Phase0_StyleAttached", button.Style is not null);
+
+            // The modifier beats the Style setter, and it beats it *because* it is a
+            // local value. Asserting the local value exists here is what makes its
+            // absence in phase 1 evidence of ClearValue rather than of a no-op.
+            H.Check("StyleUnset_Phase0_Margin",
+                button.Margin == new Thickness(3, 4, 5, 6)
+                && button.ReadLocalValue(FrameworkElement.MarginProperty) != DependencyProperty.UnsetValue);
+            H.Check("StyleUnset_Phase0_Padding",
+                button.Padding == new Thickness(7, 8, 9, 10)
+                && button.ReadLocalValue(Control.PaddingProperty) != DependencyProperty.UnsetValue);
+            H.Check("StyleUnset_Phase0_Size",
+                NearlyEqual(button.Width, 120) && NearlyEqual(button.Height, 44)
+                && NearlyEqual(button.MinWidth, 80) && NearlyEqual(button.MinHeight, 30)
+                && NearlyEqual(button.MaxWidth, 240) && NearlyEqual(button.MaxHeight, 90));
+            H.Check("StyleUnset_Phase0_Alignment",
+                button.HorizontalAlignment == HorizontalAlignment.Right
+                && button.VerticalAlignment == VerticalAlignment.Bottom);
+            H.Check("StyleUnset_Phase0_Opacity", NearlyEqual(button.Opacity, 0.5));
+            H.Check("StyleUnset_Phase0_Collapsed", button.Visibility == Visibility.Collapsed);
+            H.Check("StyleUnset_Phase0_Enabled", button.IsEnabled);
+            H.Check("StyleUnset_Phase0_Border",
+                button.CornerRadius == new CornerRadius(6)
+                && button.BorderThickness == new Thickness(2));
+            H.Check("StyleUnset_Phase0_AccessKey", button.AccessKey == "C");
+
+            H.ClickButton("StyleUnsetPhase");
+            await Harness.Render();
+
+            button = H.FindButton("StyleUnsetTarget");
+            H.Check("StyleUnset_Phase1_Present", button is not null);
+            if (button is null) return;
+            H.Check("StyleUnset_Phase1_StyleStillAttached", button.Style is not null);
+
+            // Each check is two claims: the local value is gone (ClearValue ran), and the
+            // effective value came back from the Style (the reset did not shadow it).
+            H.Check("StyleUnset_Phase1_MarginRestored",
+                button.ReadLocalValue(FrameworkElement.MarginProperty) == DependencyProperty.UnsetValue
+                && button.Margin == StyleMargin);
+            H.Check("StyleUnset_Phase1_PaddingRestored",
+                button.ReadLocalValue(Control.PaddingProperty) == DependencyProperty.UnsetValue
+                && button.Padding == StylePadding);
+            H.Check("StyleUnset_Phase1_WidthRestored",
+                button.ReadLocalValue(FrameworkElement.WidthProperty) == DependencyProperty.UnsetValue
+                && NearlyEqual(button.Width, StyleWidth));
+            H.Check("StyleUnset_Phase1_HeightRestored",
+                button.ReadLocalValue(FrameworkElement.HeightProperty) == DependencyProperty.UnsetValue
+                && NearlyEqual(button.Height, StyleHeight));
+            H.Check("StyleUnset_Phase1_MinWidthRestored",
+                button.ReadLocalValue(FrameworkElement.MinWidthProperty) == DependencyProperty.UnsetValue
+                && NearlyEqual(button.MinWidth, StyleMinWidth));
+            H.Check("StyleUnset_Phase1_MinHeightRestored",
+                button.ReadLocalValue(FrameworkElement.MinHeightProperty) == DependencyProperty.UnsetValue
+                && NearlyEqual(button.MinHeight, StyleMinHeight));
+            H.Check("StyleUnset_Phase1_MaxWidthRestored",
+                button.ReadLocalValue(FrameworkElement.MaxWidthProperty) == DependencyProperty.UnsetValue
+                && NearlyEqual(button.MaxWidth, StyleMaxWidth));
+            H.Check("StyleUnset_Phase1_MaxHeightRestored",
+                button.ReadLocalValue(FrameworkElement.MaxHeightProperty) == DependencyProperty.UnsetValue
+                && NearlyEqual(button.MaxHeight, StyleMaxHeight));
+            H.Check("StyleUnset_Phase1_HorizontalAlignmentRestored",
+                button.ReadLocalValue(FrameworkElement.HorizontalAlignmentProperty) == DependencyProperty.UnsetValue
+                && button.HorizontalAlignment == HorizontalAlignment.Center);
+            H.Check("StyleUnset_Phase1_VerticalAlignmentRestored",
+                button.ReadLocalValue(FrameworkElement.VerticalAlignmentProperty) == DependencyProperty.UnsetValue
+                && button.VerticalAlignment == VerticalAlignment.Top);
+            H.Check("StyleUnset_Phase1_OpacityRestored",
+                button.ReadLocalValue(UIElement.OpacityProperty) == DependencyProperty.UnsetValue
+                && NearlyEqual(button.Opacity, StyleOpacity));
+            H.Check("StyleUnset_Phase1_IsEnabledRestored",
+                button.ReadLocalValue(Control.IsEnabledProperty) == DependencyProperty.UnsetValue
+                && !button.IsEnabled);
+            H.Check("StyleUnset_Phase1_CornerRadiusRestored",
+                button.ReadLocalValue(Control.CornerRadiusProperty) == DependencyProperty.UnsetValue
+                && button.CornerRadius == StyleCornerRadius);
+            H.Check("StyleUnset_Phase1_BorderThicknessRestored",
+                button.ReadLocalValue(Control.BorderThicknessProperty) == DependencyProperty.UnsetValue
+                && button.BorderThickness == StyleBorderThickness);
+            H.Check("StyleUnset_Phase1_AccessKeyRestored",
+                button.ReadLocalValue(UIElement.AccessKeyProperty) == DependencyProperty.UnsetValue
+                && button.AccessKey == StyleAccessKey);
+            // Visibility's only sane Style value IS the DP default, so the effective
+            // value can't discriminate here — the local-value read is the whole check.
+            H.Check("StyleUnset_Phase1_VisibilityLocalValueReleased",
+                button.ReadLocalValue(UIElement.VisibilityProperty) == DependencyProperty.UnsetValue
+                && button.Visibility == Visibility.Visible);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  Issue #952, pool half — a control returned to the pool must go back
+    //  with its common-modifier DPs CLEARED, not overwritten with defaults.
+    //  Overwritten defaults are local values that outrank the next renter's
+    //  default style, so a recycled Button could never show its styled
+    //  alignment/padding again.
+    //
+    //  Mount at the VStack tail so exactly one control is returned and
+    //  rented back, which makes the instance-identity check deterministic —
+    //  and that check is what keeps the "cleared" assertions non-vacuous
+    //  (a freshly-constructed control trivially has no local values).
+    //  Note the re-rented element carries NO modifiers, so ApplyModifiers'
+    //  unset arms cannot run on it: CleanElement is the only thing that
+    //  could have released these values.
+    // ════════════════════════════════════════════════════════════════════
+
+    internal class ModifierPoolClearValueOnRent(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+
+            host.Mount(ctx =>
+            {
+                var (phase, set) = ctx.UseState(0);
+                return VStack(
+                    Button("DropPoolClear", () => set(1)),
+                    Button("RemountPoolClear", () => set(2)),
+                    phase switch
+                    {
+                        0 => TextBlock("pool-clear-carrier") with
+                        {
+                            Modifiers = new ElementModifiers
+                            {
+                                Margin = new Thickness(3, 4, 5, 6),
+                                Width = 120,
+                                Height = 44,
+                                MinWidth = 80,
+                                MinHeight = 30,
+                                MaxWidth = 240,
+                                MaxHeight = 90,
+                                HorizontalAlignment = HorizontalAlignment.Right,
+                                VerticalAlignment = VerticalAlignment.Bottom,
+                                Opacity = 0.5,
+                                IsVisible = false,
+                                AccessKey = "P",
+                            }
+                        },
+                        1 => Empty(),
+                        // Remounted with no modifiers at all.
+                        _ => TextBlock("pool-clear-carrier-2"),
+                    });
+            });
+
+            await Harness.Render();
+            var first = H.FindText("pool-clear-carrier");
+            H.Check("PoolClear_Phase0_Present", first is not null);
+            H.Check("PoolClear_Phase0_LocalValuesWritten",
+                first is not null
+                && first.ReadLocalValue(FrameworkElement.MarginProperty) != DependencyProperty.UnsetValue
+                && first.ReadLocalValue(FrameworkElement.WidthProperty) != DependencyProperty.UnsetValue
+                && first.ReadLocalValue(FrameworkElement.HorizontalAlignmentProperty) != DependencyProperty.UnsetValue
+                && first.ReadLocalValue(UIElement.OpacityProperty) != DependencyProperty.UnsetValue
+                && first.ReadLocalValue(UIElement.VisibilityProperty) != DependencyProperty.UnsetValue
+                && first.ReadLocalValue(UIElement.AccessKeyProperty) != DependencyProperty.UnsetValue);
+
+            H.ClickButton("DropPoolClear");
+            await Harness.Render();
+            H.Check("PoolClear_Phase1_Returned", H.FindText("pool-clear-carrier") is null);
+
+            H.ClickButton("RemountPoolClear");
+            await Harness.Render();
+            var second = H.FindText("pool-clear-carrier-2");
+            // Load-bearing: without instance reuse every check below passes trivially.
+            H.Check("PoolClear_Phase2_ReusedInstance",
+                first is not null && ReferenceEquals(first, second));
+            if (second is null) return;
+
+            H.Check("PoolClear_Phase2_MarginCleared",
+                second.ReadLocalValue(FrameworkElement.MarginProperty) == DependencyProperty.UnsetValue);
+            H.Check("PoolClear_Phase2_WidthCleared",
+                second.ReadLocalValue(FrameworkElement.WidthProperty) == DependencyProperty.UnsetValue);
+            H.Check("PoolClear_Phase2_HeightCleared",
+                second.ReadLocalValue(FrameworkElement.HeightProperty) == DependencyProperty.UnsetValue);
+            H.Check("PoolClear_Phase2_MinSizeCleared",
+                second.ReadLocalValue(FrameworkElement.MinWidthProperty) == DependencyProperty.UnsetValue
+                && second.ReadLocalValue(FrameworkElement.MinHeightProperty) == DependencyProperty.UnsetValue);
+            H.Check("PoolClear_Phase2_MaxSizeCleared",
+                second.ReadLocalValue(FrameworkElement.MaxWidthProperty) == DependencyProperty.UnsetValue
+                && second.ReadLocalValue(FrameworkElement.MaxHeightProperty) == DependencyProperty.UnsetValue);
+            H.Check("PoolClear_Phase2_AlignmentCleared",
+                second.ReadLocalValue(FrameworkElement.HorizontalAlignmentProperty) == DependencyProperty.UnsetValue
+                && second.ReadLocalValue(FrameworkElement.VerticalAlignmentProperty) == DependencyProperty.UnsetValue);
+            H.Check("PoolClear_Phase2_OpacityCleared",
+                second.ReadLocalValue(UIElement.OpacityProperty) == DependencyProperty.UnsetValue);
+            H.Check("PoolClear_Phase2_VisibilityCleared",
+                second.ReadLocalValue(UIElement.VisibilityProperty) == DependencyProperty.UnsetValue
+                && second.Visibility == Visibility.Visible);
+            H.Check("PoolClear_Phase2_AccessKeyCleared",
+                second.ReadLocalValue(UIElement.AccessKeyProperty) == DependencyProperty.UnsetValue);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  The Border/Panel half of the same contract. Padding / CornerRadius /
+    //  BorderThickness / Background are declared on Border (and Background on
+    //  Panel) rather than FrameworkElement, and CleanElement used to reset
+    //  them by ASSIGNING the default — so a recycled Border was handed to its
+    //  next renter carrying Thickness(0) as a *local* value that outranks any
+    //  Style the renter attaches. A ContextFlyout is a live object graph owned
+    //  by the previous renter's component and was never released at all.
+    // ════════════════════════════════════════════════════════════════════
+
+    internal class ModifierPoolClearValueControl(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+
+            host.Mount(ctx =>
+            {
+                var (phase, set) = ctx.UseState(0);
+                return VStack(
+                    Button("DropPoolCtrl", () => set(1)),
+                    Button("RemountPoolCtrl", () => set(2)),
+                    phase switch
+                    {
+                        0 => Factories.Border(Factories.TextBlock("pool-ctrl-carrier"))
+                            .Padding(21)
+                            .CornerRadius(13)
+                            .BorderThickness(7)
+                            .WithContextFlyout(MenuItems(MenuItem("PoolCtrlMenu"))),
+                        1 => Empty(),
+                        // Remounted with no modifiers at all.
+                        _ => Factories.Border(Factories.TextBlock("pool-ctrl-carrier-2")),
+                    });
+            });
+
+            await Harness.Render();
+            var first = H.FindControl<Microsoft.UI.Xaml.Controls.Border>(b =>
+                b.Child is TextBlock tb && tb.Text == "pool-ctrl-carrier");
+            H.Check("PoolCtrl_Phase0_Present", first is not null);
+            H.Check("PoolCtrl_Phase0_LocalValuesWritten",
+                first is not null
+                && first.ReadLocalValue(Microsoft.UI.Xaml.Controls.Border.PaddingProperty) != DependencyProperty.UnsetValue
+                && first.ReadLocalValue(UIElement.ContextFlyoutProperty) != DependencyProperty.UnsetValue);
+
+            H.ClickButton("DropPoolCtrl");
+            await Harness.Render();
+
+            H.ClickButton("RemountPoolCtrl");
+            await Harness.Render();
+            var second = H.FindControl<Microsoft.UI.Xaml.Controls.Border>(b =>
+                b.Child is TextBlock tb && tb.Text == "pool-ctrl-carrier-2");
+            // Load-bearing: without instance reuse every check below passes trivially.
+            H.Check("PoolCtrl_Phase2_ReusedInstance",
+                first is not null && ReferenceEquals(first, second));
+            if (second is null) return;
+
+            // Cleared, not "reset to Thickness(0)" — ReadLocalValue is the only oracle that
+            // tells those two apart, and the difference is the whole of issue #952.
+            H.Check("PoolCtrl_Phase2_PaddingCleared",
+                second.ReadLocalValue(Microsoft.UI.Xaml.Controls.Border.PaddingProperty) == DependencyProperty.UnsetValue);
+            H.Check("PoolCtrl_Phase2_ContextFlyoutCleared",
+                second.ReadLocalValue(UIElement.ContextFlyoutProperty) == DependencyProperty.UnsetValue
+                && second.ContextFlyout is null);
+            H.Check("PoolCtrl_Phase2_CornerRadiusCleared",
+                second.ReadLocalValue(Microsoft.UI.Xaml.Controls.Border.CornerRadiusProperty) == DependencyProperty.UnsetValue);
+            H.Check("PoolCtrl_Phase2_BorderThicknessCleared",
+                second.ReadLocalValue(Microsoft.UI.Xaml.Controls.Border.BorderThicknessProperty) == DependencyProperty.UnsetValue);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  Issue #952, BiDi half — Margin/Padding are computed into a local
+    //  that overlays the logical (inline-start/end) variants on top of the
+    //  physical value. That local used to be seeded with
+    //  `m.Margin ?? oldM?.Margin`, which made it non-null whenever the
+    //  PREVIOUS render had a margin and so left the unset arm unreachable:
+    //  `.Margin(x)` → no margin reset nothing at all.
+    //
+    //  The previous physical value is still the base the overlay computes
+    //  from — this fixture pins that, and pins that dropping every margin
+    //  modifier now releases the local value.
+    // ════════════════════════════════════════════════════════════════════
+
+    internal class ModifierInlineMarginCarryForward(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+
+            host.Mount(ctx =>
+            {
+                var (phase, set) = ctx.UseState(0);
+
+                var textMods = phase switch
+                {
+                    0 => new ElementModifiers { Margin = new Thickness(2, 3, 4, 5), MarginInlineStart = 20 },
+                    // Physical margin dropped, a DIFFERENT inline edge set: the overlay
+                    // must still compute from the previous *physical* margin (2,3,4,5),
+                    // not from the live overlaid value (20,3,4,5) the control carries.
+                    1 => new ElementModifiers { MarginInlineEnd = 30 },
+                    _ => new ElementModifiers(),
+                };
+
+                var borderMods = phase switch
+                {
+                    0 => new ElementModifiers { Padding = new Thickness(2, 3, 4, 5), PaddingInlineStart = 20 },
+                    1 => new ElementModifiers { PaddingInlineEnd = 30 },
+                    _ => new ElementModifiers(),
+                };
+
+                return VStack(
+                    Button("InlineCarryPhase", () => set(phase + 1)),
+                    TextBlock("inline-carry-target") with { Modifiers = textMods },
+                    Border(TextBlock("inline-carry-border-child")) with { Modifiers = borderMods });
+            });
+
+            Border? FindCarryBorder() => H.FindControl<Border>(
+                b => b.Child is TextBlock tb && tb.Text == "inline-carry-border-child");
+
+            await Harness.Render();
+            var text = H.FindText("inline-carry-target");
+            var border = FindCarryBorder();
+            H.Check("InlineCarry_Phase0_Present", text is not null && border is not null);
+            // LTR: inline-start overlays Left, the other three edges come from the physical margin.
+            H.Check("InlineCarry_Phase0_MarginOverlaid",
+                text is not null && text.Margin == new Thickness(20, 3, 4, 5));
+            H.Check("InlineCarry_Phase0_PaddingOverlaid",
+                border is not null && border.Padding == new Thickness(20, 3, 4, 5));
+
+            H.ClickButton("InlineCarryPhase");
+            await Harness.Render();
+            text = H.FindText("inline-carry-target");
+            border = FindCarryBorder();
+            // Left comes from the previous physical margin (2), NOT from the live 20 the
+            // phase-0 overlay wrote — that difference is the whole point of this check.
+            H.Check("InlineCarry_Phase1_MarginBaseIsPreviousPhysical",
+                text is not null && text.Margin == new Thickness(2, 3, 30, 5));
+            H.Check("InlineCarry_Phase1_PaddingBaseIsPreviousPhysical",
+                border is not null && border.Padding == new Thickness(2, 3, 30, 5));
+
+            H.ClickButton("InlineCarryPhase");
+            await Harness.Render();
+            text = H.FindText("inline-carry-target");
+            border = FindCarryBorder();
+            // Only an inline modifier was set last render, never a physical one, so the
+            // reset has to key off the inline modifiers to fire at all.
+            H.Check("InlineCarry_Phase2_MarginLocalValueReleased",
+                text is not null
+                && text.ReadLocalValue(FrameworkElement.MarginProperty) == DependencyProperty.UnsetValue);
+            H.Check("InlineCarry_Phase2_PaddingLocalValueReleased",
+                border is not null
+                && border.ReadLocalValue(Microsoft.UI.Xaml.Controls.Border.PaddingProperty) == DependencyProperty.UnsetValue);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  Issue #952, inline-drop half — the write guard compares the resolved
+    //  value against the previous *physical* value, so dropping an inline
+    //  edge while the physical value stays put resolves straight back to the
+    //  old value and used to skip the write entirely, stranding the previous
+    //  render's inline edge on the control. And BorderThickness's reset arm
+    //  keyed only off oldM.BorderThickness, so an inline-only border was
+    //  never released at all.
+    // ════════════════════════════════════════════════════════════════════
+
+    internal class ModifierInlineDropRestoresPhysical(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            var physical = new Thickness(2, 3, 4, 5);
+
+            host.Mount(ctx =>
+            {
+                var (phase, set) = ctx.UseState(0);
+
+                // Physical value identical in both phases; only the inline edge goes away.
+                var textMods = phase == 0
+                    ? new ElementModifiers { Margin = physical, MarginInlineStart = 20 }
+                    : new ElementModifiers { Margin = physical };
+
+                var padMods = phase == 0
+                    ? new ElementModifiers { Padding = physical, PaddingInlineStart = 20 }
+                    : new ElementModifiers { Padding = physical };
+
+                var thicknessMods = phase == 0
+                    ? new ElementModifiers { BorderThickness = new Thickness(2), BorderInlineStart = new Thickness(9) }
+                    : new ElementModifiers { BorderThickness = new Thickness(2) };
+
+                // No physical border at all — only the reset guard keying off
+                // BorderInlineStart can release this one.
+                var inlineOnlyMods = phase == 0
+                    ? new ElementModifiers { BorderInlineStart = new Thickness(9) }
+                    : new ElementModifiers();
+
+                return VStack(
+                    Button("InlineDropPhase", () => set(phase + 1)),
+                    TextBlock("inline-drop-target") with { Modifiers = textMods },
+                    Border(TextBlock("inline-drop-pad-child")) with { Modifiers = padMods },
+                    Border(TextBlock("inline-drop-thickness-child")) with { Modifiers = thicknessMods },
+                    Border(TextBlock("inline-drop-only-child")) with { Modifiers = inlineOnlyMods });
+            });
+
+            Border? FindBorder(string childText) => H.FindControl<Border>(
+                b => b.Child is TextBlock tb && tb.Text == childText);
+
+            await Harness.Render();
+            var text = H.FindText("inline-drop-target");
+            var pad = FindBorder("inline-drop-pad-child");
+            var thickness = FindBorder("inline-drop-thickness-child");
+            var inlineOnly = FindBorder("inline-drop-only-child");
+
+            H.Check("InlineDrop_Phase0_Present",
+                text is not null && pad is not null && thickness is not null && inlineOnly is not null);
+            // Phase 0 has to actually differ from the physical value, or phase 1 proves nothing.
+            H.Check("InlineDrop_Phase0_MarginOverlaid",
+                text is not null && text.Margin == new Thickness(20, 3, 4, 5));
+            H.Check("InlineDrop_Phase0_PaddingOverlaid",
+                pad is not null && pad.Padding == new Thickness(20, 3, 4, 5));
+            H.Check("InlineDrop_Phase0_BorderOverlaid",
+                thickness is not null && thickness.BorderThickness == new Thickness(9, 2, 2, 2));
+            H.Check("InlineDrop_Phase0_InlineOnlyBorderApplied",
+                inlineOnly is not null && inlineOnly.BorderThickness == new Thickness(9, 0, 0, 0));
+
+            H.ClickButton("InlineDropPhase");
+            await Harness.Render();
+            text = H.FindText("inline-drop-target");
+            pad = FindBorder("inline-drop-pad-child");
+            thickness = FindBorder("inline-drop-thickness-child");
+            inlineOnly = FindBorder("inline-drop-only-child");
+
+            H.Check("InlineDrop_Phase1_MarginBackToPhysical",
+                text is not null && text.Margin == physical);
+            H.Check("InlineDrop_Phase1_PaddingBackToPhysical",
+                pad is not null && pad.Padding == physical);
+            H.Check("InlineDrop_Phase1_BorderBackToPhysical",
+                thickness is not null && thickness.BorderThickness == new Thickness(2));
+            H.Check("InlineDrop_Phase1_InlineOnlyBorderReleased",
+                inlineOnly is not null
+                && inlineOnly.ReadLocalValue(Microsoft.UI.Xaml.Controls.Border.BorderThicknessProperty)
+                    == DependencyProperty.UnsetValue);
         }
     }
 }

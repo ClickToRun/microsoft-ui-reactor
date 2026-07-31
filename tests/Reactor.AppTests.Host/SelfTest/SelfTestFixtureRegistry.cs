@@ -409,6 +409,11 @@ internal static class SelfTestFixtureRegistry
         "ModifierEvent_BorderModifiers",
         "ModifierEvent_OnMountAction",
         "ModifierEvent_ModifierClearResets",
+        "ModifierEvent_StyleUnsetRestore",
+        "ModifierEvent_PoolClearValueOnRent",
+        "ModifierEvent_PoolClearValueControl",
+        "ModifierEvent_InlineMarginCarryForward",
+        "ModifierEvent_InlineDropRestoresPhysical",
         // Rare control mount + update tests
         "RareControl_ColorPicker",
         "RareControl_TeachingTip",
@@ -2025,6 +2030,11 @@ internal static class SelfTestFixtureRegistry
         "ModifierEvent_BorderModifiers" => new ModifierEventFixtures.BorderModifiers(harness),
         "ModifierEvent_OnMountAction" => new ModifierEventFixtures.OnMountActionModifier(harness),
         "ModifierEvent_ModifierClearResets" => new ModifierEventFixtures.ModifierClearResets(harness),
+        "ModifierEvent_StyleUnsetRestore" => new ModifierEventFixtures.ModifierStyleUnsetRestore(harness),
+        "ModifierEvent_PoolClearValueOnRent" => new ModifierEventFixtures.ModifierPoolClearValueOnRent(harness),
+        "ModifierEvent_PoolClearValueControl" => new ModifierEventFixtures.ModifierPoolClearValueControl(harness),
+        "ModifierEvent_InlineMarginCarryForward" => new ModifierEventFixtures.ModifierInlineMarginCarryForward(harness),
+        "ModifierEvent_InlineDropRestoresPhysical" => new ModifierEventFixtures.ModifierInlineDropRestoresPhysical(harness),
         // Rare control tests
         "RareControl_ColorPicker" => new RareControlFixtures.ColorPickerMountUpdate(harness),
         "RareControl_TeachingTip" => new RareControlFixtures.TeachingTipMount(harness),

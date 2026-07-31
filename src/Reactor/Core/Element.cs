@@ -6856,16 +6856,14 @@ public record CommandBarFlyoutElement(
     public bool IsOpen { get; init; }
     /// <summary>
     /// Preferred position of the flyout relative to its target. Defaults to
-    /// <see cref="FlyoutPlacementMode.Auto"/>, meaning "no opinion — let the platform decide".
+    /// <see cref="FlyoutPlacementMode.Auto"/>, which means "no opinion — let WinUI decide":
+    /// Reactor clears <c>FlyoutBase.Placement</c> so it falls back to the control's own
+    /// default (<see cref="FlyoutPlacementMode.Top"/>) instead of writing <c>Auto</c>,
+    /// because WinUI's show-time validator rejects <c>Auto</c> and terminates the process.
+    /// Changing an already-mounted flyout from an explicit placement back to
+    /// <see cref="FlyoutPlacementMode.Auto"/> therefore returns it to that default, rather
+    /// than leaving a stale local value that would outrank a <c>Style</c> setter.
     /// </summary>
-    /// <remarks>
-    /// These sites are guarded by <c>Reconciler.ApplyFlyoutPlacement</c> rather than by
-    /// <c>FlyoutPlacement.Apply</c>, because they are owned by the change that fixed
-    /// <c>CommandBarFlyout</c> never opening from its target. Both prevent <c>Auto</c> from
-    /// reaching WinUI's show-time validator, which rejects it; they differ only on an update
-    /// back to <c>Auto</c>, where this one clears the DP so it returns to the platform
-    /// default rather than retaining the last explicit value.
-    /// </remarks>
     public FlyoutPlacementMode Placement { get; init; } = FlyoutPlacementMode.Auto;
     internal Action<WinUI.CommandBarFlyout>[] Setters { get; init; } = [];
 }

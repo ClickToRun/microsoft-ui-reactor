@@ -155,6 +155,24 @@ Conventions for contributors:
   `IsOpen` and no trigger and so could never appear, now uses the state-driven shape
   its sibling card already used.
 
+- **Unsetting a common modifier no longer permanently overrides the control's
+  style (issue #952).** `Reconciler.ApplyModifiers` reset a dropped modifier by
+  *assigning* the dependency property's default value (`fe.Margin =
+  new Thickness(0)`, `fe.HorizontalAlignment = Stretch`, `fe.Width = NaN`, …).
+  A local value outranks every `Style` setter in WinUI's dependency-property
+  precedence order, so the write did not restore the styled value — it
+  permanently replaced it, and the control could never get its style-provided
+  value back after a single set → unset cycle. Every reset arm now calls
+  `ClearValue(...)`, matching the `Unset` → `ClearValue(dp)` rule already
+  documented for descriptor-backed props (and enforced there by
+  `REACTOR0050`). `ElementPool.CleanElement` had the same defect on pool
+  return, handing a recycled control to its next renter with local values it
+  could never shed; it now clears too. Separately, `Margin` and `Padding` were
+  never reset *at all* — the resolved value was seeded `m.X ?? oldM?.X`, which
+  is non-null whenever the previous render supplied one, so the unset arm was
+  unreachable; the previous physical value is now used only as the base for
+  the BiDi inline-start/end overlay.
+
 - **Context consumers inside a reference-stable child subtree now re-render when
   the provided value changes (issue #811).** The reconciler's skip fast-paths
   (positional, keyed prefix/suffix, the `UseMemoCellsByIndex` hint range, and the

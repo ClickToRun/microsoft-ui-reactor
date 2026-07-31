@@ -331,6 +331,12 @@ internal static class CoreReconcilerRenderCoverageFixtures
             var flyout2 = tbTarget is null ? null : WinPrim.FlyoutBase.GetAttachedFlyout(tbTarget) as CommandBarFlyout;
             H.Check("CmdBarFlyout_FreshPrimary2", flyout2?.PrimaryCommands.Count == 2);
             H.Check("CmdBarFlyout_FreshSecondary2", flyout2?.SecondaryCommands.Count == 2);
+            // The fresh-flyout arm applies placement too. Without this the arm's
+            // FlyoutPlacement.Apply call can be deleted and nothing fails: the new flyout
+            // would silently sit at WinUI's Top default while the element asks for Bottom,
+            // and the command assertions above would still pass.
+            H.Check("CmdBarFlyout_FreshPlacementBottom",
+                flyout2?.Placement == WinPrim.FlyoutPlacementMode.Bottom);
             H.Check("CmdBarFlyout_FreshPrimaryLabels",
                 flyout2?.PrimaryCommands.Count == 2
                 && (flyout2?.PrimaryCommands[0] as AppBarButton)?.Label == "cbf-copy"

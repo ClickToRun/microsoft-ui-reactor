@@ -105,6 +105,15 @@ record. That is why "modifier order doesn't matter" is true for almost
 every Reactor modifier: the merge target is a field on a flat record,
 not a position in a wrapper chain.
 
+Dropping a modifier on a later render is a genuine reset, not a no-op:
+the reconciler calls `ClearValue` on the dependency property instead of
+writing that property's default value. The distinction is invisible on a
+bare control and load-bearing on a styled one. A local value outranks
+every `Style` setter in WinUI's precedence order, so writing the default
+would pin it permanently rather than hand the property back to the
+style. Render a themed `Button` with `.Padding(24)` and then without
+`.Padding()` and you get the *themed* padding back, not `0`.
+
 Reference modifiers are the exception to "just write this value" in the
 implementation, but not in the authoring model. `.Ref(cell)` binds the
 current element into an `ElementRef` cell; reference-property modifiers

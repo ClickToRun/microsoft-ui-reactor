@@ -3686,18 +3686,33 @@ public sealed partial class Reconciler : IDisposable
         else if (!m.RequestedTheme.HasValue && oldM?.RequestedTheme.HasValue == true)
             fe.ClearValue(FrameworkElement.RequestedThemeProperty);
 
-        // Apply physical margin, then overlay logical (BiDi-aware) inline margin
-        var resolvedMargin = m.Margin ?? oldM?.Margin;
+        // Apply physical margin, then overlay logical (BiDi-aware) inline margin.
+        // The previous render's physical margin is only carried forward as the *base*
+        // for that overlay — folding it into resolvedMargin unconditionally would make
+        // the value non-null whenever the last render had a margin, which left the unset
+        // arm below unreachable and meant `.Margin(x)` → no margin reset nothing (#952).
+        var resolvedMargin = m.Margin;
         if (m.MarginInlineStart.HasValue || m.MarginInlineEnd.HasValue)
         {
             var isRtl = fe.FlowDirection == FlowDirection.RightToLeft;
-            var baseMargin = resolvedMargin ?? fe.Margin;
+            var baseMargin = resolvedMargin ?? oldM?.Margin ?? fe.Margin;
             var left = isRtl ? (m.MarginInlineEnd ?? baseMargin.Left) : (m.MarginInlineStart ?? baseMargin.Left);
             var right = isRtl ? (m.MarginInlineStart ?? baseMargin.Right) : (m.MarginInlineEnd ?? baseMargin.Right);
             resolvedMargin = new Thickness(left, baseMargin.Top, right, baseMargin.Bottom);
         }
-        if (resolvedMargin.HasValue && resolvedMargin != oldM?.Margin) fe.Margin = resolvedMargin.Value;
-        else if (!resolvedMargin.HasValue && oldM?.Margin.HasValue == true) fe.Margin = new Thickness(0);
+        // Unset goes through ClearValue, never through "write the DP default". A local
+        // value outranks every Style setter in WinUI's precedence order, so assigning the
+        // default would not restore the styled value — it would permanently override it
+        // (issue #952). Same rule for every reset arm below.
+        // The value guard compares against the previous *physical* margin, so dropping or
+        // changing an inline edge while the physical margin stays put would resolve back to
+        // the old value and skip the write, stranding the previous render's inline edge on
+        // the control. An inline delta is a change in its own right.
+        var marginInlineChanged = m.MarginInlineStart != oldM?.MarginInlineStart
+            || m.MarginInlineEnd != oldM?.MarginInlineEnd;
+        if (resolvedMargin.HasValue && (resolvedMargin != oldM?.Margin || marginInlineChanged)) fe.Margin = resolvedMargin.Value;
+        else if (!resolvedMargin.HasValue && (oldM?.Margin.HasValue == true || oldM?.MarginInlineStart.HasValue == true || oldM?.MarginInlineEnd.HasValue == true))
+            fe.ClearValue(FrameworkElement.MarginProperty);
 
         // Apply physical padding, then overlay logical (BiDi-aware) inline padding.
         //
@@ -3720,7 +3735,10 @@ public sealed partial class Reconciler : IDisposable
             var right = isRtl ? (m.PaddingInlineStart ?? basePad.Right) : (m.PaddingInlineEnd ?? basePad.Right);
             resolvedPadding = new Thickness(left, basePad.Top, right, basePad.Bottom);
         }
-        if (resolvedPadding.HasValue && resolvedPadding != oldM?.Padding)
+        // Same inline-delta rule as Margin above.
+        var paddingInlineChanged = m.PaddingInlineStart != oldM?.PaddingInlineStart
+            || m.PaddingInlineEnd != oldM?.PaddingInlineEnd;
+        if (resolvedPadding.HasValue && (resolvedPadding != oldM?.Padding || paddingInlineChanged))
         {
             if (fe is WinUI.Control padCtrl) padCtrl.Padding = resolvedPadding.Value;
             else if (fe is WinUI.Border padBdr) padBdr.Padding = resolvedPadding.Value;
@@ -3732,28 +3750,28 @@ public sealed partial class Reconciler : IDisposable
             // Clear rather than write a local `new Thickness(0)`: a zero local wins over the
             // control's style/template, so a Button that dropped `.Padding(...)` would flush to
             // nothing instead of returning to its themed padding. This is the `Padding` half of
-            // issue #952; the sizing/alignment arms below are still #952's to convert.
+            // issue #952; the sizing/alignment arms below now follow the same rule.
             if (fe is WinUI.Control padCtrl) padCtrl.ClearValue(WinUI.Control.PaddingProperty);
             else if (fe is WinUI.Border padBdr) padBdr.ClearValue(WinUI.Border.PaddingProperty);
             else if (fe is WinUI.StackPanel padSp) padSp.ClearValue(WinUI.StackPanel.PaddingProperty);
             else if (fe is WinUI.TextBlock padTb) padTb.ClearValue(WinUI.TextBlock.PaddingProperty);
         }
         if (m.Width.HasValue && m.Width != oldM?.Width) fe.Width = m.Width.Value;
-        else if (!m.Width.HasValue && oldM?.Width.HasValue == true) fe.Width = double.NaN;
+        else if (!m.Width.HasValue && oldM?.Width.HasValue == true) fe.ClearValue(FrameworkElement.WidthProperty);
         if (m.Height.HasValue && m.Height != oldM?.Height) fe.Height = m.Height.Value;
-        else if (!m.Height.HasValue && oldM?.Height.HasValue == true) fe.Height = double.NaN;
+        else if (!m.Height.HasValue && oldM?.Height.HasValue == true) fe.ClearValue(FrameworkElement.HeightProperty);
         if (m.MinWidth.HasValue && m.MinWidth != oldM?.MinWidth) fe.MinWidth = m.MinWidth.Value;
-        else if (!m.MinWidth.HasValue && oldM?.MinWidth.HasValue == true) fe.MinWidth = 0;
+        else if (!m.MinWidth.HasValue && oldM?.MinWidth.HasValue == true) fe.ClearValue(FrameworkElement.MinWidthProperty);
         if (m.MinHeight.HasValue && m.MinHeight != oldM?.MinHeight) fe.MinHeight = m.MinHeight.Value;
-        else if (!m.MinHeight.HasValue && oldM?.MinHeight.HasValue == true) fe.MinHeight = 0;
+        else if (!m.MinHeight.HasValue && oldM?.MinHeight.HasValue == true) fe.ClearValue(FrameworkElement.MinHeightProperty);
         if (m.MaxWidth.HasValue && m.MaxWidth != oldM?.MaxWidth) fe.MaxWidth = m.MaxWidth.Value;
-        else if (!m.MaxWidth.HasValue && oldM?.MaxWidth.HasValue == true) fe.MaxWidth = double.PositiveInfinity;
+        else if (!m.MaxWidth.HasValue && oldM?.MaxWidth.HasValue == true) fe.ClearValue(FrameworkElement.MaxWidthProperty);
         if (m.MaxHeight.HasValue && m.MaxHeight != oldM?.MaxHeight) fe.MaxHeight = m.MaxHeight.Value;
-        else if (!m.MaxHeight.HasValue && oldM?.MaxHeight.HasValue == true) fe.MaxHeight = double.PositiveInfinity;
+        else if (!m.MaxHeight.HasValue && oldM?.MaxHeight.HasValue == true) fe.ClearValue(FrameworkElement.MaxHeightProperty);
         if (m.HorizontalAlignment.HasValue && m.HorizontalAlignment != oldM?.HorizontalAlignment) fe.HorizontalAlignment = m.HorizontalAlignment.Value;
-        else if (!m.HorizontalAlignment.HasValue && oldM?.HorizontalAlignment.HasValue == true) fe.HorizontalAlignment = HorizontalAlignment.Stretch;
+        else if (!m.HorizontalAlignment.HasValue && oldM?.HorizontalAlignment.HasValue == true) fe.ClearValue(FrameworkElement.HorizontalAlignmentProperty);
         if (m.VerticalAlignment.HasValue && m.VerticalAlignment != oldM?.VerticalAlignment) fe.VerticalAlignment = m.VerticalAlignment.Value;
-        else if (!m.VerticalAlignment.HasValue && oldM?.VerticalAlignment.HasValue == true) fe.VerticalAlignment = VerticalAlignment.Stretch;
+        else if (!m.VerticalAlignment.HasValue && oldM?.VerticalAlignment.HasValue == true) fe.ClearValue(FrameworkElement.VerticalAlignmentProperty);
         if (fe is WinUI.Control contentAlignmentControl)
         {
             if (m.HorizontalContentAlignment.HasValue && m.HorizontalContentAlignment != oldM?.HorizontalContentAlignment)
@@ -3769,7 +3787,10 @@ public sealed partial class Reconciler : IDisposable
         if (m.Opacity.HasValue && m.Opacity != oldM?.Opacity)
             AnimationHelper.SetOrAnimate(fe, "Opacity", (float)m.Opacity.Value);
         else if (!m.Opacity.HasValue && oldM?.Opacity.HasValue == true)
-            fe.Opacity = 1.0;
+            // Note: if the set arm started a compositor animation on Visual.Opacity,
+            // clearing the XAML DP does not cancel it — neither did the previous
+            // `fe.Opacity = 1.0`, so this is not a regression.
+            fe.ClearValue(UIElement.OpacityProperty);
         if (m.Scale.HasValue && m.Scale != oldM?.Scale)
             AnimationHelper.SetOrAnimateVector3(fe, "Scale", m.Scale.Value);
         if (m.Rotation.HasValue && m.Rotation != oldM?.Rotation)
@@ -3781,7 +3802,7 @@ public sealed partial class Reconciler : IDisposable
         if (m.IsVisible.HasValue && m.IsVisible != oldM?.IsVisible)
             fe.Visibility = m.IsVisible.Value ? Visibility.Visible : Visibility.Collapsed;
         else if (!m.IsVisible.HasValue && oldM?.IsVisible.HasValue == true)
-            fe.Visibility = Visibility.Visible;
+            fe.ClearValue(UIElement.VisibilityProperty);
         if (m.RichToolTip is not null)
         {
             var oldTipEl = oldM?.RichToolTip;
@@ -3819,13 +3840,13 @@ public sealed partial class Reconciler : IDisposable
                 fe.ContextFlyout = CreateFlyoutFromElement(m.ContextFlyout, requestRerender);
         }
         else if (oldM?.ContextFlyout is not null)
-            fe.ContextFlyout = null;
+            fe.ClearValue(UIElement.ContextFlyoutProperty);
 
         // IsEnabled (on Control)
         if (m.IsEnabled.HasValue && m.IsEnabled != oldM?.IsEnabled && fe is WinUI.Control enCtrl)
             enCtrl.IsEnabled = m.IsEnabled.Value;
         else if (!m.IsEnabled.HasValue && oldM?.IsEnabled.HasValue == true && fe is WinUI.Control enCtrl2)
-            enCtrl2.IsEnabled = true;
+            enCtrl2.ClearValue(WinUI.Control.IsEnabledProperty);
 
         // CornerRadius (on Control and Border)
         if (m.CornerRadius.HasValue && m.CornerRadius != oldM?.CornerRadius)
@@ -3835,8 +3856,8 @@ public sealed partial class Reconciler : IDisposable
         }
         else if (!m.CornerRadius.HasValue && oldM?.CornerRadius.HasValue == true)
         {
-            if (fe is WinUI.Control crCtrl) crCtrl.CornerRadius = new CornerRadius(0);
-            else if (fe is WinUI.Border crBdr) crBdr.CornerRadius = new CornerRadius(0);
+            if (fe is WinUI.Control crCtrl) crCtrl.ClearValue(WinUI.Control.CornerRadiusProperty);
+            else if (fe is WinUI.Border crBdr) crBdr.ClearValue(WinUI.Border.CornerRadiusProperty);
         }
 
         // BorderBrush / BorderThickness (on Control and Border)
@@ -3855,22 +3876,27 @@ public sealed partial class Reconciler : IDisposable
         if (m.BorderInlineStart.HasValue)
         {
             var isRtl = fe.FlowDirection == FlowDirection.RightToLeft;
-            var baseBorder = resolvedBorder ?? (fe is WinUI.Control bc ? bc.BorderThickness : fe is WinUI.Border bb ? bb.BorderThickness : new Thickness());
+            // Same base rule as Margin/Padding: the previous render's physical thickness, not
+            // the live control value, which already carries the last render's inline overlay.
+            var baseBorder = resolvedBorder ?? oldM?.BorderThickness ?? (fe is WinUI.Control bc ? bc.BorderThickness : fe is WinUI.Border bb ? bb.BorderThickness : new Thickness());
             var inlineStartThickness = m.BorderInlineStart.Value;
             if (isRtl)
                 resolvedBorder = new Thickness(baseBorder.Left, baseBorder.Top, inlineStartThickness.Left, baseBorder.Bottom);
             else
                 resolvedBorder = new Thickness(inlineStartThickness.Left, baseBorder.Top, baseBorder.Right, baseBorder.Bottom);
         }
-        if (resolvedBorder.HasValue && resolvedBorder != oldM?.BorderThickness)
+        // Same inline-delta rule as Margin/Padding above; the reset arm likewise has to fire
+        // when the old bag carried only an inline border, or that edge is never released.
+        var borderInlineChanged = m.BorderInlineStart != oldM?.BorderInlineStart;
+        if (resolvedBorder.HasValue && (resolvedBorder != oldM?.BorderThickness || borderInlineChanged))
         {
             if (fe is WinUI.Control btCtrl) btCtrl.BorderThickness = resolvedBorder.Value;
             else if (fe is WinUI.Border btBdr) btBdr.BorderThickness = resolvedBorder.Value;
         }
-        else if (!resolvedBorder.HasValue && oldM?.BorderThickness.HasValue == true)
+        else if (!resolvedBorder.HasValue && (oldM?.BorderThickness.HasValue == true || oldM?.BorderInlineStart.HasValue == true))
         {
-            if (fe is WinUI.Control btCtrl) btCtrl.BorderThickness = new Thickness(0);
-            else if (fe is WinUI.Border btBdr) btBdr.BorderThickness = new Thickness(0);
+            if (fe is WinUI.Control btCtrl) btCtrl.ClearValue(WinUI.Control.BorderThicknessProperty);
+            else if (fe is WinUI.Border btBdr) btBdr.ClearValue(WinUI.Border.BorderThicknessProperty);
         }
 
         // Background (Panel, Control, or Border)
@@ -3939,7 +3965,7 @@ public sealed partial class Reconciler : IDisposable
         if (m.AccessKey is not null && m.AccessKey != oldM?.AccessKey)
             fe.AccessKey = m.AccessKey;
         else if (m.AccessKey is null && oldM?.AccessKey is not null)
-            fe.AccessKey = "";
+            fe.ClearValue(UIElement.AccessKeyProperty);
 
         if (m.XYFocusKeyboardNavigation.HasValue && m.XYFocusKeyboardNavigation != oldM?.XYFocusKeyboardNavigation)
             fe.XYFocusKeyboardNavigation = m.XYFocusKeyboardNavigation.Value;
@@ -5167,24 +5193,6 @@ public sealed partial class Reconciler : IDisposable
             case FlyoutSlot.Button: ((WinUI.Button)fe).Flyout = null; break;
             default: WinPrim.FlyoutBase.SetAttachedFlyout(fe, null); break;
         }
-    }
-
-    /// <summary>
-    /// Assigns a flyout's placement, treating <see cref="WinPrim.FlyoutPlacementMode.Auto"/> as
-    /// "leave it at WinUI's default" rather than writing it through.
-    ///
-    /// <c>Auto</c> (13) is outside the range <c>FlyoutBase::ShowAtCore</c> accepts, and
-    /// <c>GetEffectivePlacement</c> hands the raw value straight to the validator, so an
-    /// <c>Auto</c>-placed flyout fail-fasts the process with <c>E_INVALIDARG</c> the moment it
-    /// opens. Clearing the DP (rather than merely skipping the write) keeps an explicit → Auto
-    /// update consistent with what a fresh mount of the same element would produce.
-    /// </summary>
-    internal static void ApplyFlyoutPlacement(WinPrim.FlyoutBase flyout, WinPrim.FlyoutPlacementMode placement)
-    {
-        if (placement == WinPrim.FlyoutPlacementMode.Auto)
-            flyout.ClearValue(WinPrim.FlyoutBase.PlacementProperty);
-        else if (flyout.Placement != placement)
-            flyout.Placement = placement;
     }
 
     /// <summary>
