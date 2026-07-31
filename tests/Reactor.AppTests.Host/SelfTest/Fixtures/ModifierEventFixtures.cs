@@ -749,6 +749,17 @@ internal static class ModifierEventFixtures
             return style;
         }
 
+        /// <summary>
+        /// Tolerance comparison for the <c>double</c>-valued dependency properties under
+        /// test. Every value here is a literal round-tripped through a DP with no
+        /// arithmetic, so <c>==</c> would be exact — but the buggy code produces
+        /// <c>NaN</c> (Width/Height), <c>0</c> (Opacity) or <c>PositiveInfinity</c>
+        /// (MaxWidth/MaxHeight), none of which land inside any small epsilon. The
+        /// assertions are exactly as discriminating either way.
+        /// </summary>
+        private static bool NearlyEqual(double actual, double expected) =>
+            global::System.Math.Abs(actual - expected) < 0.0001;
+
         public override async Task RunAsync()
         {
             var style = BuildStyle();
@@ -808,13 +819,13 @@ internal static class ModifierEventFixtures
                 button.Padding == new Thickness(7, 8, 9, 10)
                 && button.ReadLocalValue(Control.PaddingProperty) != DependencyProperty.UnsetValue);
             H.Check("StyleUnset_Phase0_Size",
-                button.Width == 120 && button.Height == 44
-                && button.MinWidth == 80 && button.MinHeight == 30
-                && button.MaxWidth == 240 && button.MaxHeight == 90);
+                NearlyEqual(button.Width, 120) && NearlyEqual(button.Height, 44)
+                && NearlyEqual(button.MinWidth, 80) && NearlyEqual(button.MinHeight, 30)
+                && NearlyEqual(button.MaxWidth, 240) && NearlyEqual(button.MaxHeight, 90));
             H.Check("StyleUnset_Phase0_Alignment",
                 button.HorizontalAlignment == HorizontalAlignment.Right
                 && button.VerticalAlignment == VerticalAlignment.Bottom);
-            H.Check("StyleUnset_Phase0_Opacity", button.Opacity == 0.5);
+            H.Check("StyleUnset_Phase0_Opacity", NearlyEqual(button.Opacity, 0.5));
             H.Check("StyleUnset_Phase0_Collapsed", button.Visibility == Visibility.Collapsed);
             H.Check("StyleUnset_Phase0_Enabled", button.IsEnabled);
             H.Check("StyleUnset_Phase0_Border",
@@ -840,22 +851,22 @@ internal static class ModifierEventFixtures
                 && button.Padding == StylePadding);
             H.Check("StyleUnset_Phase1_WidthRestored",
                 button.ReadLocalValue(FrameworkElement.WidthProperty) == DependencyProperty.UnsetValue
-                && button.Width == StyleWidth);
+                && NearlyEqual(button.Width, StyleWidth));
             H.Check("StyleUnset_Phase1_HeightRestored",
                 button.ReadLocalValue(FrameworkElement.HeightProperty) == DependencyProperty.UnsetValue
-                && button.Height == StyleHeight);
+                && NearlyEqual(button.Height, StyleHeight));
             H.Check("StyleUnset_Phase1_MinWidthRestored",
                 button.ReadLocalValue(FrameworkElement.MinWidthProperty) == DependencyProperty.UnsetValue
-                && button.MinWidth == StyleMinWidth);
+                && NearlyEqual(button.MinWidth, StyleMinWidth));
             H.Check("StyleUnset_Phase1_MinHeightRestored",
                 button.ReadLocalValue(FrameworkElement.MinHeightProperty) == DependencyProperty.UnsetValue
-                && button.MinHeight == StyleMinHeight);
+                && NearlyEqual(button.MinHeight, StyleMinHeight));
             H.Check("StyleUnset_Phase1_MaxWidthRestored",
                 button.ReadLocalValue(FrameworkElement.MaxWidthProperty) == DependencyProperty.UnsetValue
-                && button.MaxWidth == StyleMaxWidth);
+                && NearlyEqual(button.MaxWidth, StyleMaxWidth));
             H.Check("StyleUnset_Phase1_MaxHeightRestored",
                 button.ReadLocalValue(FrameworkElement.MaxHeightProperty) == DependencyProperty.UnsetValue
-                && button.MaxHeight == StyleMaxHeight);
+                && NearlyEqual(button.MaxHeight, StyleMaxHeight));
             H.Check("StyleUnset_Phase1_HorizontalAlignmentRestored",
                 button.ReadLocalValue(FrameworkElement.HorizontalAlignmentProperty) == DependencyProperty.UnsetValue
                 && button.HorizontalAlignment == HorizontalAlignment.Center);
@@ -864,7 +875,7 @@ internal static class ModifierEventFixtures
                 && button.VerticalAlignment == VerticalAlignment.Top);
             H.Check("StyleUnset_Phase1_OpacityRestored",
                 button.ReadLocalValue(UIElement.OpacityProperty) == DependencyProperty.UnsetValue
-                && button.Opacity == StyleOpacity);
+                && NearlyEqual(button.Opacity, StyleOpacity));
             H.Check("StyleUnset_Phase1_IsEnabledRestored",
                 button.ReadLocalValue(Control.IsEnabledProperty) == DependencyProperty.UnsetValue
                 && !button.IsEnabled);
