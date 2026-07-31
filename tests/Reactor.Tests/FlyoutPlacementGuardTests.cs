@@ -491,9 +491,19 @@ public class FlyoutPlacementGuardTests
                 EnclosingMethodName(invocation)));
 
     /// <summary>
-    /// A call to <c>FlyoutPlacement.Apply(...)</c> under any qualification — bare,
-    /// namespace-qualified, or through an alias whose leaf name is still the type name.
+    /// A call to <c>FlyoutPlacement.Apply(...)</c>, bare or namespace-qualified — including
+    /// through a <i>namespace</i> alias, since the leaf of <c>Alias.FlyoutPlacement.Apply</c>
+    /// is still the type name.
     /// </summary>
+    /// <remarks>
+    /// A <i>type</i> alias (<c>using FP = ...FlyoutPlacement;</c> then <c>FP.Apply(...)</c>)
+    /// does not match: the leaf is <c>FP</c>, and resolving it needs a semantic model this
+    /// scan deliberately does without. For a site already in
+    /// <see cref="PlacementApplyingMethods"/> that fails loudly — it drops out of the routed
+    /// set and <see cref="Every_Flyout_Site_Routes_Through_The_Choke_Point"/> reports it as
+    /// missing. A brand-new site introduced that way would be invisible to both halves of
+    /// the invariant, which is one of the symbol-resolution gaps issue #964 tracks.
+    /// </remarks>
     private static bool IsChokePointCall(InvocationExpressionSyntax invocation)
         => invocation.Expression is MemberAccessExpressionSyntax
            { Name.Identifier.Text: "Apply", Expression: var owner }
