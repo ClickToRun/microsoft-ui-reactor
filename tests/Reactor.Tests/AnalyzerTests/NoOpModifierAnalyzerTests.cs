@@ -509,8 +509,9 @@ namespace TestApp
     [Fact]
     public async Task Fires_For_Padding_On_A_Grid()
     {
-        // Padding's gate is Control/Border/StackPanel. A Grid is a Panel but not a StackPanel, so
-        // the write is dropped — the asymmetry REACTOR_MOD_002's table exists to record.
+        // Padding's gate is Control/Border/StackPanel/TextBlock. A Grid is a Panel but not a
+        // StackPanel, so the write is dropped — the asymmetry REACTOR_MOD_002's table exists to
+        // record.
         var body = App(@"
         internal static Element M() => Grid().{|REACTOR_MOD_003:Padding|}(16);");
 
@@ -541,7 +542,7 @@ namespace TestApp
                 .WithArguments(
                     "Padding",
                     "FlexElement",
-                    "Control, Border, or StackPanel",
+                    "Control, Border, StackPanel, or TextBlock",
                     ". 'FlexPadding' is the equivalent on FlexElement — did you mean '.FlexPadding(...)'?"));
 
         await test.RunAsync(TestContext.Current.CancellationToken);
@@ -778,12 +779,25 @@ namespace TestApp2
     [Fact]
     public async Task Does_Not_Fire_For_Padding_On_A_RichTextBlock()
     {
-        // RichTextBlock is neither Control, Border nor StackPanel, so the control gate says
-        // "dropped" — but RichTextBlockElement's descriptor reads the common Padding slot itself
-        // and writes RichTextBlock.PaddingProperty, so the value DOES reach the control. Reporting
-        // here would be a false positive on correct code.
+        // RichTextBlock is none of Control, Border, StackPanel or TextBlock, so the control gate
+        // says "dropped" — but RichTextBlockElement's descriptor reads the common Padding slot
+        // itself and writes RichTextBlock.PaddingProperty, so the value DOES reach the control.
+        // Reporting here would be a false positive on correct code.
         var body = App(@"
         internal static Element M() => RichTextBlock().Padding(8);");
+
+        await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Does_Not_Fire_For_Padding_On_A_TextBlock()
+    {
+        // A TextBlock is not a Control, but ApplyModifiers has its own arm for it (issue #950), so
+        // .Padding IS applied. The sibling Fires_For_Background_On_A_TextBlock_With_The_Border_Hint
+        // proves this same receiver is otherwise reportable, so a silently-broken analyzer cannot
+        // make this pass.
+        var body = App(@"
+        internal static Element M() => Text(""hi"").Padding(8);");
 
         await MakeAnalyzerTest(body).RunAsync(TestContext.Current.CancellationToken);
     }
@@ -1061,6 +1075,7 @@ namespace TestApp4
     [InlineData(new[] { "Control", "Border" }, "Control or Border")]
     [InlineData(new[] { "Panel", "Control", "Border" }, "Panel, Control, or Border")]
     [InlineData(new[] { "Control", "Border", "StackPanel" }, "Control, Border, or StackPanel")]
+    [InlineData(new[] { "Control", "Border", "StackPanel", "TextBlock" }, "Control, Border, StackPanel, or TextBlock")]
     public void Humanize_Renders_Every_Gate_Arity(string[] gate, string expected) =>
         Assert.Equal(expected, NoOpModifierAnalyzer.Humanize(gate));
 

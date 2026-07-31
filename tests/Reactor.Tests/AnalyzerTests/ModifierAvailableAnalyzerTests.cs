@@ -84,6 +84,12 @@ namespace Microsoft.UI.Xaml.Controls
         public CornerRadius CornerRadius { get; set; }
     }
 
+    // TextBlock is not a Control, but ApplyModifiers grew its own Padding arm for issue #950.
+    public class TextBlock : FrameworkElement
+    {
+        public Thickness Padding { get; set; }
+    }
+
     public class Button : Control { }
 }
 
@@ -97,6 +103,7 @@ namespace Microsoft.UI.Reactor
     public record GridElement;
     public record StackElement;
     public record BorderElement;
+    public record TextBlockElement;
 
     public static class Ext
     {
@@ -104,6 +111,7 @@ namespace Microsoft.UI.Reactor
         public static GridElement Set(this GridElement el, Action<Grid> configure) => el;
         public static StackElement Set(this StackElement el, Action<StackPanel> configure) => el;
         public static BorderElement Set(this BorderElement el, Action<Border> configure) => el;
+        public static TextBlockElement Set(this TextBlockElement el, Action<TextBlock> configure) => el;
 
         // Modifier stubs so the code-fix tests' FixedCode compiles.
         public static T IsEnabled<T>(this T el, bool enabled = true) => el;
@@ -167,13 +175,32 @@ class C
     [Fact]
     public async Task Does_Not_Fire_For_Padding_On_Grid()
     {
-        // ApplyModifiers applies Padding to Control/Border/StackPanel only. Grid is a Panel,
-        // so '.Padding(...)' would compile and silently do nothing — staying on .Set is
+        // ApplyModifiers applies Padding to Control/Border/StackPanel/TextBlock only. Grid is a
+        // Panel, so '.Padding(...)' would compile and silently do nothing — staying on .Set is
         // correct here. This is the exact ValueList.cs regression.
         var source = Stubs + @"
 class C
 {
     GridElement M(GridElement g) => g.Set(x => x.Padding = new Thickness(8));
+}";
+        await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_For_Padding_On_TextBlock()
+    {
+        // TextBlock is not a Control, yet ApplyModifiers has a dedicated Padding arm for it
+        // (issue #950), so '.Padding(...)' really does reach the control and the rewrite is
+        // sound. Paired with Does_Not_Fire_For_Padding_On_Grid — same property, different
+        // receiver — this pins the gate to the four types rather than "anything that has a
+        // Padding property".
+        var source = Stubs + @"
+class C
+{
+    TextBlockElement M(TextBlockElement t) => {|REACTOR_MOD_002:t.Set(x => x.Padding = new Thickness(8))|};
 }";
         await new CSharpAnalyzerTest<PoolResetSetAnalyzer, DefaultVerifier>
         {

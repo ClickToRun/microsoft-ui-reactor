@@ -3715,12 +3715,22 @@ public sealed partial class Reconciler : IDisposable
             fe.ClearValue(FrameworkElement.MarginProperty);
 
         // Apply physical padding, then overlay logical (BiDi-aware) inline padding.
-        // Same carry-forward rule as Margin above.
-        var resolvedPadding = m.Padding;
+        //
+        // `resolvedPadding` falls back to the OLD padding so the inline overlay has a base for
+        // the edges it does not own. That fallback is not evidence the author still wants
+        // padding this render, so the reset arm below cannot test it: `m.Padding ?? oldM?.Padding`
+        // is null only when oldM had no padding either, which made the old
+        // `!resolvedPadding.HasValue && oldM?.Padding.HasValue == true` guard a contradiction —
+        // dead code that left a dropped `.Padding(...)` stuck on the control forever. `wantsPadding`
+        // is the honest question, and `hadPadding` covers the inline-only case (oldM.Padding null
+        // but an overlay was written) that `oldM?.Padding.HasValue` missed.
+        var wantsPadding = m.Padding.HasValue || m.PaddingInlineStart.HasValue || m.PaddingInlineEnd.HasValue;
+        var hadPadding = oldM is not null && (oldM.Padding.HasValue || oldM.PaddingInlineStart.HasValue || oldM.PaddingInlineEnd.HasValue);
+        var resolvedPadding = m.Padding ?? oldM?.Padding;
         if (m.PaddingInlineStart.HasValue || m.PaddingInlineEnd.HasValue)
         {
             var isRtl = fe.FlowDirection == FlowDirection.RightToLeft;
-            var basePad = resolvedPadding ?? oldM?.Padding ?? (fe is WinUI.Control pc ? pc.Padding : fe is WinUI.Border pb ? pb.Padding : fe is WinUI.StackPanel psp ? psp.Padding : new Thickness());
+            var basePad = resolvedPadding ?? (fe is WinUI.Control pc ? pc.Padding : fe is WinUI.Border pb ? pb.Padding : fe is WinUI.StackPanel psp ? psp.Padding : fe is WinUI.TextBlock ptb ? ptb.Padding : new Thickness());
             var left = isRtl ? (m.PaddingInlineEnd ?? basePad.Left) : (m.PaddingInlineStart ?? basePad.Left);
             var right = isRtl ? (m.PaddingInlineStart ?? basePad.Right) : (m.PaddingInlineEnd ?? basePad.Right);
             resolvedPadding = new Thickness(left, basePad.Top, right, basePad.Bottom);
@@ -3733,12 +3743,18 @@ public sealed partial class Reconciler : IDisposable
             if (fe is WinUI.Control padCtrl) padCtrl.Padding = resolvedPadding.Value;
             else if (fe is WinUI.Border padBdr) padBdr.Padding = resolvedPadding.Value;
             else if (fe is WinUI.StackPanel padSp) padSp.Padding = resolvedPadding.Value;
+            else if (fe is WinUI.TextBlock padTb) padTb.Padding = resolvedPadding.Value;
         }
-        else if (!resolvedPadding.HasValue && (oldM?.Padding.HasValue == true || oldM?.PaddingInlineStart.HasValue == true || oldM?.PaddingInlineEnd.HasValue == true))
+        else if (!wantsPadding && hadPadding)
         {
+            // Clear rather than write a local `new Thickness(0)`: a zero local wins over the
+            // control's style/template, so a Button that dropped `.Padding(...)` would flush to
+            // nothing instead of returning to its themed padding. This is the `Padding` half of
+            // issue #952; the sizing/alignment arms below are still #952's to convert.
             if (fe is WinUI.Control padCtrl) padCtrl.ClearValue(WinUI.Control.PaddingProperty);
             else if (fe is WinUI.Border padBdr) padBdr.ClearValue(WinUI.Border.PaddingProperty);
             else if (fe is WinUI.StackPanel padSp) padSp.ClearValue(WinUI.StackPanel.PaddingProperty);
+            else if (fe is WinUI.TextBlock padTb) padTb.ClearValue(WinUI.TextBlock.PaddingProperty);
         }
         if (m.Width.HasValue && m.Width != oldM?.Width) fe.Width = m.Width.Value;
         else if (!m.Width.HasValue && oldM?.Width.HasValue == true) fe.ClearValue(FrameworkElement.WidthProperty);

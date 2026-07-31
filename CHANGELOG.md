@@ -153,6 +153,23 @@ Conventions for contributors:
   the subtree, and the subtree walk covers `SplitView` (Pane/Content) and `Viewbox`
   (Child) hosts in addition to the panel/border/content hosts.
 
+- **`.Padding(...)` is no longer silently dropped on text (issue #950).** The
+  modifier compiles on every `Element`, but the reconciler only wrote the
+  resolved value to `Control`, `Border` and `StackPanel`. `TextBlock` derives
+  from `FrameworkElement`, not `Control`, so `.Padding(...)`,
+  `.PaddingInlineStart(...)` and `.PaddingInlineEnd(...)` on `Text(...)` /
+  `TextBlock(...)` and the typography factories were discarded with no warning
+  and no exception, even though `TextBlock.PaddingProperty` exists. They now
+  apply. **This shifts layout in code that unknowingly relied on the no-op** —
+  if a text element was authored with padding that never took effect, it will
+  now take effect. The `REACTOR_MOD_003` diagnostic no longer fires for
+  `.Padding(...)` on a text element, and its message now reads "Control, Border,
+  StackPanel, or TextBlock". Two related repairs ship with it: dropping
+  `.Padding(...)` from a re-render now actually clears the property (the reset
+  branch was unreachable dead code), and the reset uses `ClearValue` rather than
+  writing a local `Thickness(0)`, so a themed padding comes back instead of
+  being pinned to zero.
+
 - **`Flyout(...)` no longer terminates the process when opened at its default
   placement.** Reactor's flyout elements default `Placement` to
   `FlyoutPlacementMode.Auto`, and that value was written straight onto the WinUI
