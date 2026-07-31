@@ -364,6 +364,13 @@ public class PersistenceEtwBridgeTests : IDisposable
         // (implausible-monitor-count, implausible-rect, truncated), so storeKind matches any of
         // the three while each reason matches exactly one. The storeKind is asserted separately
         // below, so both fields are still checked — only the lookup key differs.
+        //
+        // ReactorEventSourcePhaseBTests discriminates PersistenceRejected on payload[0] and pairs
+        // it with Assert.Single, but that test emits its OWN namespaced storeKind directly to the
+        // event source, so it can manufacture uniqueness and then assert it. A test driving
+        // production code cannot: "placement" is fixed by WindowPlacementCodec. Copying that
+        // shape here would be wrong twice over — the less selective key, plus an Assert.Single
+        // that throws whenever a sibling class co-emits.
         var evt = AssertEvent(
             _listener.Events,
             nameof(ReactorEventSource.PersistenceRejected),
