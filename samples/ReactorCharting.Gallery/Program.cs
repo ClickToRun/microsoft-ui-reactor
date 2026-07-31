@@ -124,13 +124,7 @@ class GalleryApp : Component
         SampleRegistry.All.FirstOrDefault(s => s.Title == title);
 
     static Element ThemeToggle(bool isDark, Action<bool> setIsDark) =>
-        // Icon(FontIcon(...)) rather than a raw glyph string: Button(string) renders
-        // its content in the inherited UI font, where a PUA codepoint has no glyph
-        // and comes out as tofu. 16 DIP keeps it inside the 36x36 box once the
-        // default ButtonPadding (11,5,11,6) is removed.
-        Button(Icon(FontIcon(isDark ? "\uE793" : "\uE708", fontSize: 16)),
-                () => setIsDark(!isDark))
-            .Padding(0)
+        Button(isDark ? "\uE793" : "\uE708", () => setIsDark(!isDark))
             .Foreground(Theme.AccentText)
             .AutomationName(isDark ? "Switch to Light theme" : "Switch to Dark theme")
             .ToolTip(isDark ? "Switch to Light" : "Switch to Dark")
