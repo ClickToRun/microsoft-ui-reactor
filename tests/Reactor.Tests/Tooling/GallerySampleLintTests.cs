@@ -780,8 +780,8 @@ public sealed class GallerySampleLintTests
 
     /// <summary>
     /// The last identifier of any name form — <c>Uri</c>, <c>System.Uri</c>,
-    /// <c>global::System.Uri</c>, <c>global::Uri</c>, <c>System.UriKind.Absolute</c>. Every
-    /// qualification question below reduces to this, so there is one place to be wrong.
+    /// <c>global::System.Uri</c>, <c>global::Uri</c>, <c>Uri?</c>, <c>System.UriKind.Absolute</c>.
+    /// Every qualification question below reduces to this, so there is one place to be wrong.
     /// </summary>
     static string? RightmostName(SyntaxNode? node) => node switch
     {
@@ -789,6 +789,10 @@ public sealed class GallerySampleLintTests
         QualifiedNameSyntax qualified => qualified.Right.Identifier.Text,
         AliasQualifiedNameSyntax alias => alias.Name.Identifier.Text,
         MemberAccessExpressionSyntax member => member.Name.Identifier.Text,
+        // `Uri? u = new(text)` — every arm of TargetTypeOf can hand back a nullable type, and a
+        // TryCreate-style helper returning `Uri?` is the shape a #982 fix is most likely written
+        // in. Unwrapping keeps the target-typed `new` visible instead of silently unrecognised.
+        NullableTypeSyntax nullable => RightmostName(nullable.ElementType),
         _ => null,
     };
 
@@ -1080,7 +1084,9 @@ public sealed class GallerySampleLintTests
     [InlineData(@"class P { void M() { const string U = ""https://example.com""; { var u = new Uri(U); } } }", 0)]
     [InlineData(@"class P { static readonly Uri B = new Uri(""https://example.com""); void M() { var u = new Uri(B, ""page.html""); } }", 0)]
     [InlineData(@"class P { void M() { var u = new Uri(""https://example.com"", UriKind.Absolute); } }", 0)]
-    // A `const` chain, and a `static readonly string`, are both still compile-time.
+    // A const chain folds at compile time. A `static readonly string` does not — it is
+    // initialised at runtime — but it is assigned once from a literal and cannot vary per
+    // render, which is the property the rule actually needs.
     [InlineData(@"class P { const string H = ""https://example.com""; const string U = H; void M() { var u = new Uri(U); } }", 0)]
     [InlineData(@"class P { static readonly string U = ""https://example.com""; void M() { var u = new Uri(U); } }", 0)]
     // Concatenation of accepted halves folds at compile time.
@@ -1115,6 +1121,17 @@ public sealed class GallerySampleLintTests
     [InlineData(@"class P { Element R(string t) { return WebView2(new global::Uri(t)); } }", 1)]
     [InlineData(@"class P { Element R(string t) { Uri u = new(t); return WebView2(u); } }", 1)]
     [InlineData(@"class P { Element R(string t) { return WebView2(new(t)); } }", 1)]
+    // `Uri?` is what a TryCreate-style helper returns, so the nullable spellings of target-typed
+    // `new` are the ones a fix for #982 is most likely to be written in — including inside the
+    // guard helper itself. Every arm of TargetTypeOf can hand back a nullable type.
+    [InlineData(@"class P { Element R(string t) { Uri? u = new(t); return WebView2(u); } }", 1)]
+    [InlineData(@"class P { Uri? Parse(string t) => new(t); }", 1)]
+    [InlineData(@"class P { Uri? Parse(string t) { return new(t); } }", 1)]
+    [InlineData(@"class P { System.Uri? Parse(string t) => new(t); }", 1)]
+    [InlineData(@"class P { Uri? Home { get; } = new(Fetch()); }", 1)]
+    // …and the nullable target type still accepts a constant, so unwrapping it did not simply
+    // turn the arm into a blanket report.
+    [InlineData(@"class P { const string U = ""https://example.com""; Uri? Parse() => new(U); }", 0)]
     // The rest of the DSL's Uri-taking surface. Listing only WebView2 left four other ways to
     // write the same defect, including the `.NavigateUri(...)` modifier, whose invocation is a
     // member access rather than a bare factory name.
