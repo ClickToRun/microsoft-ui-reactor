@@ -762,7 +762,7 @@ public sealed class GallerySampleLintTests
 
 
     // ---------------------------------------------------------------------------------------
-    // `new Uri(...)` takes only compile-time constants.
+    // `new Uri(...)` takes only values that cannot vary at runtime.
     //
     // `new Uri(text)` throws `UriFormatException` on anything malformed, and a gallery page
     // evaluates its element tree inside `Render()` — so the throw lands in `ErrorFallback` and
@@ -898,14 +898,22 @@ public sealed class GallerySampleLintTests
         return arguments;
     }
 
-    static bool IsCompileTimeValue(ExpressionSyntax expression, HashSet<string> names) => expression switch
+    /// <summary>
+    /// Whether an expression is <em>fixed</em>: assigned once from a literal and unable to differ
+    /// between two renders. Deliberately not "compile-time constant" — only <c>const</c> is that,
+    /// and the rule also accepts a <c>static readonly</c> initialized from a literal, which is
+    /// created at runtime by the static constructor but still cannot carry half-typed input into
+    /// <c>new Uri(...)</c>. Inability to vary is the property that makes a throw impossible; being
+    /// known to the compiler is merely one way to have it.
+    /// </summary>
+    static bool IsFixedValue(ExpressionSyntax expression, HashSet<string> names) => expression switch
     {
         LiteralExpressionSyntax literal => literal.IsKind(SyntaxKind.StringLiteralExpression),
         IdentifierNameSyntax identifier => names.Contains(identifier.Identifier.Text),
-        ParenthesizedExpressionSyntax parenthesized => IsCompileTimeValue(parenthesized.Expression, names),
-        // `Scheme + Host` folds at compile time exactly when both halves do.
+        ParenthesizedExpressionSyntax parenthesized => IsFixedValue(parenthesized.Expression, names),
+        // `Scheme + Host` is fixed exactly when both halves are.
         BinaryExpressionSyntax binary when binary.IsKind(SyntaxKind.AddExpression) =>
-            IsCompileTimeValue(binary.Left, names) && IsCompileTimeValue(binary.Right, names),
+            IsFixedValue(binary.Left, names) && IsFixedValue(binary.Right, names),
         _ => false,
     };
 
@@ -917,7 +925,7 @@ public sealed class GallerySampleLintTests
     /// that <em>enclose the site</em>. A file-wide set would let an unrelated <c>const string url</c>
     /// in one method whitelist a runtime <c>url</c> in another — which is issue #982 itself,
     /// undetected — and a member-wide set does the same thing across two sibling blocks;</item>
-    /// <item><c>static readonly</c> fields whose own initializer is a compile-time value or a
+    /// <item><c>static readonly</c> fields whose own initializer is a fixed value or a
     /// <c>new Uri(...)</c> over accepted arguments. That covers <c>new Uri(BaseUri, "page.html")</c>
     /// without hand-waving: the referenced field's construction is checked by this same rule, so
     /// accepting the reference adds no unchecked value. A <c>static readonly</c> initialized from a
@@ -982,10 +990,10 @@ public sealed class GallerySampleLintTests
             {
                 var value = declarator.Initializer!.Value;
 
-                var accepted = IsCompileTimeValue(value, names)
+                var accepted = IsFixedValue(value, names)
                                || (value is BaseObjectCreationExpressionSyntax creation
                                    && IsUriCreation(creation, uriTypeNames)
-                                   && UrlArguments(creation).All(a => IsCompileTimeValue(a, names)));
+                                   && UrlArguments(creation).All(a => IsFixedValue(a, names)));
 
                 if (accepted)
                     grew |= names.Add(declarator.Identifier.Text);
@@ -997,8 +1005,8 @@ public sealed class GallerySampleLintTests
     }
 
     /// <summary>
-    /// Every <c>new Uri(...)</c> argument in <paramref name="root"/> that is not a compile-time
-    /// constant, as <c>"line: expression"</c>. Separate from the tree-wide fact below so the rule
+    /// Every <c>new Uri(...)</c> argument in <paramref name="root"/> that can vary at runtime,
+    /// as <c>"line: expression"</c>. Separate from the tree-wide fact below so the rule
     /// can be driven over synthetic source — a scan of a clean tree cannot tell a working detector
     /// from one that reports nothing.
     /// </summary>
@@ -1014,7 +1022,7 @@ public sealed class GallerySampleLintTests
             // First offending argument only — one finding per site reads better than one per
             // argument, and `new Uri(base, relative)` would otherwise report twice.
             var runtime = UrlArguments(creation)
-                .Where(argument => !IsCompileTimeValue(argument, names))
+                .Where(argument => !IsFixedValue(argument, names))
                 .Take(1);
 
             foreach (var argument in runtime)
@@ -1027,7 +1035,7 @@ public sealed class GallerySampleLintTests
     static int UriCreationCount(SyntaxNode root) => UriCreations(root, UriTypeNames(root)).Count();
 
     [Fact]
-    public void NewUri_TakesOnlyCompileTimeConstants()
+    public void NewUri_TakesOnlyValuesThatCannotVaryAtRuntime()
     {
         var offenders = new List<string>();
         var recognized = new Dictionary<string, int>(global::System.StringComparer.OrdinalIgnoreCase);
@@ -1089,7 +1097,7 @@ public sealed class GallerySampleLintTests
     // render, which is the property the rule actually needs.
     [InlineData(@"class P { const string H = ""https://example.com""; const string U = H; void M() { var u = new Uri(U); } }", 0)]
     [InlineData(@"class P { static readonly string U = ""https://example.com""; void M() { var u = new Uri(U); } }", 0)]
-    // Concatenation of accepted halves folds at compile time.
+    // Concatenation is accepted exactly when both halves are.
     [InlineData(@"class P { const string H = ""https://example.com""; void M() { var u = new Uri(H + ""/docs""); } }", 0)]
     // Declaration order must not matter: Sub references Base before Base is declared.
     [InlineData(@"class P { static readonly Uri Sub = new Uri(Base, ""p""); static readonly Uri Base = new Uri(""https://example.com""); void M() { var u = new Uri(Sub, ""q""); } }", 0)]
@@ -1143,7 +1151,7 @@ public sealed class GallerySampleLintTests
     // `new(...)` there is not a Uri — keying off the factory name alone would say it was, and
     // widening the set from one entry to six is exactly what makes that reachable.
     [InlineData(@"class P { Element R(string t) { return BitmapIcon(new Uri(""https://example.com""), new(t)); } }", 0)]
-    public void UriConstantRule_AcceptsCompileTimeValues_AndReportsRuntimeOnes(string source, int expected)
+    public void UriConstantRule_AcceptsFixedValues_AndReportsRuntimeOnes(string source, int expected)
     {
         var root = CSharpSyntaxTree
             .ParseText(source, cancellationToken: TestContext.Current.CancellationToken)
