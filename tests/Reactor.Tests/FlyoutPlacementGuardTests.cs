@@ -363,10 +363,9 @@ public class FlyoutPlacementGuardTests
     [Fact]
     public void Scanner_Attributes_Each_Write_To_Its_Enclosing_Method()
     {
-        // Both the bypass failure message and
-        // CommandBarFlyout_Sites_Route_Through_The_Choke_Point key off the enclosing method
-        // name, so prove two identical writes in one file are attributed to the method they
-        // actually sit in — not to the file, and not to "<none>".
+        // Both the bypass failure message and the positive-routing test key off the enclosing
+        // method name, so prove two identical writes in one file are attributed to the method
+        // they actually sit in — not to the file, and not to "<none>".
         const string source = """
             class Sample
             {
@@ -385,7 +384,11 @@ public class FlyoutPlacementGuardTests
         var byMethod = FindPlacementWrites("synthetic.cs", source)
             .ToDictionary(w => w.Method, w => w);
 
-        Assert.Equal(2, byMethod.Count);
+        Assert.True(
+            byMethod.Count == 2,
+            "Each write must be attributed to its own enclosing method — the bypass failure " +
+            $"message and {nameof(Every_Flyout_Site_Routes_Through_The_Choke_Point)} both key " +
+            $"off that name. Got: [{string.Join(", ", byMethod.Keys.OrderBy(k => k, StringComparer.Ordinal))}].");
         Assert.Contains("new WinUI.CommandBarFlyout", byMethod["MountCommandBarFlyout"].Text, StringComparison.Ordinal);
         Assert.Contains("new WinUI.Flyout", byMethod["MountFlyout"].Text, StringComparison.Ordinal);
     }
@@ -393,10 +396,10 @@ public class FlyoutPlacementGuardTests
     [Fact]
     public void Scanner_Finds_Choke_Point_Calls_Regardless_Of_Qualification()
     {
-        // Anti-vacuity for CommandBarFlyout_Sites_Route_Through_The_Choke_Point: a call
-        // matcher that missed the shape actually used in src/Reactor would turn that test
-        // into a permanent failure rather than a silent pass, but a matcher that is too
-        // loose is the real risk — prove it ignores same-named Apply calls on other owners.
+        // Anti-vacuity for the positive-routing test: a call matcher that missed the shape
+        // actually used in src/Reactor would turn that test into a permanent failure rather
+        // than a silent pass, but a matcher that is too loose is the real risk — prove it
+        // ignores same-named Apply calls on other owners.
         const string source = """
             class Sample
             {
@@ -412,7 +415,11 @@ public class FlyoutPlacementGuardTests
 
         var calls = FindChokePointCalls("synthetic.cs", source).ToList();
 
-        Assert.Equal(2, calls.Count);
+        Assert.True(
+            calls.Count == 2,
+            "The choke-point matcher must accept both qualification forms and reject " +
+            $"same-named Apply calls on other owners, or {nameof(Every_Flyout_Site_Routes_Through_The_Choke_Point)} " +
+            $"passes vacuously. Got: [{string.Join(", ", calls.Select(c => c.Method))}].");
         Assert.All(calls, c => Assert.Equal("MountFlyout", c.Method));
     }
 
