@@ -26,6 +26,11 @@ internal static class Issue950PanelBorderBoxFixture
             var relativeStyle = StyleFor<WinUI.RelativePanel>(
                 (WinUI.RelativePanel.PaddingProperty, new Thickness(8, 9, 10, 11)),
                 (WinUI.RelativePanel.CornerRadiusProperty, new CornerRadius(12)));
+            var logicalGridStyle = StyleFor<WinUI.Grid>(
+                (WinUI.Grid.PaddingProperty, new Thickness(61, 62, 63, 64)));
+            var logicalRelativeStyle = StyleFor<WinUI.RelativePanel>(
+                (WinUI.RelativePanel.PaddingProperty, new Thickness(65, 66, 67, 68)),
+                (FrameworkElement.FlowDirectionProperty, FlowDirection.RightToLeft));
             var borderStyle = StyleFor<WinUI.Border>(
                 (WinUI.Border.CornerRadiusProperty, new CornerRadius(13)));
             var buttonStyle = StyleFor<WinUI.Button>(
@@ -41,6 +46,10 @@ internal static class Issue950PanelBorderBoxFixture
                     .Set(s => { s.Tag = "Issue950Panel_Stack"; s.Style = stackStyle; });
                 var relative = RelativePanel(TextBlock("Issue950Panel_RelativeChild"))
                     .Set(r => { r.Tag = "Issue950Panel_Relative"; r.Style = relativeStyle; });
+                var logicalGrid = Grid([GridSize.Auto], [GridSize.Auto], TextBlock("Issue950Panel_LogicalGridChild"))
+                    .Set(g => { g.Tag = "Issue950Panel_LogicalGrid"; g.Style = logicalGridStyle; });
+                var logicalRelative = RelativePanel(TextBlock("Issue950Panel_LogicalRelativeChild"))
+                    .Set(r => { r.Tag = "Issue950Panel_LogicalRelative"; r.Style = logicalRelativeStyle; });
                 var border = Border(TextBlock("Issue950Panel_BorderChild"))
                     .Set(b => { b.Tag = "Issue950Panel_Border"; b.Style = borderStyle; });
                 var button = Button("Issue950Panel_Button", () => { })
@@ -68,6 +77,18 @@ internal static class Issue950PanelBorderBoxFixture
                     },
                     step switch
                     {
+                        0 => logicalGrid.PaddingInlineStart(69),
+                        1 => logicalGrid.PaddingInlineEnd(70),
+                        _ => logicalGrid.Padding(71),
+                    },
+                    step switch
+                    {
+                        0 => logicalRelative.PaddingInlineStart(72),
+                        1 => logicalRelative.PaddingInlineEnd(73),
+                        _ => logicalRelative.Padding(74),
+                    },
+                    step switch
+                    {
                         0 => border.CornerRadius(56),
                         1 => border.CornerRadius(57),
                         _ => border,
@@ -85,18 +106,26 @@ internal static class Issue950PanelBorderBoxFixture
             var grid = H.FindControl<WinUI.Grid>(g => Equals(g.Tag, "Issue950Panel_Grid"));
             var stack = H.FindControl<WinUI.StackPanel>(s => Equals(s.Tag, "Issue950Panel_Stack"));
             var relative = H.FindControl<WinUI.RelativePanel>(r => Equals(r.Tag, "Issue950Panel_Relative"));
+            var logicalGrid = H.FindControl<WinUI.Grid>(g => Equals(g.Tag, "Issue950Panel_LogicalGrid"));
+            var logicalRelative = H.FindControl<WinUI.RelativePanel>(r => Equals(r.Tag, "Issue950Panel_LogicalRelative"));
             var border = H.FindControl<WinUI.Border>(b => Equals(b.Tag, "Issue950Panel_Border"));
             var button = H.FindButton("Issue950Panel_Button");
             H.Check("Issue950Panel_Mount_AllFound",
                 grid is not null && stack is not null && relative is not null
+                && logicalGrid is not null && logicalRelative is not null
                 && border is not null && button is not null);
-            if (grid is null || stack is null || relative is null || border is null || button is null) return;
+            if (grid is null || stack is null || relative is null
+                || logicalGrid is null || logicalRelative is null
+                || border is null || button is null) return;
 
             H.Check("Issue950Panel_Mount_GridPadding", grid.Padding == new Thickness(21, 22, 23, 24));
             H.Check("Issue950Panel_Mount_GridCornerRadius", grid.CornerRadius == new CornerRadius(25, 26, 27, 28));
             H.Check("Issue950Panel_Mount_StackCornerRadius", stack.CornerRadius == new CornerRadius(36, 37, 38, 39));
             H.Check("Issue950Panel_Mount_RelativePadding", relative.Padding == new Thickness(41, 42, 43, 44));
             H.Check("Issue950Panel_Mount_RelativeCornerRadius", relative.CornerRadius == new CornerRadius(45, 46, 47, 48));
+            H.Check("Issue950Panel_Mount_LogicalPadding",
+                logicalGrid.Padding == new Thickness(69, 62, 63, 64)
+                && logicalRelative.Padding == new Thickness(65, 66, 72, 68));
 
             H.ClickButton("Issue950Panel_Next");
             await Harness.Render();
@@ -110,6 +139,9 @@ internal static class Issue950PanelBorderBoxFixture
             H.Check("Issue950Panel_Update_StackValue", stack.CornerRadius == new CornerRadius(40));
             H.Check("Issue950Panel_Update_RelativeValues",
                 relative.Padding == new Thickness(51, 52, 53, 54) && relative.CornerRadius == new CornerRadius(55));
+            H.Check("Issue950Panel_Update_LogicalPaddingRestoresOldEdge",
+                logicalGrid.Padding == new Thickness(61, 62, 70, 64)
+                && logicalRelative.Padding == new Thickness(73, 66, 67, 68));
 
             H.ClickButton("Issue950Panel_Next");
             await Harness.Render();
@@ -119,6 +151,9 @@ internal static class Issue950PanelBorderBoxFixture
             H.Check("Issue950Panel_Unset_StackReturnsToStyle", stack.CornerRadius == new CornerRadius(7));
             H.Check("Issue950Panel_Unset_RelativeReturnsToStyle",
                 relative.Padding == new Thickness(8, 9, 10, 11) && relative.CornerRadius == new CornerRadius(12));
+            H.Check("Issue950Panel_Update_LogicalToPhysicalPadding",
+                logicalGrid.Padding == new Thickness(71)
+                && logicalRelative.Padding == new Thickness(74));
             H.Check("Issue950Panel_Unset_BorderReturnsToStyle", border.CornerRadius == new CornerRadius(13));
             H.Check("Issue950Panel_Unset_ControlReturnsToStyle", button.CornerRadius == new CornerRadius(14));
             H.Check("Issue950Panel_Unset_AllLocalsCleared",
@@ -215,9 +250,12 @@ internal static class Issue950PanelBorderBoxFixture
             var pixels = (await bitmap.GetPixelsAsync()).ToArray();
             int width = bitmap.PixelWidth;
             int height = bitmap.PixelHeight;
-            byte AlphaAt(int x, int y) => pixels[((y * width) + x) * 4 + 3];
+            var hasExpectedExtent =
+                width >= 79 && height >= 79 && pixels.Length >= width * height * 4;
+            H.Check("Issue950Panel_Visual_BitmapHasExpectedExtent", hasExpectedExtent);
+            if (!hasExpectedExtent) return;
 
-            H.Check("Issue950Panel_Visual_BitmapHasExpectedExtent", width >= 79 && height >= 79);
+            byte AlphaAt(int x, int y) => pixels[((y * width) + x) * 4 + 3];
             H.Check("Issue950Panel_Visual_CenterIsPainted", AlphaAt(width / 2, height / 2) > 240);
             H.Check("Issue950Panel_Visual_SquareCornerIsClipped", AlphaAt(1, 1) < 15);
         }
