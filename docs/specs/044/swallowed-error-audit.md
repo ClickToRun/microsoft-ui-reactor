@@ -135,13 +135,15 @@ all deliberate:
 **Updating it.** Edit your per-file row, run
 
 ```bash
-dotnet test tests/Reactor.Tests -p:Platform=x64 -p:SkipSignaturesGen=true --filter "FullyQualifiedName~SwallowedErrorAudit"
+dotnet test tests/Reactor.Tests -p:Platform=x64 -p:SkipSignaturesGen=true -p:SkipReactorApiGen=true --filter "FullyQualifiedName~SwallowedErrorAudit"
 ```
 
-and paste the recomputed table the failure message prints.
-`-p:SkipSignaturesGen=true` keeps the build from also regenerating
-`skills/reactor.api.txt`, so a ledger-only edit leaves nothing else
-modified in your tree. Do **not**
+and paste the recomputed table the failure message prints. The two skip
+flags are the same pair CI passes, and they keep a ledger-only edit from
+leaving anything else modified in your tree: `SkipSignaturesGen` stops
+`Reactor.Cli` kicking off the nested `Reactor.SignaturesGen` build, and
+`SkipReactorApiGen` stops that build's `EmitReactorApiTxt` step
+rewriting `skills/reactor.api.txt` if it runs anyway. Do **not**
 hand-increment a cell: `Sites` is a sum, and two branches incrementing
 `37 → 38` from the same base produce identical edits that git
 auto-resolves as agreement, silently dropping one increment. Making the
