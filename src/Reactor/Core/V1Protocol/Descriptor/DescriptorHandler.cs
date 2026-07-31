@@ -134,6 +134,14 @@ public class DescriptorHandler<TElement, TControl> : IElementHandler<TElement, T
     public void AfterChildrenMount(MountContext ctx, TElement element, TControl control)
         => _descriptor.AfterChildrenMount?.Invoke(in ctx, element, control);
 
+    /// <summary>Forwards to the descriptor's optional
+    /// <see cref="ControlDescriptor{TElement,TControl}.OnUnmount"/> hook. Without this the
+    /// descriptor path had no teardown seam at all, so control-scoped state a descriptor set up
+    /// during mount — most notably a one-shot <c>Loaded</c> subscription carrying a deferred
+    /// write — could outlive the mount that created it.</summary>
+    public void Unmount(UnmountContext ctx, TControl control)
+        => _descriptor.OnUnmount?.Invoke(in ctx, control);
+
     public void Update(UpdateContext ctx, TElement oldEl, TElement newEl, TControl ctrl)
     {
         // §14 Phase 3-final: ItemsHost diff BEFORE prop Update loop, same
