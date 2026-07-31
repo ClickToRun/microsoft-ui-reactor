@@ -294,7 +294,10 @@ public class DataGridCommitThreadingTests
         }
         catch (TargetInvocationException ex) when (ex.InnerException is not null)
         {
-            throw ex.InnerException;
+            // Unwrapped so callers see what the method under test threw, not the reflection
+            // wrapper — but rethrown through ExceptionDispatchInfo, since a bare `throw ex.Inner`
+            // would reset the stack to this helper and point at the wrong frame.
+            ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
         }
     }
 }
