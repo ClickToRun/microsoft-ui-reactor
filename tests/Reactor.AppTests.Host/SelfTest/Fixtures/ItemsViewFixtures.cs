@@ -171,10 +171,9 @@ internal static class ItemsViewFixtures
                 ).Height(300)
             );
 
-            await Harness.Render(50);
-
             H.Check("ItemsView_Update_NewItemVisible",
-                H.FindTextContaining("Fig") is not null);
+                await Harness.WaitFor(() => H.FindTextContaining("Fig") is not null,
+                    maxPasses: 12, perPassMs: 10));
             H.Check("ItemsView_Update_OldItemsStillVisible",
                 H.FindTextContaining("Apple") is not null);
         }

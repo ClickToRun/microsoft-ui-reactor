@@ -34,7 +34,7 @@ internal sealed class PaletteApp(IReadOnlyList<string> commands) : Component
         var filtered = commands
             .Where(c => query.Length == 0 || c.Contains(query, StringComparison.OrdinalIgnoreCase))
             .Take(5)
-            .Select(c => TextBlock(c).Padding(12).Background(SubtleFill).CornerRadius(6))
+            .Select(c => Border(TextBlock(c)).Padding(12).Background(SubtleFill).CornerRadius(6))
             .Cast<Element>()
             .ToArray();
 

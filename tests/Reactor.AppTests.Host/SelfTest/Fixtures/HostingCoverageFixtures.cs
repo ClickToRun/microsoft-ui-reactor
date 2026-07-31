@@ -66,9 +66,10 @@ internal static class HostingCoverageFixtures
                 ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)
                     peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
             }
-            await Harness.Render(200);
-            text = FindInContainer<TextBlock>(hostControl, tb => tb.Text?.StartsWith("Hosted:") == true);
-            H.Check("HostCtrl_Updated", text?.Text == "Hosted:1");
+            H.Check("HostCtrl_Updated", await Harness.WaitFor(
+                () => FindInContainer<TextBlock>(hostControl, tb => tb.Text?.StartsWith("Hosted:") == true)
+                          ?.Text == "Hosted:1",
+                maxPasses: 16, perPassMs: 10));
 
             // Dispose
             hostControl.Dispose();
@@ -116,9 +117,10 @@ internal static class HostingCoverageFixtures
                 ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)
                     peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
             }
-            await Harness.Render(200);
-            text = FindInContainer<TextBlock>(hostControl, tb => tb.Text?.StartsWith("Func:") == true);
-            H.Check("HostCtrlFunc_Updated", text?.Text == "Func:world");
+            H.Check("HostCtrlFunc_Updated", await Harness.WaitFor(
+                () => FindInContainer<TextBlock>(hostControl, tb => tb.Text?.StartsWith("Func:") == true)
+                          ?.Text == "Func:world",
+                maxPasses: 16, perPassMs: 10));
 
             hostControl.Dispose();
             H.SetContent(null);
@@ -404,9 +406,10 @@ internal static class HostingCoverageFixtures
                 ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)
                     peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
             }
-            await Harness.Render(200);
-            text = FindInContainer<TextBlock>(hostControl, tb => tb.Text?.StartsWith("Reparent:") == true);
-            H.Check("HostCtrlReparent_PreReparentInteractive", text?.Text == "Reparent:1");
+            H.Check("HostCtrlReparent_PreReparentInteractive", await Harness.WaitFor(
+                () => FindInContainer<TextBlock>(hostControl, tb => tb.Text?.StartsWith("Reparent:") == true)
+                          ?.Text == "Reparent:1",
+                maxPasses: 16, perPassMs: 10));
 
             // Raw-WinUI reparent A -> B (drag between dock groups, TabView pivot, etc.)
             slotA.Child = null;
@@ -426,9 +429,10 @@ internal static class HostingCoverageFixtures
                 ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)
                     peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
             }
-            await Harness.Render(200);
-            text = FindInContainer<TextBlock>(hostControl, tb => tb.Text?.StartsWith("Reparent:") == true);
-            H.Check("HostCtrlReparent_InteractiveAfterReparent", text?.Text == "Reparent:2");
+            H.Check("HostCtrlReparent_InteractiveAfterReparent", await Harness.WaitFor(
+                () => FindInContainer<TextBlock>(hostControl, tb => tb.Text?.StartsWith("Reparent:") == true)
+                          ?.Text == "Reparent:2",
+                maxPasses: 16, perPassMs: 10));
 
             // Reparent back B -> A: state persists, still interactive.
             slotB.Child = null;
@@ -445,9 +449,10 @@ internal static class HostingCoverageFixtures
                 ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)
                     peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
             }
-            await Harness.Render(200);
-            text = FindInContainer<TextBlock>(hostControl, tb => tb.Text?.StartsWith("Reparent:") == true);
-            H.Check("HostCtrlReparent_InteractiveRoundTrip", text?.Text == "Reparent:3");
+            H.Check("HostCtrlReparent_InteractiveRoundTrip", await Harness.WaitFor(
+                () => FindInContainer<TextBlock>(hostControl, tb => tb.Text?.StartsWith("Reparent:") == true)
+                          ?.Text == "Reparent:3",
+                maxPasses: 16, perPassMs: 10));
 
             // Consumer-driven Dispose still works after a reparent cycle.
             hostControl.Dispose();
