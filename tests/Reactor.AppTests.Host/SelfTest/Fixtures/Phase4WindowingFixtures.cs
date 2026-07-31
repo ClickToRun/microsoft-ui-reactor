@@ -267,18 +267,71 @@ internal static class Phase4WindowingFixtures
                 // the assertion stays strict: it fails if the bit never flips.
                 win.Update(spec with { Level = WindowLevel.AlwaysOnTop });
                 await win.Host.WaitForIdleAsync();
-                H.Check("WindowLevel_RuntimeFlip_Topmost",
-                    await Harness.WaitFor(() => (ExStyleBits(win) & Native.WS_EX_TOPMOST) != 0,
-                        maxPasses: 25, perPassMs: 40));
+                bool topmost = await Harness.WaitFor(
+                    () => (ExStyleBits(win) & Native.WS_EX_TOPMOST) != 0,
+                    maxPasses: 25, perPassMs: 40);
+                if (!topmost) ReportLevelMismatch(win, WindowLevel.AlwaysOnTop, expectTopmostBit: true);
+                H.Check("WindowLevel_RuntimeFlip_Topmost", topmost);
 
                 win.Update(spec with { Level = WindowLevel.Normal });
                 await win.Host.WaitForIdleAsync();
-                H.Check("WindowLevel_RuntimeFlip_Normal",
-                    await Harness.WaitFor(() => (ExStyleBits(win) & Native.WS_EX_TOPMOST) == 0,
-                        maxPasses: 25, perPassMs: 40));
+                bool normal = await Harness.WaitFor(
+                    () => (ExStyleBits(win) & Native.WS_EX_TOPMOST) == 0,
+                    maxPasses: 25, perPassMs: 40);
+                if (!normal) ReportLevelMismatch(win, WindowLevel.Normal, expectTopmostBit: false);
+                H.Check("WindowLevel_RuntimeFlip_Normal", normal);
             }
             finally { await CloseAndSettle(win); }
         }
+    }
+
+    /// <summary>
+    /// Emits a TAP comment splitting the remaining #927 suspects apart, so the NEXT full-run
+    /// occurrence answers the question instead of costing another investigation. This fixture
+    /// only fails in the full ~6100-check run (0/40 across two narrow scopes), so a reproduction
+    /// is expensive and the failure needs to carry its own diagnosis.
+    ///
+    /// <para>The assertion reads only the native ex-style bit, which cannot by itself
+    /// distinguish three different bugs. Reading <c>win.Spec.Level</c> and re-reading the bit
+    /// after the poll gave up separates them:</para>
+    /// <list type="bullet">
+    /// <item><description><b>spec stale</b> — the Update never reached Reactor's own state, so
+    /// the fault is upstream of the native apply entirely.</description></item>
+    /// <item><description><b>spec updated, bit still wrong</b> — Reactor accepted it but
+    /// SetWindowPos was coalesced away or never issued.</description></item>
+    /// <item><description><b>spec updated, bit now CORRECT</b> — it landed after the poll
+    /// exhausted. That is a lost wakeup / late apply, not a missing one, and it is the one case a
+    /// longer budget would actually have fixed — worth knowing, because the 1.4s budget already
+    /// failed once and that argues against this branch being the usual cause.</description></item>
+    /// </list>
+    ///
+    /// <para>Written as a TAP comment rather than folded into the check name so
+    /// <c>WindowLevel_RuntimeFlip_Topmost</c> stays greppable for flake tracking.</para>
+    /// </summary>
+    private static void ReportLevelMismatch(ReactorWindow win, WindowLevel requested, bool expectTopmostBit)
+    {
+        var specLevel = win.Spec.Level;
+        // Re-read AFTER the poll gave up — if it is correct now, the apply was merely late.
+        bool bitSet = (ExStyleBits(win) & Native.WS_EX_TOPMOST) != 0;
+        bool bitNowCorrect = bitSet == expectTopmostBit;
+        bool specTookUpdate = specLevel == requested;
+
+        var verdict =
+            !specTookUpdate
+                ? "Reactor's spec did NOT take the update — the failure is upstream of the " +
+                  "native apply, in Update delivery/reconciliation, not in SetWindowPos."
+            : bitNowCorrect
+                ? "The bit is CORRECT now, so the apply landed after the poll exhausted — a late " +
+                  "apply / lost wakeup rather than a missing one. This is the only branch a longer " +
+                  "budget would fix, and 1.4s already failed once, so treat a repeat here as a " +
+                  "signal to re-examine that."
+                : "Reactor's spec DID take the update, but the native bit still has not followed — " +
+                  "the SetWindowPos apply is the suspect (coalesced away, or never issued).";
+
+        Console.WriteLine(
+            $"# WindowLevel_RuntimeFlip diagnostic (issue #927): requested={requested}, " +
+            $"spec.Level={specLevel}, WS_EX_TOPMOST={(bitSet ? "set" : "clear")}, " +
+            $"expected {(expectTopmostBit ? "set" : "clear")}. {verdict}");
     }
 
     private static class Native
