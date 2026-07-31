@@ -207,6 +207,43 @@ internal static class Issue811ContextConsumerSkipFixtures
         }
     }
 
+    internal sealed class SplitViewContent_ContextConsumerRerenders(Harness h)
+        : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var probe = new Probe();
+            // Consumer in the Content slot (the other SplitView named slot) with a
+            // simple pane — guards the Content visit in the traversal arm, which the
+            // Pane fixture alone would not catch if the Content leg regressed.
+            var stableSplit = SplitView(
+                pane: TextBlock("split-pane"),
+                content: Component<OverlayConsumer, OverlayProps>(new OverlayProps(probe)));
+
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (interactive, setInteractive) = ctx.UseState(true);
+
+                return VStack(
+                        Button("Toggle split-content interactive", () => setInteractive(!interactive)),
+                        stableSplit)
+                    .Provide(InteractiveCtx, interactive);
+            });
+
+            await Harness.Render();
+
+            H.Check("Issue811_SplitContent_Mount_LabelLock", H.FindText("Lock interactivity") is not null);
+            H.Check("Issue811_SplitContent_Mount_OverlayRenderedOnce", probe.RenderCount == 1);
+
+            H.ClickButton("Toggle split-content interactive");
+            await Harness.Render();
+
+            H.Check("Issue811_SplitContent_Toggle_LabelUpdated", H.FindText("Unlock interactivity") is not null);
+            H.Check("Issue811_SplitContent_Toggle_ContentConsumerRerendered", probe.RenderCount >= 2);
+        }
+    }
+
     internal sealed class ViewboxNested_ContextConsumerRerenders(Harness h)
         : SelfTestFixtureBase(h)
     {
