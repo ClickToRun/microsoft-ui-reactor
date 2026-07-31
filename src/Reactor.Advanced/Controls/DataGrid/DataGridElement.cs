@@ -37,8 +37,11 @@ public record DataGridElement<[DynamicallyAccessedMembers(DynamicallyAccessedMem
     /// dispatcher is installed the grid offloads this callback to a thread-pool thread instead
     /// (see <c>DataGridComponent&lt;T&gt;.HandleAsyncCommit</c> for both contracts and when each
     /// applies). Marshal your own UI work rather than assuming UI-thread affinity. Whatever the
-    /// returned <see cref="Task"/> awaits internally resumes wherever its own context says, and
-    /// a faulted task is caught and surfaced in the row's error banner with the edit reverted.
+    /// returned <see cref="Task"/> awaits internally resumes wherever its own context says. On
+    /// both of the grid's own commit paths a faulted task is caught and surfaced in the row's
+    /// error banner with the edit reverted — but a custom
+    /// <see cref="DataGridState{T}.CommitDispatcher"/> takes over invoking this callback, and
+    /// owes callers that handling itself.
     /// </remarks>
     public Func<RowKey, T, Task>? OnRowChanged { get; init; }
 
