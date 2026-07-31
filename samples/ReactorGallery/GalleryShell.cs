@@ -187,8 +187,9 @@ class GalleryShell : Component
                 RightHeader = HStack(4,
                     Component<CopyDeepLinkButton, string>(
                         GalleryRoutes.UriForCurrentView(selectedTag, searchQuery)),
-                    Button(Icon(isDark ? "\uE706" : "\uE708"), () => setIsDark(!isDark))
-                        .Width(40).Height(36)
+                    Button(Icon(FontIcon(isDark ? "\uE706" : "\uE708",
+                        fontSize: GalleryControls.TitleBarGlyphSize)), () => setIsDark(!isDark))
+                        .Width(40).Height(36).Padding(0)
                         .ToolTip(isDark ? "Switch to Light" : "Switch to Dark")
                         .AutomationName(isDark ? "Switch to Light theme" : "Switch to Dark theme")
                 ),

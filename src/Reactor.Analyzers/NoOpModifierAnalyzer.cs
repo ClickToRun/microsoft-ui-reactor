@@ -142,10 +142,10 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
     /// <c>RichTextBlockElement</c>'s <c>Customize</c> hook declares
     /// <c>get: e =&gt; e.Padding …, set: (c, v) =&gt; c.Padding = v, dp: RichTextBlock.PaddingProperty</c>
     /// — <c>e.Padding</c> being the base <c>Element.Padding</c> shim over the common modifier bag.
-    /// A <c>RichTextBlock</c> is neither <c>Control</c>, <c>Border</c> nor <c>StackPanel</c>, so the
-    /// control gate says "dropped" while the descriptor in fact applies it. Reporting there would be
-    /// a false positive on correct code, which is the one outcome worse than the bug this rule
-    /// exists to catch.
+    /// A <c>RichTextBlock</c> is none of <c>Control</c>, <c>Border</c>, <c>StackPanel</c> or
+    /// <c>TextBlock</c>, so the control gate says "dropped" while the descriptor in fact applies it.
+    /// Reporting there would be a false positive on correct code, which is the one outcome worse
+    /// than the bug this rule exists to catch.
     /// </para>
     /// <para>
     /// This is the only such entry in the framework today. A <c>ModifierTableIntegrityTests</c>

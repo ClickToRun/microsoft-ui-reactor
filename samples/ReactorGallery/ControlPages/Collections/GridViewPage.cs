@@ -52,9 +52,8 @@ class GridViewPage : Component
                     GridView(
                         items.Select(i => i.ToString()).ToArray().AsReadOnly(),
                         s => s,
-                        (s, i) => Border(TextBlock(s).Center().Bold())
+                        (s, i) => Border(TextBlock(s).Center().Bold().Foreground("#FFFFFF"))
                             .Background(i % 2 == 0 ? "#335588" : "#885533")
-                            .Foreground("#FFFFFF")
                             .Size(80, 80).CornerRadius(ThemeResource.CornerRadius("OverlayCornerRadius").TopLeft)
                     ),
                     """

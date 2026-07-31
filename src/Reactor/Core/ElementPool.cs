@@ -325,6 +325,13 @@ public sealed class ElementPool : IDisposable
                 tb.ClearValue(TextBlock.TextTrimmingProperty);
                 tb.ClearValue(TextBlock.IsTextSelectionEnabledProperty);
                 tb.ClearValue(TextBlock.FontFamilyProperty);
+                // Issue #950 made ApplyModifiers write Padding to TextBlock, so a pooled
+                // TextBlock could otherwise hand its padding to the next element that sets
+                // none. Control/Border/StackPanel have the same leak and are NOT cleared
+                // anywhere — see #965; fixing those means moving the clears into the
+                // FE-common block above, which forces Padding to poolReset: true and
+                // escalates .Set(c => c.Padding = ...) to REACTOR_POOL_001.
+                tb.ClearValue(TextBlock.PaddingProperty);
                 break;
             case WinUI.RichTextBlock rtb:
                 Reconciler.CancelInlineUiExtentPin(rtb);

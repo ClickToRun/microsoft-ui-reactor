@@ -45,6 +45,7 @@ internal sealed class ListViewHandler : IElementHandler<ListViewElement, WinUI.L
         {
             if (args.InRecycleQueue)
             {
+                Reconciler.PropagateItemAutomationName(args.ItemContainer, null);
                 if (args.ItemContainer.ContentTemplateRoot is ContentControl oldCc)
                 {
                     if (oldCc.Content is UIElement oldCtrl)
@@ -61,6 +62,9 @@ internal sealed class ListViewHandler : IElementHandler<ListViewElement, WinUI.L
             {
                 var ctrl = reconciler.Mount(items[args.ItemIndex], requestRerender);
                 cc.Content = ctrl;
+                // Issue #951 — keep .AutomationName(...) on an item view working
+                // the same way it does on the keyed overload.
+                Reconciler.PropagateItemAutomationName(args.ItemContainer, ctrl);
             }
         };
 
