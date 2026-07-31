@@ -515,16 +515,21 @@ internal static partial class CompileCommand
             foreach (var e in errors) Console.Error.WriteLine($"\n    ✗ {e}");
             foreach (var w in warnings) Console.WriteLine($"\n    ⚠ {w}");
 
+            var outputPath = Path.Combine(outputDir, $"{topicId}.md");
+
             // Image-ref validation per spec §10.3: every ![..](images/...)
             // path in the compiled output must resolve — and, since issue #989,
             // must not be a blank stub left behind by a failed capture.
-            foreach (var f in DiagramProcessor.ValidateImageRefs(template.FilePath, assembled, imagesDir, blankImageCache))
+            // Resolved against the page's own directory, so a nested topic's
+            // ../ run is validated rather than assumed correct.
+            foreach (var f in DiagramProcessor.ValidateImageRefs(
+                         template.FilePath, assembled, imagesDir,
+                         Path.GetDirectoryName(outputPath)!, blankImageCache))
             {
                 Console.Error.WriteLine(f.Format());
                 hasErrors = true;
             }
 
-            var outputPath = Path.Combine(outputDir, $"{topicId}.md");
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
             var normalized = NormalizeLineEndings(assembled);
             File.WriteAllText(outputPath, normalized);

@@ -31,7 +31,7 @@ public class DocImageIntegrityTests
         tree.WriteImage("hooks/usestate.png", MakeCapturedStub(499, 196, blank: true));
 
         var findings = DiagramProcessor.ValidateImageRefs(
-            "hooks.md.dt", "![UseState demo](images/hooks/usestate.png)", tree.ImagesDir);
+            "hooks.md.dt", "![UseState demo](images/hooks/usestate.png)", tree.ImagesDir, tree.GuideDir);
 
         var f = Assert.Single(findings);
         Assert.Equal("REACTOR_DOC_IMAGE_002", f.Code);
@@ -52,7 +52,7 @@ public class DocImageIntegrityTests
         tree.WriteImage("hooks/usestate.png", MakeCapturedStub(499, 196, blank: false));
 
         var findings = DiagramProcessor.ValidateImageRefs(
-            "hooks.md.dt", "![UseState demo](images/hooks/usestate.png)", tree.ImagesDir);
+            "hooks.md.dt", "![UseState demo](images/hooks/usestate.png)", tree.ImagesDir, tree.GuideDir);
 
         Assert.Empty(findings);
     }
@@ -72,7 +72,7 @@ public class DocImageIntegrityTests
         tree.WriteImage("controls/button-thumb.png", MakeEdgeContentThumb(320, 240));
 
         var findings = DiagramProcessor.ValidateImageRefs(
-            "controls.md.dt", "![Button](images/controls/button-thumb.png)", tree.ImagesDir);
+            "controls.md.dt", "![Button](images/controls/button-thumb.png)", tree.ImagesDir, tree.GuideDir);
 
         Assert.Empty(findings);
     }
@@ -92,7 +92,7 @@ public class DocImageIntegrityTests
         tree.WriteImage("controls/button.png", MakeEdgeContentThumb(320, 240));
 
         var findings = DiagramProcessor.ValidateImageRefs(
-            "controls.md.dt", "![Button](images/controls/button.png)", tree.ImagesDir);
+            "controls.md.dt", "![Button](images/controls/button.png)", tree.ImagesDir, tree.GuideDir);
 
         Assert.Equal("REACTOR_DOC_IMAGE_002", Assert.Single(findings).Code);
     }
@@ -109,7 +109,7 @@ public class DocImageIntegrityTests
         tree.WriteImage("hooks/usestate.png", MakeSolidPng(499, 196, Color.FromArgb(0, 0, 0, 0)));
 
         var findings = DiagramProcessor.ValidateImageRefs(
-            "hooks.md.dt", "![UseState demo](images/hooks/usestate.png)", tree.ImagesDir);
+            "hooks.md.dt", "![UseState demo](images/hooks/usestate.png)", tree.ImagesDir, tree.GuideDir);
 
         Assert.Equal("REACTOR_DOC_IMAGE_002", Assert.Single(findings).Code);
     }
@@ -124,7 +124,7 @@ public class DocImageIntegrityTests
             "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"></svg>");
 
         var findings = DiagramProcessor.ValidateImageRefs(
-            "arch.md.dt", "![Overview](images/architecture/overview.svg)", tree.ImagesDir);
+            "arch.md.dt", "![Overview](images/architecture/overview.svg)", tree.ImagesDir, tree.GuideDir);
 
         Assert.Empty(findings);
     }
@@ -139,9 +139,54 @@ public class DocImageIntegrityTests
         tree.WriteBytes("hooks/broken.png", [0x89, 0x50, 0x4E, 0x47, 0x00, 0x00]);
 
         var findings = DiagramProcessor.ValidateImageRefs(
-            "hooks.md.dt", "![Broken](images/hooks/broken.png)", tree.ImagesDir);
+            "hooks.md.dt", "![Broken](images/hooks/broken.png)", tree.ImagesDir, tree.GuideDir);
 
         Assert.DoesNotContain(findings, f => f.Code == "REACTOR_DOC_IMAGE_002");
+    }
+
+    /// <summary>
+    /// A reference's <c>../</c> run is page-relative escaping emitted by
+    /// DocAssembler for the page's depth. Resolving it the way a renderer does
+    /// — against the page's own directory — is what makes a wrong-depth prefix
+    /// detectable: normalising the run away instead would land every variant
+    /// below on the same existing file and report nothing, while the rendered
+    /// page 404s. Each row differs from the passing one only in the prefix, so
+    /// the assertion turns on the traversal and nothing else.
+    /// </summary>
+    [Theory]
+    // page depth 0 (docs/guide/hooks.md) — no escaping needed
+    [InlineData("", "images/x/shot.png", true)]
+    [InlineData("", "../images/x/shot.png", false)]          // one ../ too many
+    [InlineData("", "../../images/x/shot.png", false)]       // two too many
+    // page depth 1 (docs/guide/recipes/login.md) — exactly one ../
+    [InlineData("recipes", "../images/x/shot.png", true)]
+    [InlineData("recipes", "images/x/shot.png", false)]      // missing the ../
+    [InlineData("recipes", "../../images/x/shot.png", false)] // one too many
+    // page depth 2 (docs/guide/recipes/auth/oauth.md) — exactly two
+    [InlineData("recipes/auth", "../../images/x/shot.png", true)]
+    [InlineData("recipes/auth", "../images/x/shot.png", false)]
+    public void Image_ref_must_carry_the_right_traversal_for_its_page_depth(
+        string pageSubdir, string reference, bool shouldResolve)
+    {
+        using var tree = new TempGuideTree();
+        tree.WriteImage("x/shot.png", MakeCapturedStub(499, 196, blank: false));
+
+        var pageDir = pageSubdir.Length == 0
+            ? tree.GuideDir
+            : global::System.IO.Path.Join(
+                tree.GuideDir, pageSubdir.Replace('/', global::System.IO.Path.DirectorySeparatorChar));
+
+        var findings = DiagramProcessor.ValidateImageRefs(
+            "topic.md.dt", $"![shot]({reference})", tree.ImagesDir, pageDir);
+
+        if (shouldResolve)
+        {
+            Assert.Empty(findings);
+        }
+        else
+        {
+            Assert.Equal("REACTOR_DOC_IMAGE_001", Assert.Single(findings).Code);
+        }
     }
 
     /// <summary>
@@ -272,6 +317,13 @@ public class DocImageIntegrityTests
         }
 
         public string ImagesDir => global::System.IO.Path.Join(_root, "guide", "images");
+
+        /// <summary>
+        /// Directory a top-level guide page compiles to. References resolve
+        /// relative to this, so <c>images/x.png</c> from here lands in
+        /// <see cref="ImagesDir"/> exactly as it does in the real tree.
+        /// </summary>
+        public string GuideDir => global::System.IO.Path.Join(_root, "guide");
 
         public void WriteImage(string relative, byte[] png) => WriteBytes(relative, png);
 

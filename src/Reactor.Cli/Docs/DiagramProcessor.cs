@@ -225,34 +225,37 @@ internal static class DiagramProcessor
     /// without a cache the corpus would be decoded many times over. Pass the
     /// same instance across every call in one compile.
     /// </param>
+    /// <param name="pageDir">
+    /// Directory the assembled page is written to. References resolve relative
+    /// to this, exactly as a markdown renderer resolves them — which is what
+    /// makes the <c>../</c> run in a nested page's reference *checked* rather
+    /// than assumed. Stripping the run instead would normalise away the one
+    /// thing that can be wrong about it: a reference carrying the wrong number
+    /// of <c>../</c> for its depth resolves somewhere real for the validator
+    /// and 404s in the rendered page.
+    /// </param>
     public static List<TierLintFinding> ValidateImageRefs(
-        string filePath, string body, string imagesRoot,
+        string filePath, string body, string imagesRoot, string pageDir,
         Dictionary<string, bool>? blankCache = null)
     {
         var findings = new List<TierLintFinding>();
         var imagesFull = Path.GetFullPath(imagesRoot);
+        var pageFull = Path.GetFullPath(pageDir);
         foreach (Match m in ImagePattern.Matches(body))
         {
             var rel = m.Groups[1].Value;
             var line = body[..m.Index].Count(c => c == '\n') + 1;
-
-            // The leading "../" run is page-relative escaping emitted by
-            // DocAssembler for nested topics; every ref lands in the same
-            // images tree regardless of depth, so strip it and resolve against
-            // that tree rather than replaying the traversal.
-            var normalized = rel;
-            while (normalized.StartsWith("../", StringComparison.Ordinal))
-                normalized = normalized["../".Length..];
 
             // Path.Join rather than Path.Combine: Combine drops everything before
             // a rooted segment, which would hand IsUnder an absolute path derived
             // entirely from page content. Join keeps the base, so the containment
             // check below stays the thing that decides.
             var full = Path.GetFullPath(Path.Join(
-                imagesFull, "..", normalized.Replace('/', Path.DirectorySeparatorChar)));
+                pageFull, rel.Replace('/', Path.DirectorySeparatorChar)));
 
-            // Anything that still resolves outside the images tree is a
-            // malformed reference, not a file to go probing for.
+            // Anything that resolves outside the images tree is a malformed
+            // reference — including one whose ../ run doesn't match its page
+            // depth — not a file to go probing for.
             if (!IsUnder(full, imagesFull) || !File.Exists(full))
             {
                 findings.Add(new TierLintFinding(

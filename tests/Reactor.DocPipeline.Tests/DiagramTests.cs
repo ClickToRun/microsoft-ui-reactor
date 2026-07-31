@@ -125,7 +125,8 @@ public class DiagramTests : IDisposable
     public void Broken_image_ref_raises_IMAGE_001()
     {
         var body = "Body.\n\n![diagram](images/arch/missing.svg)\n";
-        var findings = DiagramProcessor.ValidateImageRefs("topic.md.dt", body, _images);
+        var findings = DiagramProcessor.ValidateImageRefs(
+            "topic.md.dt", body, _images, Path.GetDirectoryName(_images)!);
         Assert.Contains(findings, f => f.Code == "REACTOR_DOC_IMAGE_001");
     }
 
@@ -135,7 +136,8 @@ public class DiagramTests : IDisposable
         Directory.CreateDirectory(Path.Combine(_images, "arch"));
         File.WriteAllText(Path.Combine(_images, "arch", "ok.svg"), "<svg/>");
         var body = "Body.\n\n![diagram](images/arch/ok.svg)\n";
-        var findings = DiagramProcessor.ValidateImageRefs("topic.md.dt", body, _images);
+        var findings = DiagramProcessor.ValidateImageRefs(
+            "topic.md.dt", body, _images, Path.GetDirectoryName(_images)!);
         Assert.DoesNotContain(findings, f => f.Code == "REACTOR_DOC_IMAGE_001");
     }
 
