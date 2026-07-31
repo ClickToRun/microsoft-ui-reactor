@@ -56,8 +56,37 @@ public class PersistenceEtwBridgeTests : IDisposable
         try { if (global::System.IO.File.Exists(_path)) global::System.IO.File.Delete(_path); } catch { }
     }
 
-    private static EventWrittenEventArgs? FindByName(IReadOnlyList<EventWrittenEventArgs> events, string name)
-        => events.FirstOrDefault(e => e.EventName == name);
+    private static EventWrittenEventArgs AssertEvent(
+        IReadOnlyList<EventWrittenEventArgs> events,
+        string name,
+        int discriminatorIndex,
+        string discriminator)
+    {
+        var candidates = events.Where(e => e.EventName == name).ToArray();
+        var match = candidates.FirstOrDefault(e =>
+            e.Payload is { } payload
+            && discriminatorIndex >= 0
+            && discriminatorIndex < payload.Count
+            && payload[discriminatorIndex] is string value
+            && value == discriminator);
+
+        if (match is null)
+        {
+            var observedDiscriminators = candidates.Length == 0
+                ? "<none>"
+                : string.Join(", ", candidates.Select(e =>
+                    e.Payload is { } payload
+                    && discriminatorIndex >= 0
+                    && discriminatorIndex < payload.Count
+                        ? payload[discriminatorIndex]?.ToString() ?? "<null>"
+                        : "<missing>"));
+            Assert.Fail(
+                $"Expected {name} with payload[{discriminatorIndex}] = '{discriminator}'. "
+                + $"Same-name payload[{discriminatorIndex}] values: {observedDiscriminators}");
+        }
+
+        return match;
+    }
 
     // ── JsonFileStore round-trip emits Read + Write ─────────────────────
 
@@ -68,9 +97,11 @@ public class PersistenceEtwBridgeTests : IDisposable
 
         store.Write("main", new byte[] { 1, 2, 3 });
 
-        var evt = FindByName(_listener.Events, nameof(ReactorEventSource.PersistenceWrite));
-        Assert.NotNull(evt);
-        Assert.Equal("json-file", evt!.Payload?[0]);
+        var evt = AssertEvent(
+            _listener.Events,
+            nameof(ReactorEventSource.PersistenceWrite),
+            0,
+            "json-file");
         Assert.True((int)(evt.Payload?[1] ?? 0) > 0);
         // PII: serialized payload size is on the event, but the file path
         // must not appear anywhere on the payload list.
@@ -87,9 +118,11 @@ public class PersistenceEtwBridgeTests : IDisposable
         Assert.True(store.TryRead("main", out var data));
         Assert.NotNull(data);
 
-        var evt = FindByName(_listener.Events, nameof(ReactorEventSource.PersistenceRead));
-        Assert.NotNull(evt);
-        Assert.Equal("json-file", evt!.Payload?[0]);
+        AssertEvent(
+            _listener.Events,
+            nameof(ReactorEventSource.PersistenceRead),
+            0,
+            "json-file");
     }
 
     // ── JsonFileStore explicit rejects → PersistenceRejected ────────────
@@ -103,9 +136,11 @@ public class PersistenceEtwBridgeTests : IDisposable
         var store = new JsonFileStore(_path);
         Assert.False(store.TryRead("main", out _));
 
-        var evt = FindByName(_listener.Events, nameof(ReactorEventSource.PersistenceRejected));
-        Assert.NotNull(evt);
-        Assert.Equal("json-file", evt!.Payload?[0]);
+        var evt = AssertEvent(
+            _listener.Events,
+            nameof(ReactorEventSource.PersistenceRejected),
+            0,
+            "json-file");
         Assert.Equal("oversize-read", evt.Payload?[1]);
     }
 
@@ -119,10 +154,12 @@ public class PersistenceEtwBridgeTests : IDisposable
 
         Assert.False(store.TryRead("main", out _));
 
-        var evt = FindByName(_listener.Events, nameof(ReactorEventSource.SwallowedError));
-        Assert.NotNull(evt);
-        Assert.Equal(nameof(LogCategory.Persistence), evt!.Payload?[0]);
-        Assert.Equal("JsonFileStore.TryRead.parse", evt.Payload?[1]);
+        var evt = AssertEvent(
+            _listener.Events,
+            nameof(ReactorEventSource.SwallowedError),
+            1,
+            "JsonFileStore.TryRead.parse");
+        Assert.Equal(nameof(LogCategory.Persistence), evt.Payload?[0]);
         // The payload carries ex.GetType().Name — the concrete runtime
         // type, which for malformed JSON is the JsonException-derived
         // JsonReaderException. Assert by IsAssignableFrom-style prefix
