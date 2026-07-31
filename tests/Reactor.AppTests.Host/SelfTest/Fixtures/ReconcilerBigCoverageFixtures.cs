@@ -1067,6 +1067,13 @@ internal static class ReconcilerBigCoverageFixtures
         const double Sized = 16;
         const double Resized = 28;
 
+        // FontSize is a double, and a WinUI control default can be theme-resource
+        // derived rather than a literal, so compare with a tolerance instead of
+        // exact ==. The tolerance is far tighter than any DIP gap under test
+        // (16 vs 20 vs 28), so it cannot mask a real mismatch.
+        static bool IsSize(double actual, double expected) =>
+            global::System.Math.Abs(actual - expected) < 0.0001;
+
         public override async Task RunAsync()
         {
             var host = H.CreateHost();
@@ -1095,10 +1102,11 @@ internal static class ReconcilerBigCoverageFixtures
             // CreateFontIcon fails here instead of passing on a coincidental
             // control default.
             H.Check("IconFontSize_GlyphAndSizeProjected",
-                sized?.Glyph == "\uE71B"
-                && sized?.FontSize == Sized
+                sized is not null
+                && sized.Glyph == "\uE71B"
+                && IsSize(sized.FontSize, Sized)
                 && unsized is not null
-                && unsized.FontSize != Sized);
+                && !IsSize(unsized.FontSize, Sized));
 
             // The divergence that makes Icon(FontIcon(glyph, fontSize:)) usable
             // wherever Icon(glyph) was: with no family supplied, the mounted
@@ -1110,7 +1118,8 @@ internal static class ReconcilerBigCoverageFixtures
                 (IconResolver.ResolveIconString("\uE700") as WinXC.FontIcon)?.FontFamily?.Source;
             H.Check("IconFontSize_DefaultFamilyMatchesGlyphResolver",
                 handAssigned is not null
-                && sized?.FontFamily?.Source == handAssigned);
+                && sized is not null
+                && sized.FontFamily?.Source == handAssigned);
 
             // …and an author-supplied family still wins over that default. This
             // is the arm that traps deleting the `if (fi.FontFamily is not null)`
@@ -1138,8 +1147,9 @@ internal static class ReconcilerBigCoverageFixtures
             // explicit size rides through unchanged.
             var afterGlyphSwap = FindSizedIcon();
             H.Check("IconFontSize_GlyphSwapKeepsSize",
-                afterGlyphSwap?.Glyph == "\uE73E"
-                && afterGlyphSwap?.FontSize == Sized
+                afterGlyphSwap is not null
+                && afterGlyphSwap.Glyph == "\uE73E"
+                && IsSize(afterGlyphSwap.FontSize, Sized)
                 && H.FindControl<WinXC.FontIcon>(f => f.Glyph == "\uE71B") is null);
 
             H.ClickButton("IconSizePhase");
@@ -1150,8 +1160,9 @@ internal static class ReconcilerBigCoverageFixtures
             // and an author resizing an icon across renders silently gets nothing.
             var afterResize = FindSizedIcon();
             H.Check("IconFontSize_SizeChangePatched",
-                afterResize?.FontSize == Resized
-                && afterResize?.Glyph == "\uE73E");
+                afterResize is not null
+                && IsSize(afterResize.FontSize, Resized)
+                && afterResize.Glyph == "\uE73E");
         }
 
         // The differential control deliberately uses a third glyph, so match on
