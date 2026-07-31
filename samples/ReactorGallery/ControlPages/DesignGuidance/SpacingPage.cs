@@ -247,13 +247,13 @@ element.Margin(4, 8, 16, 24)");
                 PaddingDemo("Per-side (4, 8, 16, 24)", 4, 8, 16, 24)
             ),
             @"// Uniform — same on all sides
-Border(child).Padding(16)
+Border(TextBlock(""Content"")).Padding(16)
 
 // Horizontal, Vertical
-Border(child).Padding(horizontal: 24, vertical: 8)
+Border(TextBlock(""Content"")).Padding(horizontal: 24, vertical: 8)
 
 // Per-side: left, top, right, bottom
-Border(child).Padding(4, 8, 16, 24)");
+Border(TextBlock(""Content"")).Padding(4, 8, 16, 24)");
 
     static Element PaddingDemo(string label, double l, double t, double r, double b) =>
         VStack(2,
