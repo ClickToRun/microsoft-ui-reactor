@@ -207,17 +207,22 @@ public sealed class ElementPool : IDisposable
         // the comment block in Reconciler.cs above ModifierEventHandlerState.
         Reconciler.ClearCurrentEventHandlers(fe);
         fe.Tag = null;
-        fe.Margin = new Thickness(0);
-        fe.Width = double.NaN;
-        fe.Height = double.NaN;
-        fe.MinWidth = 0;
-        fe.MinHeight = 0;
-        fe.MaxWidth = double.PositiveInfinity;
-        fe.MaxHeight = double.PositiveInfinity;
-        fe.HorizontalAlignment = HorizontalAlignment.Stretch;
-        fe.VerticalAlignment = VerticalAlignment.Stretch;
-        fe.Opacity = 1.0;
-        fe.Visibility = Visibility.Visible;
+        // Reset via ClearValue, not by assigning the DP default: a local value outranks
+        // every Style setter, so writing e.g. HorizontalAlignment.Stretch would hand the
+        // next renter a control that can never show its default style's alignment
+        // (issue #952). ClearValue is what makes a recycled control indistinguishable
+        // from a freshly-constructed one, which is the pool's whole contract.
+        fe.ClearValue(FrameworkElement.MarginProperty);
+        fe.ClearValue(FrameworkElement.WidthProperty);
+        fe.ClearValue(FrameworkElement.HeightProperty);
+        fe.ClearValue(FrameworkElement.MinWidthProperty);
+        fe.ClearValue(FrameworkElement.MinHeightProperty);
+        fe.ClearValue(FrameworkElement.MaxWidthProperty);
+        fe.ClearValue(FrameworkElement.MaxHeightProperty);
+        fe.ClearValue(FrameworkElement.HorizontalAlignmentProperty);
+        fe.ClearValue(FrameworkElement.VerticalAlignmentProperty);
+        fe.ClearValue(UIElement.OpacityProperty);
+        fe.ClearValue(UIElement.VisibilityProperty);
         fe.ClearValue(FrameworkElement.RenderTransformProperty);
         fe.ClearValue(FrameworkElement.FlowDirectionProperty);
 
@@ -276,7 +281,7 @@ public sealed class ElementPool : IDisposable
         fe.ClearValue(WinUI.ToolTipService.PlacementProperty);
         fe.ClearValue(WinUI.ToolTipService.PlacementTargetProperty);
         fe.ClearValue(Microsoft.UI.Xaml.Automation.AutomationProperties.HeadingLevelProperty);
-        fe.AccessKey = "";
+        fe.ClearValue(UIElement.AccessKeyProperty);
 
         // Clear flex attached properties so pooled controls don't carry stale
         // Grow/Shrink/Basis values into their next parent FlexPanel.
@@ -300,11 +305,14 @@ public sealed class ElementPool : IDisposable
                 break;
             case WinUI.Border border:
                 border.Child = null;
-                border.Background = null;
-                border.BorderBrush = null;
-                border.BorderThickness = new Thickness(0);
-                border.CornerRadius = new CornerRadius(0);
-                border.Padding = new Thickness(0);
+                // ClearValue, not `= null` / `= default` — see the FE-common block above
+                // (issue #952). These five mirror common modifiers whose ApplyModifiers
+                // unset arms clear the same DPs.
+                border.ClearValue(WinUI.Border.BackgroundProperty);
+                border.ClearValue(WinUI.Border.BorderBrushProperty);
+                border.ClearValue(WinUI.Border.BorderThicknessProperty);
+                border.ClearValue(WinUI.Border.CornerRadiusProperty);
+                border.ClearValue(WinUI.Border.PaddingProperty);
                 break;
             case WinUI.ScrollViewer sv:
                 sv.Content = null;
@@ -317,6 +325,13 @@ public sealed class ElementPool : IDisposable
                 break;
             case TextBlock tb:
                 tb.Text = "";
+                // Deliberately NOT ClearValue, unlike the arms above: TextBlock.FontSize
+                // participates in property inheritance, so clearing it lets a recycled
+                // TextBlock pick up an ancestor's font size instead of the WinUI default
+                // and silently re-flow text. Whether the pool should adopt inheritance
+                // here is a real question, but it is a rendering change independent of
+                // issue #952 (FontSize's ApplyModifiers unset arm already clears), so it
+                // is left for its own change.
                 tb.FontSize = 14; // WinUI default
                 tb.ClearValue(TextBlock.FontWeightProperty);
                 tb.ClearValue(TextBlock.FontStyleProperty);
@@ -357,7 +372,7 @@ public sealed class ElementPool : IDisposable
             // element from Tag at invocation time, so stale closures are harmless.
             case WinUI.Button button:
                 button.Content = null;
-                button.IsEnabled = true;
+                button.ClearValue(Control.IsEnabledProperty);
                 button.Flyout = null;
                 VisualStateManager.GoToState(button, "Normal", false);
                 break;
@@ -372,7 +387,7 @@ public sealed class ElementPool : IDisposable
                 break;
             case WinUI.ToggleSwitch toggle:
                 toggle.ClearValue(WinUI.ToggleSwitch.IsOnProperty);
-                toggle.IsEnabled = true;
+                toggle.ClearValue(Control.IsEnabledProperty);
                 toggle.OnContent = null;
                 toggle.OffContent = null;
                 toggle.Header = null;
