@@ -270,7 +270,7 @@ The summary table at the top of that file is **derived**, not maintained: it is 
 dotnet test tests/Reactor.Tests -p:Platform=x64 -p:SkipSignaturesGen=true --filter "FullyQualifiedName~SwallowedErrorAudit"
 ```
 
-and paste the table the failure prints. Hand-incrementing was how the published counts became unreproducible (issue #959): two branches editing `37 → 38` from the same base produce identical edits that git auto-resolves as agreement, silently dropping one increment.
+and paste the table the failure prints. (`-p:SkipSignaturesGen=true` keeps the build from also regenerating `skills/reactor.api.txt`, so a ledger-only edit leaves nothing else modified in your tree.) Hand-incrementing was how the published counts became unreproducible (issue #959): two branches editing `37 → 38` from the same base produce identical edits that git auto-resolves as agreement, silently dropping one increment.
 
 ---
 

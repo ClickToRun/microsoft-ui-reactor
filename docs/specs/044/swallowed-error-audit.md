@@ -138,7 +138,10 @@ all deliberate:
 dotnet test tests/Reactor.Tests -p:Platform=x64 -p:SkipSignaturesGen=true --filter "FullyQualifiedName~SwallowedErrorAudit"
 ```
 
-and paste the recomputed table the failure message prints. Do **not**
+and paste the recomputed table the failure message prints.
+`-p:SkipSignaturesGen=true` keeps the build from also regenerating
+`skills/reactor.api.txt`, so a ledger-only edit leaves nothing else
+modified in your tree. Do **not**
 hand-increment a cell: `Sites` is a sum, and two branches incrementing
 `37 → 38` from the same base produce identical edits that git
 auto-resolves as agreement, silently dropping one increment. Making the
