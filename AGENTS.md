@@ -226,6 +226,16 @@ Hard-won specifics that repeatedly cost sessions time. Prefer these exact comman
     `--self-test`; both are clean on a quiet machine.
   - **unit** — `PersistenceEtwBridgeTests.JsonFileStore_*` (`Reactor.Tests/Diagnostics/`),
     cross-test ETW/event-source bleed. Fails only in the full-suite run; passes in isolation.
+- **Don't co-locate the E2E and selftest tiers.** CI runs them as separate jobs on separate
+  runners today, and that isolation is load-bearing rather than incidental. E2E drives real
+  pointer input, foregrounds windows and changes Z-order; several selftest fixtures read live
+  desktop state (the two `CenterOnCurrent`-based ones above read the cursor's monitor;
+  `UseIsCovered_RerendersOnZOrderChange` reads Z-order). Running E2E first on one machine and
+  then `--self-test` took a clean unmodified tree from 0 to 8 failures — reproducible, and the
+  standing repro for those fixtures. So if you consolidate jobs to save runner minutes, or run
+  both tiers locally back-to-back, expect selftest reds that are an artefact of tier ordering
+  and not of your change. Fix the fixtures' desktop-state dependence before merging the jobs,
+  not after.
 - **Judging whether a flake fix worked.** N clean runs only supports a fix if `(1-p)^N` is
   small for the *observed* failure rate `p`. At `p = 0.25`, three consecutive passes happen
   **42%** of the time — so "3 clean runs" is consistent with the bug being entirely unfixed,
