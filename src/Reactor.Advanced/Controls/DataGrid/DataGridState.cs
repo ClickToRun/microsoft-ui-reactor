@@ -1385,9 +1385,10 @@ public class DataGridState<T>
     /// </summary>
     /// <remarks>
     /// The grid's own KeyDown handler cannot call this today — it forwards only the raw key with no
-    /// modifier state, so it never sees Shift+Tab. It is public for the same reason
-    /// <see cref="FocusPrevCell"/> is: app authors driving custom keyboard handling need both
-    /// directions. The logical-cursor caveat on <see cref="FocusNextRowEditColumn"/> applies here too.
+    /// modifier state, so it never sees Shift+Tab. That gap is tracked in #987; until it closes, this
+    /// is public for the same reason <see cref="FocusPrevCell"/> is: app authors driving custom
+    /// keyboard handling need both directions. The logical-cursor caveat on
+    /// <see cref="FocusNextRowEditColumn"/> applies here too.
     /// </remarks>
     public bool FocusPrevRowEditColumn() => MoveRowEditFocus(-1);
 
