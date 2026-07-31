@@ -111,7 +111,8 @@ internal static class DataGridParityFixtures
                     maxPasses: 25, perPassMs: 20));
 
             H.Check("HookPaging_Mount_SecondRowVisible",
-                H.FindTextContaining("Emp-000001") is not null);
+                await Harness.WaitFor(() => H.FindTextContaining("Emp-000001") is not null,
+                    maxPasses: 25, perPassMs: 20));
 
             // Hook should fetch only a small number of pages to fill the viewport
             // (page-0 plus the prefetch window). Allow slack for framerate settle.
@@ -261,7 +262,8 @@ internal static class DataGridParityFixtures
                     maxPasses: 25, perPassMs: 20));
 
             H.Check("HookPaging_Small_LastRowVisible",
-                H.FindTextContaining("Emp-000011") is not null);
+                await Harness.WaitFor(() => H.FindTextContaining("Emp-000011") is not null,
+                    maxPasses: 25, perPassMs: 20));
 
             H.Check($"HookPaging_Small_SinglePageFetch (calls={source!.CallCount})",
                 source.CallCount == 1);
