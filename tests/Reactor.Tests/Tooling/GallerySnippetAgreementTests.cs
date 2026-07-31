@@ -88,6 +88,15 @@ public sealed class GallerySnippetAgreementTests
     // ── locating the two halves of a card ────────────────────────────────────
 
     /// <summary>
+    /// The argument carrying the <c>name:</c> label, wherever in the list it sits. Both callers below
+    /// prefer the label over position, because a gallery author may pass any of these by name.
+    /// </summary>
+    static ExpressionSyntax? NamedArgument(SeparatedSyntaxList<ArgumentSyntax> args, string name) =>
+        args.Where(argument => argument.NameColon?.Name.Identifier.Text == name)
+            .Select(argument => argument.Expression)
+            .FirstOrDefault();
+
+    /// <summary>
     /// The snippet argument: named <c>sourceCode:</c> wherever it sits, otherwise the third
     /// positional argument of <c>SampleCard(title, sample, sourceCode, options)</c>.
     /// </summary>
@@ -95,11 +104,8 @@ public sealed class GallerySnippetAgreementTests
     {
         var args = invocation.ArgumentList.Arguments;
 
-        foreach (var argument in args)
-            if (argument.NameColon?.Name.Identifier.Text == "sourceCode")
-                return argument.Expression;
-
-        return args.Count >= 3 && args[2].NameColon is null ? args[2].Expression : null;
+        return NamedArgument(args, "sourceCode")
+               ?? (args.Count >= 3 && args[2].NameColon is null ? args[2].Expression : null);
     }
 
     /// <summary>Verbatim and raw string literals both land here; <c>ValueText</c> already un-escapes and de-indents.</summary>
@@ -111,9 +117,11 @@ public sealed class GallerySnippetAgreementTests
     static string CardTitle(InvocationExpressionSyntax invocation)
     {
         var args = invocation.ArgumentList.Arguments;
-        foreach (var argument in args)
-            if (argument.NameColon?.Name.Identifier.Text == "title")
-                return StringLiteralValue(argument.Expression) ?? "(untitled)";
+
+        // A `title:` label that is not a string literal stays "(untitled)" rather than falling through
+        // to position — the author named the argument, so position says nothing about it.
+        if (NamedArgument(args, "title") is { } named)
+            return StringLiteralValue(named) ?? "(untitled)";
 
         return (args.Count > 0 && args[0].NameColon is null ? StringLiteralValue(args[0].Expression) : null)
                ?? "(untitled)";
