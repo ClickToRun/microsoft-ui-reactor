@@ -226,6 +226,15 @@ internal static class SelfTestFixtureRegistry
         "Issue522_SharedStyleAcrossMultipleElements_IsolatedRemoval",
         "Issue522_ThemeBindingsRemoval_AfterCacheClear_StillWorks",
         "Issue522_ThemeRef_CycleAcrossDifferentKeys",
+        // Issue #950 — the common Padding modifier (and the BiDi PaddingInline*
+        // pair that folds into it) must reach a TextBlock, which is not a Control.
+        "Issue950_PaddingMountUpdateUnset",
+        "Issue950_InlinePaddingResolvesPerFlowDirection",
+        "Issue950_PaddingDoesNotLeakAcrossPoolReuse",
+        "Issue950_PaddingUnsetClearsInsteadOfZeroing",
+        "Issue950_ModifierResetOutranksASetterWrite",
+        "Issue950_PaddingUnsetClearsOnEveryGatedType",
+        "Issue950_RichTextBlockPaddingStillFlowsThroughItsDescriptor",
         // Spec 047 §4.5 — overlay handler-owned Unmount tears down side-mounted
         // Reactor subtrees (Flyout content, Popup child) the generic recursion
         // cannot reach.
@@ -1138,6 +1147,7 @@ internal static class SelfTestFixtureRegistry
         "RBC_ExpanderTemplateTransitionEvents",
         "RBC_PrivateUpdateHotPaths",
         "RBC_PrivateMountHotPaths",
+        "RBC_IconElementFontIconSizing",
 
         // Issue #142 — controls with private static readonly DPs
         "Issue142_CustomControlPrivateDp_Renders",
@@ -1196,6 +1206,7 @@ internal static class SelfTestFixtureRegistry
         "WindowLevel_Floating_AboveSiblings",
         "WindowLevel_Floating_AboveOwner",
         "WindowLevel_RuntimeFlip",
+        "WindowLevel_VerdictBranches",
         // Spec 054 Phase 5 — SizeToContent.
         "SizeToContent_Width_Tracks",
         "SizeToContent_Height_Tracks",
@@ -1854,6 +1865,14 @@ internal static class SelfTestFixtureRegistry
         "Issue522_SharedStyleAcrossMultipleElements_IsolatedRemoval" => new Issue522TextBlockStyleResetFixture.SharedStyleAcrossMultipleElements_IsolatedRemoval(harness),
         "Issue522_ThemeBindingsRemoval_AfterCacheClear_StillWorks" => new Issue522TextBlockStyleResetFixture.ThemeBindingsRemoval_AfterCacheClear_StillWorks(harness),
         "Issue522_ThemeRef_CycleAcrossDifferentKeys" => new Issue522TextBlockStyleResetFixture.ThemeRef_CycleAcrossDifferentKeys(harness),
+        // Issue #950 — Padding / PaddingInline* on a TextBlock.
+        "Issue950_PaddingMountUpdateUnset" => new Issue950TextBlockPaddingFixture.PaddingMountUpdateUnset(harness),
+        "Issue950_InlinePaddingResolvesPerFlowDirection" => new Issue950TextBlockPaddingFixture.InlinePaddingResolvesPerFlowDirection(harness),
+        "Issue950_PaddingDoesNotLeakAcrossPoolReuse" => new Issue950TextBlockPaddingFixture.PaddingDoesNotLeakAcrossPoolReuse(harness),
+        "Issue950_PaddingUnsetClearsInsteadOfZeroing" => new Issue950TextBlockPaddingFixture.PaddingUnsetClearsInsteadOfZeroing(harness),
+        "Issue950_ModifierResetOutranksASetterWrite" => new Issue950TextBlockPaddingFixture.ModifierResetOutranksASetterWrite(harness),
+        "Issue950_PaddingUnsetClearsOnEveryGatedType" => new Issue950TextBlockPaddingFixture.PaddingUnsetClearsOnEveryGatedType(harness),
+        "Issue950_RichTextBlockPaddingStillFlowsThroughItsDescriptor" => new Issue950TextBlockPaddingFixture.RichTextBlockPaddingStillFlowsThroughItsDescriptor(harness),
         "OverlayTeardown_Flyout_Unmount_RunsFlyoutContentCleanup" => new OverlayTeardownFixtures.Flyout_Unmount_RunsFlyoutContentCleanup(harness),
         "OverlayTeardown_Flyout_Unmount_RunsPassThroughCleanup" => new OverlayTeardownFixtures.Flyout_Unmount_RunsPassThroughCleanup(harness),
         "OverlayTeardown_Popup_Unmount_RunsChildCleanup" => new OverlayTeardownFixtures.Popup_Unmount_RunsChildCleanup(harness),
@@ -2749,6 +2768,7 @@ internal static class SelfTestFixtureRegistry
         "RBC_ExpanderTemplateTransitionEvents" => new ReconcilerBigCoverageFixtures.ExpanderTemplateTransitionEvents(harness),
         "RBC_PrivateUpdateHotPaths" => new ReconcilerBigCoverageFixtures.PrivateUpdateHotPaths(harness),
         "RBC_PrivateMountHotPaths" => new ReconcilerBigCoverageFixtures.PrivateMountHotPaths(harness),
+        "RBC_IconElementFontIconSizing" => new ReconcilerBigCoverageFixtures.IconElementFontIconSizing(harness),
 
         "Issue142_CustomControlPrivateDp_Renders" => new Issue142Fixtures.CustomControlPrivateDp_Renders(harness),
         "Issue142_ThirdPartyControlPrivateDp_Renders" => new Issue142Fixtures.ThirdPartyControlPrivateDp_Renders(harness),
@@ -2809,6 +2829,7 @@ internal static class SelfTestFixtureRegistry
         "WindowLevel_Floating_AboveSiblings" => new Phase4WindowingFixtures.WindowLevelFloatingAboveSiblings(harness),
         "WindowLevel_Floating_AboveOwner" => new Phase4WindowingFixtures.WindowLevelFloatingAboveOwner(harness),
         "WindowLevel_RuntimeFlip" => new Phase4WindowingFixtures.WindowLevelRuntimeFlip(harness),
+        "WindowLevel_VerdictBranches" => new Phase4WindowingFixtures.WindowLevelVerdictBranches(harness),
         // Spec 054 Phase 5 — SizeToContent.
         "SizeToContent_Width_Tracks" => new Phase5WindowingFixtures.SizeToContentWidthTracks(harness),
         "SizeToContent_Height_Tracks" => new Phase5WindowingFixtures.SizeToContentHeightTracks(harness),

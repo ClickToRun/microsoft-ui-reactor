@@ -254,10 +254,25 @@ internal static class Phase1WindowingFixtures
                 var pos = win.AppWindow.Position;
                 var size = win.AppWindow.Size;
                 var center = (X: pos.X + size.Width / 2, Y: pos.Y + size.Height / 2);
-                bool inCursorWorkArea = haveCursor
-                    && center.X >= work.Left && center.X < work.Right
-                    && center.Y >= work.Top && center.Y < work.Bottom;
-                H.Check("CenterOnCurrent_UsesCursorMonitor", inCursorWorkArea);
+                // `haveCursor == false` means the cursor position could not be DETERMINED, not
+                // that the window landed wrong. GetCursorPos returns ACCESS_DENIED (err 5) on any
+                // session that is not the interactive input desktop — CI agents, RDP-disconnected
+                // and locked sessions, and headless boxes. &&-ing it into the assertion turned
+                // "cannot tell" into "failed", which made this fixture and its Phase3 twin fail
+                // 100% of the time on such machines while looking like a flake. Skip instead:
+                // an undeterminable precondition is not a product defect. Verified by direct
+                // P/Invoke probe on two separate machines (GetCursorPos -> False, LastError=5).
+                if (!haveCursor)
+                {
+                    H.Skip("CenterOnCurrent_UsesCursorMonitor",
+                        "GetCursorPos unavailable (non-interactive desktop) — cursor monitor cannot be determined");
+                }
+                else
+                {
+                    H.Check("CenterOnCurrent_UsesCursorMonitor",
+                        center.X >= work.Left && center.X < work.Right
+                        && center.Y >= work.Top && center.Y < work.Bottom);
+                }
             }
             finally { await CloseAndSettle(win); }
         }

@@ -102,6 +102,90 @@ public class SelfTestBatch
             _initError = $"Self-test process exited with code {exitCode} but produced no parsable TAP output.\n{_fullOutput}";
     }
 
+    /// <summary>
+    /// Renders a Host exit code with its NTSTATUS interpretation, for the truncated-TAP paths
+    /// where the only question a triager has is "did the host fault, or did something kill it?".
+    ///
+    /// <para>This is a <b>strong prior, not a guarantee</b>, and the wording keeps that honest.
+    /// What is measured: .NET's <c>Process.Kill()</c> — and <c>Stop-Process -Force</c>, which goes
+    /// through the same path — produce <c>-1</c> (<c>0xFFFFFFFF</c>); <c>taskkill /F</c> produces
+    /// <c>1</c>. What is NOT established: that an external killer *cannot* produce an
+    /// NTSTATUS-shaped code. <c>TerminateProcess</c> takes <c>uExitCode</c> as an arbitrary
+    /// <c>UINT</c>, so the caller picks it; nothing structurally prevents a killer choosing
+    /// <c>0xC0000005</c>. It just isn't what any killer in this environment does.</para>
+    ///
+    /// <para><b>Scope of the prior, and when it expires.</b> The inference is not over
+    /// <c>TerminateProcess</c> — it is over <i>the population of things that kill this process</i>.
+    /// It holds because every killer present today (this harness's own watchdog, an external
+    /// <c>Process.Kill</c>/<c>Stop-Process</c>, <c>taskkill /F</c>) lands on <c>-1</c> or
+    /// <c>1</c>. It weakens the moment that population changes — a new harness, a CI job-object
+    /// teardown, a container runtime, or any watchdog that deliberately propagates the child's
+    /// status. <b>If you add something that can kill the Host, check what exit code it produces
+    /// and revisit this method.</b> A reader with no cue that the prior is environment-scoped
+    /// would keep trusting it after it stopped being true.</para>
+    ///
+    /// <para>The raw value is always printed alongside the interpretation so nobody has to trust
+    /// the mapping. A triager who reads "external kill" as certain stops looking, and the cost of
+    /// a false certainty here is chasing the wrong cause.</para>
+    /// </summary>
+    internal static string DescribeExitCode(int exitCode)
+    {
+        // Compared as uint: these are NTSTATUS values that arrive as negative Int32.
+        var known = (uint)exitCode switch
+        {
+            0xC0000005 => "STATUS_ACCESS_VIOLATION",
+            0xC000027B => "STATUS_STOWED_EXCEPTION (WinUI/WinRT — the most likely one here)",
+            0xC0000409 => "STATUS_STACK_BUFFER_OVERRUN / fast-fail",
+            0xC00000FD => "STATUS_STACK_OVERFLOW",
+            0xE0434352 => "CLR managed exception (unhandled .NET exception)",
+            _ => null,
+        };
+
+        // The CLR's managed-exception tag is NOT NTSTATUS-shaped — 0xE0434352 & 0xF0000000 is
+        // 0xE0000000, so the mask below does not catch it and it would otherwise fall through
+        // with no verdict at all. That is the likeliest crash mode for a .NET host, so it gets
+        // its own branch. Same tag the Devtools stress runner already keys on
+        // (DevtoolsStressE2ERunner.cs) and MxcSandbox documents.
+        bool clrManaged = (uint)exitCode == 0xE0434352u;
+
+        // NTSTATUS failure codes are 0xC0000000-shaped. Treat that whole space as
+        // "the host faulted", not just the four named above.
+        bool ntStatusShaped = ((uint)exitCode & 0xF0000000u) == 0xC0000000u;
+
+        var raw = $"Exit code: {exitCode} (0x{(uint)exitCode:X8}{(known is null ? "" : " " + known)})";
+
+        if (clrManaged)
+        {
+            return raw + "\n  -> Unhandled MANAGED exception: the host almost certainly crashed " +
+                   "on its own, via the CLR's unhandled-exception path rather than a native " +
+                   "fault. The exception type and stack trace are in the Host's stderr / the " +
+                   "output tail below — read those first. As with the native-fault codes, a " +
+                   "terminator can pass any value to TerminateProcess, so this is a strong prior " +
+                   "rather than proof.";
+        }
+
+        if (ntStatusShaped)
+        {
+            return raw + "\n  -> NTSTATUS-shaped: the host almost certainly crashed on its own. " +
+                   "Look for the faulting fixture, not for an external killer. " +
+                   "(Known killers in this environment exit -1 or 1, but TerminateProcess lets a " +
+                   "caller choose any code, so this is a strong prior rather than proof.)";
+        }
+
+        if (exitCode is -1 or 1)
+        {
+            return raw + "\n  -> Category is decidable, cause is NOT. This says the host did not fault; " +
+                   "it does not say who ended it. Beware: `RunProcess` SYNTHESIZES -1 for this " +
+                   "harness's own watchdog kill (it discards the real code), and an external " +
+                   "`Process.Kill` / `Stop-Process`, a parent reap and a CI job-object teardown all " +
+                   "land on -1 too — so -1 alone cannot name the agent. `taskkill /F` and a genuine " +
+                   "fixture failure both exit 1; use the TAP trailer to separate those two: present " +
+                   "trailer = real failure, truncated = killed.";
+        }
+
+        return raw;
+    }
+
     private static string? ExtractHangSignal(string output)
     {
         if (string.IsNullOrEmpty(output)) return null;
@@ -285,7 +369,8 @@ public class SelfTestBatch
             {
                 _byFixture[attributed] = (false,
                     $"Selftest Host exited before completing fixture '{attributed}'. " +
-                    $"Exit code: {exitCode}. Downstream fixtures were not executed.\n" +
+                    $"{DescribeExitCode(exitCode)}\n" +
+                    $"Downstream fixtures were not executed.\n" +
                     $"--- tail of full output ---\n{Tail(_fullOutput, 4000)}");
             }
 
@@ -352,9 +437,14 @@ public class SelfTestBatch
             Assert.Inconclusive(_abortedReason ?? "Self-test process timed out; teardown exit code is not meaningful.");
 
         Assert.IsTrue(_exitCode is 0 or 1,
-            $"Self-test Host exited with code {_exitCode} (0x{_exitCode & 0xFFFFFFFFL:X8}) — the runner only " +
-            $"ever returns 0 (all passed) or 1 (fixture failures), so any other code means the process faulted " +
-            $"at teardown (e.g. 0xC0000005). This is the issue #680 final-exit access violation.\n" +
+            $"Self-test Host exited ABNORMALLY — the runner only ever returns 0 (all passed) or " +
+            $"1 (fixture failures), so any other code means the process did not exit through the " +
+            $"runner. Do not assume teardown: the guard is reached whenever the run was not " +
+            $"already attributed to a hang/timeout, which does not by itself distinguish a " +
+            $"teardown fault from an earlier crash or an external termination. The line below " +
+            $"classifies the code; the issue #680 final-exit access violation is one known cause, " +
+            $"not the only one.\n" +
+            $"{DescribeExitCode(_exitCode)}\n" +
             $"--- tail of full output ---\n{Tail(_fullOutput, 4000)}");
     }
 

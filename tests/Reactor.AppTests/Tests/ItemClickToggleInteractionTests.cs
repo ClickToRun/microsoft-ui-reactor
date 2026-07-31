@@ -37,10 +37,12 @@ public class ItemClickToggleInteractionTests : AppTestBase
     /// null→present in-place Update that used to add a second native subscription), then a
     /// single real click on a row must fire the callback exactly once.
     /// </summary>
-    // [Retry] mops up the rare unattended-desktop input-injection flake (SendInput dropped
+    // [E2eRetry] mops up the rare unattended-desktop input-injection flake (SendInput dropped
     // before the Host foregrounds). A real double-subscribe regression fails every attempt
-    // with Fires: 2.
-    [Retry(3)]
+    // with Fires: 2. Use E2eRetry, never MSTest's [Retry] — the built-in attribute reports the
+    // last attempt's outcome, so a retry that lands Inconclusive silently erases a genuine
+    // failure and dotnet test exits 0.
+    [E2eRetry(3)]
     [TestMethod]
     public void ListView_ItemClick_FiresExactlyOnce_AfterToggleOffOn()
     {
@@ -64,7 +66,7 @@ public class ItemClickToggleInteractionTests : AppTestBase
     /// GridView: symmetric to the ListView case — off→on toggle then a single real click
     /// must fire the callback exactly once.
     /// </summary>
-    [Retry(3)]
+    [E2eRetry(3)]
     [TestMethod]
     public void GridView_ItemClick_FiresExactlyOnce_AfterToggleOffOn()
     {
