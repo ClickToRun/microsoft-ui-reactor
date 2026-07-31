@@ -190,9 +190,13 @@ For each `catch (Exception ex) { Debug.WriteLine(...); }` site in `src/Reactor/`
 > `tests/Reactor.Tests/Docs/SwallowedErrorAuditTests.cs`. The two are not
 > commensurable and must not be reconciled with each other (issue #959).
 
-- [x] Verdict counts at the top of the audit file: 56 Keep, 9 Narrow (6 shipped, 3 deferred), 0 Propagate, 10 Replace-with-TryXxx (all deferred to 4.8), 18 Promote-to-typed-event (9 shipped, 9 deferred to 4.6).
-- [x] Propagate count is 0 — well under the spec §6.7.4 worry threshold of 20.
-- [x] The distribution table is now **derived** rather than asserted. Adding a G9 entry means adding a ledger row and re-running the gate — never hand-incrementing a cell, which git auto-merges into a silently dropped increment when two branches do it from the same base.
+- [x] Verdict counts **as pass 1 recorded them** — superseded, retained only as a record of that pass: 56 Keep, 9 Narrow (6 shipped, 3 deferred), 0 Propagate, 10 Replace-with-TryXxx (all deferred to 4.8), 18 Promote-to-typed-event (9 shipped, 9 deferred to 4.6). For today's numbers read the derived ledger linked above; do not compare these two sets of figures.
+- [x] Propagate count **at pass 1** was 0 — well under the spec §6.7.4 worry threshold of 20. The live Propagate total is derived, and the audit's own prose restates it under the same threshold.
+
+**Current process (not part of the frozen snapshot).** The distribution table is
+**derived** rather than asserted. Adding a G9 entry means adding a ledger row and
+re-running the gate — never hand-incrementing a cell, which git auto-merges into a
+silently dropped increment when two branches do it from the same base.
 
 ### 3.5 Phase C-audit acceptance
 

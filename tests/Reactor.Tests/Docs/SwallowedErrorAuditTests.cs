@@ -301,8 +301,6 @@ public sealed class SwallowedErrorAuditTests
     [Fact]
     public void Every_section_heading_names_an_existing_file_or_is_marked_retired()
     {
-        var root = RepoRoot();
-
         foreach (var section in Load().Sections)
         {
             if (section.Heading.Contains("(retired", Ordinal.Ordinal))
@@ -310,7 +308,7 @@ public sealed class SwallowedErrorAuditTests
                 continue;
             }
 
-            var full = Path.Combine(root, section.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+            var full = RepoPath(section.RelativePath, $"{AuditPath}:{section.LineNumber}: the section path");
             Assert.True(
                 File.Exists(full),
                 $"{AuditPath}:{section.LineNumber}: section names '{section.RelativePath}', which does not "
@@ -401,7 +399,7 @@ public sealed class SwallowedErrorAuditTests
     [Fact]
     public void Region_markers_are_unique_exact_lines_in_the_right_order()
     {
-        var lines = File.ReadAllLines(Path.Combine(RepoRoot(), AuditPath.Replace('/', Path.DirectorySeparatorChar)));
+        var lines = File.ReadAllLines(RepoPath(AuditPath, "The audit path"));
 
         var at = new Dictionary<string, List<int>>(global::System.StringComparer.Ordinal);
 
@@ -458,9 +456,31 @@ public sealed class SwallowedErrorAuditTests
         return root!;
     }
 
+    /// <summary>
+    /// Anchors a documented path under the repository root.
+    /// </summary>
+    /// <remarks>
+    /// Every path this gate resolves comes out of the audit document, so it is
+    /// author-controlled. <c>Path.Combine</c> silently discards its earlier
+    /// arguments when a later one is rooted, which would let a heading naming
+    /// an absolute path escape the repository — and, worse, pass the
+    /// existence check by pointing at some unrelated file on the machine. The
+    /// escape is rejected here rather than followed.
+    /// </remarks>
+    static string RepoPath(string relative, string what)
+    {
+        var native = relative.Replace('/', Path.DirectorySeparatorChar);
+        Assert.False(
+            Path.IsPathRooted(native),
+            $"{what} is '{relative}', which is an absolute path. Paths in the audit are relative to the "
+            + $"repository root — an absolute one would resolve outside the tree and could satisfy the "
+            + $"existence check by naming an unrelated file.");
+        return Path.Combine(RepoRoot(), native);
+    }
+
     static Audit Load()
     {
-        var path = Path.Combine(RepoRoot(), AuditPath.Replace('/', Path.DirectorySeparatorChar));
+        var path = RepoPath(AuditPath, "The audit path");
         Assert.True(File.Exists(path), $"Expected the audit file at '{path}'.");
 
         var text = File.ReadAllText(path);
