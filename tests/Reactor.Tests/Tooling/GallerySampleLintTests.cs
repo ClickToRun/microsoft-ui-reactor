@@ -1053,26 +1053,44 @@ public sealed class GallerySampleLintTests
             }
         }
 
-        // Pinned per file rather than as a tree-wide floor: a floor stays green when one of the
-        // sites it was counting is deleted, so it fails the repo's deletion test. Naming the files
-        // means a loader that quietly stopped reading a page — or a type check that stopped
+        // Pinned per file rather than as a tree-wide floor: a tree-wide floor stays green when one
+        // page loses a site and another gains one, so it fails the repo's deletion test. Naming the
+        // files means a loader that quietly stopped reading a page — or a type check that stopped
         // recognising a construction — reddens here instead of reporting a clean tree it never
         // looked at.
         //
-        // Compared as a set, not as two counts. Two counts leave the door open: a third page could
-        // introduce an unpinned `new Uri(...)` site and both would still hold, so the claim that
-        // these are the only such pages would quietly stop being true. Asserting the whole set
-        // makes it true by construction, and reddens in either direction — a site added, or one
-        // the detector stopped recognising.
-        string[] expected = ["HyperlinkButtonPage.cs=1", "WebView2Page.cs=3"];
+        // A minimum per file rather than an exact set. What this guard is for is keeping the scan
+        // below honest: `offenders.Count == 0` is also what a detector that stopped recognising
+        // anything produces. Requiring the set to match exactly would additionally forbid any
+        // future page from adding a *safe* `new Uri("https://…")` — a correct change the rule has
+        // no business rejecting, since its whole contract is that the argument cannot vary at
+        // runtime, which `offenders` enforces directly and everywhere. The floor still fails in the
+        // direction that actually threatens this test: a pinned file dropping below its count means
+        // constructions that used to be seen no longer are.
+        var minimums = new Dictionary<string, int>(global::System.StringComparer.Ordinal)
+        {
+            ["HyperlinkButtonPage.cs"] = 1,
+            ["WebView2Page.cs"] = 3,
+        };
 
-        var actual = recognized
+        var seen = recognized
             .Where(entry => entry.Value > 0)
-            .Select(entry => global::System.IO.Path.GetFileName(entry.Key) + "=" + entry.Value)
-            .OrderBy(name => name, global::System.StringComparer.Ordinal)
+            .ToDictionary(
+                entry => global::System.IO.Path.GetFileName(entry.Key),
+                entry => entry.Value,
+                global::System.StringComparer.Ordinal);
+
+        var regressed = minimums
+            .Where(pin => !seen.TryGetValue(pin.Key, out var count) || count < pin.Value)
+            .Select(pin => $"{pin.Key}: expected at least {pin.Value} recognised `new Uri(...)` " +
+                           $"site(s), saw {(seen.TryGetValue(pin.Key, out var c) ? c : 0)}")
+            .Order()
             .ToArray();
 
-        Assert.Equal(expected, actual);
+        Assert.True(regressed.Length == 0,
+            "the scan stopped recognising `new Uri(...)` constructions it used to see, so a clean " +
+            "result below would not mean the tree is clean:\n  " + string.Join("\n  ", regressed));
+
         Assert.True(offenders.Count == 0, string.Join("\n", offenders));
     }
 
