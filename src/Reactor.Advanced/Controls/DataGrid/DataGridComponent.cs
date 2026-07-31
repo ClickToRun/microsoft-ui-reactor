@@ -1490,6 +1490,13 @@ public class DataGridComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMe
     /// the unit tests reach it by reflection.
     /// </para>
     /// <para>
+    /// <c>originalItem</c> is declared non-nullable, but every call site resolves it by row index
+    /// immediately before committing and passes <c>default!</c> when that lookup fails — no row
+    /// being edited, or a key that no longer maps to a loaded row. Both arms forward it as-is
+    /// (the fallback into <see cref="DataGridState{T}.BeginAsyncCommit"/>), so the pre-edit
+    /// snapshot a revert would restore can be <c>default</c>.
+    /// </para>
+    /// <para>
     /// Keep this description in step with the two arms below — the
     /// <c>DataGridCommitThreadingDocTests</c> unit tests fail when the prose and the code
     /// disagree (issue #958).

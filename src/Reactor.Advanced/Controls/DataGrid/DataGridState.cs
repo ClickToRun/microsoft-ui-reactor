@@ -324,9 +324,12 @@ public class DataGridState<T>
     /// Installing a delegate of your own replaces that fallback outright. It is invoked
     /// synchronously, on the thread that committed the edit, with the row key, the post-edit
     /// item and the pre-edit item — and from there the grid does nothing further for that
-    /// commit. The delegate therefore owns both halves the fallback used to handle: calling the
-    /// element's <c>OnRowChanged</c>, and driving the row's commit lifecycle
-    /// (<see cref="BeginAsyncCommit"/>, then <see cref="CompleteAsyncCommit"/> or
+    /// commit. The third argument is <c>T?</c> for a reason: the callers resolve it by row
+    /// index just before committing, and it is <c>default</c> when there is no row being edited
+    /// or the key no longer maps to a loaded row, so a delegate that snapshots it for an
+    /// optimistic revert has to cope with that. The delegate also owns both halves the fallback
+    /// used to handle: calling the element's <c>OnRowChanged</c>, and driving the row's commit
+    /// lifecycle (<see cref="BeginAsyncCommit"/>, then <see cref="CompleteAsyncCommit"/> or
     /// <see cref="FailAsyncCommit"/>). Skip the lifecycle calls and the row never shows a
     /// committing state, an error banner, or an optimistic revert. Note that a grid rendered
     /// through <see cref="Controls.DataGridComponent{T}"/> reassigns this property on every
