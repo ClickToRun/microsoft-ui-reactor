@@ -722,7 +722,7 @@ public sealed class GallerySampleLintTests
     {
         var root = CSharpSyntaxTree.ParseText($@"
             class P : Component {{ public override Element Render() {{ {body} }} }}",
-            cancellationToken: TestContext.Current.CancellationToken).GetRoot();
+            cancellationToken: TestContext.Current.CancellationToken).GetRoot(TestContext.Current.CancellationToken);
 
         Assert.Equal(expected, CrossCardState(root).Count);
     }
@@ -759,11 +759,12 @@ public sealed class GallerySampleLintTests
     {
         var names = new HashSet<string>(global::System.StringComparer.Ordinal) { "Uri" };
 
-        foreach (var directive in root.DescendantNodes().OfType<UsingDirectiveSyntax>())
-        {
-            if (directive.Alias is { } alias && RightmostName(directive.Name) == "Uri")
-                names.Add(alias.Name.Identifier.Text);
-        }
+        var aliases = root.DescendantNodes()
+            .OfType<UsingDirectiveSyntax>()
+            .Where(directive => directive.Alias is not null && RightmostName(directive.Name) == "Uri");
+
+        foreach (var directive in aliases)
+            names.Add(directive.Alias!.Name.Identifier.Text);
 
         return names;
     }
@@ -880,15 +881,22 @@ public sealed class GallerySampleLintTests
             .SelectMany(field => field.Declaration.Variables)
             .ToList();
 
+        // Materialised once, outside the fixed-point loop: the filter is a property of the syntax
+        // and cannot change, while `names` below grows on every pass and must stay inside.
+        var initialized = constants.Concat(staticReadonly)
+            .Where(declarator => declarator.Initializer?.Value is not null)
+            .ToList();
+
         bool grew;
         do
         {
             grew = false;
 
-            foreach (var declarator in constants.Concat(staticReadonly))
+            foreach (var declarator in initialized)
             {
                 if (names.Contains(declarator.Identifier.Text)) continue;
-                if (declarator.Initializer?.Value is not { } value) continue;
+
+                var value = declarator.Initializer!.Value;
 
                 var accepted = IsCompileTimeValue(value, names)
                                || (value is BaseObjectCreationExpressionSyntax creation
@@ -921,13 +929,14 @@ public sealed class GallerySampleLintTests
         {
             var names = AcceptedNames(creation, uriTypeNames);
 
-            foreach (var argument in UrlArguments(creation))
-            {
-                if (IsCompileTimeValue(argument, names)) continue;
+            // First offending argument only — one finding per site reads better than one per
+            // argument, and `new Uri(base, relative)` would otherwise report twice.
+            var runtime = UrlArguments(creation)
+                .Where(argument => !IsCompileTimeValue(argument, names))
+                .Take(1);
 
+            foreach (var argument in runtime)
                 offenders.Add((creation, argument));
-                break;
-            }
         }
 
         return offenders;
@@ -955,15 +964,25 @@ public sealed class GallerySampleLintTests
         }
 
         // Pinned per file rather than as a tree-wide floor: a floor stays green when one of the
-        // sites it was counting is deleted, so it fails the repo's deletion test. These two are the
-        // gallery's only `new Uri(...)` pages, and naming them means a loader that quietly stopped
-        // reading a page — or a type check that stopped recognising a construction — reddens here
-        // instead of reporting a clean tree it never looked at.
-        var webView2 = recognized.SingleOrDefault(e => e.Key.EndsWith("WebView2Page.cs", global::System.StringComparison.OrdinalIgnoreCase));
-        var hyperlink = recognized.SingleOrDefault(e => e.Key.EndsWith("HyperlinkButtonPage.cs", global::System.StringComparison.OrdinalIgnoreCase));
+        // sites it was counting is deleted, so it fails the repo's deletion test. Naming the files
+        // means a loader that quietly stopped reading a page — or a type check that stopped
+        // recognising a construction — reddens here instead of reporting a clean tree it never
+        // looked at.
+        //
+        // Compared as a set, not as two counts. Two counts leave the door open: a third page could
+        // introduce an unpinned `new Uri(...)` site and both would still hold, so the claim that
+        // these are the only such pages would quietly stop being true. Asserting the whole set
+        // makes it true by construction, and reddens in either direction — a site added, or one
+        // the detector stopped recognising.
+        string[] expected = ["HyperlinkButtonPage.cs=1", "WebView2Page.cs=3"];
 
-        Assert.True(webView2.Value == 3, $"expected 3 recognised `new Uri(...)` sites in WebView2Page.cs, saw {webView2.Value}");
-        Assert.True(hyperlink.Value == 1, $"expected 1 recognised `new Uri(...)` site in HyperlinkButtonPage.cs, saw {hyperlink.Value}");
+        var actual = recognized
+            .Where(entry => entry.Value > 0)
+            .Select(entry => global::System.IO.Path.GetFileName(entry.Key) + "=" + entry.Value)
+            .OrderBy(name => name, global::System.StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(expected, actual);
         Assert.True(offenders.Count == 0, string.Join("\n", offenders));
     }
 
