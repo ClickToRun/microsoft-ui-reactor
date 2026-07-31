@@ -32,16 +32,21 @@ namespace Microsoft.UI.Reactor.Tests.Tooling;
 /// stale or broad enough to resolve anything.</item>
 /// </list>
 ///
-/// <para><b>What this deliberately cannot catch, and why that is the right answer.</b> Four of the
-/// twelve instances #941 fixed are the snippet <em>omitting</em> something — a <c>.Padding(16)</c>,
-/// a <c>UseMemo</c> seed, two of five columns. Catching those needs structural comparison of matched
-/// sub-expressions, and the "Basic ItemsView" card proves that cannot coexist with a clean tree: its
-/// snippet deliberately drops a whole <c>TextBlock</c>, a <c>.Foreground(...)</c>, <c>.Padding(12)</c>,
-/// <c>.Background(...)</c>, <c>.CornerRadius(...)</c> and <c>.Margin(4)</c> from a chain it otherwise
-/// reproduces exactly. Any rule strong enough to flag the missing <c>.Padding(16)</c> fires on that
-/// card. The same argument rules out comparing named-argument values, which the DataGrid card would
-/// trip by expanding <c>columns: Columns()</c> into a literal array. So this file checks invention,
-/// not omission, and says so rather than pretending the gap is a bug.</para>
+/// <para><b>What this deliberately cannot catch, and why.</b> Four of the twelve instances #941
+/// fixed are the snippet <em>omitting</em> something — a <c>.Padding(16)</c>, a <c>UseMemo</c>
+/// seed, two of five columns. Catching those needs structural comparison of matched
+/// sub-expressions, and the "Basic ItemsView" card is why that is not free: its snippet
+/// deliberately drops a whole <c>TextBlock</c>, a <c>.Foreground(...)</c>, <c>.Padding(12)</c>,
+/// <c>.Background(...)</c>, <c>.CornerRadius(...)</c> and <c>.Margin(4)</c> from a chain it
+/// otherwise reproduces. A naive "every live modifier must appear" rule fires on that card, and
+/// with no allowlist that is a blocked tree. A narrower comparator could in principle separate
+/// the two — TabView's omission sat under an otherwise identical <c>Tab(t, TextBlock(...))</c>
+/// chain, whereas Basic ItemsView diverges in argument structure first — so this is a precision
+/// trade-off, not an impossibility. It is left out because that comparator carries its own
+/// false-positive surface across 214 cards and buys a defect class this one does not cover.
+/// The same reasoning applies to comparing named-argument values, which the DataGrid card would
+/// trip by expanding <c>columns: Columns()</c> into a literal array. So this file checks
+/// invention, not omission, and says so rather than pretending the gap is a bug.</para>
 ///
 /// <para>Roslyn parses page sources as text — no gallery build, no WinUI objects — so this stays in
 /// the headless unit tier. Snippets are fragments with deliberately missing semicolons and
@@ -287,7 +292,17 @@ public sealed class GallerySnippetAgreementTests
     /// Scoping this per card rather than page-wide matters: a local bound inside a sibling card's
     /// lambda is not reachable from here, and crediting it would let one card's name legitimise
     /// another card's stale snippet. It is still deliberately coarse within those two regions — a
-    /// name bound anywhere in them counts — so the rule errs towards silence.
+    /// name bound anywhere in them counts, including a page helper's parameters, which are not
+    /// lexically in scope at the card.
+    ///
+    /// That coarseness is load-bearing, not an oversight. Narrowing "outside any card" to "lexically
+    /// visible from this card" was tried and reverted: it reports two correct cards and no real
+    /// drift. ListView's "Animated edit" reproduces the body of the page's <c>Mutate</c> helper and
+    /// elides its signature as <c>void Mutate(...)</c>, so its <c>change</c> parameter is genuinely
+    /// the name beside it; SpacingPage's "Margin" uses <c>element.Margin(16)</c> as deliberate
+    /// pseudocode. With no allowlist, that precision costs two rewritten-worse snippets to buy a
+    /// class of miss — a name that only resolves through an unrelated helper — that has never
+    /// actually hidden a defect here. Silence is the cheaper error.
     /// </remarks>
     static HashSet<string> LiveNamesFor(SyntaxNode pageRoot, InvocationExpressionSyntax card, IReadOnlyList<InvocationExpressionSyntax> allCards)
     {
@@ -396,6 +411,11 @@ public sealed class GallerySnippetAgreementTests
     /// changed and the snippet did not — but the binder credits both names and says nothing.
     /// </summary>
     /// <remarks>
+    /// Restricted to the <c>(x, setX)</c> pair shape, because that convention is what makes "half"
+    /// mean anything: the two names come from one <c>UseState</c> and move together. An ordinary
+    /// tuple gives no such guarantee, so one of its names coinciding with an unrelated live name
+    /// would convict its sibling — a false positive, and with no allowlist, a blocked tree.
+    ///
     /// This rule is the one part of the file with no shipped defect behind it, and that is
     /// deliberate. <c>c5d4bbd2</c> is the near miss: it moved the Basic BreadcrumbBar card from
     /// <c>var (path, setPath) = UseState(...)</c> to <c>var path = UseMemo(...)</c>. It changed the
@@ -418,6 +438,7 @@ public sealed class GallerySnippetAgreementTests
                 .ToList();
 
             if (names.Count < 2) continue;
+            if (!IsStatePair(names)) continue;
 
             var present = names.Count(live.Contains);
             if (present == 0 || present == names.Count) continue;
@@ -425,6 +446,25 @@ public sealed class GallerySnippetAgreementTests
             foreach (var missing in names.Where(n => !live.Contains(n)))
                 yield return new Finding(title, missing, lineOf(designation), pageLine, FindingKind.HalfSynced);
         }
+    }
+
+    /// <summary>
+    /// Whether a deconstruction is a <c>UseState</c>-shaped <c>(x, setX)</c> pair — the only shape
+    /// this rule is sound for. A pair moves together or not at all, so half of it is drift. An
+    /// ordinary tuple carries no such contract: one of its names matching something unrelated that
+    /// happens to be live would otherwise convict its sibling.
+    /// </summary>
+    static bool IsStatePair(List<string> names)
+    {
+        foreach (var setter in names.Where(n =>
+            n.Length > 3 && n.StartsWith("set", global::System.StringComparison.Ordinal) && char.IsUpper(n[3])))
+        {
+            var value = char.ToLowerInvariant(setter[3]) + setter[4..];
+            if (names.Contains(value, global::System.StringComparer.Ordinal))
+                return true;
+        }
+
+        return false;
     }
 
     // ── the gate ─────────────────────────────────────────────────────────────
@@ -783,6 +823,22 @@ public sealed class GallerySnippetAgreementTests
 
         AssertReported("wholly renamed", live, sample, snippet, []);
         AssertReportedWithProbe("wholly renamed", live, sample, snippet, []);
+    }
+
+    /// <summary>
+    /// The half-synced rule only speaks about <c>(x, setX)</c> state pairs. An ordinary tuple can
+    /// share one name with something unrelated that is live — here the card's own <c>row</c> — and
+    /// reporting its sibling on that basis would block a tree the snippet describes correctly.
+    /// </summary>
+    [Fact]
+    public void NonStateTupleSharingOneLiveName_IsNotReported()
+    {
+        const string live = "        var row = Rows();";
+        const string sample = "            TextBlock(row.Name)";
+        const string snippet = "var (row, count) = Rows().Pair();\nTextBlock($\"{row.Name} of {count}\")";
+
+        AssertReported("non-state tuple", live, sample, snippet, []);
+        AssertReportedWithProbe("non-state tuple", live, sample, snippet, []);
     }
 
     // Each row below decides report-vs-skip for one construct. `expected` is empty when the
