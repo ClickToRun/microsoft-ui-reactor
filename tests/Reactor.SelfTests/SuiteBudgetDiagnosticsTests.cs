@@ -465,22 +465,41 @@ public class SuiteBudgetDiagnosticsTests
     /// degrade to "no report", never to an exception. A throw here would convert a perfectly
     /// healthy suite into a red build — worse than the silence being fixed.
     /// </summary>
+    /// <remarks>
+    /// The unwritable case is a missing directory under the machine's own temp path, not a drive
+    /// letter. A drive letter is an assumption about the environment rather than a property of the
+    /// code: on a box where it happens to be mapped the write succeeds, and this test goes red on a
+    /// <c>TryAppendSummary</c> that behaved correctly. That is the same environment-dependent
+    /// false accusation issue #988 is about, so it does not belong in the fix for it. A freshly
+    /// named subdirectory that was never created cannot exist anywhere.
+    /// </remarks>
     [TestMethod]
     public void StepSummary_DegradesQuietlyWhenTheChannelIsUnusable()
     {
+        var missingDir = global::System.IO.Path.Join(
+            global::System.IO.Path.GetTempPath(), $"reactor-988-absent-{Guid.NewGuid():N}");
+
+        Assert.IsFalse(global::System.IO.Directory.Exists(missingDir),
+            "Guard on the premise: this case only tests anything if the directory really is absent.");
+
+        var underMissingDir = global::System.IO.Path.Join(missingDir, "summary.md");
+
         foreach (var unusable in new[]
                  {
-                     null,                                      // not running under Actions
+                     null,             // not running under Actions
                      "",
                      "   ",
-                     @"Z:\no-such-drive\reactor-988\summary.md", // path that cannot be written
-                     "\0invalid",                                // rejected by the filesystem APIs
+                     underMissingDir,  // parent directory does not exist
+                     "\0invalid",      // rejected by the filesystem APIs
                  })
         {
             Assert.IsFalse(SelfTestBatch.TryAppendSummary(unusable, "IRRELEVANT"),
                 $"'{unusable ?? "<null>"}' is not a usable summary path, so the write must report " +
                 $"failure rather than claim success.");
         }
+
+        Assert.IsFalse(global::System.IO.Directory.Exists(missingDir),
+            "A diagnostic channel must not create directories as a side effect of failing.");
     }
 
     // ---------------------------------------------------------------- host elapsed parsing
