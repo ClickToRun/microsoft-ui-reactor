@@ -387,7 +387,7 @@ public class CompileCaptureSkipTests
         {
             var stdout = Console.Out;
             var stderr = Console.Error;
-            var buffer = new StringWriter();
+            using var buffer = new StringWriter();
             try
             {
                 global::System.IO.Directory.SetCurrentDirectory(_root);

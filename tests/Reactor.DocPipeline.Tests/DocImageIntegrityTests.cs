@@ -187,7 +187,7 @@ public class DocImageIntegrityTests
                 continue;
             }
 
-            var ratio = (double)content / (region.Width * (long)region.Height);
+            var ratio = (double)content / ((double)region.Width * region.Height);
             if (ratio < minRatio)
             {
                 minRatio = ratio;

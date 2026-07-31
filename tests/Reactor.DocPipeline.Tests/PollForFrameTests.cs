@@ -55,6 +55,7 @@ public class PollForFrameTests
         var got = await ScreenshotCapture.PollForFrame(http, server.Port, Deadline, requireContent: true);
 
         _output.WriteLine($"accepted={server.Accepted} served={server.Served}");
+        Assert.Null(server.Fault);
         Assert.Equal(painted, got);
         Assert.NotEqual(blank, got);
         // Exactly three requests: two blanks held out, then the painted frame.
@@ -79,6 +80,7 @@ public class PollForFrameTests
 
         var got = await ScreenshotCapture.PollForFrame(http, server.Port, Deadline, requireContent: false);
 
+        Assert.Null(server.Fault);
         Assert.Equal(blank, got);
     }
 
@@ -99,6 +101,7 @@ public class PollForFrameTests
         var got = await ScreenshotCapture.PollForFrame(
             http, server.Port, TimeSpan.FromMilliseconds(600), requireContent: true);
 
+        Assert.Null(server.Fault);
         Assert.Equal(blank, got);
         Assert.NotEmpty(got);
         Assert.Throws<BlankFrameException>(
@@ -119,6 +122,7 @@ public class PollForFrameTests
 
         var got = await ScreenshotCapture.PollForFrame(http, server.Port, Deadline, requireContent: true);
 
+        Assert.Null(server.Fault);
         Assert.Equal(painted, got);
     }
 
@@ -167,6 +171,7 @@ public class PollForFrameTests
         private readonly CancellationTokenSource _cts = new();
         private int _served;
         private int _accepted;
+        private Exception? _fault;
 
         public FrameServer(IReadOnlyList<byte[]> bodies)
         {
@@ -189,6 +194,16 @@ public class PollForFrameTests
         /// ordinal-keyed fixture would have mis-served the sequence.
         /// </summary>
         public int Accepted => Volatile.Read(ref _accepted);
+
+        /// <summary>
+        /// First exception the accept loop hit that was <em>not</em> explained by
+        /// teardown, or null. The loop runs detached on a background task, so
+        /// without this a genuine socket/IO fault would be swallowed and the test
+        /// would report only the downstream symptom — a served count that is
+        /// mysteriously short — with no trace of the cause. Tests assert this is
+        /// null, which is what makes the shutdown catches safe to keep quiet.
+        /// </summary>
+        public Exception? Fault => Volatile.Read(ref _fault);
 
         private async Task AcceptLoop()
         {
@@ -215,10 +230,19 @@ public class PollForFrameTests
                     await stream.FlushAsync(_cts.Token);
                 }
             }
-            catch (OperationCanceledException) { }
-            catch (SocketException) { }
-            catch (global::System.IO.IOException) { }
-            catch (global::System.ObjectDisposedException) { }
+            catch (Exception ex) when (ex is OperationCanceledException or SocketException
+                                          or global::System.IO.IOException
+                                          or global::System.ObjectDisposedException)
+            {
+                // These four are exactly what Dispose() produces: cancelling the
+                // token, then stopping the listener, races the pending accept and
+                // any in-flight write. Silent only when teardown explains them —
+                // outside teardown the same exception means a real transport
+                // failure, and the loop is detached, so it is recorded for the
+                // test to assert on rather than dropped.
+                if (!_cts.IsCancellationRequested)
+                    Interlocked.CompareExchange(ref _fault, ex, null);
+            }
         }
 
         /// <summary>

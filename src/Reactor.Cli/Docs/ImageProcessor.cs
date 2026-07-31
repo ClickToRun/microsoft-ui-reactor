@@ -161,9 +161,16 @@ internal static class ImageProcessor
             // pixel and reads a row at a time.
             return HasContentPixel(bmp, new Rectangle(0, 0, bmp.Width, bmp.Height));
         }
-        catch (ArgumentException)
+        catch (Exception ex) when (ex is ArgumentException or OutOfMemoryException
+                                      or global::System.Runtime.InteropServices.ExternalException)
         {
             // GDI+ rejected the bytes — let the caller's normal path report it.
+            // All three arms mean the same thing here: GDI+ signals a corrupt or
+            // unsupported image as ArgumentException *or* ExternalException
+            // depending on the fault, and famously reports a malformed decode as
+            // OutOfMemoryException with no memory pressure involved. This runs
+            // inside the capture poll loop, so letting any of them escape would
+            // abort the whole pass on one bad frame rather than polling again.
             return true;
         }
     }

@@ -244,7 +244,11 @@ internal static class DiagramProcessor
             while (normalized.StartsWith("../", StringComparison.Ordinal))
                 normalized = normalized["../".Length..];
 
-            var full = Path.GetFullPath(Path.Combine(
+            // Path.Join rather than Path.Combine: Combine drops everything before
+            // a rooted segment, which would hand IsUnder an absolute path derived
+            // entirely from page content. Join keeps the base, so the containment
+            // check below stays the thing that decides.
+            var full = Path.GetFullPath(Path.Join(
                 imagesFull, "..", normalized.Replace('/', Path.DirectorySeparatorChar)));
 
             // Anything that still resolves outside the images tree is a

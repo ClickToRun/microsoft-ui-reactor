@@ -178,7 +178,12 @@ internal static class ScreenshotCapture
                     // a full-size screenshot of the same id (spec 041 §6.3 + §12 Q7).
                     var isThumb = string.Equals(screenshot.Kind, "catalog-thumb", StringComparison.OrdinalIgnoreCase);
                     var fileBase = isThumb ? $"{screenshot.Id}{ImageProcessor.ThumbSuffix}" : screenshot.Id;
-                    outputPath = Path.GetFullPath(Path.Combine(topicDir, $"{fileBase}.{screenshot.Format}"));
+                    // Path.Join, not Path.Combine: Combine silently discards the
+                    // base when a later segment is rooted, so a manifest id like
+                    // "C:/x" would place the file outside topicDir *before* the
+                    // containment check below could see it. Join concatenates
+                    // unconditionally, leaving the guard as the decider.
+                    outputPath = Path.GetFullPath(Path.Join(topicDir, $"{fileBase}.{screenshot.Format}"));
                     if (!outputPath.StartsWith(Path.GetFullPath(topicDir) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                         throw new InvalidOperationException($"Screenshot id '{screenshot.Id}' would escape output directory");
                     ProcessAndWrite(frameBytes, outputPath, screenshot);
@@ -195,13 +200,22 @@ internal static class ScreenshotCapture
                 }
                 catch (Exception ex) when (ex is HttpRequestException or IOException
                                              or InvalidOperationException or ArgumentException
-                                             or TaskCanceledException)
+                                             or TaskCanceledException or OutOfMemoryException
+                                             or global::System.Runtime.InteropServices.ExternalException)
                 {
                     // ArgumentException covers a malformed manifest (unknown
                     // crop mode) and a frame the processor rejects (non-image
                     // bytes, over the size/dimension cap). Those used to escape
                     // CaptureAsync entirely, aborting the pass mid-topic and
                     // leaving the remaining screenshots uncounted.
+                    //
+                    // ExternalException/OutOfMemoryException are the other two
+                    // faces GDI+ shows for a corrupt frame — Bitmap.Save and the
+                    // Graphics operations in ProcessAndWrite raise them, and the
+                    // OOM one carries no memory-pressure meaning. Without them
+                    // the Written/Failed contract this method now advertises
+                    // would silently not hold for exactly the malformed input
+                    // this PR exists to handle.
                     Console.Error.WriteLine($" ✗ {ex}");
                     failed++;
                 }
