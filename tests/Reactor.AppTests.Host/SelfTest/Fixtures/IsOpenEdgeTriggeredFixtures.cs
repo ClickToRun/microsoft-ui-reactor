@@ -440,8 +440,20 @@ internal static class IsOpenEdgeTriggeredFixtures
             // "a later write on an unparented tip discards the pending open" trap the issue's
             // descriptor bisect pinned. Without it the rising edge is effectively the last
             // write of the pass and would survive with no deferral, making this vacuous.
-            static TeachingTipElement Declared(bool isOpen, WinUI.TeachingTipPlacementMode placement) =>
-                new("Opened before load") { IsOpen = isOpen, PreferredPlacement = placement };
+            //
+            // OnClosed is load-bearing too, for a different reason. This path arms the deferral
+            // via GetOrCreateControlEventPayload AFTER the .HandCodedEvent entries have already
+            // wired ClosedTrampoline into the same payload box. That API replaces the box on a
+            // HandlerType mismatch, so a regression there would silently drop the user's
+            // callback. Counting Closed makes that failure visible instead of invisible.
+            int closed = 0;
+            TeachingTipElement Declared(bool isOpen, WinUI.TeachingTipPlacementMode placement) =>
+                new("Opened before load")
+                {
+                    IsOpen = isOpen,
+                    PreferredPlacement = placement,
+                    OnClosed = () => closed++,
+                };
 
             var mounted = Declared(isOpen: false, WinUI.TeachingTipPlacementMode.Auto);
             if (rec.Mount(mounted, _noOp) is not WinUI.TeachingTip tip)
@@ -459,7 +471,13 @@ internal static class IsOpenEdgeTriggeredFixtures
             H.Check("MountOpen_TeachingTip_RisingEdgeBeforeLoadOpensOnLoad",
                 await Harness.WaitFor(() => tip.IsOpen, maxPasses: 40, perPassMs: 25));
 
+            // Let the entrance transition finish, then close through the declared value: Closed
+            // must still reach the callback that was wired before the arm touched the payload.
+            await Harness.Render(PresentDwellMs);
             rec.UpdateChild(opened, Declared(isOpen: false, WinUI.TeachingTipPlacementMode.Bottom), tip, _noOp);
+            var closedFired = await Harness.WaitFor(() => closed > 0, maxPasses: 60, perPassMs: 25);
+            H.Check("MountOpen_TeachingTip_ArmingDoesNotClobberTheClosedTrampoline", closedFired);
+
             await CloseAndSettle(rec, tip);
             parent.Children.Clear();
         }
