@@ -57,7 +57,7 @@ dotnet-coverage merge coverage\unit.cobertura.xml coverage\selftest.cobertura.xm
 ```
 
 Known flakes to ignore (not your regression): `CenterOnCurrent_UsesCursorMonitor`,
-`PersistPlacement_FallbackWhenEmpty`, `PersistenceEtwBridgeTests.JsonFileStore_*`.
+`PersistPlacement_FallbackWhenEmpty`.
 
 ### 2. Classify each gap by tier
 
