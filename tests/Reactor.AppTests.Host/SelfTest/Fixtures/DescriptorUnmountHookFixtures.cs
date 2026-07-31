@@ -43,9 +43,11 @@ internal static class DescriptorUnmountHookFixtures
 
     private sealed class HookHandler : DescriptorHandler<UnmountHookProbe, TextBlock>
     {
-        public HookHandler() : base(Descriptor) { }
+        public HookHandler() : base(HookDescriptor) { }
 
-        private static readonly ControlDescriptor<UnmountHookProbe, TextBlock> Descriptor =
+        // Named to avoid hiding DescriptorHandler<,>.Descriptor (CS0108 — a warning locally,
+        // an error under CI's warnings-as-errors).
+        private static readonly ControlDescriptor<UnmountHookProbe, TextBlock> HookDescriptor =
             new ControlDescriptor<UnmountHookProbe, TextBlock>()
                 .WithUnmount(static (in UnmountContext _, TextBlock _) => _unmountCalls++);
     }
