@@ -150,16 +150,16 @@ class SpacingPage : Component
             ),
             @"// Margin — works on ALL elements
 TextBlock(""Hello"").Margin(8)
-VStack(children).Margin(16)
-Border(child).Margin(12)
+VStack(8, TextBlock(""One""), TextBlock(""Two"")).Margin(16)
+Border(TextBlock(""Content"")).Margin(12)
 
 // Padding — only on Border and Control (Button, TextBox, etc.)
-Border(child).Padding(16)    // ✓ works
+Border(TextBlock(""Content"")).Padding(16)    // ✓ works
 Button(""Go"").Padding(12)    // ✓ works
 
 // VStack/HStack don't support Padding — wrap in Border instead:
 Border(
-    VStack(8, items)
+    VStack(8, TextBlock(""One""), TextBlock(""Two""))
 ).Padding(16)  // ✓ padding applied to the Border");
 
     static Element CompatRow(string element, bool margin, bool padding) =>
@@ -245,13 +245,13 @@ element.Margin(4, 8, 16, 24)");
                 PaddingDemo("Per-side (4, 8, 16, 24)", 4, 8, 16, 24)
             ),
             @"// Uniform — same on all sides
-Border(child).Padding(16)
+Border(TextBlock(""Content"")).Padding(16)
 
 // Horizontal, Vertical
-Border(child).Padding(horizontal: 24, vertical: 8)
+Border(TextBlock(""Content"")).Padding(horizontal: 24, vertical: 8)
 
 // Per-side: left, top, right, bottom
-Border(child).Padding(4, 8, 16, 24)");
+Border(TextBlock(""Content"")).Padding(4, 8, 16, 24)");
 
     static Element PaddingDemo(string label, double l, double t, double r, double b) =>
         VStack(2,

@@ -52,8 +52,8 @@ var controlRadius = ThemeResource.CornerRadius(""ControlCornerRadius"");
 var overlayRadius = ThemeResource.CornerRadius(""OverlayCornerRadius"");
 
 // Apply to elements
-Border(content).CornerRadius(controlRadius.TopLeft)
-Border(dialog).CornerRadius(overlayRadius.TopLeft)");
+Border(TextBlock(""Standard control"")).CornerRadius(controlRadius.TopLeft)
+Border(TextBlock(""Dialog surface"")).CornerRadius(overlayRadius.TopLeft)");
 
     static Element RadiusRow(RadiusEntry entry) =>
         Border(
@@ -159,10 +159,10 @@ Border(dialog).CornerRadius(overlayRadius.TopLeft)");
 Button(""Standard"", () => { }).CornerRadius(cr.TopLeft)
 
 // Text input
-TextBox(""Placeholder"", value, onChange).CornerRadius(cr.TopLeft)
+TextBox("""", placeholderText: ""Type here..."").CornerRadius(cr.TopLeft)
 
 // Card
-Border(content)
+Border(VStack(4, TextBlock(""Card Title"").SemiBold()).Margin(16))
     .Background(Theme.CardBackground)
     .WithBorder(Theme.CardStroke)
     .CornerRadius(cr.TopLeft)
@@ -246,19 +246,19 @@ Border(TextBlock(""Tag"").Padding(6, 2, 6, 2))
             @"var or = ThemeResource.CornerRadius(""OverlayCornerRadius"");
 
 // Dialog
-Border(dialogContent)
+Border(VStack(12, TextBlock(""Delete file?"").SemiBold()).Margin(24))
     .Background(Theme.LayerFill)
     .WithBorder(Theme.SurfaceStroke)
     .CornerRadius(or.TopLeft)
 
 // Flyout / Menu
-Border(menuItems)
+Border(VStack(2, FlyoutMenuItem(""Cut"", ""\uE8C6""), FlyoutMenuItem(""Copy"", ""\uE8C8"")).Margin(4))
     .Background(Theme.LayerFill)
     .WithBorder(Theme.SurfaceStroke)
     .CornerRadius(or.TopLeft)
 
 // Teaching Tip
-Border(tipContent)
+Border(VStack(8, TextBlock(""Did you know?"").SemiBold()).Margin(20))
     .Background(Theme.LayerFill)
     .WithBorder(Theme.SurfaceStroke)
     .CornerRadius(or.TopLeft)");
@@ -317,8 +317,8 @@ var or = ThemeResource.CornerRadius(""OverlayCornerRadius"");
 // Overlay container with control-radius inner elements
 Border(
     VStack(12,
-        TextBox(""Username"", value, onChange).CornerRadius(cr.TopLeft),
-        Button(""Sign In"", onClick)
+        TextBox("""", placeholderText: ""Username"").CornerRadius(cr.TopLeft),
+        Button(""Sign In"", () => { })
             .Background(Theme.Accent)
             .CornerRadius(cr.TopLeft)
     ).Margin(24)

@@ -37,9 +37,12 @@ class ShapesPage : Component
                     Tile("Rounded", Rectangle().Width(80).Height(56).Fill(new SolidColorBrush(Colors.SeaGreen))
                         .Set(r => { r.RadiusX = 14; r.RadiusY = 14; }))),
                 sourceCode: @"
-Rectangle().Width(80).Height(56).Fill(accentBrush)
-Ellipse().Width(72).Height(56).Fill(purpleBrush)
-Rectangle().Width(80).Height(56).Fill(greenBrush)
+var accent = new SolidColorBrush(Colors.SteelBlue);
+var fill = new SolidColorBrush(Colors.MediumPurple);
+
+Rectangle().Width(80).Height(56).Fill(accent)
+Ellipse().Width(72).Height(56).Fill(fill)
+Rectangle().Width(80).Height(56).Fill(new SolidColorBrush(Colors.SeaGreen))
     .Set(r => { r.RadiusX = 14; r.RadiusY = 14; })   // shapes round via RadiusX/Y, not .CornerRadius
 "),
 
@@ -48,7 +51,7 @@ Rectangle().Width(80).Height(56).Fill(greenBrush)
                     Tile("Line", Line(10, 10, 100, 70).Stroke(accent).StrokeThickness(4)),
                     Tile("Path", Path2D().Fill(new SolidColorBrush(Colors.OrangeRed)).Set(p => p.Data = triangle))),
                 sourceCode: @"
-Line(10, 10, 100, 70).Stroke(brush).StrokeThickness(4)
+Line(10, 10, 100, 70).Stroke(accent).StrokeThickness(4)
 
 // Path2D draws an arbitrary Geometry:
 var triangle = new PathGeometry();
@@ -56,7 +59,7 @@ var figure = new PathFigure { StartPoint = new Point(10, 70), IsClosed = true };
 figure.Segments.Add(new LineSegment { Point = new Point(50, 10) });
 figure.Segments.Add(new LineSegment { Point = new Point(90, 70) });
 triangle.Figures.Add(figure);
-Path2D().Fill(brush).Set(p => p.Data = triangle)
+Path2D().Fill(new SolidColorBrush(Colors.OrangeRed)).Set(p => p.Data = triangle)
 ")
         ).Margin(36, 24, 36, 36));
     }

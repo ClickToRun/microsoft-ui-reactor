@@ -213,7 +213,7 @@
         {
           "header": "Basic Button — .Click(handler)",
           "language": "csharp",
-          "code": "Button(\"Save\").Click(() => setOutput(\"Saved!\"))"
+          "code": "Button(\"Save\").Click(() => setBasicOutput(\"Saved!\"))"
         }
       ]
     },
@@ -318,7 +318,7 @@
         {
           "header": "Override defaults via chained fluents",
           "language": "csharp",
-          "code": "Card(child).Padding(24).CornerRadius(16)"
+          "code": "Card(VStack(8, BodyStrong(\"Custom padding & radius\"), Body(\"...\"))).Padding(24).CornerRadius(16)"
         }
       ]
     },
@@ -375,7 +375,7 @@
         {
           "header": "Applying Theme Colors",
           "language": "csharp",
-          "code": "// Foreground\nTextBlock(\"Accent text\").Foreground(Theme.Accent)\nTextBlock(\"Primary\").Foreground(Theme.PrimaryText)\nTextBlock(\"Secondary\").Foreground(Theme.SecondaryText)\nTextBlock(\"Hyperlink\").Foreground(Theme.AccentText)\n\n// Background\nBorder(content)\n    .Background(Theme.CardBackground)\n    .WithBorder(Theme.CardStroke)\n    .CornerRadius(6)\n\nBorder(content)\n    .Background(Theme.Accent)  // accent-filled button\n\n// Border & Stroke\nBorder(content)\n    .WithBorder(Theme.ControlStroke)\n\nBorder(VStack()).Height(1)\n    .Background(Theme.DividerStroke)  // horizontal divider\n\n// System Signal\nBorder(HStack(icon, message))\n    .Background(Theme.SystemSuccessBackground)"
+          "code": "// Foreground\nTextBlock(\"Accent text\").Foreground(Theme.Accent)\nTextBlock(\"Primary\").Foreground(Theme.PrimaryText)\nTextBlock(\"Secondary\").Foreground(Theme.SecondaryText)\nTextBlock(\"Hyperlink\").Foreground(Theme.AccentText)\n\n// Background\nBorder(TextBlock(\"Card surface\"))\n    .Background(Theme.CardBackground)\n    .WithBorder(Theme.CardStroke)\n    .CornerRadius(6)\n\nBorder(TextBlock(\"Accent surface\"))\n    .Background(Theme.Accent)  // accent-filled button\n\n// Border & Stroke\nBorder(TextBlock(\"ControlStroke border\"))\n    .WithBorder(Theme.ControlStroke)\n\nBorder(VStack()).Height(1)\n    .Background(Theme.DividerStroke)  // horizontal divider\n\n// System Signal\nBorder(HStack(8, TextBlock(\"\\uE930\").Foreground(Theme.SystemSuccess), TextBlock(\"Operation completed successfully\")))\n    .Background(Theme.SystemSuccessBackground)"
         }
       ]
     },
@@ -457,7 +457,7 @@
         {
           "header": "Primary Commands",
           "language": "csharp",
-          "code": "CommandBar(primaryCommands: new AppBarItemBase[] {\n    AppBarButton(\"Add\", () => setAction(\"Add\"), icon: \"Add\"),\n    AppBarButton(\"Edit\", () => setAction(\"Edit\"), icon: \"Edit\"),\n    AppBarSeparator(),\n    AppBarButton(\"Delete\", () => setAction(\"Delete\"), icon: \"Delete\"),\n})"
+          "code": "CommandBar(primaryCommands: new AppBarItemBase[] {\n    AppBarButton(\"Add\", () => setLastAction(\"Add\"), icon: \"Add\"),\n    AppBarButton(\"Edit\", () => setLastAction(\"Edit\"), icon: \"Edit\"),\n    AppBarSeparator(),\n    AppBarButton(\"Delete\", () => setLastAction(\"Delete\"), icon: \"Delete\"),\n})"
         }
       ]
     },
@@ -539,7 +539,7 @@
         {
           "header": "Basic Dialog",
           "language": "csharp",
-          "code": "Button(\"Show Dialog\", () => setShow(true)),\nContentDialog(\"Welcome\", TextBlock(\"Thank you!\"), \"OK\") with {\n    IsOpen = show,\n    OnClosed = _ => setShow(false),\n}"
+          "code": "Button(\"Show Dialog\", () => setShowBasic(true)),\nContentDialog(\"Welcome\", TextBlock(\"Thank you!\"), \"OK\") with {\n    IsOpen = showBasic,\n    OnClosed = _ => setShowBasic(false),\n}"
         }
       ]
     },
@@ -575,7 +575,7 @@
         {
           "header": "Columns, sorting, selection & cell editing",
           "language": "csharp",
-          "code": "// Memoize the source so the grid isn't remounted on every render\n// (DataGrid keys off source.GetHashCode()).\nvar source = UseMemo(() => new ListDataSource<Product>(products, p => (RowKey)p.Id));\n\nDataGrid(\n    source: source,\n    columns: new FieldDescriptor[]\n    {\n        Column<Product>(\"Id\", p => p.Id, width: 60),                   // read-only\n        Column<Product>(\"Name\", p => p.Name, editable: true, displayName: \"Product\", width: 200),\n        Column<Product>(\"Category\", p => p.Category, editable: true, width: 140),\n        Column<Product>(\"Price\", p => p.Price, editable: true, format: \"C2\", width: 100),\n        Column<Product>(\"InStock\", p => p.InStock, displayName: \"In stock\", width: 90),\n    },\n    selectionMode: selection,             // driven by the Options combo below\n    onSelectionChanged: keys => setSelectedCount(keys.Count),\n    editable: true,                       // grid-level opt-in; columns opt in individually\n    editMode: EditMode.Cell,\n    onRowChanged: (key, item) =>          // called inline on the UI thread by UseMutation\n    {\n        setLastCellEdit($\"row {key.Value} → {item.Name} / {item.Category} / {item.Price:C2}\");\n        return Task.CompletedTask;\n    },\n    rowHeight: 36)\n// Click a header to sort. Columns can be reordered and resized by dragging."
+          "code": "// Memoize the source so the grid isn't remounted on every render\n// (DataGrid keys off source.GetHashCode()).\nvar source = UseMemo(() => new ListDataSource<Product>(BuildProducts(60), p => (RowKey)p.Id));\n\nDataGrid(\n    source: source,\n    columns: new FieldDescriptor[]\n    {\n        Column<Product>(\"Id\", p => p.Id, width: 60),                   // read-only\n        Column<Product>(\"Name\", p => p.Name, editable: true, displayName: \"Product\", width: 200),\n        Column<Product>(\"Category\", p => p.Category, editable: true, width: 140),\n        Column<Product>(\"Price\", p => p.Price, editable: true, format: \"C2\", width: 100),\n        Column<Product>(\"InStock\", p => p.InStock, displayName: \"In stock\", width: 90),\n    },\n    selectionMode: selection,             // driven by the Options combo below\n    onSelectionChanged: keys => setSelectedCount(keys.Count),\n    editable: true,                       // grid-level opt-in; columns opt in individually\n    editMode: EditMode.Cell,\n    onRowChanged: (key, item) =>          // called inline on the UI thread by UseMutation\n    {\n        setLastCellEdit($\"row {key.Value} → {item.Name} / {item.Category} / {item.Price:C2}\");\n        return Task.CompletedTask;\n    },\n    rowHeight: 36)\n// Click a header to sort. Columns can be reordered and resized by dragging."
         }
       ]
     },
@@ -632,7 +632,7 @@
         {
           "header": "Two-pane list / detail",
           "language": "csharp",
-          "code": "new DockManager\n{\n    Layout = new DockSplit(Orientation.Horizontal,\n    [\n        new DockTabGroup([ new DockableContent(\n            Title: \"Items\", Content: ListBox(Items, selected, setSelected), Key: \"items\", CanClose: true) ], Width: 200),\n        new DockTabGroup([ new DockableContent(\n            Title: \"Detail\", Content: detailView, Key: \"detail\", CanClose: true) ]),\n    ]),\n}.WithKey($\"dock-{layoutKey}\").Height(360)\n// Re-key the DockManager to reset the user's drag-modified layout."
+          "code": "new DockManager\n{\n    Layout = new DockSplit(Orientation.Horizontal,\n    [\n        new DockTabGroup([ new DockableContent(\n            Title: \"Items\", Content: ListBox(Items, selected, setSelected), Key: \"items\", CanClose: true) ], Width: 200),\n        new DockTabGroup([ new DockableContent(\n            Title: \"Detail\", Content: VStack(8, TextBlock(Items[selected]).FontSize(22).SemiBold()), Key: \"detail\", CanClose: true) ]),\n    ]),\n}.WithKey($\"dock-{layoutKey}\").Height(360)\n// Re-key the DockManager to reset the user's drag-modified layout."
         }
       ]
     },
@@ -685,7 +685,7 @@
         {
           "header": "Direction Control",
           "language": "csharp",
-          "code": "Expander(\"Header\", content, true)\n    .Direction(ExpandDirection.Up)"
+          "code": "Expander(\"Expand Direction\", VStack(4,\n    TextBlock(\"This content appears based on the direction setting.\")\n), true).Direction(ExpandDirection.Up)"
         }
       ]
     },
@@ -716,7 +716,7 @@
         {
           "header": "Interactive Flex Container",
           "language": "csharp",
-          "code": "// Every axis below is driven by the Options combos, so the\n// snippet tracks whatever the live sample is showing.\nnew FlexElement(children)\n{\n    Direction = direction,\n    JustifyContent = justify,\n    AlignItems = align,\n    Wrap = wrap,\n    ColumnGap = 8,\n    RowGap = 8,\n}"
+          "code": "// Every axis below is driven by the Options combos, so the\n// snippet tracks whatever the live sample is showing.\nFlex(new[] { Box(\"1\", \"#E74C3C\"), Box(\"2\", \"#3498DB\"), Box(\"3\", \"#2ECC71\") }) with\n{\n    Direction = direction,\n    JustifyContent = justify,\n    AlignItems = align,\n    Wrap = wrap,\n    ColumnGap = 8,\n    RowGap = 8,\n}"
         }
       ]
     },
@@ -826,7 +826,7 @@
         {
           "header": "Corner Radius Resources",
           "language": "csharp",
-          "code": "// Resolve at render time\nvar controlRadius = ThemeResource.CornerRadius(\"ControlCornerRadius\");\nvar overlayRadius = ThemeResource.CornerRadius(\"OverlayCornerRadius\");\n\n// Apply to elements\nBorder(content).CornerRadius(controlRadius.TopLeft)\nBorder(dialog).CornerRadius(overlayRadius.TopLeft)"
+          "code": "// Resolve at render time\nvar controlRadius = ThemeResource.CornerRadius(\"ControlCornerRadius\");\nvar overlayRadius = ThemeResource.CornerRadius(\"OverlayCornerRadius\");\n\n// Apply to elements\nBorder(TextBlock(\"Standard control\")).CornerRadius(controlRadius.TopLeft)\nBorder(TextBlock(\"Dialog surface\")).CornerRadius(overlayRadius.TopLeft)"
         }
       ]
     },
@@ -1043,7 +1043,7 @@
         {
           "header": "Horizontal proportions",
           "language": "csharp",
-          "code": "InterspersedGrid(\n    Orientation.Horizontal,\n    new Element[] { panelA, panelB, panelC },\n    new[] { 1.0, 2.0, 1.0 },\n    8,\n    i => Border(Empty()).Width(2).Background(Theme.DividerStroke))\n    .Height(160)"
+          "code": "var horizontalPanels = new Element[] { Panel(\"1x\", Theme.Accent), Panel(\"2x\", \"#5B6ABF\"), Panel(\"1x\", \"#107C10\") };\n\nInterspersedGrid(\n    Orientation.Horizontal,\n    horizontalPanels,\n    new[] { 1.0, 2.0, 1.0 },\n    8,\n    i => Border(Empty()).Width(2).Background(Theme.DividerStroke))\n    .Height(160)"
         }
       ]
     },
@@ -1364,7 +1364,7 @@
         {
           "header": "Background parallax behind a scrolling list",
           "language": "csharp",
-          "code": "var (scroller, setScroller) = UseState<UIElement?>(null);\n\n// `background` must be TALLER than the viewport (+ the shift) and have visible\n// vertical structure — and it needs an explicit width, because ParallaxView\n// arranges its child at the child's own desired size.\nvar background = Border(VStack(0, band1, band2, band3)).Width(480).Height(570);\n\nvar parallax = ParallaxView(background, verticalShift: 150);\nif (scroller is not null) parallax = parallax.Source(scroller);\n\nGrid(columns: [GridSize.Star()], rows: [GridSize.Star()],\n    parallax.Grid(row: 0, column: 0),\n    ListView(rows)\n        .Set(lv => lv.Background = null)          // transparent → background shows through\n        .OnMount(el => setScroller((UIElement)el)) // bind the scroller\n        .Grid(row: 0, column: 0)).Width(480).Height(300)"
+          "code": "var (scroller, setScroller) = UseState<UIElement?>(null);\n\n// `background` must be TALLER than the viewport (+ the shift) and have visible\n// vertical structure — and it needs an explicit width, because ParallaxView\n// arranges its child at the child's own desired size.\nvar background = Border(VStack(0,\n    Band(\"▲  TOP\", \"#0F6CBD\"),\n    Band(\"●  MIDDLE\", \"#8764B8\"),\n    Band(\"▼  BOTTOM\", \"#C0397E\"))).Width(480).Height(570);\n\nvar parallax = ParallaxView(background, verticalShift: 150);\nif (scroller is not null) parallax = parallax.Source(scroller);\n\nGrid(columns: [GridSize.Star()], rows: [GridSize.Star()],\n    parallax.Grid(row: 0, column: 0),\n    ListView(Enumerable.Range(1, 24).Select(i => (Element)Border(TextBlock($\"Row {i}\"))).ToArray())\n        .Set(lv => lv.Background = null)          // transparent → background shows through\n        .OnMount(el => setScroller((UIElement)el)) // bind the scroller\n        .Grid(row: 0, column: 0)).Width(480).Height(300)"
         }
       ]
     },
@@ -1814,7 +1814,7 @@
         {
           "header": "Vertical ScrollView (modern)",
           "language": "csharp",
-          "code": "ScrollView(\n    VStack(4, items.Select(i =>\n        Border(TextBlock($\"Item {i}\")).Padding(8)\n    ).ToArray())\n)"
+          "code": "ScrollView(\n    VStack(4, Enumerable.Range(1, 20).Select(i =>\n        Border(TextBlock($\"Item {i}\")).Padding(8)\n    ).ToArray())\n)"
         }
       ]
     },
@@ -1841,7 +1841,7 @@
         {
           "header": "Basic SelectorBar",
           "language": "csharp",
-          "code": "SelectorBar(\n    new[] {\n        SelectorBarItem(\"Recent\", icon: \"Clock\"),\n        SelectorBarItem(\"Shared\", icon: \"People\"),\n        SelectorBarItem(\"Favorites\", icon: \"Favorite\"),\n    },\n    selectedIndex: idx,\n    onSelectedIndexChanged: i => setIdx(i))"
+          "code": "SelectorBar(\n    new[] {\n        SelectorBarItem(\"Recent\", icon: \"Clock\"),\n        SelectorBarItem(\"Shared\", icon: \"People\"),\n        SelectorBarItem(\"Favorites\", icon: \"Favorite\"),\n    },\n    selectedIndex: selectedIdx,\n    onSelectedIndexChanged: i => setSelectedIdx(i))"
         }
       ]
     },
@@ -1868,7 +1868,7 @@
         {
           "header": "Grid and group views",
           "language": "csharp",
-          "code": "SemanticZoom(\n    GridView(items.Select(item =>\n        Border(TextBlock(item).Center()).Padding(12)).ToArray()),\n    ListView(groups.Select(group =>\n        Border(TextBlock(group).SemiBold()).Padding(12)).ToArray())\n).Height(300)"
+          "code": "SemanticZoom(\n    GridView(labels.Select(label =>\n        Border(TextBlock(label).Center()).Padding(12)).ToArray()),\n    ListView(groups.Select(group =>\n        Border(TextBlock(group).SemiBold()).Padding(12)).ToArray())\n).Height(300)"
         }
       ]
     },
@@ -1894,7 +1894,7 @@
         {
           "header": "Filled shapes",
           "language": "csharp",
-          "code": "Rectangle().Width(80).Height(56).Fill(accentBrush)\nEllipse().Width(72).Height(56).Fill(purpleBrush)\nRectangle().Width(80).Height(56).Fill(greenBrush)\n    .Set(r => { r.RadiusX = 14; r.RadiusY = 14; })   // shapes round via RadiusX/Y, not .CornerRadius"
+          "code": "var accent = new SolidColorBrush(Colors.SteelBlue);\nvar fill = new SolidColorBrush(Colors.MediumPurple);\n\nRectangle().Width(80).Height(56).Fill(accent)\nEllipse().Width(72).Height(56).Fill(fill)\nRectangle().Width(80).Height(56).Fill(new SolidColorBrush(Colors.SeaGreen))\n    .Set(r => { r.RadiusX = 14; r.RadiusY = 14; })   // shapes round via RadiusX/Y, not .CornerRadius"
         }
       ]
     },
@@ -1948,7 +1948,7 @@
         {
           "header": "Margin vs Padding",
           "language": "csharp",
-          "code": "// Margin — works on ALL elements\nTextBlock(\"Hello\").Margin(8)\nVStack(children).Margin(16)\nBorder(child).Margin(12)\n\n// Padding — only on Border and Control (Button, TextBox, etc.)\nBorder(child).Padding(16)    // ✓ works\nButton(\"Go\").Padding(12)    // ✓ works\n\n// VStack/HStack don't support Padding — wrap in Border instead:\nBorder(\n    VStack(8, items)\n).Padding(16)  // ✓ padding applied to the Border"
+          "code": "// Margin — works on ALL elements\nTextBlock(\"Hello\").Margin(8)\nVStack(8, TextBlock(\"One\"), TextBlock(\"Two\")).Margin(16)\nBorder(TextBlock(\"Content\")).Margin(12)\n\n// Padding — only on Border and Control (Button, TextBox, etc.)\nBorder(TextBlock(\"Content\")).Padding(16)    // ✓ works\nButton(\"Go\").Padding(12)    // ✓ works\n\n// VStack/HStack don't support Padding — wrap in Border instead:\nBorder(\n    VStack(8, TextBlock(\"One\"), TextBlock(\"Two\"))\n).Padding(16)  // ✓ padding applied to the Border"
         }
       ]
     },
@@ -2108,7 +2108,7 @@
         {
           "header": "Basic TeachingTip",
           "language": "csharp",
-          "code": "Button(\"Show Tip\", () => setShow(true)),\nTeachingTip(\"Welcome!\", \"Helpful guidance text.\") with {\n    IsOpen = show,\n    OnClosed = () => setShow(false),\n}"
+          "code": "Button(\"Show Tip\", () => setShowTip(true)),\nTeachingTip(\"Welcome!\", \"Helpful guidance text.\") with {\n    IsOpen = showTip,\n    OnClosed = () => setShowTip(false),\n}"
         }
       ]
     },
@@ -2164,7 +2164,7 @@
         {
           "header": "Light / Dark Toggle",
           "language": "csharp",
-          "code": "var (isDark, setIsDark) = UseState(false);\nBorder(content)\n    .RequestedTheme(isDark ? ElementTheme.Dark : ElementTheme.Light)\n    .Background(Theme.SolidBackground)"
+          "code": "var (isDark, setIsDark) = UseState(false);\nBorder(VStack(12,\n    ToggleSwitch(isDark, b => setIsDark(b), onContent: \"Dark\", offContent: \"Light\", header: \"Theme\"),\n    preview).Padding(16))\n    .RequestedTheme(isDark ? ElementTheme.Dark : ElementTheme.Light)\n    .Background(Theme.SolidBackground)"
         }
       ]
     },
@@ -2496,7 +2496,7 @@
         {
           "header": "Basic WrapGrid",
           "language": "csharp",
-          "code": "WrapGrid(\n    items.Select(i =>\n        Border(TextBlock($\"{i}\")).Size(70, 70).Margin(4)\n    ).ToArray()\n)"
+          "code": "WrapGrid(\n    Enumerable.Range(1, 10).Select(i =>\n        Border(TextBlock($\"{i}\")).Size(70, 70).Margin(4)\n    ).ToArray()\n)"
         }
       ]
     }

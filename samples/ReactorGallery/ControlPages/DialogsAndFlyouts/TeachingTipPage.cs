@@ -30,10 +30,10 @@ class TeachingTipPage : Component
                             OnClosed = () => setShowTip(false),
                         })
                     ),
-                    @"Button(""Show Tip"", () => setShow(true)),
+                    @"Button(""Show Tip"", () => setShowTip(true)),
 TeachingTip(""Welcome!"", ""Helpful guidance text."") with {
-    IsOpen = show,
-    OnClosed = () => setShow(false),
+    IsOpen = showTip,
+    OnClosed = () => setShowTip(false),
 }"),
 
                 SampleCard("TeachingTip (Title Only)",
@@ -63,11 +63,11 @@ TeachingTip(""Welcome!"", ""Helpful guidance text."") with {
                     @"var target = UseElementRef<FrameworkElement>();
 
 HStack(
-    Border(Button(""Show anchored tip"", () => setShow(true)).Ref(target)),
+    Border(Button(""Show anchored tip"", () => setShowTargetedTip(true)).Ref(target)),
     Border(TeachingTip(""Cross-container target"", target: target) with
     {
-        IsOpen = show,
-        OnClosed = () => setShow(false),
+        IsOpen = showTargetedTip,
+        OnClosed = () => setShowTargetedTip(false),
     }));")
             ).Margin(36, 24, 36, 36)
         );
