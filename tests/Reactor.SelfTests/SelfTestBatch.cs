@@ -437,9 +437,13 @@ public class SelfTestBatch
             Assert.Inconclusive(_abortedReason ?? "Self-test process timed out; teardown exit code is not meaningful.");
 
         Assert.IsTrue(_exitCode is 0 or 1,
-            $"Self-test Host exited with an unexpected code — the runner only ever returns 0 (all " +
-            $"passed) or 1 (fixture failures), so any other code means the process faulted at " +
-            $"teardown (e.g. the issue #680 final-exit access violation).\n" +
+            $"Self-test Host exited ABNORMALLY — the runner only ever returns 0 (all passed) or " +
+            $"1 (fixture failures), so any other code means the process did not exit through the " +
+            $"runner. Do not assume teardown: the guard is reached whenever the run was not " +
+            $"already attributed to a hang/timeout, which does not by itself distinguish a " +
+            $"teardown fault from an earlier crash or an external termination. The line below " +
+            $"classifies the code; the issue #680 final-exit access violation is one known cause, " +
+            $"not the only one.\n" +
             $"{DescribeExitCode(_exitCode)}\n" +
             $"--- tail of full output ---\n{Tail(_fullOutput, 4000)}");
     }
