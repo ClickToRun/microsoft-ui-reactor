@@ -1041,6 +1041,147 @@ internal static class ReconcilerBigCoverageFixtures
     }
 
     // ════════════════════════════════════════════════════════════════════
+    //  11c. Standalone IconElement → FontIcon projection, sized.
+    //     The gallery's title-bar buttons render an icon-only Button whose
+    //     glyph swaps on state (theme toggle, copied checkmark) and whose
+    //     glyph must stay inside a 40x36 box. That leans on two things this
+    //     fixture pins, neither of which had live coverage:
+    //
+    //     1. FontIconData(glyph, FontFamily: null, FontSize: n) is a safe
+    //        substitute for the string form. Icon("\uE71B") resolves through
+    //        ResolveIconString, which assigns ResolveSymbolFontFamily() BY
+    //        HAND; Icon(FontIcon(...)) resolves through CreateFontIcon, which
+    //        assigns FontFamily only when the author supplied one and
+    //        otherwise leans on the WinUI FontIcon default style. If those two
+    //        ever land on different families, typed glyph icons render tofu.
+    //     2. The glyph re-projects on update while the explicit FontSize
+    //        survives — a rebuild that dropped the size would silently restore
+    //        the 20 DIP default and overflow a fixed-size button. Mount and
+    //        update are genuinely different code paths here (IconResolver's
+    //        CreateFontIcon vs IconElement.PatchIcon's same-subtype patch), so
+    //        both are driven: phase 1 swaps the glyph at a constant size (the
+    //        gallery's shape) and phase 2 changes the size itself.
+    // ════════════════════════════════════════════════════════════════════
+    internal class IconElementFontIconSizing(Harness h) : SelfTestFixtureBase(h)
+    {
+        const double Sized = 16;
+        const double Resized = 28;
+
+        // FontSize is a double, and a WinUI control default can be theme-resource
+        // derived rather than a literal, so compare with a tolerance instead of
+        // exact ==. The tolerance is far tighter than any DIP gap under test
+        // (16 vs 20 vs 28), so it cannot mask a real mismatch.
+        static bool IsSize(double actual, double expected) =>
+            global::System.Math.Abs(actual - expected) < 0.0001;
+
+        public override async Task RunAsync()
+        {
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (phase, set) = ctx.UseState(0);
+                return VStack(
+                    Button("IconSizePhase", () => set(phase + 1)),
+                    // The exact shape the gallery title bar uses.
+                    Button(Icon(FontIcon(
+                            phase == 0 ? "\uE71B" : "\uE73E",
+                            fontSize: phase < 2 ? Sized : Resized)))
+                        .Width(40).Height(36).Padding(0),
+                    // Differential control: identical but for the omitted size.
+                    Border(Icon(FontIcon("\uE700")))
+                );
+            });
+
+            await Harness.Render();
+
+            var sized = FindSizedIcon();
+            var unsized = H.FindControl<WinXC.FontIcon>(f => f.Glyph == "\uE700");
+
+            // Mount path. Glyph and FontSize both land — paired with the unsized
+            // control so dropping the `if (fi.FontSize.HasValue)` write in
+            // CreateFontIcon fails here instead of passing on a coincidental
+            // control default.
+            H.Check("IconFontSize_GlyphAndSizeProjected",
+                sized is not null
+                && sized.Glyph == "\uE71B"
+                && IsSize(sized.FontSize, Sized)
+                && unsized is not null
+                && !IsSize(unsized.FontSize, Sized));
+
+            // The divergence that makes Icon(FontIcon(glyph, fontSize:)) usable
+            // wherever Icon(glyph) was: with no family supplied, the mounted
+            // control must resolve to the SAME family ResolveIconString assigns
+            // explicitly. "\uE700" is not a Symbol enum name, so that call takes
+            // the glyph arm and is the honest comparand.
+            //
+            // Scope, honestly: under a live app SymbolThemeFontFamily is present,
+            // so ResolveSymbolFontFamily returns from its theme-resource arm. This
+            // traps a retarget of THAT arm (verified by mutation) but NOT its
+            // `?? SymbolFontFallback` tail, which never executes in this host —
+            // PrivMount_SymbolFontFallbackStack in PrivateMountHotPaths is what
+            // pins the fallback constant. What this check adds is cross-path
+            // agreement: Reactor's hand-assigned family and the family the WinUI
+            // FontIcon default style supplies must not drift apart, or typed
+            // glyph icons render tofu while the string form keeps working.
+            var handAssigned =
+                (IconResolver.ResolveIconString("\uE700") as WinXC.FontIcon)?.FontFamily?.Source;
+            H.Check("IconFontSize_DefaultFamilyMatchesGlyphResolver",
+                handAssigned is not null
+                && sized is not null
+                && sized.FontFamily?.Source == handAssigned);
+
+            // …and an author-supplied family still wins over that default. This
+            // is the arm that traps deleting the `if (fi.FontFamily is not null)`
+            // assignment: without it the icon falls back to the symbol font,
+            // which the inequality below catches.
+            var explicitFamily = IconResolver.CreateFontIcon(
+                new FontIconData("\uE700", "Segoe MDL2 Assets", Sized));
+            H.Check("IconFontSize_ExplicitFamilyWins",
+                explicitFamily.FontFamily?.Source == "Segoe MDL2 Assets"
+                && explicitFamily.FontFamily?.Source != handAssigned);
+
+            // Padding(0) must actually reach the control. A modifier pipeline
+            // that treated the 0 as "unset" would leave the WinUI default
+            // ButtonPadding (11,5,11,6) — precisely what clipped the 20 DIP
+            // default glyph inside a 40 DIP button.
+            var iconButton = H.FindControl<WinXC.Button>(b => b.Content is WinXC.FontIcon);
+            H.Check("IconFontSize_ZeroPaddingApplied",
+                iconButton is not null
+                && iconButton.Padding is { Left: 0, Top: 0, Right: 0, Bottom: 0 });
+
+            H.ClickButton("IconSizePhase");
+            await Harness.Render();
+
+            // Update path, glyph only: PatchIcon rewrites Glyph in place and the
+            // explicit size rides through unchanged.
+            var afterGlyphSwap = FindSizedIcon();
+            H.Check("IconFontSize_GlyphSwapKeepsSize",
+                afterGlyphSwap is not null
+                && afterGlyphSwap.Glyph == "\uE73E"
+                && IsSize(afterGlyphSwap.FontSize, Sized)
+                && H.FindControl<WinXC.FontIcon>(f => f.Glyph == "\uE71B") is null);
+
+            H.ClickButton("IconSizePhase");
+            await Harness.Render();
+
+            // Update path, size only: the same-subtype patch must carry a changed
+            // FontSize too. Without that write the control keeps the mounted 16
+            // and an author resizing an icon across renders silently gets nothing.
+            var afterResize = FindSizedIcon();
+            H.Check("IconFontSize_SizeChangePatched",
+                afterResize is not null
+                && IsSize(afterResize.FontSize, Resized)
+                && afterResize.Glyph == "\uE73E");
+        }
+
+        // The differential control deliberately uses a third glyph, so match on
+        // "is one of the sized button's two glyphs" rather than on size —
+        // matching on FontSize would make the size assertions circular.
+        private WinXC.FontIcon? FindSizedIcon() =>
+            H.FindControl<WinXC.FontIcon>(f => f.Glyph is "\uE71B" or "\uE73E");
+    }
+
+    // ════════════════════════════════════════════════════════════════════
     //  12. Frame mount (rarely-used element).
     //     Targets Mount.cs MountFrame. MapControl is intentionally not exercised
     //     here because it crashes natively without a map service token.

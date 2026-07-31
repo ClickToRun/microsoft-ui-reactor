@@ -1138,6 +1138,7 @@ internal static class SelfTestFixtureRegistry
         "RBC_ExpanderTemplateTransitionEvents",
         "RBC_PrivateUpdateHotPaths",
         "RBC_PrivateMountHotPaths",
+        "RBC_IconElementFontIconSizing",
 
         // Issue #142 — controls with private static readonly DPs
         "Issue142_CustomControlPrivateDp_Renders",
@@ -2747,6 +2748,7 @@ internal static class SelfTestFixtureRegistry
         "RBC_ExpanderTemplateTransitionEvents" => new ReconcilerBigCoverageFixtures.ExpanderTemplateTransitionEvents(harness),
         "RBC_PrivateUpdateHotPaths" => new ReconcilerBigCoverageFixtures.PrivateUpdateHotPaths(harness),
         "RBC_PrivateMountHotPaths" => new ReconcilerBigCoverageFixtures.PrivateMountHotPaths(harness),
+        "RBC_IconElementFontIconSizing" => new ReconcilerBigCoverageFixtures.IconElementFontIconSizing(harness),
 
         "Issue142_CustomControlPrivateDp_Renders" => new Issue142Fixtures.CustomControlPrivateDp_Renders(harness),
         "Issue142_ThirdPartyControlPrivateDp_Renders" => new Issue142Fixtures.ThirdPartyControlPrivateDp_Renders(harness),
