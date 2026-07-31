@@ -486,6 +486,16 @@ public sealed class GallerySnippetAgreementTests
         Scan(live, sample, snippet).Select(f => f.Name).OrderBy(n => n, global::System.StringComparer.Ordinal).ToArray();
 
     /// <summary>
+    /// <see cref="Reported"/>, asserted as one labelled line. Rows in these theories carry walls of
+    /// snippet text, so a bare name-list mismatch is hard to trace back to the case that broke;
+    /// folding the row's label into the compared value makes the failure say which one it was.
+    /// </summary>
+    static void AssertReported(string label, string live, string sample, string snippet, string[] expected) =>
+        Assert.Equal(
+            $"{label}: [{string.Join(", ", expected)}]",
+            $"{label}: [{string.Join(", ", Reported(live, sample, snippet))}]");
+
+    /// <summary>
     /// A name no card declares, appended to a snippet so the rule always has something to say about
     /// it. Rows that expect silence would otherwise pass just as well against a rule that reports
     /// nothing at all; with the probe in the snippet, silence is a failure.
@@ -493,14 +503,14 @@ public sealed class GallerySnippetAgreementTests
     const string Probe = "probeSentinel";
 
     /// <summary>
-    /// <see cref="Reported"/> with the probe appended: the result must be exactly the case's
+    /// <see cref="AssertReported"/> with the probe appended: the result must be exactly the case's
     /// expectation plus the probe. That pins "expected nothing" cases to a rule that is still alive
     /// <em>and</em> to a snippet the parser actually recovered far enough to read.
     /// </summary>
-    static void AssertReportedWithProbe(string live, string sample, string snippet, string[] expected)
+    static void AssertReportedWithProbe(string label, string live, string sample, string snippet, string[] expected)
     {
         var withProbe = expected.Concat([Probe]).OrderBy(n => n, global::System.StringComparer.Ordinal).ToArray();
-        Assert.Equal(withProbe, Reported(live, sample, snippet + ";\nTextBlock(" + Probe + ");"));
+        AssertReported($"{label} + probe", live, sample, snippet + ";\nTextBlock(" + Probe + ");", withProbe);
     }
 
     // Each case below is a card that actually shipped: the live half is the code that sat in the
@@ -694,15 +704,13 @@ public sealed class GallerySnippetAgreementTests
     [MemberData(nameof(KnownBadCards))]
     public void KnownBadCards_AreReported(string label, string live, string sample, string snippet, string[] expected)
     {
-        Assert.Equal(expected, Reported(live, sample, snippet));
+        AssertReported(label, live, sample, snippet, expected);
 
         // Differential: the identical snippet beside a card that *does* declare those names is
         // silent. That pins each row to the absent name rather than to anything else about the
         // card — and it is the shape each fix commit produced.
         var syncedLive = string.Join("\n", expected.Select(name => $"        var {name} = Live();")) + "\n" + live;
-        Assert.Empty(Reported(syncedLive, sample, snippet));
-
-        Assert.NotEmpty(label);
+        AssertReported($"{label} + synced", syncedLive, sample, snippet, []);
     }
 
     /// <summary>
@@ -753,10 +761,12 @@ public sealed class GallerySnippetAgreementTests
     [Fact]
     public void WhollyRenamedDeconstruction_IsNotReported()
     {
-        Assert.Empty(Reported(
-            "        var (basicTabs, setBasicTabs) = UseState(new[] { \"Home\" });",
-            "            TabView(basicTabs.Select(t => Tab(t)).ToArray())",
-            "var (tabs, setTabs) = UseState(new[] { \"Home\" });\nTabView(tabs.Select(t => Tab(t)).ToArray())"));
+        const string live = "        var (basicTabs, setBasicTabs) = UseState(new[] { \"Home\" });";
+        const string sample = "            TabView(basicTabs.Select(t => Tab(t)).ToArray())";
+        const string snippet = "var (tabs, setTabs) = UseState(new[] { \"Home\" });\nTabView(tabs.Select(t => Tab(t)).ToArray())";
+
+        AssertReported("wholly renamed", live, sample, snippet, []);
+        AssertReportedWithProbe("wholly renamed", live, sample, snippet, []);
     }
 
     // Each row below decides report-vs-skip for one construct. `expected` is empty when the
@@ -810,11 +820,11 @@ public sealed class GallerySnippetAgreementTests
     [MemberData(nameof(BinderCases))]
     public void Binder_DecidesWhatCounts(string label, string live, string sample, string snippet, string[] expected)
     {
-        Assert.Equal(expected, Reported(live, sample, snippet));
+        AssertReported(label, live, sample, snippet, expected);
 
         // Half these rows expect silence, which a rule that has stopped reporting also produces. The
         // probe makes every row — including those — fail against a dead rule.
-        AssertReportedWithProbe(live, sample, snippet, expected);
+        AssertReportedWithProbe(label, live, sample, snippet, expected);
     }
 
     /// <summary>
@@ -833,8 +843,8 @@ public sealed class GallerySnippetAgreementTests
         const string live = "        var tabs = Tabs();";
         const string sample = "            TabView(tabs)";
 
-        Assert.Empty(Reported(live, sample, snippet));
-        AssertReportedWithProbe(live, sample, snippet, []);
+        AssertReported(label, live, sample, snippet, []);
+        AssertReportedWithProbe(label, live, sample, snippet, []);
     }
 
     /// <summary>
@@ -886,8 +896,7 @@ public sealed class GallerySnippetAgreementTests
 
         Assert.Equal(1, scan.Cards);
         var finding = Assert.Single(scan.Findings);
-        Assert.Equal("missing", finding.Name);
-        Assert.Equal("Card", finding.Card);
+        Assert.Equal($"{label}: Card/missing", $"{label}: {finding.Card}/{finding.Name}");
     }
 
     /// <summary>
