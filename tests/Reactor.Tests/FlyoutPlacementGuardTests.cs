@@ -126,8 +126,8 @@ public class FlyoutPlacementGuardTests
     /// The two <c>CommandBarFlyout</c> entries are the reason this list exists at all: they
     /// used to carry their own placement helper (<c>Reconciler.ApplyFlyoutPlacement</c>) and
     /// their own exemption from the bypass test, and the two helpers silently diverged while
-    /// that exemption stood. Hand-maintained, so a site added without a corresponding entry is
-    /// unguarded — but adding one is cheap and the failure message says so.
+    /// that exemption stood. Matched by set equality rather than containment, so a new flyout
+    /// site cannot join the choke point without someone deciding how its branches get covered.
     /// </remarks>
     private static readonly string[] PlacementApplyingMethods =
     [
@@ -183,14 +183,26 @@ public class FlyoutPlacementGuardTests
             .Select(c => c.Method)
             .ToHashSet(StringComparer.Ordinal);
 
-        Assert.All(
-            PlacementApplyingMethods,
-            method => Assert.True(
-                routed.Contains(method),
-                $"{method} no longer calls FlyoutPlacement.Apply. Either it stopped applying " +
-                "placement — which the bypass test cannot detect, because a missing write is " +
-                "not a bypass — or it was renamed, in which case update " +
-                $"{nameof(PlacementApplyingMethods)}."));
+        var missing = PlacementApplyingMethods.Where(m => !routed.Contains(m)).ToList();
+        Assert.True(
+            missing.Count == 0,
+            $"[{string.Join(", ", missing)}] no longer call FlyoutPlacement.Apply. Either they " +
+            "stopped applying placement — which the bypass test cannot detect, because a " +
+            "missing write is not a bypass — or they were renamed, in which case update " +
+            $"{nameof(PlacementApplyingMethods)}.");
+
+        // Set equality, not containment: an unlisted site would otherwise be silently
+        // unguarded, which is the failure mode this whole class exists to prevent.
+        var unlisted = routed
+            .Where(m => !PlacementApplyingMethods.Contains(m, StringComparer.Ordinal))
+            .OrderBy(m => m, StringComparer.Ordinal)
+            .ToList();
+        Assert.True(
+            unlisted.Count == 0,
+            $"[{string.Join(", ", unlisted)}] call FlyoutPlacement.Apply but are not listed in " +
+            $"{nameof(PlacementApplyingMethods)}. Add them — and if a new site has more than one " +
+            "branch, add a selftest per branch, because this test is method-granular and cannot " +
+            "tell them apart.");
     }
 
     [Fact]
@@ -271,8 +283,9 @@ public class FlyoutPlacementGuardTests
                 {
                     WinUI.CommandBarFlyout a = new() { Placement = n.Placement };
                     WinUI.Flyout b = new() { Content = null, Placement = n.Placement };
-                    SomeElement c = new() { Placement = n.Placement };
-                    TeachingTip d = new() { PreferredPlacement = n.Placement };
+                    WinUI.MenuFlyout? c = new() { Target = null, Placement = n.Placement };
+                    SomeElement d = new() { Placement = n.Placement };
+                    TeachingTip e = new() { PreferredPlacement = n.Placement };
                 }
 
                 // The shape every DSL flyout factory uses: the target type is the method's
@@ -286,12 +299,14 @@ public class FlyoutPlacementGuardTests
             .Select(w => w.Text)
             .ToList();
 
-        Assert.Equal(2, hits.Count);
-        // A target-typed `new()` carries no type text, so the two hits are told apart by the
-        // second's extra initializer member. Mutually exclusive predicates, so matching both
-        // proves two distinct shapes were found rather than one shape found twice.
-        Assert.Contains(hits, h => !h.Contains("Content", StringComparison.Ordinal));
+        Assert.Equal(3, hits.Count);
+        // A target-typed `new()` carries no type text, so the hits are told apart by their
+        // other initializer members. Mutually exclusive predicates, so matching all three
+        // proves three distinct shapes were found rather than one shape found repeatedly.
+        Assert.Contains(hits, h => !h.Contains("Content", StringComparison.Ordinal)
+                                && !h.Contains("Target", StringComparison.Ordinal));
         Assert.Contains(hits, h => h.Contains("Content = null", StringComparison.Ordinal));
+        Assert.Contains(hits, h => h.Contains("Target = null", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -613,6 +628,11 @@ public class FlyoutPlacementGuardTests
 
     private static string TypeLeafName(TypeSyntax type) => type switch
     {
+        // `CommandBarFlyout? f = new() { Placement = ... }` — without this the leaf name is
+        // "CommandBarFlyout?", which fails the Flyout suffix check while still being non-null,
+        // so it slips past the fail-closed arm too. A guard whose job is to fail closed must
+        // not have a shape that fails open.
+        NullableTypeSyntax nullable => TypeLeafName(nullable.ElementType),
         QualifiedNameSyntax qualified => qualified.Right.Identifier.Text,
         SimpleNameSyntax simple => simple.Identifier.Text,
         _ => type.ToString(),
