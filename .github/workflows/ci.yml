@@ -42,7 +42,7 @@ jobs:
             files=$(git diff --name-only "$PUSH_BEFORE" "$PUSH_SHA")
             rc=$?
           else
-            echo "No valid diff range; defaulting to non-md=true, docs-templates=true, and devtools-trim=true"
+            echo "No valid diff range; defaulting all change filters to true"
             echo "non-md=true" >> "$GITHUB_OUTPUT"
             echo "docs-templates=true" >> "$GITHUB_OUTPUT"
             echo "devtools-trim=true" >> "$GITHUB_OUTPUT"
@@ -50,7 +50,7 @@ jobs:
             exit 0
           fi
           if [ "$rc" -ne 0 ]; then
-            echo "git diff failed; defaulting to non-md=true, docs-templates=true, and devtools-trim=true"
+            echo "git diff failed; defaulting all change filters to true"
             echo "non-md=true" >> "$GITHUB_OUTPUT"
             echo "docs-templates=true" >> "$GITHUB_OUTPUT"
             echo "devtools-trim=true" >> "$GITHUB_OUTPUT"
