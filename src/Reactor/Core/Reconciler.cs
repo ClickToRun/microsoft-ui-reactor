@@ -5170,24 +5170,6 @@ public sealed partial class Reconciler : IDisposable
     }
 
     /// <summary>
-    /// Assigns a flyout's placement, treating <see cref="WinPrim.FlyoutPlacementMode.Auto"/> as
-    /// "leave it at WinUI's default" rather than writing it through.
-    ///
-    /// <c>Auto</c> (13) is outside the range <c>FlyoutBase::ShowAtCore</c> accepts, and
-    /// <c>GetEffectivePlacement</c> hands the raw value straight to the validator, so an
-    /// <c>Auto</c>-placed flyout fail-fasts the process with <c>E_INVALIDARG</c> the moment it
-    /// opens. Clearing the DP (rather than merely skipping the write) keeps an explicit → Auto
-    /// update consistent with what a fresh mount of the same element would produce.
-    /// </summary>
-    internal static void ApplyFlyoutPlacement(WinPrim.FlyoutBase flyout, WinPrim.FlyoutPlacementMode placement)
-    {
-        if (placement == WinPrim.FlyoutPlacementMode.Auto)
-            flyout.ClearValue(WinPrim.FlyoutBase.PlacementProperty);
-        else if (flyout.Placement != placement)
-            flyout.Placement = placement;
-    }
-
-    /// <summary>
     /// Creates a WinUI FlyoutBase from a Reactor element descriptor.
     /// Recognizes ContentFlyoutElement and MenuFlyoutContentElement for configured flyouts,
     /// and falls back to wrapping plain elements in a basic Flyout.
