@@ -902,6 +902,14 @@ public sealed class GallerySampleLintTests
             .Where(declarator => declarator.Initializer?.Value is not null)
             .ToList();
 
+        // `Add` drives the fixed point: it returns false for a name already accepted, so the pass
+        // ends without a `Contains` entry guard. That guard was load-bearing for termination
+        // rather than an optimisation — paired with an unconditional `grew = true` it was the
+        // only thing stopping the loop spinning forever — so hoisting it into a lazy
+        // `.Where(d => !names.Contains(...))` would have made termination depend on the pipeline
+        // interleaving pull-by-pull with the `Add` below, and a later `.ToList()` on that pipeline
+        // would hang the test with no visible cause. Acceptance is monotone in `names`, so
+        // re-testing an accepted declarator is wasted work, never a different answer.
         bool grew;
         do
         {
@@ -909,8 +917,6 @@ public sealed class GallerySampleLintTests
 
             foreach (var declarator in initialized)
             {
-                if (names.Contains(declarator.Identifier.Text)) continue;
-
                 var value = declarator.Initializer!.Value;
 
                 var accepted = IsCompileTimeValue(value, names)
@@ -918,10 +924,8 @@ public sealed class GallerySampleLintTests
                                    && IsUriCreation(creation, uriTypeNames)
                                    && UrlArguments(creation).All(a => IsCompileTimeValue(a, names)));
 
-                if (!accepted) continue;
-
-                names.Add(declarator.Identifier.Text);
-                grew = true;
+                if (accepted)
+                    grew |= names.Add(declarator.Identifier.Text);
             }
         }
         while (grew);
