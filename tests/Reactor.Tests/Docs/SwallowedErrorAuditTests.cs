@@ -79,9 +79,12 @@ public sealed class SwallowedErrorAuditTests
         var mismatch = derived.Keys
             .Union(published.Keys)
             .Order(global::System.StringComparer.Ordinal)
-            .Where(v => !derived.ContainsKey(v)
-                        || !published.ContainsKey(v)
-                        || !derived[v].Equals(published[v]))
+            .Where(v =>
+            {
+                var inDerived = derived.TryGetValue(v, out var derivedTally);
+                var inPublished = published.TryGetValue(v, out var publishedTally);
+                return !inDerived || !inPublished || !derivedTally.Equals(publishedTally);
+            })
             .ToList();
 
         Assert.True(
@@ -798,14 +801,19 @@ public sealed class SwallowedErrorAuditTests
     static string RenderTable(IReadOnlyDictionary<string, Tally> derived)
     {
         var ordered = RequiredVocabulary
-            .Where(derived.ContainsKey)
             .Concat(derived.Keys.Where(k => !RequiredVocabulary.Contains(k)).Order(global::System.StringComparer.Ordinal));
 
-        var body = ordered.Select(v =>
+        // Presence and value come from the same lookup: a required verdict the
+        // ledger never used simply has no row, rather than being filtered out
+        // by one dictionary probe and then read back by a second.
+        var body = new List<string>();
+        foreach (var v in ordered)
         {
-            var t = derived[v];
-            return $"| `{v}` | {t.Sites} | {t.ShippedSites} | {t.DeferredSites} |";
-        });
+            if (derived.TryGetValue(v, out var t))
+            {
+                body.Add($"| `{v}` | {t.Sites} | {t.ShippedSites} | {t.DeferredSites} |");
+            }
+        }
 
         return string.Join(
             global::System.Environment.NewLine,
