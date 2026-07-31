@@ -1196,6 +1196,18 @@ internal static class NativeDockingSmokeFixtures
 
     internal class SplitterProgrammaticVisualDemo(Harness h) : SelfTestFixtureBase(h)
     {
+        /// <summary>
+        /// Observer pacing for this fixture only. The delays below exist so a human watching the
+        /// window sees the resize animate at ~17 fps; no <c>H.Check</c> here depends on them (the
+        /// two checks bracket the nudges rather than sampling during them). CI has no observer, so
+        /// it paid ~2.3 s per run for nothing — real money against the suite budget in issue #988.
+        /// Set <c>REACTOR_SELFTEST_VIZ_PACING=1</c> to watch it.
+        /// </summary>
+        private static readonly bool VizPacing =
+            Environment.GetEnvironmentVariable("REACTOR_SELFTEST_VIZ_PACING") == "1";
+
+        private static Task Pace(int ms) => VizPacing ? Task.Delay(ms) : Task.CompletedTask;
+
         public override async Task RunAsync()
         {
             var host = H.CreateHost();
@@ -1242,17 +1254,12 @@ internal static class NativeDockingSmokeFixtures
 
             host.Mount(_ => Build());
             await Harness.Render();
-            // Timing budget (target ~5s, 15s timeout):
-            //   initial settle:      200ms
-            //   5 loops × (5 nudges × 60ms + after-final 120ms): 2100ms
-            //   total delay budget:  ~2.3s
-            //   render overhead (~80ms × ~26 renders): ~2s
-            //   grand total:         ~4.4s → comfortable margin under 5s
-            // Nudge pacing still leaves the resize visible (~17fps);
-            // tighter than the original 200ms but still observable for
-            // manual debug runs. Stress runs benefit from the shorter
-            // wall clock per shard.
-            await Task.Delay(200);
+            // Timing budget (15s fixture timeout):
+            //   observer pacing:  ~2.3s, only when REACTOR_SELFTEST_VIZ_PACING=1
+            //   render overhead:  ~26 Harness.Render() calls
+            // Under CI (pacing off) this is render-bound and finishes well inside the timeout;
+            // with pacing on it still clears it with margin.
+            await Pace(200);
 
             var splitters = H.FindAllControls<DockSplitterControl>(_ => true);
             var rowSplitter = splitters.FirstOrDefault(s => s.Direction == DockSplitterDirection.Rows);
@@ -1266,55 +1273,55 @@ internal static class NativeDockingSmokeFixtures
             {
                 FireResizeDelta(rowSplitter!, delta: 40, isFinal: false);
                 await Harness.Render();
-                await Task.Delay(60);
+                await Pace(60);
             }
             FireResizeDelta(rowSplitter!, delta: 0, isFinal: true);
             await Harness.Render();
-            await Task.Delay(120);
+            await Pace(120);
 
             // 2) Grow the top row back — five -40-DIP nudges.
             for (int i = 0; i < 5; i++)
             {
                 FireResizeDelta(rowSplitter!, delta: -40, isFinal: false);
                 await Harness.Render();
-                await Task.Delay(60);
+                await Pace(60);
             }
             FireResizeDelta(rowSplitter!, delta: 0, isFinal: true);
             await Harness.Render();
-            await Task.Delay(120);
+            await Pace(120);
 
             // 3) Shrink the top-row's left column (editor) — five 40 DIP.
             for (int i = 0; i < 5; i++)
             {
                 FireResizeDelta(colSplitters[0], delta: 40, isFinal: false);
                 await Harness.Render();
-                await Task.Delay(60);
+                await Pace(60);
             }
             FireResizeDelta(colSplitters[0], delta: 0, isFinal: true);
             await Harness.Render();
-            await Task.Delay(120);
+            await Pace(120);
 
             // 4) Restore the top-row's left column — five -40 DIP.
             for (int i = 0; i < 5; i++)
             {
                 FireResizeDelta(colSplitters[0], delta: -40, isFinal: false);
                 await Harness.Render();
-                await Task.Delay(60);
+                await Pace(60);
             }
             FireResizeDelta(colSplitters[0], delta: 0, isFinal: true);
             await Harness.Render();
-            await Task.Delay(120);
+            await Pace(120);
 
             // 5) Shrink the bottom-row's left column (output) — five 40 DIP.
             for (int i = 0; i < 5; i++)
             {
                 FireResizeDelta(colSplitters[1], delta: 40, isFinal: false);
                 await Harness.Render();
-                await Task.Delay(60);
+                await Pace(60);
             }
             FireResizeDelta(colSplitters[1], delta: 0, isFinal: true);
             await Harness.Render();
-            await Task.Delay(120);
+            await Pace(120);
 
             H.Check("VizDemo_CompletedAllFourQuadrants", true);
 

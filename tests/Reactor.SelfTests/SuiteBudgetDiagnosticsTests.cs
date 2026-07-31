@@ -1,0 +1,523 @@
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+namespace Microsoft.UI.Reactor.SelfTests;
+
+/// <summary>
+/// Headless guards for the suite-budget diagnostics added for issue #988. Every member exercised
+/// here is pure, so this class does not launch the Host and does not trigger
+/// <see cref="SelfTestBatch"/>'s <c>[ClassInitialize]</c> — it runs in milliseconds under
+/// <c>--filter "ClassName~SuiteBudgetDiagnosticsTests"</c>.
+///
+/// <para><b>What these tests are actually defending.</b> The bug in #988 was not that a timeout
+/// existed; it was that the timeout <i>message</i> argued convincingly for the wrong conclusion,
+/// so seven innocent fixtures were investigated across six PRs. The defect is therefore a property
+/// of a string, and it regresses the moment someone "simplifies" the two timeout branches back
+/// into one. These assertions are written to fail exactly then.</para>
+/// </summary>
+[TestClass]
+public class SuiteBudgetDiagnosticsTests
+{
+    private const string Tail = "--- tail ---";
+
+    // ---------------------------------------------------------------- budget resolution
+
+    /// <summary>
+    /// The regression guard with the most direct link to the bug: if someone reverts the budget
+    /// toward the old 300 s, this fails. The bound is deliberately loose (600 s) so that a
+    /// deliberate re-tuning between 600 s and any larger value stays green, while a slide back to
+    /// the value that could not fit the suite does not.
+    /// </summary>
+    [TestMethod]
+    public void DefaultBudget_IsWellClearOfMeasuredSuiteDuration()
+    {
+        var seconds = SelfTestBatch.ResolveTimeoutSeconds(null);
+
+        Assert.IsTrue(seconds >= 600,
+            $"Default suite budget is {seconds}s. Runs of 262-346s were measured on an unmodified " +
+            $"main when issue #988 was filed, so a budget near that range kills healthy runs and " +
+            $"blames an arbitrary fixture. Keep a large multiple of the real duration here; the " +
+            $"Host's own per-fixture and 60s off-dispatcher watchdogs are what detect hangs.");
+    }
+
+    [TestMethod]
+    public void EnvOverride_IsHonoured()
+    {
+        // Non-vacuity: differs from the default, so it fails if the resolver ignores its argument.
+        Assert.AreEqual(1234, SelfTestBatch.ResolveTimeoutSeconds("1234"));
+        Assert.AreEqual(1234, SelfTestBatch.ResolveTimeoutSeconds("  1234  "));
+        Assert.AreNotEqual(SelfTestBatch.ResolveTimeoutSeconds(null),
+            SelfTestBatch.ResolveTimeoutSeconds("1234"),
+            "An override equal to the default proves nothing; pick a value the default is not.");
+    }
+
+    /// <summary>
+    /// A malformed or hostile override must fall back, not produce a tiny budget. "0" and "-5" are
+    /// the dangerous ones: passed to <c>Process.WaitForExit</c> they would kill the Host instantly
+    /// and reproduce #988 on every single run.
+    /// </summary>
+    [TestMethod]
+    public void MalformedOverride_FallsBackToDefault()
+    {
+        var expected = SelfTestBatch.ResolveTimeoutSeconds(null);
+
+        foreach (var bad in new string?[] { null, "", "   ", "abc", "12s", "0", "-5", "9.5" })
+        {
+            Assert.AreEqual(expected, SelfTestBatch.ResolveTimeoutSeconds(bad),
+                $"Override '{bad ?? "<null>"}' should fall back to the default budget.");
+        }
+    }
+
+    /// <summary>
+    /// The resolved value is multiplied by 1000 to reach milliseconds, so a plausible-looking
+    /// large override silently overflows <see cref="int"/> and lands <b>negative</b> — which
+    /// <c>WaitForExit</c> treats as "kill now". That reproduces #988 on every run, from a knob
+    /// whose whole purpose is to prevent it, so the resolver must reject the value rather than
+    /// return it.
+    /// </summary>
+    [TestMethod]
+    public void OversizedOverride_FallsBackRatherThanOverflowing()
+    {
+        var expected = SelfTestBatch.ResolveTimeoutSeconds(null);
+
+        // int.MaxValue / 1000 == 2147483; one above it overflows, and 999999999 is the shape a
+        // human types when they mean "effectively no timeout".
+        foreach (var big in new[] { "2147484", "999999999", "2147483647" })
+        {
+            var seconds = SelfTestBatch.ResolveTimeoutSeconds(big);
+
+            Assert.AreEqual(expected, seconds, $"Override '{big}' should fall back to the default.");
+            Assert.IsTrue(seconds <= int.MaxValue / 1000,
+                $"'{big}' resolved to {seconds}s, which is {(long)seconds * 1000}ms — outside int " +
+                $"range, so the ms conversion wraps negative and kills the Host immediately.");
+        }
+    }
+
+    /// <summary>
+    /// Guards the conversion itself rather than the resolver: the constant the production code
+    /// actually passes to <c>WaitForExit</c> must be positive. This fails if someone changes the
+    /// units of <c>SelfTestTimeoutMs</c> or introduces the overflow above at the field, where
+    /// <see cref="SelfTestBatch.ResolveTimeoutSeconds"/> tests cannot see it.
+    /// </summary>
+    [TestMethod]
+    public void EffectiveBudget_IsPositiveAndMatchesTheResolvedDefault()
+    {
+        Assert.IsTrue(SelfTestBatch.EffectiveTimeoutSeconds > 0,
+            $"Effective budget resolved to {SelfTestBatch.EffectiveTimeoutSeconds}s; a non-positive " +
+            $"millisecond budget makes every run a budget kill.");
+
+        // With no env override set in this process, the effective budget must be the default. If
+        // the field stops flowing from the resolver, this diverges.
+        if (Environment.GetEnvironmentVariable(SelfTestBatch.TimeoutEnvVar) is null)
+        {
+            Assert.AreEqual(SelfTestBatch.ResolveTimeoutSeconds(null), SelfTestBatch.EffectiveTimeoutSeconds,
+                "The budget the wrapper actually uses must come from ResolveTimeoutSeconds, or the " +
+                "resolver's tests guard a value production never reads.");
+        }
+    }
+
+    // ---------------------------------------------------------------- message split
+
+    /// <summary>
+    /// The single most important assertion in this file. The two timeout kinds shared one message
+    /// and one abort reason before #988, which is precisely why a budget overrun was
+    /// indistinguishable from a real hang without pulling the raw job log. If the branches are
+    /// ever merged again, this fails.
+    /// </summary>
+    [TestMethod]
+    public void CausalAndPositionalTimeouts_ProduceDifferentMessages()
+    {
+        var causal = SelfTestBatch.DescribeStarvationHang("SomeFixture", alsoTimedOut: true, 900_000, Tail);
+        var positional = SelfTestBatch.DescribeBudgetOverrun("SomeFixture", 900_000, 901.2, 1200, 1401, Tail);
+
+        Assert.AreNotEqual(causal, positional,
+            "A dispatcher-starvation hang and a suite-budget overrun must not render identically: " +
+            "one names a culprit, the other names a bystander.");
+    }
+
+    [TestMethod]
+    public void AbortReasons_HaveDistinctPrefixes()
+    {
+        var causalOrdinary = SelfTestBatch.StarvationHangAbortReason("SomeFixture", alsoTimedOut: false);
+        var causalWedged = SelfTestBatch.StarvationHangAbortReason("SomeFixture", alsoTimedOut: true);
+        var positional = SelfTestBatch.BudgetOverrunAbortReason("SomeFixture", 900_000);
+
+        Assert.AreNotEqual(causalOrdinary, positional);
+        Assert.AreNotEqual(causalWedged, positional);
+
+        // The prefix is what a reader sees on a skipped fixture, so the divergence must occur
+        // early rather than in a trailing clause. Compare the first word after "Run aborted".
+        Assert.IsTrue(causalOrdinary.StartsWith("Run aborted by", StringComparison.Ordinal), causalOrdinary);
+        Assert.IsTrue(causalWedged.StartsWith("Run aborted by", StringComparison.Ordinal), causalWedged);
+        Assert.IsTrue(positional.StartsWith("Run aborted:", StringComparison.Ordinal), positional);
+
+        // Both causal variants share a prefix on purpose (same cause), but must remain
+        // distinguishable, since only one of them means the process would not die.
+        Assert.AreNotEqual(causalOrdinary, causalWedged,
+            "FailFast landing vs not landing are different diagnoses: the second says the process " +
+            "was wedged below the CLR, which is where a native lock investigation starts.");
+    }
+
+    /// <summary>
+    /// The <c>--filter</c> repro is the specific line that made the old message actively harmful:
+    /// running the blamed fixture alone removes the ~1400 fixtures that shared the budget, i.e.
+    /// removes the cause, so it passes and reads as exoneration. It must not come back on the
+    /// positional path.
+    /// </summary>
+    [TestMethod]
+    public void PositionalMessage_DoesNotSuggestFilterRepro()
+    {
+        var positional = SelfTestBatch.DescribeBudgetOverrun("VictimFixture", 900_000, 901.2, 1200, 1401, Tail);
+
+        Assert.IsFalse(positional.Contains("--filter VictimFixture", StringComparison.Ordinal),
+            "The positional message must not suggest re-running the blamed fixture in isolation: " +
+            "that removes the other fixtures sharing the budget, so it always passes.\n" + positional);
+    }
+
+    /// <summary>
+    /// Differential counterpart to the test above: the same absence on the causal path would be a
+    /// regression, because there the per-fixture repro genuinely reproduces. Asserting both
+    /// directions is what makes the pair non-vacuous — a message builder that simply never emits
+    /// <c>--filter</c> would satisfy one and fail the other.
+    /// </summary>
+    [TestMethod]
+    public void CausalMessage_KeepsFilterRepro()
+    {
+        var causal = SelfTestBatch.DescribeStarvationHang("HangingFixture", alsoTimedOut: false, 900_000, Tail);
+
+        Assert.IsTrue(causal.Contains("--filter HangingFixture", StringComparison.Ordinal),
+            "A real dispatcher-starvation hang IS reproducible in isolation; keep the repro.\n" + causal);
+    }
+
+    /// <summary>
+    /// The positional message must carry the numbers a reader needs to reach the right conclusion
+    /// without the raw log: elapsed vs budget (is the suite at its cap?) and how far the run got
+    /// (were the remaining fixtures run at all?).
+    /// </summary>
+    [TestMethod]
+    public void PositionalMessage_CarriesElapsedBudgetAndProgress()
+    {
+        var positional = SelfTestBatch.DescribeBudgetOverrun("VictimFixture", 900_000, 901.2, 1200, 1401, Tail);
+
+        Assert.IsTrue(positional.Contains("901.2", StringComparison.Ordinal), "missing elapsed\n" + positional);
+        Assert.IsTrue(positional.Contains("900", StringComparison.Ordinal), "missing budget\n" + positional);
+        Assert.IsTrue(positional.Contains("1200 of 1401", StringComparison.Ordinal), "missing progress\n" + positional);
+        Assert.IsTrue(positional.Contains("NOT PROVEN", StringComparison.Ordinal), "missing verdict\n" + positional);
+        Assert.IsTrue(positional.Contains("POSITIONAL", StringComparison.Ordinal),
+            "missing the name of the attribution kind\n" + positional);
+        Assert.IsTrue(positional.Contains(SelfTestBatch.TimeoutEnvVar, StringComparison.Ordinal),
+            "missing the knob that resolves the problem\n" + positional);
+    }
+
+    /// <summary>
+    /// The positional message must stop short of the opposite false claim. Absence of a
+    /// <c>HANG_DETECTED</c> signal does not exonerate the fixture — the watchdog can be disabled by
+    /// env or by an attached debugger, and a pathologically slow fixture can pump the dispatcher
+    /// often enough never to trip it. A message that declared the fixture innocent would send the
+    /// one reader who <i>is</i> looking at a genuine culprit away from it.
+    /// </summary>
+    [TestMethod]
+    public void PositionalMessage_DoesNotClaimTheFixtureIsInnocent()
+    {
+        var positional = SelfTestBatch.DescribeBudgetOverrun("VictimFixture", 900_000, 901.2, 1200, 1401, Tail);
+
+        foreach (var overclaim in new[] { "BYSTANDER", "is innocent", "not at fault", "nothing to do with" })
+        {
+            Assert.IsFalse(positional.Contains(overclaim, StringComparison.OrdinalIgnoreCase),
+                $"'{overclaim}' asserts innocence the harness cannot establish.\n" + positional);
+        }
+
+        // ...and it must still describe the one scenario where the named fixture IS the cause,
+        // or the de-overclaiming is only cosmetic.
+        Assert.IsTrue(positional.Contains("could still turn out to be at fault", StringComparison.Ordinal),
+            "The message must leave the reader a path to the case where the fixture is guilty.\n" + positional);
+    }
+
+    /// <summary>
+    /// Fixture discovery can fail independently of the timeout, and when it does the message must
+    /// degrade rather than throw or print "1200 of ". Renders the count-unknown branch.
+    /// </summary>
+    [TestMethod]
+    public void PositionalMessage_HandlesUnknownFixtureCount()
+    {
+        var positional = SelfTestBatch.DescribeBudgetOverrun("VictimFixture", 900_000, 901.2, 1200, null, Tail);
+
+        Assert.IsTrue(positional.Contains("1200 fixtures had TAP output parsed", StringComparison.Ordinal),
+            positional);
+        Assert.IsFalse(positional.Contains("1200 of", StringComparison.Ordinal),
+            "With no total available the message must not render a half-formed ratio.\n" + positional);
+    }
+
+    /// <summary>
+    /// The progress line counts fixtures whose TAP was <i>parsed</i>, which includes the in-flight
+    /// one — <c>ParseTap</c>'s final <c>Flush()</c> records it. Calling that "completed" is off by
+    /// one in the direction that matters: it implies the named fixture finished, which is exactly
+    /// the false impression #988 is about.
+    /// </summary>
+    [TestMethod]
+    public void PositionalMessage_DoesNotClaimTheInFlightFixtureCompleted()
+    {
+        var positional = SelfTestBatch.DescribeBudgetOverrun("VictimFixture", 900_000, 901.2, 1200, 1401, Tail);
+
+        Assert.IsFalse(positional.Contains("completed", StringComparison.OrdinalIgnoreCase),
+            "The count includes the fixture that was still running, so it is not a completion count.\n"
+            + positional);
+        Assert.IsTrue(positional.Contains("still running", StringComparison.Ordinal),
+            "Say that the in-flight fixture is inside the count, or the number reads as one too many " +
+            "finished fixtures.\n" + positional);
+    }
+
+    // ---------------------------------------------------------------- classification wiring
+
+    /// <summary>
+    /// The message builders above are pure and individually tested, which is necessary but not
+    /// sufficient: they would all still pass if production stopped calling them. <see
+    /// cref="SelfTestBatch.ClassifyAbort"/> is the seam production actually goes through, so these
+    /// cases fail if the branch that chooses between causal and positional is removed or inverted.
+    /// </summary>
+    [TestMethod]
+    public void ClassifyAbort_HangSignal_IsCausalEvenWhenTheProcessDiedOnItsOwn()
+    {
+        // The ordinary hang path: the Host's watchdog fast-failed, so the wrapper never timed out.
+        // Before #988 this path bypassed the shared wording entirely.
+        var outcome = SelfTestBatch.ClassifyAbort(
+            timedOut: false, hangFixture: "HangingFixture", lastRunningFixture: "SomethingElse",
+            budgetMs: 900_000, elapsedSeconds: 51.0, fixturesReported: 12, fixturesTotal: 1401, tail: Tail);
+
+        Assert.IsNotNull(outcome);
+        Assert.AreEqual("HangingFixture", outcome!.Fixture,
+            "A HANG_DETECTED signal names the culprit; it must win over the positional fallback.");
+        Assert.IsTrue(outcome.AbortReason.StartsWith("Run aborted by", StringComparison.Ordinal),
+            outcome.AbortReason);
+        Assert.IsTrue(outcome.Detail.Contains("--filter HangingFixture", StringComparison.Ordinal),
+            outcome.Detail);
+    }
+
+    [TestMethod]
+    public void ClassifyAbort_HangSignalPlusTimeout_SaysFailFastDidNotLand()
+    {
+        var outcome = SelfTestBatch.ClassifyAbort(
+            timedOut: true, hangFixture: "HangingFixture", lastRunningFixture: null,
+            budgetMs: 900_000, elapsedSeconds: 901.0, fixturesReported: 12, fixturesTotal: 1401, tail: Tail);
+
+        Assert.IsNotNull(outcome);
+        Assert.AreEqual("HangingFixture", outcome!.Fixture);
+
+        var ordinary = SelfTestBatch.ClassifyAbort(
+            timedOut: false, hangFixture: "HangingFixture", lastRunningFixture: null,
+            budgetMs: 900_000, elapsedSeconds: 51.0, fixturesReported: 12, fixturesTotal: 1401, tail: Tail);
+
+        Assert.AreNotEqual(ordinary!.AbortReason, outcome.AbortReason,
+            "A hang whose FailFast did not take the process down is a different diagnosis from one " +
+            "that did, and the abort reason is the only place a triager sees it.");
+    }
+
+    [TestMethod]
+    public void ClassifyAbort_TimeoutWithNoHangSignal_IsPositional()
+    {
+        var outcome = SelfTestBatch.ClassifyAbort(
+            timedOut: true, hangFixture: null, lastRunningFixture: "VictimFixture",
+            budgetMs: 900_000, elapsedSeconds: 901.2, fixturesReported: 1200, fixturesTotal: 1401, tail: Tail);
+
+        Assert.IsNotNull(outcome);
+        Assert.AreEqual("VictimFixture", outcome!.Fixture);
+        Assert.IsTrue(outcome.AbortReason.StartsWith("Run aborted:", StringComparison.Ordinal),
+            outcome.AbortReason);
+        Assert.IsFalse(outcome.Detail.Contains("--filter VictimFixture", StringComparison.Ordinal),
+            outcome.Detail);
+    }
+
+    /// <summary>
+    /// The two "nothing to attribute" cases. Returning an outcome here would stamp an abort reason
+    /// onto a healthy run (first case) or invent a culprit out of an empty stdout (second).
+    /// </summary>
+    [TestMethod]
+    public void ClassifyAbort_ReturnsNullWhenThereIsNothingToAttribute()
+    {
+        Assert.IsNull(SelfTestBatch.ClassifyAbort(
+            timedOut: false, hangFixture: null, lastRunningFixture: "AnyFixture",
+            budgetMs: 900_000, elapsedSeconds: 300.0, fixturesReported: 1401, fixturesTotal: 1401, tail: Tail),
+            "A run that neither hung nor timed out is not aborted, whatever ran last.");
+
+        Assert.IsNull(SelfTestBatch.ClassifyAbort(
+            timedOut: true, hangFixture: null, lastRunningFixture: null,
+            budgetMs: 900_000, elapsedSeconds: 901.2, fixturesReported: 0, fixturesTotal: null, tail: Tail),
+            "With no fixture in flight there is nobody to blame, and inventing one is the bug.");
+    }
+
+    // ---------------------------------------------------------------- duration gate
+
+    /// <summary>
+    /// The warn threshold asserted on <b>both</b> sides of its boundary. Only asserting the warning
+    /// side would pass against a builder that warns unconditionally — which is the failure mode
+    /// that makes a warning worthless.
+    /// </summary>
+    [TestMethod]
+    public void DurationGate_WarnsOnlyAboveThreshold()
+    {
+        const int warn = 420;
+        const int budget = 900;
+
+        var below = SelfTestBatch.DescribeSuiteDuration(warn - 1, warn, budget);
+        var at = SelfTestBatch.DescribeSuiteDuration(warn, warn, budget);
+        var above = SelfTestBatch.DescribeSuiteDuration(warn + 1, warn, budget);
+
+        Assert.IsFalse(below.Warn, "Below the threshold must not warn.");
+        Assert.IsFalse(at.Warn, "At the threshold must not warn (strictly-greater boundary).");
+        Assert.IsTrue(above.Warn, "Above the threshold must warn.");
+    }
+
+    [TestMethod]
+    public void DurationGate_ReportsElapsedAndPercentage()
+    {
+        var (warn, text) = SelfTestBatch.DescribeSuiteDuration(450, 420, 900);
+
+        Assert.IsTrue(warn);
+        Assert.IsTrue(text.Contains("450.0s", StringComparison.Ordinal), text);
+        Assert.IsTrue(text.Contains("50.0%", StringComparison.Ordinal),
+            "450s of a 900s budget is 50%; the percentage is what makes erosion legible.\n" + text);
+        Assert.IsTrue(text.Contains("900", StringComparison.Ordinal), text);
+    }
+
+    /// <summary>
+    /// The warning text must differ from the healthy text, or the annotation carries no signal.
+    /// </summary>
+    [TestMethod]
+    public void DurationGate_WarningTextDiffersFromHealthyText()
+    {
+        var healthy = SelfTestBatch.DescribeSuiteDuration(100, 420, 900).Text;
+        var warning = SelfTestBatch.DescribeSuiteDuration(500, 420, 900).Text;
+
+        Assert.AreNotEqual(healthy, warning);
+        Assert.IsTrue(warning.Length > healthy.Length,
+            "The warning must add the explanation of what happens at the budget, not just a flag.");
+    }
+
+    /// <summary>
+    /// The configured warn threshold must sit below the budget <b>actually in effect</b>, otherwise
+    /// the warning can only fire after the kill it is supposed to pre-empt — a silently useless
+    /// gate. Asserting against <c>ResolveTimeoutSeconds(null)</c> alone would miss the case that
+    /// matters most: a CI shard that lowers the budget via <see cref="SelfTestBatch.TimeoutEnvVar"/>
+    /// past the warn threshold gets no warning at all, and the first symptom is a red PR.
+    /// </summary>
+    [TestMethod]
+    public void ConfiguredWarnThreshold_IsBelowConfiguredBudget()
+    {
+        var budget = SelfTestBatch.EffectiveTimeoutSeconds;
+
+        // Asserted through the builder rather than against the constant directly: a threshold of
+        // zero or less warns on every run, which trains readers to ignore the one signal this
+        // whole gate produces. (Comparing the const to 0 inline is const-folded and flagged as a
+        // known-true assertion; routing it through DescribeSuiteDuration tests the behaviour.)
+        Assert.IsFalse(
+            SelfTestBatch.DescribeSuiteDuration(0.0, SelfTestBatch.SuiteDurationWarnSeconds, budget).Warn,
+            $"A zero-second suite triggered the duration warning, so the configured threshold " +
+            $"({SelfTestBatch.SuiteDurationWarnSeconds}s) is not positive and every run warns.");
+
+        Assert.IsTrue(SelfTestBatch.SuiteDurationWarnSeconds < budget,
+            $"Warn threshold {SelfTestBatch.SuiteDurationWarnSeconds}s must be below the {budget}s " +
+            $"budget in effect ({SelfTestBatch.TimeoutEnvVar}=" +
+            $"{Environment.GetEnvironmentVariable(SelfTestBatch.TimeoutEnvVar) ?? "<unset>"}); " +
+            $"a warning that can only fire after the process is killed never fires.");
+    }
+
+    // ---------------------------------------------------------------- report delivery
+
+    /// <summary>
+    /// The duration report's delivery channel, guarded because the obvious channel is broken.
+    ///
+    /// <para>Measured: under <c>dotnet test</c> the tests run in a child <c>testhost</c> whose
+    /// stdout the runner does not forward. A probe writing a <c>::warning::</c> line via
+    /// <c>Console.WriteLine</c> <i>and</i> via the raw standard-output handle produced neither
+    /// marker in the run output, and <c>Assert.Inconclusive</c>'s message was not shown either.
+    /// So the gate reports through <c>GITHUB_STEP_SUMMARY</c>, which is ordinary file I/O done by
+    /// this process. If that write silently no-ops, the erosion this feature exists to surface
+    /// goes back to being invisible — hence a test that the bytes actually land.</para>
+    /// </summary>
+    [TestMethod]
+    public void StepSummary_WritesTheReportWhenAPathIsProvided()
+    {
+        var path = global::System.IO.Path.Combine(
+            global::System.IO.Path.GetTempPath(), $"reactor-988-summary-{Guid.NewGuid():N}.md");
+
+        try
+        {
+            Assert.IsTrue(SelfTestBatch.TryAppendSummary(path, "FIRST-BLOCK"),
+                "A writable path must report success, or the caller cannot tell a missing summary " +
+                "from a failed write.");
+            Assert.IsTrue(SelfTestBatch.TryAppendSummary(path, "SECOND-BLOCK"));
+
+            var written = global::System.IO.File.ReadAllText(path);
+
+            Assert.IsTrue(written.Contains("FIRST-BLOCK", StringComparison.Ordinal), written);
+            Assert.IsTrue(written.Contains("SECOND-BLOCK", StringComparison.Ordinal),
+                "The summary must be appended, not overwritten: other steps share this file.\n" + written);
+            Assert.IsTrue(written.IndexOf("FIRST-BLOCK", StringComparison.Ordinal)
+                          < written.IndexOf("SECOND-BLOCK", StringComparison.Ordinal),
+                "Appends must preserve order.\n" + written);
+        }
+        finally
+        {
+            if (global::System.IO.File.Exists(path)) global::System.IO.File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// The failure direction that matters: this is a diagnostic channel, so an unusable path must
+    /// degrade to "no report", never to an exception. A throw here would convert a perfectly
+    /// healthy suite into a red build — worse than the silence being fixed.
+    /// </summary>
+    [TestMethod]
+    public void StepSummary_DegradesQuietlyWhenTheChannelIsUnusable()
+    {
+        foreach (var unusable in new[]
+                 {
+                     null,                                      // not running under Actions
+                     "",
+                     "   ",
+                     @"Z:\no-such-drive\reactor-988\summary.md", // path that cannot be written
+                     "\0invalid",                                // rejected by the filesystem APIs
+                 })
+        {
+            Assert.IsFalse(SelfTestBatch.TryAppendSummary(unusable, "IRRELEVANT"),
+                $"'{unusable ?? "<null>"}' is not a usable summary path, so the write must report " +
+                $"failure rather than claim success.");
+        }
+    }
+
+    // ---------------------------------------------------------------- host elapsed parsing
+
+    [TestMethod]
+    public void SuiteElapsed_ParsedFromHostTrailer()
+    {
+        const string stdout = "TAP version 14\n1..3\nok 1 A\n# Total failures: 0\n# Suite elapsed: 312.4\n";
+
+        Assert.AreEqual(312.4, SelfTestBatch.ExtractSuiteElapsedSeconds(stdout)!.Value, 0.001);
+    }
+
+    /// <summary>
+    /// Absent marker, malformed value, and empty input must all return null so the wrapper's own
+    /// stopwatch is used instead. A parser that returned 0 here would render "0.0s (0.0% of
+    /// budget)" on every run — a confident, wrong, and self-consistent number, which is worse than
+    /// no number at all.
+    /// </summary>
+    [TestMethod]
+    public void SuiteElapsed_ReturnsNullWhenUnavailable()
+    {
+        Assert.IsNull(SelfTestBatch.ExtractSuiteElapsedSeconds(""));
+        Assert.IsNull(SelfTestBatch.ExtractSuiteElapsedSeconds("TAP version 14\nok 1 A\n"));
+        Assert.IsNull(SelfTestBatch.ExtractSuiteElapsedSeconds("# Suite elapsed: not-a-number\n"));
+        Assert.IsNull(SelfTestBatch.ExtractSuiteElapsedSeconds("# Suite elapsed:\n"));
+    }
+
+    /// <summary>
+    /// The marker is parsed with <c>\n</c> splitting but the Host writes CRLF on Windows, so a
+    /// naive implementation leaves a stray <c>\r</c> and fails to parse. Guard the real shape.
+    /// </summary>
+    [TestMethod]
+    public void SuiteElapsed_ToleratesWindowsLineEndings()
+    {
+        Assert.AreEqual(287.0,
+            SelfTestBatch.ExtractSuiteElapsedSeconds("# Total failures: 0\r\n# Suite elapsed: 287.0\r\n")!.Value,
+            0.001);
+    }
+}

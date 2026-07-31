@@ -17,8 +17,73 @@ namespace Microsoft.UI.Reactor.SelfTests;
 [TestClass]
 public class SelfTestBatch
 {
-    private const int SelfTestTimeoutMs = 300_000;   // 5 min
+    /// <summary>
+    /// Whole-suite process budget for the <c>--self-test</c> run. This is a <b>backstop, not the
+    /// hang detector</b>, and that distinction is what sets its size.
+    ///
+    /// <para>The Host owns two watchdogs that attribute <i>causally</i>: a per-fixture graceful
+    /// timeout (<c>SelfTestFixtureBase.FixtureTimeout</c>, which emits
+    /// <c>not ok &lt;n&gt; &lt;fixture&gt;_TIMEOUT</c>) and an off-dispatcher watchdog that
+    /// declares a hang after 60 s of no fixture progress (emitting <c>HANG_DETECTED:</c> and
+    /// fast-failing). Both name a culprit. This cap only fires when <i>both</i> were unable to —
+    /// they are disabled under a debugger and via
+    /// <c>REACTOR_SELFTEST_HANG_TIMEOUT_SECONDS</c> — and its attribution is merely
+    /// <b>positional</b>: whichever fixture happened to be in flight.</para>
+    ///
+    /// <para><b>So it must be sized as "the suite could not legitimately take this long", not as
+    /// "the suite normally takes this long".</b> It was 300 s, against measured runs of 262–346 s
+    /// locally and up to 97.6 % of cap on CI — i.e. <c>main</c> breached it with no PR
+    /// contribution, and every breach manufactured a spurious single-fixture failure on an
+    /// arbitrary victim (issue #988). Raising it does not delay real hang detection, because the
+    /// 60 s off-dispatcher watchdog fires first and names the offender.</para>
+    /// </summary>
+    private const int DefaultSelfTestTimeoutSeconds = 900;   // 15 min
+
+    /// <summary>
+    /// Overrides <see cref="DefaultSelfTestTimeoutSeconds"/> for slow or heavily contended
+    /// machines and for stress shards, mirroring the Host's own
+    /// <c>REACTOR_SELFTEST_HANG_TIMEOUT_SECONDS</c> knob.
+    /// </summary>
+    internal const string TimeoutEnvVar = "REACTOR_SELFTEST_TIMEOUT_SECONDS";
+
+    /// <summary>
+    /// Soft threshold at which <see cref="SuiteDuration_WithinBudget"/> warns. Deliberately its
+    /// <b>own constant</b> rather than a fraction of <see cref="DefaultSelfTestTimeoutSeconds"/>:
+    /// 80 % of a deliberately-generous 900 s cap is 720 s, which would only warn long after the
+    /// margin had actually eroded. 420 s is ≈1.2× the slowest run measured when this was written,
+    /// so it fires while there is still headroom to act.
+    /// </summary>
+    internal const int SuiteDurationWarnSeconds = 420;
+
+    private static readonly int SelfTestTimeoutMs =
+        ResolveTimeoutSeconds(Environment.GetEnvironmentVariable(TimeoutEnvVar)) * 1000;
+
     private const int ListFixturesTimeoutMs = 30_000;
+
+    /// <summary>
+    /// Resolves the suite budget in seconds from an environment value, falling back to
+    /// <see cref="DefaultSelfTestTimeoutSeconds"/> for absent, unparseable, non-positive, or
+    /// absurdly large input. A malformed override must not silently produce a tiny (or zero)
+    /// budget — that would recreate the exact failure this constant exists to prevent, only
+    /// faster — nor a value that overflows when converted to milliseconds, which lands as a
+    /// *negative* timeout and fails initialization outright.
+    /// </summary>
+    internal static int ResolveTimeoutSeconds(string? envValue)
+    {
+        if (!string.IsNullOrWhiteSpace(envValue)
+            && int.TryParse(envValue.Trim(), System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var seconds)
+            && seconds > 0
+            && seconds <= int.MaxValue / 1000)
+        {
+            return seconds;
+        }
+
+        return DefaultSelfTestTimeoutSeconds;
+    }
+
+    /// <summary>The budget actually in force this run, after the environment override.</summary>
+    internal static int EffectiveTimeoutSeconds => SelfTestTimeoutMs / 1000;
 
     // Per-fixture aggregated outcome, populated by ClassInitialize.
     // Key = fixture name; Value = (passed, joined failure reasons).
@@ -36,18 +101,30 @@ public class SelfTestBatch
     // than cascading "was not reported by the Host" failures across every
     // fixture downstream of the hang.
     private static string? _abortedReason;
+    // Suite duration, for the duration gate and for the budget-overrun message.
+    // _hostElapsedSeconds is the Host's own figure (excludes process start and
+    // pipe-drain overhead); _wrapperElapsedSeconds is what this process measured.
+    private static double _wrapperElapsedSeconds;
+    private static double? _hostElapsedSeconds;
+
+    private static double ElapsedSeconds => _hostElapsedSeconds ?? _wrapperElapsedSeconds;
 
     [ClassInitialize]
     public static void RunSelfTests(TestContext context)
     {
         var exe = FindHostExe();
+        var stopwatch = Stopwatch.StartNew();
         var (stdout, stderr, exitCode, timedOut) = RunProcess(exe, "--self-test", SelfTestTimeoutMs);
+        stopwatch.Stop();
+        _wrapperElapsedSeconds = stopwatch.Elapsed.TotalSeconds;
         _exitCode = exitCode;
         _timedOut = timedOut;
 
         _fullOutput = stdout;
         if (!string.IsNullOrEmpty(stderr))
             _fullOutput += "\n--- stderr ---\n" + stderr;
+
+        _hostElapsedSeconds = ExtractSuiteElapsedSeconds(stdout);
 
         var tap = ParseTap(stdout);
 
@@ -59,39 +136,25 @@ public class SelfTestBatch
         // timed out" affecting every fixture.
         var hangFixture = ExtractHangSignal(stdout) ?? ExtractHangSignal(stderr);
 
-        if (timedOut)
+        var outcome = ClassifyAbort(
+            timedOut, hangFixture, ExtractLastRunningFixture(stdout),
+            SelfTestTimeoutMs, _wrapperElapsedSeconds, _byFixture.Count, TryGetFixtureCount(),
+            Tail(_fullOutput, 4000));
+
+        if (outcome is not null)
         {
-            // Process didn't exit on its own. If the Host emitted a hang
-            // signal, attribute the timeout to that fixture. Otherwise fall
-            // back to the last "# Running:" line — that's the fixture that
-            // was in flight when the timeout fired.
-            var attributed = hangFixture ?? ExtractLastRunningFixture(stdout);
-            if (attributed is not null)
-            {
-                _byFixture[attributed] = (false,
-                    $"Selftest process timed out after {SelfTestTimeoutMs}ms with this fixture in flight. " +
-                    $"Repro: build the Host (AOT publish if needed) and run " +
-                    $"`Reactor.AppTests.Host.exe --self-test --no-aot-skip --filter {attributed}`. " +
-                    $"Set DOTNET_DbgEnableMiniDump=1 (and COMPlus_DbgEnableMiniDump=1) to capture a dump.\n" +
-                    $"--- tail of full output ---\n{Tail(_fullOutput, 4000)}");
-                _abortedReason = $"Run aborted by timeout on fixture '{attributed}'";
-            }
-            else
-            {
-                _initError = $"Self-test process timed out after {SelfTestTimeoutMs}ms with no fixture attribution.\n{_fullOutput}";
-            }
-            _initialized = true;
-            return;
+            _byFixture[outcome.Fixture] = (false, outcome.Detail);
+            _abortedReason = outcome.AbortReason;
+        }
+        else if (timedOut)
+        {
+            _initError = $"Self-test process timed out after {SelfTestTimeoutMs}ms with no fixture attribution.\n{_fullOutput}";
         }
 
-        if (hangFixture is not null)
+        if (timedOut)
         {
-            _byFixture[hangFixture] = (false,
-                $"Selftest Host detected a dispatcher-starvation hang. " +
-                $"Repro: `Reactor.AppTests.Host.exe --self-test --no-aot-skip --filter {hangFixture}`. " +
-                $"Set DOTNET_DbgEnableMiniDump=1 (and COMPlus_DbgEnableMiniDump=1) for a dump.\n" +
-                $"--- tail of full output ---\n{Tail(_fullOutput, 4000)}");
-            _abortedReason = $"Run aborted by hang on fixture '{hangFixture}'";
+            _initialized = true;
+            return;
         }
 
         MarkEarlyAbortIfNeeded(exitCode, tap);
@@ -100,6 +163,46 @@ public class SelfTestBatch
 
         if (exitCode != 0 && _byFixture.IsEmpty)
             _initError = $"Self-test process exited with code {exitCode} but produced no parsable TAP output.\n{_fullOutput}";
+    }
+
+    /// <summary>The fixture an aborted run is attributed to, and how that attribution is worded.</summary>
+    internal sealed record AbortOutcome(string Fixture, string Detail, string AbortReason);
+
+    /// <summary>
+    /// Decides which fixture (if any) an aborted run is attributed to, and with what wording.
+    /// Returns null when the run was not aborted, or when nothing can be attributed.
+    ///
+    /// <para>This is the whole point of issue #988, so it is a <b>pure function that production
+    /// actually calls</b> rather than three inline branches. Three cases reach here and they used
+    /// to be two:</para>
+    /// <list type="bullet">
+    /// <item><b>Hang, process died.</b> The Host's watchdog printed <c>HANG_DETECTED</c> and
+    /// <c>FailFast</c>ed, so the process exited on its own. Causal — this is the ordinary hang
+    /// path, and the common one.</item>
+    /// <item><b>Hang, process would not die.</b> Same signal, but <c>FailFast</c> did not take the
+    /// process down before the wrapper's budget expired. Still causal.</item>
+    /// <item><b>Budget expired with no signal.</b> Positional: the named fixture was merely in
+    /// flight. This is the case that manufactured seven spurious failures across six PRs.</item>
+    /// </list>
+    /// </summary>
+    internal static AbortOutcome? ClassifyAbort(
+        bool timedOut, string? hangFixture, string? lastRunningFixture,
+        int budgetMs, double elapsedSeconds, int fixturesReported, int? fixturesTotal, string tail)
+    {
+        if (hangFixture is not null)
+        {
+            return new AbortOutcome(
+                hangFixture,
+                DescribeStarvationHang(hangFixture, timedOut, budgetMs, tail),
+                StarvationHangAbortReason(hangFixture, timedOut));
+        }
+
+        if (!timedOut || lastRunningFixture is null) return null;
+
+        return new AbortOutcome(
+            lastRunningFixture,
+            DescribeBudgetOverrun(lastRunningFixture, budgetMs, elapsedSeconds, fixturesReported, fixturesTotal, tail),
+            BudgetOverrunAbortReason(lastRunningFixture, budgetMs));
     }
 
     /// <summary>
@@ -184,6 +287,164 @@ public class SelfTestBatch
         }
 
         return raw;
+    }
+
+    /// <summary>
+    /// Message for a run where the Host emitted a <c>HANG_DETECTED:</c> signal, i.e. the named
+    /// fixture starved the dispatcher. <b>Causal</b> attribution: this fixture is the culprit, and
+    /// a per-fixture repro genuinely reproduces it — which is why this message keeps the
+    /// <c>--filter</c> line and <see cref="DescribeBudgetOverrun"/> deliberately does not.
+    /// </summary>
+    /// <param name="alsoTimedOut">
+    /// False on the ordinary path (the watchdog's <c>FailFast</c> took the process down, so the
+    /// wrapper never had to). True when even <c>FailFast</c> did not land before the suite budget
+    /// expired — worth saying out loud, because it means the process was wedged below the CLR.
+    /// </param>
+    internal static string DescribeStarvationHang(string fixture, bool alsoTimedOut, int budgetMs, string tail)
+    {
+        var lead = alsoTimedOut
+            ? $"DISPATCHER-STARVATION HANG in '{fixture}' — this fixture IS the cause.\n" +
+              $"The Host's off-dispatcher watchdog named it via a HANG_DETECTED signal, and the " +
+              $"process then failed to exit within the {budgetMs / 1000}s suite budget, so the " +
+              $"wrapper killed it. FailFast not landing points below the CLR — a native lock or " +
+              $"a wedged UI thread.\n"
+            : $"DISPATCHER-STARVATION HANG in '{fixture}' — this fixture IS the cause.\n" +
+              $"The Host's off-dispatcher watchdog named it via a HANG_DETECTED signal and " +
+              $"fast-failed the process.\n";
+
+        return lead +
+               $"Repro: build the Host (AOT publish if needed) and run " +
+               $"`Reactor.AppTests.Host.exe --self-test --no-aot-skip --filter {fixture}`. " +
+               $"Set DOTNET_DbgEnableMiniDump=1 (and COMPlus_DbgEnableMiniDump=1) to capture a dump.\n" +
+               $"--- tail of full output ---\n{tail}";
+    }
+
+    /// <summary>
+    /// Message for a wrapper timeout with <b>no</b> hang signal: the suite ran out of its shared
+    /// process budget, and the harness blamed whichever fixture happened to be in flight.
+    ///
+    /// <para><b>This message's job is to stop the reader debugging that fixture.</b> Issue #988
+    /// records seven distinct victims across six PRs, all innocent, because three things in the
+    /// old message pointed the wrong way: the fixture name looked causal, MSTest printed the
+    /// fixture's own elapsed time (<c>[16 ms]</c>) next to a 300-second process kill so it read as
+    /// a fast assertion failure, and the <c>Repro:</c> line suggested <c>--filter &lt;fixture&gt;</c>
+    /// — which removes the ~1387 other fixtures sharing the budget, i.e. removes the cause, so the
+    /// suggested reproduction essentially always passes and argues the fixture is fine.</para>
+    ///
+    /// <para>It must not overcorrect into the opposite false claim. The absence of a
+    /// <c>HANG_DETECTED</c> signal does <b>not</b> prove the fixture innocent — the watchdog can be
+    /// disabled by env or by an attached debugger, and a fixture can be pathologically slow, or
+    /// order-dependent, while still pumping the dispatcher often enough never to trip it.
+    /// Positional attribution means <i>unproven</i>, not <i>exonerated</i>, and the wording says
+    /// so.</para>
+    /// </summary>
+    internal static string DescribeBudgetOverrun(
+        string inFlight, int budgetMs, double elapsedSeconds, int fixturesReported, int? fixturesTotal, string tail)
+    {
+        var budgetSeconds = budgetMs / 1000.0;
+        var progress = fixturesTotal is int total
+            ? $"{fixturesReported} of {total}"
+            : $"{fixturesReported}";
+
+        return $"SUITE BUDGET EXCEEDED — '{inFlight}' is NOT PROVEN to be the cause.\n" +
+               $"The whole selftest suite shares ONE process budget. It expired while '{inFlight}' " +
+               $"happened to be running, so the harness killed the Host and attributed the kill to " +
+               $"it. That attribution is POSITIONAL: it records where the run was, not what went " +
+               $"wrong, and the fixture named here differs from run to run.\n" +
+               $"  elapsed   : {elapsedSeconds:F1}s against a {budgetSeconds:F0}s budget " +
+               $"(these are necessarily close — the kill IS the budget expiring)\n" +
+               $"  reported  : {progress} fixtures had TAP output parsed before the kill " +
+               $"(includes '{inFlight}', which was still running)\n" +
+               $"  remaining : reported Skipped (Assert.Inconclusive) — never RUN, so their " +
+               $"results say nothing\n" +
+               $"Do NOT start by debugging '{inFlight}', and do NOT re-run it under `--filter`: " +
+               $"that removes the other fixtures that shared the budget — i.e. removes the cause — " +
+               $"so it passes whether or not the fixture is healthy. It is not a valid " +
+               $"reproduction of a suite-budget kill in either direction.\n" +
+               $"Start with total suite duration instead. If the suite has simply grown into its " +
+               $"cap (issue #988), raise it with {TimeoutEnvVar} or trim suite time; the " +
+               $"`# Fixture time:` TAP comments rank the offenders. If duration looks normal, " +
+               $"look for a fixture that wedged WITHOUT tripping the Host's per-fixture timeout " +
+               $"or its 60s off-dispatcher watchdog — which is the one scenario where '{inFlight}' " +
+               $"could still turn out to be at fault.\n" +
+               $"The exit code is not evidence on this path: RunProcess synthesizes -1 for its own " +
+               $"watchdog kill and discards the real one.\n" +
+               $"--- tail of full output ---\n{tail}";
+    }
+
+    // Abort reasons are stamped verbatim onto every unexecuted fixture (see Fixture below), so
+    // their prefixes are the cheapest triage signal there is: they are readable off ANY skipped
+    // fixture with no re-run and no raw job log. Keeping the causal and positional kinds distinct
+    // here is the whole point — they used to share one string.
+    internal static string StarvationHangAbortReason(string fixture, bool alsoTimedOut) =>
+        alsoTimedOut
+            ? $"Run aborted by dispatcher-starvation hang on fixture '{fixture}' (FailFast did not " +
+              $"land; the wrapper's budget killed the process)"
+            : $"Run aborted by dispatcher-starvation hang on fixture '{fixture}'";
+
+    internal static string BudgetOverrunAbortReason(string inFlight, int budgetMs) =>
+        $"Run aborted: suite exceeded its {budgetMs / 1000}s budget with fixture '{inFlight}' in " +
+        $"flight (POSITIONAL attribution — that fixture is not proven to be at fault)";
+
+    /// <summary>
+    /// Renders the suite's wall clock against the soft warn threshold and the hard budget, and
+    /// says whether it warrants a warning. Pure, so the thresholds are testable without a run.
+    /// </summary>
+    internal static (bool Warn, string Text) DescribeSuiteDuration(
+        double elapsedSeconds, int warnSeconds, int budgetSeconds)
+    {
+        var percentOfBudget = budgetSeconds > 0 ? elapsedSeconds / budgetSeconds * 100.0 : 0.0;
+        var warn = elapsedSeconds > warnSeconds;
+
+        var text =
+            $"Selftest suite duration: {elapsedSeconds:F1}s " +
+            $"({percentOfBudget:F1}% of the {budgetSeconds}s hard budget, warn above {warnSeconds}s).";
+
+        if (warn)
+        {
+            text += $"\nThe suite is approaching the budget that kills it. When it crosses, the " +
+                    $"harness reports ONE arbitrary fixture as failed and skips the rest — a " +
+                    $"misleading signal that has cost multiple investigations (issue #988). " +
+                    $"Trim suite time, or raise the budget deliberately rather than discovering " +
+                    $"it in a red PR.";
+        }
+
+        return (warn, text);
+    }
+
+    /// <summary>
+    /// Reads the Host's own <c># Suite elapsed: &lt;seconds&gt;</c> trailer. Preferred over this
+    /// process's stopwatch because it excludes process start and pipe-drain overhead (measured at
+    /// ≈2.5 s in issue #988, enough to make a 300 s kill report as 302.5 s and confuse the margin).
+    /// Returns null when the marker is absent — an older Host, or a run killed before the trailer.
+    /// </summary>
+    /// <remarks>Marker literal is duplicated from <c>SelfTestRunner.SuiteElapsedMarker</c>; the
+    /// Host assembly is referenced with <c>ReferenceOutputAssembly=false</c> so it cannot be shared.</remarks>
+    internal static double? ExtractSuiteElapsedSeconds(string stdout)
+    {
+        if (string.IsNullOrEmpty(stdout)) return null;
+        const string marker = "# Suite elapsed: ";
+        double? last = null;
+        foreach (var raw in stdout.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (!line.StartsWith(marker, StringComparison.Ordinal)) continue;
+            if (double.TryParse(line[marker.Length..].Trim(),
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var seconds))
+            {
+                last = seconds;
+            }
+        }
+        return last;
+    }
+
+    private static int? TryGetFixtureCount()
+    {
+        // Discovery has normally already resolved this (DynamicData drives AllFixtures), but a
+        // failure here must not replace a useful timeout message with a discovery exception.
+        try { return FixtureNames.Value.Length; }
+        catch { return null; }
     }
 
     private static string? ExtractHangSignal(string output)
@@ -396,13 +657,114 @@ public class SelfTestBatch
         {
             if (_abortedReason is not null)
                 Assert.Inconclusive(
-                    $"{_abortedReason}; fixture '{name}' was not executed. " +
-                    $"Re-run after the offending fixture is fixed or added to DefaultAotSkipPatterns.");
+                    $"{_abortedReason}; fixture '{name}' was not executed — this result carries NO " +
+                    $"information about '{name}' itself. Read the abort reason above: it names " +
+                    $"which of the four abort paths fired, and whether the fixture blamed by the " +
+                    $"run was the cause or merely in flight.");
             Assert.Fail($"Fixture '{name}' was not reported by the Host. Full output:\n{_fullOutput}");
         }
 
         if (!result.Passed)
             Assert.Fail(result.Detail);
+    }
+
+    /// <summary>
+    /// Reports the suite's wall clock every run, and warns — without failing — when it climbs past
+    /// <see cref="SuiteDurationWarnSeconds"/>.
+    ///
+    /// <para>This exists because the failure it guards against is silent. Nothing measured suite
+    /// duration before, so the margin against the process budget eroded run by run as fixtures
+    /// were added (check counts moved 6090 → 6146 in a single day) until <c>main</c> itself
+    /// breached the cap. The first visible symptom was an unrelated fixture failing on an
+    /// unrelated PR. A number in the log every run makes that erosion observable while there is
+    /// still headroom to act.</para>
+    ///
+    /// <para>Deliberately <c>Inconclusive</c> rather than <c>Fail</c>: duration depends on runner
+    /// speed and contention, so a hard gate here would itself be a flake. A Skipped result cannot
+    /// turn a slow runner into a red build, but it is conspicuous in the run summary.</para>
+    ///
+    /// <para><b>Why the number goes to a file and not just the console.</b> Measured, not assumed:
+    /// under <c>dotnet test</c> the tests execute in a child <c>testhost</c> process whose stdout
+    /// the runner does not forward. A probe writing to <c>Console.WriteLine</c> <i>and</i> straight
+    /// to the process's standard-output handle produced neither marker in the run output at
+    /// <c>console;verbosity=normal</c>, and the <c>Assert.Inconclusive</c> message did not appear
+    /// either — only the bare line <c>Skipped SuiteDuration_WithinBudget</c>. So a
+    /// <c>::warning::</c> workflow command emitted from here can never reach the Actions runner,
+    /// and a gate whose report is invisible is the same silent erosion in a new costume.
+    /// <c>GITHUB_STEP_SUMMARY</c> is plain file I/O performed by this process, so it is immune to
+    /// whatever the runner does with stdout, and it renders on the run page. The console lines are
+    /// kept for local <c>vstest</c>/IDE runs, where they do show up.</para>
+    /// </summary>
+    [TestMethod]
+    public void SuiteDuration_WithinBudget()
+    {
+        Assert.IsTrue(_initialized, "Self-test batch did not run.");
+        if (_initError is not null)
+            Assert.Fail(_initError);
+
+        if (_timedOut)
+        {
+            // Elapsed == budget by construction here; the overrun is already reported against the
+            // in-flight fixture, and repeating it as a duration warning would add nothing.
+            PublishToStepSummary(
+                $"### ❌ Selftest suite exceeded its {SelfTestTimeoutMs / 1000}s hard budget\n\n" +
+                $"The Host was killed. One fixture is reported failed, but that attribution is " +
+                $"positional — see its message, and issue #988.");
+
+            Assert.Inconclusive(
+                $"Suite hit its {SelfTestTimeoutMs / 1000}s hard budget and was killed; see the " +
+                $"budget-overrun failure for the attribution caveat.");
+        }
+
+        var (warn, text) = DescribeSuiteDuration(
+            ElapsedSeconds, SuiteDurationWarnSeconds, SelfTestTimeoutMs / 1000);
+
+        var source = _hostElapsedSeconds is not null ? "Host-reported" : "wrapper-measured";
+        Console.WriteLine($"{text} [{source}]");
+
+        PublishToStepSummary(
+            $"### {(warn ? "⚠️" : "✅")} Selftest suite duration\n\n" +
+            $"{text.Replace("\n", " ")}\n\n<sub>Source: {source}. Budget knob: " +
+            $"`{TimeoutEnvVar}`. Background: issue #988.</sub>");
+
+        if (warn)
+        {
+            // Kept for local runs; under `dotnet test` this is swallowed with the rest of the
+            // testhost's stdout, which is why the step summary above is the load-bearing channel.
+            Console.WriteLine($"::warning title=Selftest suite duration::{text.Replace("\n", " ")}");
+            Assert.Inconclusive(text);
+        }
+    }
+
+    /// <summary>
+    /// Appends a markdown block to the GitHub Actions job summary, if we are running under one.
+    /// </summary>
+    private static void PublishToStepSummary(string markdown) =>
+        TryAppendSummary(Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY"), markdown);
+
+    /// <summary>
+    /// Appends to the job-summary file, reporting whether it landed. Best-effort by design: this
+    /// is a diagnostic channel, and a failure to write it must never turn a green selftest run red
+    /// — an unwritable summary path would otherwise convert a healthy suite into a hard error,
+    /// which is a strictly worse outcome than the silence this whole gate exists to fix.
+    /// Returns false (rather than throwing) when there is no summary file, which is the normal
+    /// case locally.
+    /// </summary>
+    internal static bool TryAppendSummary(string? path, string markdown)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+
+        try
+        {
+            File.AppendAllText(path, markdown + "\n\n");
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                      or NotSupportedException or ArgumentException)
+        {
+            Console.WriteLine($"Could not write the job summary ({ex.GetType().Name}: {ex.Message}).");
+            return false;
+        }
     }
 
     /// <summary>
