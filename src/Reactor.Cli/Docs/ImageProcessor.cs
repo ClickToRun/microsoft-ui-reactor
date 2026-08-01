@@ -277,6 +277,53 @@ internal static class ImageProcessor
     }
 
     /// <summary>
+    /// Copies visual row <paramref name="y"/> of a locked region into
+    /// <paramref name="row"/>, for either sign of <see cref="BitmapData.Stride"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="BitmapData.Scan0"/> points at the image's <em>first scanline</em>,
+    /// and a bottom-up DIB expresses "subsequent scanlines live at lower addresses"
+    /// as a negative <see cref="BitmapData.Stride"/>. So <c>Scan0 + y * Stride</c>
+    /// yields visual row <c>y</c> under both layouts, and no normalisation is
+    /// wanted: normalising the base pointer and indexing with <c>|Stride|</c>
+    /// mirrors a bottom-up image vertically, while keeping <c>Scan0</c> and
+    /// indexing with <c>|Stride|</c> walks off the end of its allocation.
+    /// </para>
+    /// <para>
+    /// This exists as one function because review has proposed that normalisation
+    /// three times, against three separate copies of the expression. The risk the
+    /// duplication carried was never that the convention was wrong; it was that a
+    /// future editor would "fix" one of the three sites and leave the others, so
+    /// the three scans would disagree about which row they were reading. One copy
+    /// cannot diverge — and it also makes both wrong forms measurable in one edit:
+    /// </para>
+    /// <list type="table">
+    ///   <item><description>
+    ///     <c>if (s &lt; 0) { p += s * (h - 1); s = -s; }</c> — the proposed
+    ///     normalisation. <strong>1 failure:</strong> the bounds test. It mirrors a
+    ///     bottom-up image vertically; the counts survive because counting is
+    ///     order-insensitive.
+    ///   </description></item>
+    ///   <item><description>
+    ///     <c>Scan0 + y * |Stride|</c> — keeps the base pointer but drops the sign.
+    ///     <strong>2 failures:</strong> bounds and count. It walks off the end of a
+    ///     bottom-up allocation, which a count *can* express.
+    ///   </description></item>
+    /// </list>
+    /// <para>
+    /// Both were run against the shared helper, so the counts above are for all
+    /// three scans at once and do not match the older per-site figures. The oracle
+    /// in each case is <see cref="Bitmap.GetPixel(int,int)"/>, which addresses
+    /// visual coordinates and knows nothing about stride — so these are not the
+    /// implementation agreeing with itself.
+    /// </para>
+    /// </remarks>
+    private static void CopyVisualRow(BitmapData data, int y, byte[] row) =>
+        global::System.Runtime.InteropServices.Marshal.Copy(
+            data.Scan0 + (y * data.Stride), row, 0, row.Length);
+
+    /// <summary>
     /// Locates the tight bounding box of visible content, or
     /// <see langword="null"/> when the bitmap has none at all.
     /// </summary>
@@ -309,14 +356,8 @@ internal static class ImageProcessor
 
             for (int y = 0; y < full.Height; y++)
             {
-                // Scan0 + y * Stride addresses visual row y for either sign of
-                // Stride: Scan0 points at the image's first scanline, and a
-                // bottom-up DIB expresses "subsequent scanlines are at lower
-                // addresses" as a negative Stride. Normalising the base pointer
-                // and indexing with |Stride| mirrors such an image vertically —
-                // see StrideOrientationTests, which pins this against GetPixel.
-                global::System.Runtime.InteropServices.Marshal.Copy(
-                    data.Scan0 + (y * data.Stride), row, 0, row.Length);
+                // Sign-agnostic row addressing — see CopyVisualRow.
+                CopyVisualRow(data, y, row);
 
                 int rowLeft = -1, rowRight = -1;
                 for (int x = 0, i = 0; x < full.Width; x++, i += 4)
@@ -389,9 +430,8 @@ internal static class ImageProcessor
             var haveFirst = false;
             for (int y = 0; y < region.Height; y++)
             {
-                // Sign-agnostic row addressing — see FindContentBounds.
-                global::System.Runtime.InteropServices.Marshal.Copy(
-                    data.Scan0 + (y * data.Stride), row, 0, row.Length);
+                // Sign-agnostic row addressing — see CopyVisualRow.
+                CopyVisualRow(data, y, row);
                 for (int i = 0; i < row.Length; i += 4)
                 {
                     // Format32bppArgb is BGRA in memory. Compare what the pixel
@@ -437,17 +477,13 @@ internal static class ImageProcessor
             int count = 0;
             for (int y = 0; y < region.Height; y++)
             {
-                // Sign-agnostic row addressing — see FindContentBounds. Counting
-                // is order-insensitive anyway, so a pure row-order inversion is
-                // invisible at this site; what a count *can* express is an
-                // address that leaves the buffer. Both measured against
-                // StrideOrientationTests: normalising the base pointer (an order
-                // inversion) fails only the bounds test, while keeping Scan0 and
-                // indexing with |Stride| — which walks off the end of a
-                // bottom-up allocation — fails only the count test. The two
-                // tests are complementary, and this form is what passes both.
-                global::System.Runtime.InteropServices.Marshal.Copy(
-                    data.Scan0 + (y * data.Stride), row, 0, row.Length);
+                // Row addressing lives in CopyVisualRow. Counting is
+                // order-insensitive, so a pure row-order inversion is invisible
+                // *at this site*; what a count can express is an address that
+                // leaves the buffer. Since the addressing is now one shared
+                // function, both mutations are measured against it rather than
+                // per-site — see the table on CopyVisualRow.
+                CopyVisualRow(data, y, row);
                 for (int i = 0; i < row.Length; i += 4)
                 {
                     // Format32bppArgb is BGRA in memory.

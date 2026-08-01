@@ -12,10 +12,11 @@ namespace Microsoft.UI.Reactor.Cli.Docs.Tests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Review has twice proposed rewriting <c>Scan0 + y * Stride</c> to "normalise
-/// the base pointer and index with a positive stride", on the theory that a
-/// negative <see cref="BitmapData.Stride"/> inverts the scan order. Measurement
-/// says the opposite: <c>Scan0</c> points at the image's <em>first scanline</em>,
+/// Review has three times proposed rewriting <c>Scan0 + y * Stride</c> to
+/// "normalise the base pointer and index with a positive stride", on the theory
+/// that a negative <see cref="BitmapData.Stride"/> inverts the scan order.
+/// Measurement says the opposite: <c>Scan0</c> points at the image's
+/// <em>first scanline</em>,
 /// and a bottom-up DIB expresses "subsequent scanlines live at lower addresses"
 /// as a negative stride — so <c>Scan0 + y * Stride</c> yields visual row
 /// <c>y</c> for either sign, and it is the proposed normalisation that mirrors
@@ -97,8 +98,9 @@ public class StrideOrientationTests
     /// An addressing change that keeps <c>Scan0</c> while indexing with
     /// <c>|Stride|</c> walks off the end of a bottom-up allocation, and the
     /// resulting garbage — or fault — separates from the oracle here. Both
-    /// claims are measured, not assumed: see the mutation notes on
-    /// <c>ScanRegion</c>.
+    /// claims are measured, not assumed: see the mutation table on
+    /// <c>ImageProcessor.CopyVisualRow</c>, which is the single function all
+    /// three scans now address their rows through.
     /// </para>
     /// <para>
     /// <strong>Why each count is checked against the oracle and not just
