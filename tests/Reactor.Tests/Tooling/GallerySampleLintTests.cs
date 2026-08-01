@@ -868,7 +868,8 @@ public sealed class GallerySampleLintTests
     /// them, and cannot recur once they are gone — whereas a masked re-regression is silent and
     /// survives forever. Both directions the rule is for are kept either way: a page that is not
     /// on the list fails, and so does a compensating edit that fixes one page while breaking
-    /// another, because the new offender is not on the list either.
+    /// another — not because of anything on this list, which such an edit leaves consistent, but
+    /// because the new offender is absent from <see cref="SharedStateDebtAtIntroduction"/>.
     /// </para>
     /// <para>
     /// This does not make the test vacuous when the list drains to nothing: non-vacuity here comes
@@ -896,10 +897,34 @@ public sealed class GallerySampleLintTests
     ];
 
     /// <summary>
-    /// The size <see cref="KnownSharedStatePages"/> is pinned to. #980 drives it to zero, at which
-    /// point the list, this ceiling, and both <c>Except</c> arms should all go.
+    /// The same 14 pairs, frozen as the debt that existed when this rule was written (#982).
+    /// <see cref="KnownSharedStatePages"/> is a live ledger and shrinks as #980 fixes pages; this
+    /// does not move, and is compared against the <em>tree</em> rather than against the ledger.
+    /// <para>
+    /// Two identical arrays look redundant and are not: the point is that no single edit reaches
+    /// both. Every arm that consults only the ledger can be satisfied by editing the ledger — add
+    /// the page you just broke and the tree-vs-ledger arms agree again. Checking offenders against
+    /// a record the ledger cannot influence is the only shape where suppressing a new defect
+    /// requires appending to a list that says, in its name, that it is history.
+    /// </para>
     /// </summary>
-    const int KnownSharedStatePagesCeiling = 14;
+    static readonly string[] SharedStateDebtAtIntroduction =
+    [
+        "samples/ReactorGallery/ControlPages/BasicInput/NumberBoxPage.cs: value/setValue",
+        "samples/ReactorGallery/ControlPages/BasicInput/RatingControlPage.cs: rating/setRating",
+        "samples/ReactorGallery/ControlPages/DateAndTime/CalendarDatePickerPage.cs: date/setDate",
+        "samples/ReactorGallery/ControlPages/DateAndTime/DatePickerPage.cs: date/setDate",
+        "samples/ReactorGallery/ControlPages/DateAndTime/TimePickerPage.cs: time/setTime",
+        "samples/ReactorGallery/ControlPages/DialogsAndFlyouts/CommandBarFlyoutPage.cs: lastAction/setLastAction",
+        "samples/ReactorGallery/ControlPages/DialogsAndFlyouts/MenuFlyoutPage.cs: lastAction/setLastAction",
+        "samples/ReactorGallery/ControlPages/Layout/StackPanelPage.cs: spacing/setSpacing",
+        "samples/ReactorGallery/ControlPages/MenusAndToolbars/CommandBarPage.cs: lastAction/setLastAction",
+        "samples/ReactorGallery/ControlPages/MenusAndToolbars/MenuBarPage.cs: lastAction/setLastAction",
+        "samples/ReactorGallery/ControlPages/Navigation/NavigationViewPage.cs: selectedTag/setSelectedTag",
+        "samples/ReactorGallery/ControlPages/Text/AutoSuggestBoxPage.cs: query/setQuery",
+        "samples/ReactorGallery/ControlPages/Text/RichEditBoxPage.cs: charCount/setCharCount",
+        "samples/ReactorGallery/ControlPages/Text/RichEditBoxPage.cs: text/setText",
+    ];
 
     [Fact]
     public void SampleCards_SharedStateDoesNotSpread()
@@ -919,6 +944,21 @@ public sealed class GallerySampleLintTests
         Assert.True(pagesWithMultipleCards >= 20,
             $"only {pagesWithMultipleCards} gallery pages were seen to have multiple SampleCards — the rule would pass near-vacuously.");
 
+        // Offenders are keyed by page and slot names only, so two same-named slots in disjoint
+        // scopes on one page collapse to one key — and `Except` dedups, so an entry covering the
+        // first would silently cover the second. Every arm below assumes the key identifies one
+        // slot; if it does not, say so rather than reporting on subjects that cannot be told apart.
+        var ambiguous = offenders.GroupBy(entry => entry, global::System.StringComparer.Ordinal)
+            .Where(g => g.Count() > 1)
+            .Select(g => $"{g.Key}  (x{g.Count()})")
+            .OrderBy(entry => entry, global::System.StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(ambiguous.Count == 0,
+            "these pages declare more than one state slot with the same names, so one allowlist " +
+            "entry would mask all of them. Rename the slots, or key the entry by declaration " +
+            "site:\n  " + string.Join("\n  ", ambiguous));
+
         var added = offenders.Except(KnownSharedStatePages)
             .OrderBy(entry => entry, global::System.StringComparer.Ordinal)
             .ToList();
@@ -937,35 +977,20 @@ public sealed class GallerySampleLintTests
             "these KnownSharedStatePages entries no longer match a live offender — the page was " +
             "fixed (#980), so the entry now only masks a re-regression of that exact page and " +
             "slot. Delete them from KnownSharedStatePages:\n  " + string.Join("\n  ", stale));
-    }
 
-    /// <summary>
-    /// Holds <see cref="KnownSharedStatePages"/> to a declared size, so the list can only be
-    /// changed by an edit that says so.
-    /// <para>
-    /// The staleness arm in <see cref="SampleCards_SharedStateDoesNotSpread"/> cannot reach the
-    /// case the list is most dangerous in. Stale means <em>no longer matching a live offender</em>,
-    /// so an entry that <em>is</em> masking one is by definition never stale and nothing will name
-    /// it again. Worse, pruning selects for exactly those: fixed pages lose their entries, broken
-    /// pages keep them, and a list groomed to only-live entries reads as well-maintained while
-    /// suppressing nothing but real defects. That residue is unreachable while the list is empty,
-    /// which is where #980 leaves it — so the move that has to be blocked is refilling it. Raising
-    /// the ceiling is still possible; it is just a named edit a reviewer sees rather than one more
-    /// line in an array.
-    /// </para>
-    /// </summary>
-    [Fact]
-    public void KnownSharedStatePages_StaysClosed()
-    {
-        Assert.True(KnownSharedStatePages.Length == KnownSharedStatePagesCeiling,
-            KnownSharedStatePages.Length > KnownSharedStatePagesCeiling
-                ? $"KnownSharedStatePages grew ({KnownSharedStatePagesCeiling} -> {KnownSharedStatePages.Length}). " +
-                  "It records debt that predates the rule (#980); it is not a way to accept new debt, and an " +
-                  "entry masking a live offender is never stale, so nothing will report it again. Fix the page. " +
-                  "If the exception is genuinely wanted, raise KnownSharedStatePagesCeiling in the same commit."
-                : $"KnownSharedStatePages shrank ({KnownSharedStatePagesCeiling} -> {KnownSharedStatePages.Length}). " +
-                  "Lower KnownSharedStatePagesCeiling to match so the list stays closed at its new size. " +
-                  "At zero, delete the list, the ceiling, and both Except arms.");
+        // Both arms above compare the tree to the ledger, so both are satisfied by editing the
+        // ledger: acknowledge the page you just broke and they agree again. Neither can see that,
+        // because "already listed" and "never should have been listed" are the same input to them.
+        // This one asks the tree against a record the ledger cannot influence.
+        var unrecorded = offenders.Except(SharedStateDebtAtIntroduction)
+            .OrderBy(entry => entry, global::System.StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(unrecorded.Count == 0,
+            "these SampleCards share a UseState slot on a page that was not already doing so when " +
+            "the rule was written (#982), so this is new coupling rather than the debt #980 is " +
+            "draining. Give each card its own slot — adding it to KnownSharedStatePages will not " +
+            "silence this:\n  " + string.Join("\n  ", unrecorded));
     }
 
     [Theory]
@@ -1116,6 +1141,39 @@ public sealed class GallerySampleLintTests
             cancellationToken: TestContext.Current.CancellationToken).GetRoot(TestContext.Current.CancellationToken);
 
         Assert.Equal(expected, CrossCardState(root).Count);
+    }
+
+    /// <summary>
+    /// The offender key is page + slot names, so two same-named slots in disjoint scopes collapse
+    /// to a single key — which is what the ambiguity arm of
+    /// <see cref="SampleCards_SharedStateDoesNotSpread"/> exists to refuse. Without a live example
+    /// that arm would be a guard nobody has watched reject anything, and the tree has none today.
+    /// If the key ever gains a declaration site this fails, and the arm should be deleted with it.
+    /// </summary>
+    [Fact]
+    public void CrossCardRule_SameNamedSlotsInDisjointScopesShareOneKey()
+    {
+        var root = CSharpSyntaxTree.ParseText(@"
+            class P : Component { public override Element Render() {
+                {
+                    var (text, setText) = UseState("""");
+                    var a = VStack(SampleCard(""one"", TextBox(text, setText), ""s""),
+                                   SampleCard(""two"", TextBlock(text), ""s""));
+                }
+                {
+                    var (text, setText) = UseState("""");
+                    var b = VStack(SampleCard(""three"", TextBox(text, setText), ""s""),
+                                   SampleCard(""four"", TextBlock(text), ""s""));
+                }
+            } }",
+            cancellationToken: TestContext.Current.CancellationToken).GetRoot(TestContext.Current.CancellationToken);
+
+        var slots = CrossCardState(root);
+
+        // Two distinct declarations, both reported — and one key between them, so an allowlist
+        // entry naming that key cannot mean one of them rather than the other.
+        Assert.Equal(2, slots.Count);
+        Assert.Single(slots.Select(s => s.Names).Distinct(global::System.StringComparer.Ordinal));
     }
 
 
