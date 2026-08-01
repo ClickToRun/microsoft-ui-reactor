@@ -59,8 +59,9 @@ public class PersistenceEtwBridgeTests : IDisposable
     /// <summary>
     /// Operation label used by
     /// <see cref="AssertEvent_discriminates_against_a_concurrent_foreign_event"/> to stand in for
-    /// a concurrent subsystem's event. Namespaced so it can never collide with a real operation,
-    /// in either direction.
+    /// a concurrent subsystem's event. Prefixed with this class's name so it matches no operation
+    /// real code emits today. Nothing enforces that — it is implausible by construction, not
+    /// reserved, so a future operation could in principle claim the same label.
     /// </summary>
     private const string ForeignOperation = "PersistenceEtwBridgeTests.ForeignEventProbe";
 
@@ -266,7 +267,9 @@ public class PersistenceEtwBridgeTests : IDisposable
         // THE property under test, and the assertion that dies under mutation: the discriminated
         // lookup must not return what an undiscriminated one would. Remove the
         // payload[discriminatorIndex] clause from AssertEvent and it returns `since[0]` — which
-        // IS firstByNameOnly — so this fails by reference, before any payload is inspected.
+        // IS firstByNameOnly — so this fails by reference, before the payload assertions below
+        // run. (IndexOfForeignProbe and AssertEvent both read payloads earlier; what this
+        // assertion avoids depending on is the payload comparison, not payload reads generally.)
         Assert.NotSame(firstByNameOnly, evt);
 
         // And it must be the right event, not merely a different one. This is the assertion that
