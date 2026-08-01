@@ -362,6 +362,12 @@ internal static class DiagramProcessor
             // non-raster-magic file was never admitted to the decode step, so
             // reporting it as undecodable would blame the file for a decision
             // this gate made about it.
+            //
+            // That framing only holds while HasRasterMagic answers a question
+            // about the file's *content*. It must not answer "false" because it
+            // could not read the file — that is a check that did not run, not a
+            // file that is not a raster, and it lands in the catch below with
+            // every other read fault. See the remarks on HasRasterMagic.
             var info = new FileInfo(path);
             if (!info.Exists || info.Length == 0 || info.Length > ImageProcessor.MaxImageBytes) return RasterVerdict.Ok;
             if (!HasRasterMagic(path)) return RasterVerdict.Ok;
@@ -418,6 +424,7 @@ internal static class DiagramProcessor
     /// or JPEG, so a mislabelled or crafted <c>.png</c> is never handed to GDI+.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <c>ReadExactly</c> rather than <c>Read</c>: a single <c>Read</c> may
     /// legally return fewer bytes than asked for without being at EOF, and the
     /// old <c>read == head.Length</c> test turned that into "no magic" — which
@@ -427,39 +434,45 @@ internal static class DiagramProcessor
     /// REACTOR_DOC_IMAGE_003 elsewhere. <c>ReadExactly</c> either fills the
     /// buffer or throws, so the only remaining way out is a genuinely short
     /// file, which is handled below and really is not an image.
+    /// </para>
+    /// <para>
+    /// <strong>Read faults are not answers.</strong> This method deliberately
+    /// does <em>not</em> catch <c>IOException</c> or
+    /// <c>UnauthorizedAccessException</c>. It used to, returning <c>false</c>,
+    /// and the caller reads <c>false</c> as "not a raster" and skips the file —
+    /// so a locked or permission-denied image produced a clean compile. That
+    /// contradicted <see cref="ComputeRasterVerdict"/>, whose catch admits those
+    /// two exact types and reports them, on the stated reasoning that the
+    /// verdict spans "corrupt" and "couldn't read right now". Both could not be
+    /// right, and the one that won was the silent one. Letting them propagate
+    /// puts the decision back in the single place that documents it.
+    /// </para>
     /// </remarks>
     private static bool HasRasterMagic(string path)
     {
+        using var fs = File.OpenRead(path);
+        var head = new byte[8];
         try
         {
-            using var fs = File.OpenRead(path);
-            var head = new byte[8];
-            try
-            {
-                fs.ReadExactly(head);
-            }
-            catch (EndOfStreamException)
-            {
-                // Shorter than any signature we recognise. Distinct from a
-                // short read: there is nothing more to wait for, so this is a
-                // real answer ("not a raster") rather than a skipped check.
-                //
-                // Redundant against the outer catch today, since
-                // EndOfStreamException derives from IOException — measured by
-                // deleting this catch, which changed no test. Kept because the
-                // two cases warrant different answers if the outer catch is
-                // ever tightened to report unreadable files rather than skip
-                // them: a short file genuinely is not a raster, an unreadable
-                // one is a check that did not run.
-                return false;
-            }
-
-            return ImageProcessor.HasKnownImageMagic(head);
+            fs.ReadExactly(head);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (EndOfStreamException)
         {
+            // Shorter than any signature we recognise. Distinct from a read
+            // fault: there is nothing more to wait for, so this is a real
+            // answer ("not a raster") rather than a check that did not run.
+            //
+            // This catch is now load-bearing, which it was not when written.
+            // EndOfStreamException derives from IOException, so with the old
+            // blanket catch below it killed no test — measured, and recorded as
+            // such. Removing that blanket catch to stop swallowing read faults
+            // is exactly the tightening its comment anticipated: without this
+            // inner catch a 4-byte stub would now escape as an IOException and
+            // be reported as undecodable rather than skipped.
             return false;
         }
+
+        return ImageProcessor.HasKnownImageMagic(head);
     }
 
     /// <summary>

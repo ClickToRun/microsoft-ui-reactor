@@ -214,6 +214,12 @@ the compile still exited 0 ([issue #989][i989]). Several guards now prevent that
   `UnauthorizedAccessException` from the same call and letting them escape would
   kill the whole compile over one file handle. The gate cannot distinguish the
   two, so the finding names both remedies rather than asserting corruption.
+  This is also why the magic-bytes pre-check does *not* swallow those two
+  exceptions: it answers "is this a raster?" from the file's content, and a read
+  it could not perform is not an answer. It used to return `false` for them,
+  which the caller reads as "not a raster" and skips — so a locked file produced
+  a clean compile while this paragraph claimed otherwise. A gate that skips
+  analysis is a gate that passes.
 - The `-thumb` suffix is therefore **reserved**. A manifest entry whose `id`
   ends in it without `kind: catalog-thumb` is rejected with
   `REACTOR_DOC_SHOT_002` — otherwise a full-size screenshot could claim the

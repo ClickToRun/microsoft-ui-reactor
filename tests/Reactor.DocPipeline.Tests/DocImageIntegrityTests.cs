@@ -249,13 +249,17 @@ public class DocImageIntegrityTests
     /// both catches, which fails exactly this test and nothing else.
     /// </para>
     /// <para>
-    /// It does <em>not</em> prove the dedicated <c>EndOfStreamException</c>
-    /// catch is load-bearing. That was the claim first written here and the
-    /// measurement refuted it: deleting that catch changes no test, because
-    /// <c>EndOfStreamException</c> derives from <c>IOException</c> and the
-    /// outer handler already covers it. The inner catch earns its place by
-    /// separating two cases that deserve different answers later, not by being
-    /// necessary now.
+    /// It <em>now</em> also proves the dedicated <c>EndOfStreamException</c>
+    /// catch is load-bearing, which it did not when first written. The original
+    /// claim here was that it was, and the measurement refuted it: deleting the
+    /// catch changed no test, because <c>EndOfStreamException</c> derives from
+    /// <c>IOException</c> and a blanket handler covered it. That blanket handler
+    /// has since been removed — it was swallowing genuine read faults and
+    /// returning "not a raster", the fail-open
+    /// <c>Gate_reports_a_locked_image_instead_of_skipping_it</c> pins — which is
+    /// exactly the tightening the old comment anticipated. With it gone, this
+    /// inner catch is the only thing keeping a 4-byte stub from being reported
+    /// as undecodable, and deleting it now fails this test.
     /// </para>
     /// <para>
     /// Nor does it prove the fail-open the <c>ReadExactly</c> change actually
@@ -306,6 +310,78 @@ public class DocImageIntegrityTests
             "hooks.md.dt", "![Broken](images/hooks/broken.png)", tree.ImagesDir, tree.GuideDir);
 
         Assert.DoesNotContain(findings, f => f.Code == "REACTOR_DOC_IMAGE_002");
+    }
+
+    /// <summary>
+    /// A raster the gate cannot open — locked by another process — is reported
+    /// as <c>REACTOR_DOC_IMAGE_003</c>, not skipped as "not a raster".
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the gate's own fail-open, one level below the one
+    /// <c>Gate_reports_an_undecodable_image_instead_of_passing_it</c> closes.
+    /// <c>ComputeRasterVerdict</c>'s catch deliberately admits
+    /// <c>IOException</c> and <c>UnauthorizedAccessException</c> and reports
+    /// them, on the stated reasoning that the verdict spans "corrupt" and
+    /// "couldn't read right now". But the magic-bytes pre-check runs
+    /// <em>first</em> and used to swallow those same two exceptions and return
+    /// <c>false</c>, which the caller reads as "not a raster" and skips. So a
+    /// locked file never reached the catch that was written for it: the
+    /// documented behaviour and the actual control flow disagreed, and the
+    /// direction of the disagreement was silent success.
+    /// </para>
+    /// <para>
+    /// That is the exact shape this pipeline exists to stop — a gate that skips
+    /// analysis is a gate that passes — and it is invisible to every other test
+    /// here because they all hand the gate a readable file.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Gate_reports_a_locked_image_instead_of_skipping_it()
+    {
+        using var tree = new TempGuideTree();
+        tree.WriteImage("controls/locked.png", MakeCapturedStub(200, 150, blank: false));
+        var path = global::System.IO.Path.Join(tree.ImagesDir, "controls", "locked.png");
+
+        // Hold an exclusive handle for the duration of the scan, which is what
+        // another process mid-write looks like to the gate.
+        using (var hold = new global::System.IO.FileStream(
+                   path,
+                   global::System.IO.FileMode.Open,
+                   global::System.IO.FileAccess.Read,
+                   global::System.IO.FileShare.None))
+        {
+            // Premise guard: if this platform let a second reader in, the test
+            // would be scanning a perfectly readable file and asserting nothing.
+            var lockHolds = false;
+            try
+            {
+                using var probe = global::System.IO.File.OpenRead(path);
+            }
+            catch (global::System.IO.IOException)
+            {
+                lockHolds = true;
+            }
+
+            Assert.True(lockHolds, "the exclusive handle did not block a second reader — this test cannot measure what it claims");
+
+            var findings = DiagramProcessor.ValidateImageRefs(
+                "controls.md.dt",
+                "![Locked](images/controls/locked.png)",
+                tree.ImagesDir,
+                tree.GuideDir);
+
+            Assert.Equal("REACTOR_DOC_IMAGE_003", Assert.Single(findings).Code);
+        }
+
+        // Non-vacuity: the same file, same fixture, once the handle is gone.
+        // Only the lock differs, so the finding above turns on the lock and not
+        // on anything about the image.
+        Assert.Empty(DiagramProcessor.ValidateImageRefs(
+            "controls.md.dt",
+            "![Locked](images/controls/locked.png)",
+            tree.ImagesDir,
+            tree.GuideDir));
     }
 
     /// <summary>

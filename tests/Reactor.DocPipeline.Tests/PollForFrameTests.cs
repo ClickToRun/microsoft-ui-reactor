@@ -109,6 +109,47 @@ public class PollForFrameTests
     }
 
     /// <summary>
+    /// The other half of the deadline story, and the one the doc comment used
+    /// to elide: when the server never produced a frame at all, the result is
+    /// empty and the caller reports "no frame produced".
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The comment on <c>requireContent</c> claimed the poller returns the last
+    /// blank frame "rather than a misleading 'no frame produced'", which reads
+    /// as a guarantee that this path cannot occur. It can: <c>lastBytes</c> is
+    /// only ever assigned from a 200 with a non-empty body, so a server stuck
+    /// on 204 leaves it empty. The behaviour is right — "no frame produced" is
+    /// the accurate answer when none was — but the sentence was broader than
+    /// the code, so it is now pinned rather than described.
+    /// </para>
+    /// <para>
+    /// Non-vacuous against its sibling above: that test and this one differ
+    /// only in whether the server ever emits a body, and they assert opposite
+    /// results. A poller that returned empty unconditionally would fail that
+    /// one; a poller that synthesised a frame would fail this one.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_deadline_with_no_frame_at_all_returns_empty()
+    {
+        using var server = new FrameServer([global::System.Array.Empty<byte>()]);
+        using var http = new HttpClient();
+
+        var got = await ScreenshotCapture.PollForFrame(
+            http, server.Port, TimeSpan.FromMilliseconds(600), requireContent: true);
+
+        Assert.Null(server.Fault);
+        Assert.Empty(got);
+
+        // Premise guard: an empty result is also what a server that was never
+        // reached would produce, and that would be a transport failure rather
+        // than the case under test.
+        _output.WriteLine($"served={server.Served}");
+        Assert.True(server.Served > 0, "the poller never reached the server — this asserts nothing about the 204 path");
+    }
+
+    /// <summary>
     /// A 204 is the real capture server's "timer hasn't started yet" reply
     /// (<c>PreviewCaptureServer</c> sends it whenever <c>_latestFrame</c> is
     /// empty) and must not be mistaken for a frame.

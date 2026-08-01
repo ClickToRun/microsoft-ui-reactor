@@ -304,10 +304,18 @@ internal static class ScreenshotCapture
     /// When true, a decoded frame with no visible content is treated as
     /// "not ready yet" and polling continues. A cold window's first painted
     /// frame is often still blank; holding out for a real one turns what used
-    /// to be a corrupt overwrite into a correct capture. The last blank frame
-    /// is still returned when the deadline expires, so the caller sees the
-    /// same <see cref="BlankFrameException"/> it would have seen anyway rather
-    /// than a misleading "no frame produced".
+    /// to be a corrupt overwrite into a correct capture.
+    /// <para>
+    /// If the deadline expires after at least one blank frame was seen, that
+    /// frame is returned, so the caller gets the same
+    /// <see cref="BlankFrameException"/> it would have seen without this flag
+    /// rather than a different error for the same underlying problem. If no
+    /// frame ever arrived — the server only ever answered 204, or with an empty
+    /// body — the result is empty and the caller reports "no frame produced",
+    /// which is the accurate answer for that case and not a regression this
+    /// flag introduces. The two are distinct failures and neither is masked:
+    /// setting this flag never converts a produced frame into no frame.
+    /// </para>
     /// </param>
     internal static async Task<byte[]> PollForFrame(
         HttpClient http, int port, TimeSpan deadline, bool requireContent = false)
