@@ -1,3 +1,4 @@
+using System.Linq;
 using Microsoft.UI.Reactor.Cli.Docs;
 using Xunit;
 
@@ -263,5 +264,79 @@ public class OutputPathContainmentTests
                 driveRoot + global::System.IO.Path.DirectorySeparatorChar,
                 global::System.StringComparison.OrdinalIgnoreCase),
             "unconditional separator append double-separates an already-rooted path");
+    }
+
+    /// <summary>
+    /// <see cref="DocPaths"/>'s own remark says the containment rule "lives in
+    /// exactly one place". Until this test, nothing checked that — and a
+    /// comment whose guarantee is wider than its enforcement is precisely the
+    /// shape this pipeline keeps producing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It is worth enforcing rather than trusting because the drift already
+    /// happened once: three copies existed (<c>CompileCommand</c>,
+    /// <c>DiagramProcessor</c>, <c>ScreenshotCapture</c>), and they had already
+    /// diverged before anyone noticed — the <c>ScreenshotCapture</c> one
+    /// appended a separator unconditionally, which
+    /// <see cref="Root_that_already_ends_in_a_separator_is_handled"/> shows
+    /// rejects every path under a drive root. Divergence here is silent by
+    /// construction: each copy keeps compiling and keeps returning an answer.
+    /// </para>
+    /// <para>
+    /// The scope is <c>src/Reactor.Cli/Docs</c> deliberately.
+    /// <c>Microsoft.UI.Reactor.Cli.Check.CompilationLoader</c> has its own
+    /// <c>IsUnder</c>; it filters a file enumeration rather than deciding a
+    /// write target, so it is out of scope for this PR. It is named here
+    /// instead of silently excluded because its parameters are
+    /// <em>reversed</em> (root first), which is a worse hazard than the
+    /// duplication this test guards: a later "consolidation" that points one
+    /// call at the other inverts the containment decision with no compile
+    /// error and no failing test.
+    /// </para>
+    /// <para>
+    /// This scans source rather than reflecting over the assembly because the
+    /// test project treats trim warnings as errors, and because the source
+    /// form is the broader check anyway — it also catches a copy added as a
+    /// local function or under a different namespace in the same folder.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Containment_rule_has_exactly_one_implementation_in_the_doc_pipeline()
+    {
+        var docsDir = global::System.IO.Path.Join(
+            FindRepoRoot(), "src", "Reactor.Cli", "Docs");
+
+        var sources = global::System.IO.Directory.GetFiles(
+            docsDir, "*.cs", global::System.IO.SearchOption.AllDirectories);
+
+        // A mis-resolved path would find nothing and read as "no duplicates",
+        // which is the same answer a healthy tree gives. Pin the corpus first.
+        Assert.True(sources.Length >= 10,
+            $"expected the doc-pipeline sources, found only {sources.Length} .cs files under {docsDir}");
+
+        var declarations = sources
+            .Where(f => global::System.Text.RegularExpressions.Regex.IsMatch(
+                global::System.IO.File.ReadAllText(f),
+                @"\bbool\s+IsUnder\s*\("))
+            .Select(f => global::System.IO.Path.GetFileName(f))
+            .OrderBy(f => f)
+            .ToArray();
+
+        Assert.Equal(new[] { "DocPaths.cs" }, declarations);
+    }
+
+    private static string FindRepoRoot()
+    {
+        var dir = new global::System.IO.DirectoryInfo(global::System.AppContext.BaseDirectory);
+        while (dir is not null)
+        {
+            if (global::System.IO.File.Exists(global::System.IO.Path.Join(dir.FullName, "Reactor.slnx")))
+                return dir.FullName;
+            dir = dir.Parent;
+        }
+
+        throw new global::System.InvalidOperationException(
+            "Could not locate repo root (Reactor.slnx) from test base dir.");
     }
 }
