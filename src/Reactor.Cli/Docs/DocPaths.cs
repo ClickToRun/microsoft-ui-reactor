@@ -13,6 +13,32 @@ namespace Microsoft.UI.Reactor.Cli.Docs;
 internal static class DocPaths
 {
     /// <summary>
+    /// The comparison used to decide whether one path sits inside another.
+    /// Case-insensitive on Windows, case-sensitive elsewhere.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>Reactor.Cli</c> targets <c>net10.0</c>, not <c>net10.0-windows</c>, so
+    /// this code compiles and can run on a case-sensitive filesystem. There a
+    /// fixed <c>OrdinalIgnoreCase</c> is <em>fail-open</em>: it reports
+    /// <c>/docs/Guide/x</c> as inside <c>/docs/guide</c>, and on Linux those are
+    /// two different directories, so a segment could reach a sibling tree while
+    /// the containment check says it did not.
+    /// </para>
+    /// <para>
+    /// The macOS default volume is case-<em>insensitive</em>, so
+    /// <c>Ordinal</c> is conservative there — it can reject a path that is in
+    /// fact the same directory. That direction is a loud throw rather than a
+    /// silent escape, which is the correct way for a containment guard to be
+    /// wrong.
+    /// </para>
+    /// </remarks>
+    internal static readonly StringComparison PathComparison =
+        OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+    /// <summary>
     /// True when <paramref name="candidate"/> sits inside <paramref name="root"/>.
     /// Both must already be absolute (call <c>Path.GetFullPath</c> first) —
     /// this compares text and does no normalisation of its own.
@@ -22,12 +48,21 @@ internal static class DocPaths
     /// sharing a prefix, such as <c>docs/guide-old</c> against <c>docs/guide</c>,
     /// satisfies the check and escapes the tree.
     /// </remarks>
-    internal static bool IsUnder(string candidate, string root)
+    internal static bool IsUnder(string candidate, string root) =>
+        IsUnder(candidate, root, PathComparison);
+
+    /// <summary>
+    /// <see cref="IsUnder(string,string)"/> with an explicit comparison. Exists
+    /// so the case-sensitive arm — the one that ships on Linux and that a
+    /// Windows-only test run can never otherwise reach — is still executable
+    /// under test.
+    /// </summary>
+    internal static bool IsUnder(string candidate, string root, StringComparison comparison)
     {
         var rooted = root.EndsWith(Path.DirectorySeparatorChar)
             ? root
             : root + Path.DirectorySeparatorChar;
-        return candidate.StartsWith(rooted, StringComparison.OrdinalIgnoreCase);
+        return candidate.StartsWith(rooted, comparison);
     }
 
     /// <summary>
@@ -52,9 +87,28 @@ internal static class DocPaths
     /// alone is defeated by rooting. Callers previously spelled the pair inline,
     /// which meant each site's safety depended on remembering both halves.
     /// </para>
+    /// <para>
+    /// A third step is needed on Windows, because containment is not the only
+    /// way a path can mean something other than it looks like. <c>:</c> is a
+    /// stream and drive separator, not an ordinary filename character, so
+    /// <c>Path.GetFullPath(Path.Join(root, "topic:hidden"))</c> yields a path
+    /// that <em>is</em> textually under <paramref name="root"/> — containment
+    /// passes — while a write to it lands in the alternate data stream
+    /// <c>hidden</c> on a file named <c>topic</c>. Measured: the directory then
+    /// lists a single <c>topic</c> of length&#160;0 and the real bytes are
+    /// invisible to a listing, to <c>git</c>, and to any size check. That is the
+    /// same defect this helper exists to close, one layer down — a guard that
+    /// runs, returns a correct answer, and answers the wrong question — so the
+    /// segment is rejected before it can be joined.
+    /// </para>
     /// </remarks>
     internal static string ResolveContained(string root, string segment, string describe)
     {
+        if (OperatingSystem.IsWindows() && segment.Contains(':'))
+            throw new InvalidOperationException(
+                $"{describe} contains ':', which Windows resolves as a drive or " +
+                "alternate-data-stream reference rather than part of a file name");
+
         var rootFull = Path.GetFullPath(root);
         var full = Path.GetFullPath(Path.Join(rootFull, segment));
         if (!IsUnder(full, rootFull))

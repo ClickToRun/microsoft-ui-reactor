@@ -222,6 +222,105 @@ public class OutputPathContainmentTests
     }
 
     /// <summary>
+    /// A <c>:</c> in a content-derived segment is not an ordinary filename
+    /// character on Windows, and containment does not notice.
+    /// </summary>
+    [Theory]
+    [InlineData("topic:hidden")]
+    [InlineData("D:foo")]
+    [InlineData("recipes/login:stream")]
+    public void Colon_segments_are_rejected_by_the_helper(string segment)
+    {
+        Assert.Throws<global::System.InvalidOperationException>(
+            () => DocPaths.ResolveContained(Root, segment, "Topic id"));
+    }
+
+    /// <summary>
+    /// The hazard the rule above exists for, demonstrated rather than asserted:
+    /// the containment check passes on a colon segment and the write still does
+    /// not go where the path says.
+    /// </summary>
+    /// <remarks>
+    /// Non-vacuity: the first assertion requires the old behaviour to
+    /// <em>pass</em> containment, so if a framework change ever made
+    /// <c>GetFullPath</c> reject or rewrite the colon, this test fails loudly
+    /// instead of quietly becoming a tautology. The last two then show the
+    /// bytes landing somewhere a directory listing cannot see — which is what
+    /// makes this a containment bypass rather than a naming preference.
+    /// </remarks>
+    [Fact]
+    public void A_colon_segment_passes_containment_but_writes_to_an_alternate_stream()
+    {
+        Assert.SkipUnless(global::System.OperatingSystem.IsWindows(),
+            "alternate data streams are an NTFS concept");
+
+        var dir = global::System.IO.Path.Join(
+            global::System.IO.Path.GetTempPath(),
+            "ads-probe-" + global::System.Guid.NewGuid().ToString("N")[..8]);
+        global::System.IO.Directory.CreateDirectory(dir);
+        try
+        {
+            var root = global::System.IO.Path.GetFullPath(dir);
+
+            // Exactly what ResolveContained did before the colon rule: Join,
+            // GetFullPath, then containment.
+            var resolved = global::System.IO.Path.GetFullPath(
+                global::System.IO.Path.Join(root, "topic:hidden"));
+
+            Assert.True(DocPaths.IsUnder(resolved, root),
+                "premise: the containment check passes on a colon segment — that is why it is not sufficient");
+
+            global::System.IO.File.WriteAllBytes(resolved, [1, 2, 3, 4]);
+
+            var listed = global::System.IO.Directory.GetFiles(root)
+                .Select(p => global::System.IO.Path.GetFileName(p)!)
+                .ToArray();
+
+            Assert.Equal(["topic"], listed);
+            Assert.Equal(0, new global::System.IO.FileInfo(
+                global::System.IO.Path.Join(root, "topic")).Length);
+        }
+        finally
+        {
+            global::System.IO.Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The case-sensitive arm, which ships on Linux and which a Windows-only
+    /// test run reaches only through the explicit-comparison overload.
+    /// </summary>
+    /// <remarks>
+    /// The pair is the point: the same input is inside under the Windows
+    /// comparison and outside under the POSIX one, so this fails if
+    /// <c>IsUnder</c> ever hard-codes either.
+    /// </remarks>
+    [Fact]
+    public void Case_differing_paths_are_inside_only_under_the_windows_comparison()
+    {
+        var root = global::System.IO.Path.Join(
+            global::System.IO.Path.GetTempPath(), "guide");
+        var candidate = global::System.IO.Path.Join(
+            global::System.IO.Path.GetTempPath(), "GUIDE", "x.md");
+
+        Assert.True(
+            DocPaths.IsUnder(candidate, root, global::System.StringComparison.OrdinalIgnoreCase));
+        Assert.False(
+            DocPaths.IsUnder(candidate, root, global::System.StringComparison.Ordinal),
+            "on a case-sensitive filesystem /tmp/GUIDE is a different directory from /tmp/guide");
+    }
+
+    [Fact]
+    public void Default_path_comparison_follows_the_platform()
+    {
+        Assert.Equal(
+            global::System.OperatingSystem.IsWindows()
+                ? global::System.StringComparison.OrdinalIgnoreCase
+                : global::System.StringComparison.Ordinal,
+            DocPaths.PathComparison);
+    }
+
+    /// <summary>
     /// A sibling directory sharing a prefix is not "inside". Without the
     /// trailing separator in <see cref="DocPaths.IsUnder"/> this passes
     /// containment and writes outside the tree.

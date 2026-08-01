@@ -228,6 +228,16 @@ the compile still exited 0 ([issue #989][i989]). Several guards now prevent that
   name shaped like `A", "component": "B` produced valid JSON with a duplicate
   key, and `System.Text.Json` takes the last one — so the capture switched to
   `B` while the manifest read as naming neither.
+- A topic or screenshot id containing `:` is refused before it is joined to any
+  output root. Containment alone does not cover it: on Windows `:` is a stream
+  and drive separator, so `<images>/topic:hidden` resolves to a path that
+  genuinely *is* under the images root — the containment check passes — while
+  the write lands in the alternate data stream `hidden` on a file named
+  `topic`. The directory then lists one `topic` of length 0 and the real bytes
+  are invisible to a listing, to `git`, and to any size check. Same shape as
+  everything else on this list: a guard that runs, returns a correct answer,
+  and answers the wrong question. None of the 194 committed `screenshot://`
+  references contain a `:`, so this rejects nothing that exists today.
 - A referenced image that clears the pre-decode caps but that the decoder
   cannot read is reported as `REACTOR_DOC_IMAGE_003` rather than being scored.
   The distinction is load-bearing: "could not decode" is not "not blank", and
