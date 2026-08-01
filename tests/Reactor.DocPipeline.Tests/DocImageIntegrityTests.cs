@@ -170,12 +170,12 @@ public class DocImageIntegrityTests
             tree.ImagesDir,
             tree.GuideDir);
 
-        // Guard the premise: if the truncated file still decoded, or were
-        // rejected by the magic check, this test would be asserting something
-        // other than what it claims.
+        // Guard the premise: if the fixture had not written the file, or the
+        // magic check had turned it away, this test would be asserting
+        // something other than what it claims.
         Assert.True(
             global::System.IO.File.Exists(
-                global::System.IO.Path.Combine(tree.ImagesDir, "controls", "half-written.png")),
+                global::System.IO.Path.Join(tree.ImagesDir, "controls", "half-written.png")),
             "fixture did not write the file — every assertion below would be about a missing file");
 
         var finding = Assert.Single(findings);
@@ -184,12 +184,12 @@ public class DocImageIntegrityTests
     }
 
     /// <summary>
-    /// Non-vacuity pair: the untruncated original of the very same image is
-    /// accepted. Only the byte count differs, so the two together show the new
+    /// Non-vacuity pair: the intact original of the very same fixture is
+    /// accepted. Only the body bytes differ, so the two together show the new
     /// code fires on undecodability rather than on the fixture in general.
     /// </summary>
     [Fact]
-    public void Gate_accepts_the_untruncated_original_of_that_image()
+    public void Gate_accepts_the_intact_original_of_that_image()
     {
         using var tree = new TempGuideTree();
         tree.WriteImage("controls/fully-written.png", MakeCapturedStub(200, 150, blank: false));
