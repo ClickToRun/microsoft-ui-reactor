@@ -150,6 +150,104 @@ public class PollForFrameTests
     }
 
     /// <summary>
+    /// The deadline has to bound the whole call, not just the gaps between
+    /// polls. A server that accepts the connection and never answers used to
+    /// leave the request bounded only by <see cref="HttpClient"/>'s 100-second
+    /// default — twenty times the 5-second deadline capture actually passes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The oracle is elapsed time, and it can come out the other way by a wide
+    /// margin: unguarded this call takes ~100 s, guarded it takes ~0.5 s, and
+    /// the bound below sits an order of magnitude from each. So the assertion
+    /// turns on the per-request token and nothing about machine speed — no
+    /// plausible scheduling delay closes a 100× gap.
+    /// </para>
+    /// <para>
+    /// The premise guard matters more than usual here. An empty result is also
+    /// what a connection refused outright would produce, and that would satisfy
+    /// the timing assertion trivially while testing nothing — the request has
+    /// to actually be *in flight* and abandoned for this to mean anything.
+    /// Asserting the listener accepted the connection is what separates the two.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_stalled_server_does_not_outlive_the_deadline()
+    {
+        using var stall = new StallingListener();
+        using var http = new HttpClient();
+        var deadline = TimeSpan.FromMilliseconds(500);
+
+        var sw = global::System.Diagnostics.Stopwatch.StartNew();
+        var got = await ScreenshotCapture.PollForFrame(
+            http, stall.Port, deadline, requireContent: true);
+        sw.Stop();
+
+        _output.WriteLine($"elapsed={sw.Elapsed.TotalSeconds:F2}s accepted={stall.Accepted} " +
+                          $"(deadline={deadline.TotalSeconds:F2}s, HttpClient default={http.Timeout.TotalSeconds:F0}s)");
+
+        Assert.True(stall.Accepted > 0,
+            "the listener was never reached, so nothing was ever stalled — this asserts nothing");
+        Assert.Empty(got);
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10),
+            $"the deadline did not bound the request: {sw.Elapsed.TotalSeconds:F1}s elapsed " +
+            $"against a {deadline.TotalSeconds:F1}s deadline");
+    }
+
+    /// <summary>
+    /// Accepts connections and answers nothing, holding the socket open. The
+    /// sockets are kept referenced rather than dropped so the OS cannot reset
+    /// the connection and hand the client a fast failure instead of the stall.
+    /// </summary>
+    private sealed class StallingListener : global::System.IDisposable
+    {
+        private readonly TcpListener _listener;
+        private readonly List<TcpClient> _held = [];
+        private readonly CancellationTokenSource _cts = new();
+        private int _accepted;
+
+        public StallingListener()
+        {
+            _listener = new TcpListener(IPAddress.Loopback, 0);
+            _listener.Start();
+            Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+            _ = Task.Run(AcceptLoop);
+        }
+
+        public int Port { get; }
+
+        public int Accepted => Volatile.Read(ref _accepted);
+
+        private async Task AcceptLoop()
+        {
+            try
+            {
+                while (!_cts.IsCancellationRequested)
+                {
+                    var client = await _listener.AcceptTcpClientAsync(_cts.Token);
+                    lock (_held) _held.Add(client);
+                    Interlocked.Increment(ref _accepted);
+                }
+            }
+            catch (Exception) when (_cts.IsCancellationRequested)
+            {
+            }
+        }
+
+        public void Dispose()
+        {
+            _cts.Cancel();
+            _listener.Stop();
+            lock (_held)
+            {
+                foreach (var c in _held) c.Dispose();
+                _held.Clear();
+            }
+            _cts.Dispose();
+        }
+    }
+
+    /// <summary>
     /// A 204 is the real capture server's "timer hasn't started yet" reply
     /// (<c>PreviewCaptureServer</c> sends it whenever <c>_latestFrame</c> is
     /// empty) and must not be mistaken for a frame.

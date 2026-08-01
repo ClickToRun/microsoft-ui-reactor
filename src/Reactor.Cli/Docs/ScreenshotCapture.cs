@@ -317,28 +317,62 @@ internal static class ScreenshotCapture
     /// setting this flag never converts a produced frame into no frame.
     /// </para>
     /// </param>
+    /// <remarks>
+    /// The deadline bounds the whole call, not just the gaps between polls.
+    /// Each request carries a token cancelled by whatever time is left, because
+    /// <see cref="HttpClient"/> otherwise applies its own 100-second default —
+    /// twenty times the 5-second deadline this is called with. A server that
+    /// accepts the connection and never answers would then spend the entire
+    /// budget inside a single request, so the loop that exists to outlast a
+    /// cold window's blank first frame would run exactly once and give up.
+    /// The failure direction is safe (no frame, so nothing is written) but the
+    /// retry it silently loses is the thing that turns a blank first frame into
+    /// a correct capture.
+    /// </remarks>
     internal static async Task<byte[]> PollForFrame(
         HttpClient http, int port, TimeSpan deadline, bool requireContent = false)
     {
         var sw = global::System.Diagnostics.Stopwatch.StartNew();
         var lastBytes = Array.Empty<byte>();
-        while (sw.Elapsed < deadline)
+        while (true)
         {
-            using var resp = await http.GetAsync($"http://localhost:{port}/frame");
-            if (resp.StatusCode == global::System.Net.HttpStatusCode.OK)
+            var remaining = deadline - sw.Elapsed;
+            if (remaining <= TimeSpan.Zero) break;
+
+            // Filtered on our own token: a cancellation we asked for is the
+            // deadline working, and returning lastBytes is the documented
+            // answer for it. Anything else — a transport fault, or
+            // HttpClient's own timeout if it ever won the race — still
+            // propagates, because a swallowed fault here would surface only as
+            // a capture that is mysteriously short of frames.
+            using var cts = new CancellationTokenSource(remaining);
+            try
             {
-                var bytes = await resp.Content.ReadAsByteArrayAsync();
-                if (bytes.Length > 0)
+                using var resp = await http.GetAsync($"http://localhost:{port}/frame", cts.Token);
+                if (resp.StatusCode == global::System.Net.HttpStatusCode.OK)
                 {
-                    if (!requireContent) return bytes;
-                    lastBytes = bytes;
-                    if (ImageProcessor.FrameHasContent(bytes)) return bytes;
+                    var bytes = await resp.Content.ReadAsByteArrayAsync(cts.Token);
+                    if (bytes.Length > 0)
+                    {
+                        if (!requireContent) return bytes;
+                        lastBytes = bytes;
+                        if (ImageProcessor.FrameHasContent(bytes)) return bytes;
+                    }
                 }
             }
-            await Task.Delay(100);
+            catch (OperationCanceledException) when (cts.IsCancellationRequested)
+            {
+                break;
+            }
+
+            var left = deadline - sw.Elapsed;
+            if (left <= TimeSpan.Zero) break;
+            await Task.Delay(left < PollInterval ? left : PollInterval);
         }
         return lastBytes;
     }
+
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(100);
 
     /// <summary>
     /// Reads the app's stdout for the <c>CAPTURE_PORT=</c> and <c>CAPTURE_TOKEN=</c>
