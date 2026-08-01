@@ -897,6 +897,20 @@ public class SelfTestBatch
         // leaves every other signal green — the suite passes, the report is composed, nothing is
         // skipped — while the gate that exists to stop the budget eroding quietly stops reporting.
         // That is not a hypothetical failure mode; it is what #988 was.
+        //
+        // The env-var guard is what makes it inert locally, and it is also the one thing that could
+        // make a green CI run meaningless: if the variable were ever unset on the runner, this would
+        // pass by skipping rather than by succeeding, and the pass would look identical. So on CI
+        // the premise is asserted too. Without this the check cannot come out the other way, and a
+        // check that cannot fail is the instrument bug this whole PR is about.
+        if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true")
+        {
+            Assert.IsFalse(string.IsNullOrWhiteSpace(summaryPath),
+                $"{StepSummaryEnvVar} is unset on a GitHub Actions runner, so the duration report " +
+                $"had nowhere to go and the delivery check below silently skipped. The suite may " +
+                $"be fine; the gate is not.");
+        }
+
         if (!string.IsNullOrWhiteSpace(summaryPath))
         {
             Assert.IsTrue(report.Delivered,
