@@ -192,6 +192,12 @@ public class PollForFrameTests
         Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10),
             $"the deadline did not bound the request: {sw.Elapsed.TotalSeconds:F1}s elapsed " +
             $"against a {deadline.TotalSeconds:F1}s deadline");
+
+        // The accept loop is detached, so a transport fault there would surface
+        // only as a short Accepted count above — the downstream symptom, with the
+        // cause gone. This is what makes the loop's shutdown catch safe to keep
+        // quiet, and it must be read before Dispose cancels the token.
+        Assert.Null(stall.Fault);
     }
 
     /// <summary>
@@ -205,6 +211,7 @@ public class PollForFrameTests
         private readonly List<TcpClient> _held = [];
         private readonly CancellationTokenSource _cts = new();
         private int _accepted;
+        private Exception? _fault;
 
         public StallingListener()
         {
@@ -218,6 +225,17 @@ public class PollForFrameTests
 
         public int Accepted => Volatile.Read(ref _accepted);
 
+        /// <summary>
+        /// First exception the accept loop hit that was <em>not</em> explained by
+        /// teardown, or null. Same reasoning as <c>FrameServer.Fault</c>: the loop
+        /// runs detached on a discarded task, so a genuine socket or IO fault had
+        /// nowhere to surface and the test would have reported only the downstream
+        /// symptom — an accepted count that is mysteriously short — with no trace
+        /// of the cause. The test asserts this is null, which is what makes the
+        /// shutdown catch safe to keep quiet.
+        /// </summary>
+        public Exception? Fault => Volatile.Read(ref _fault);
+
         private async Task AcceptLoop()
         {
             try
@@ -229,8 +247,18 @@ public class PollForFrameTests
                     Interlocked.Increment(ref _accepted);
                 }
             }
-            catch (Exception) when (_cts.IsCancellationRequested)
+            catch (Exception ex) when (ex is OperationCanceledException or SocketException
+                                          or global::System.IO.IOException
+                                          or global::System.ObjectDisposedException)
             {
+                // Exactly what Dispose() produces: cancelling the token and then
+                // stopping the listener races the pending accept. Silent only
+                // when teardown explains it — outside teardown the same exception
+                // is a real transport failure, and the previous filter
+                // (`when (_cts.IsCancellationRequested)`) let it escape into a
+                // discarded task instead, where it was lost rather than swallowed.
+                if (!_cts.IsCancellationRequested)
+                    Interlocked.CompareExchange(ref _fault, ex, null);
             }
         }
 
