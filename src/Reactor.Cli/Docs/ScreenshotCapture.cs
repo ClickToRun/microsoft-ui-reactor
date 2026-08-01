@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.Json.Nodes;
 
@@ -287,15 +288,65 @@ internal static class ScreenshotCapture
         }
         finally
         {
-            try
+            await TerminateProcessTree(process);
+        }
+    }
+
+    /// <summary>
+    /// Best-effort teardown of the capture host and its children. Never throws.
+    /// </summary>
+    /// <remarks>
+    /// Extracted from the <c>finally</c> it used to live in so the policy is
+    /// reachable from a test rather than reimplemented by one — the exception
+    /// filter below is the whole behaviour, and a filter that no test exercises
+    /// is indistinguishable from a bare catch until the day it matters.
+    /// </remarks>
+    internal static async Task TerminateProcessTree(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
             {
-                if (!process.HasExited)
-                {
-                    process.Kill(entireProcessTree: true);
-                    await process.WaitForExitAsync();
-                }
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
             }
-            catch { }
+        }
+        // Teardown. The first arm is the only catch in this file that
+        // discards what it caught: the goal is "this process is not running",
+        // and every exception it admits means that already holds. HasExited
+        // can report false and the process can exit before Kill lands — the
+        // window is real and unavoidable, since the check and the kill cannot
+        // be atomic — and Kill on an already-reaped tree raises rather than
+        // no-oping.
+        //
+        // Filtered rather than bare for the reason this PR exists. A bare
+        // catch here also swallows a NullReferenceException from a disposed
+        // handle, or a TypeLoadException, and reports the same nothing for
+        // both: a race that is expected and a bug that is not. The filter is
+        // what keeps "the process is gone" from standing in for "something
+        // unexamined went wrong during teardown".
+        //
+        // The expected races stay silent because they are unactionable and
+        // would otherwise be the last word printed on a successful capture
+        // pass. A failure that matters has already gone through
+        // ReportCaptureFailure.
+        catch (Exception ex) when (ex is InvalidOperationException
+                                      or Win32Exception
+                                      or NotSupportedException)
+        {
+        }
+        catch (Exception ex)
+        {
+            // Anything else is unexamined, so it is reported — but not
+            // rethrown. This runs in a finally after the result is computed,
+            // so throwing here would replace a completed pass (every file
+            // written, every failure counted) with a teardown error, losing
+            // the counters that are the whole point of the return value.
+            // Silence and a throw are both wrong for the same reason: one
+            // hides the surprise, the other hides the result. Reporting
+            // keeps both.
+            Console.Error.WriteLine(
+                $"    ⚠ capture teardown: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
