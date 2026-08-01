@@ -163,9 +163,12 @@ internal static class ScreenshotCapture
             // safety is a property of a function three call levels away, which
             // is exactly the coupling that holds until someone changes the other
             // end. Resolving it here costs one call and removes the dependency.
-            // Note the helper *contains* a rooted segment rather than rejecting
-            // it — Join keeps the base, so there is nothing left to reject — and
-            // throws only for a traversal that walks back out.
+            // One asymmetry is worth stating here because it surprises: a rooted
+            // segment is *contained* rather than rejected — Join keeps the base,
+            // so there is nothing left to reject. Which inputs the helper
+            // refuses is deliberately not enumerated here; that list lives with
+            // DocPaths.ResolveContained and has already grown once since this
+            // comment was written.
             var topicDir = DocPaths.ResolveContained(outputImagesDir, topicId, $"Topic id '{topicId}'");
             Directory.CreateDirectory(topicDir);
 

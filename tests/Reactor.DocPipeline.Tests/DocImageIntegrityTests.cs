@@ -58,6 +58,91 @@ public class DocImageIntegrityTests
     }
 
     /// <summary>
+    /// A platform with no image decoder reports that fact <em>once</em> and goes
+    /// on checking everything that never needed a decoder, rather than reporting
+    /// it per image or abandoning the page.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>System.Drawing.Common</c> is Windows-only, so Phase 6 gained a decoder
+    /// dependency when this gate was added and would have died on an unhandled
+    /// exception at the first referenced PNG off-Windows.
+    /// </para>
+    /// <para>
+    /// The platform branch itself cannot be exercised on Windows and this test
+    /// does not claim to — it drives the verdict in through the injectable scan
+    /// cache, the same seam the real per-run cache uses. What it pins is
+    /// everything downstream: the once-only report, the <c>Warning</c> severity,
+    /// and — the load-bearing part — that the suppression covers only the
+    /// duplicate warning and not the scan itself.
+    /// </para>
+    /// <para>
+    /// That is why the fixture puts a zero-byte <c>.png</c> and a missing file
+    /// <em>after</em> the three undecodable ones. Both defects are found without
+    /// a decoder: <c>_001</c> before the scan, <c>_003</c> by the pre-decode
+    /// guards inside <c>ComputeRasterVerdict</c>. An implementation that skipped
+    /// the rest of the loop once the decoder went missing — the obvious way to
+    /// write "report it once" — still passes the count and severity assertions
+    /// and fails on <c>_003</c>, which is the only assertion here that could not
+    /// have passed before this behaviour existed.
+    /// </para>
+    /// <para>
+    /// A cache key that failed to match would leave the real scan running, which
+    /// returns <c>Ok</c> for these painted images and emits no <c>_004</c> — so
+    /// a mis-keyed fixture fails this test rather than passing it quietly.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Missing_decoder_is_reported_once_and_does_not_stop_decoder_free_checks()
+    {
+        using var tree = new TempGuideTree();
+        tree.WriteImage("hooks/a.png", MakeCapturedStub(499, 196, blank: false));
+        tree.WriteImage("hooks/b.png", MakeCapturedStub(499, 196, blank: false));
+        tree.WriteImage("hooks/c.png", MakeCapturedStub(499, 196, blank: false));
+        tree.WriteImage("hooks/empty.png", global::System.Array.Empty<byte>());
+
+        var pageFull = global::System.IO.Path.GetFullPath(tree.GuideDir);
+        string Key(string rel) => global::System.IO.Path.GetFullPath(
+            global::System.IO.Path.Join(
+                pageFull, rel.Replace('/', global::System.IO.Path.DirectorySeparatorChar)));
+
+        // empty.png is deliberately absent: it must reach the real scan, whose
+        // pre-decode guards run on every platform.
+        var cache = new Dictionary<string, DiagramProcessor.RasterVerdict>
+        {
+            [Key("images/hooks/a.png")] = DiagramProcessor.RasterVerdict.Unavailable,
+            [Key("images/hooks/b.png")] = DiagramProcessor.RasterVerdict.Unavailable,
+            [Key("images/hooks/c.png")] = DiagramProcessor.RasterVerdict.Unavailable,
+        };
+
+        var body =
+            "![a](images/hooks/a.png)\n" +
+            "![b](images/hooks/b.png)\n" +
+            "![c](images/hooks/c.png)\n" +
+            "![empty](images/hooks/empty.png)\n" +
+            "![gone](images/hooks/missing.png)\n";
+
+        var findings = DiagramProcessor.ValidateImageRefs(
+            "hooks.md.dt", body, tree.ImagesDir, tree.GuideDir, cache);
+
+        var unavailable = Assert.Single(findings, f => f.Code == "REACTOR_DOC_IMAGE_004");
+        Assert.Equal(TierLintSeverity.Warning, unavailable.Severity);
+        Assert.Equal(1, unavailable.Line);
+
+        // Decoder-free, and reported after the decoder went missing.
+        var zeroByte = Assert.Single(findings, f => f.Code == "REACTOR_DOC_IMAGE_003");
+        Assert.Equal(4, zeroByte.Line);
+
+        var broken = Assert.Single(findings, f => f.Code == "REACTOR_DOC_IMAGE_001");
+        Assert.Equal(5, broken.Line);
+
+        // No image may be scored *blank* while the decoder is missing: a verdict
+        // about pixel content is precisely what this run cannot produce.
+        Assert.DoesNotContain(findings, f => f.Code == "REACTOR_DOC_IMAGE_002");
+        Assert.Equal(3, findings.Count);
+    }
+
+    /// <summary>
     /// Catalog thumbnails are written by <c>ProcessThumb</c>, which draws no
     /// border and no drop shadow, so the chrome inset must not be applied to
     /// them. A thumbnail whose only content sits in the strip the inset would

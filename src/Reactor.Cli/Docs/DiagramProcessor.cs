@@ -241,6 +241,9 @@ internal static class DiagramProcessor
         var findings = new List<TierLintFinding>();
         var imagesFull = Path.GetFullPath(imagesRoot);
         var pageFull = Path.GetFullPath(pageDir);
+        // Set once the platform proves it has no decoder, so a machine that
+        // cannot run this gate says so once instead of once per image.
+        var decoderMissing = false;
         foreach (Match m in ImagePattern.Matches(body))
         {
             var rel = m.Groups[1].Value;
@@ -339,6 +342,28 @@ internal static class DiagramProcessor
                         "it is corrupt and will not render — restore it from git and re-capture.",
                         filePath, line, TierLintSeverity.Error));
                     break;
+
+                case RasterVerdict.Unavailable:
+                    // Reported once per page. The condition is a property of the
+                    // machine, not of any image, so one finding per screenshot in
+                    // the corpus would bury the single fact that matters.
+                    //
+                    // Suppresses only this finding, not the scan: the pre-decode
+                    // guards in ComputeRasterVerdict need no decoder, so a
+                    // zero-byte or signature-less file still earns its
+                    // REACTOR_DOC_IMAGE_003 on a machine that cannot decode.
+                    // Skipping the rest of the loop here would have thrown those
+                    // away to save a duplicate warning.
+                    if (decoderMissing) break;
+                    decoderMissing = true;
+                    findings.Add(new TierLintFinding(
+                        "REACTOR_DOC_IMAGE_004",
+                        "blank-image gate skipped: image decoding is unavailable on this " +
+                        "platform (System.Drawing.Common is Windows-only), so referenced images " +
+                        "were not checked for content on this run. No image is implicated — " +
+                        "references were still validated. Compile on Windows for the full check.",
+                        filePath, line, TierLintSeverity.Warning));
+                    break;
             }
         }
         return findings;
@@ -405,6 +430,27 @@ internal static class DiagramProcessor
         /// cannot tell them apart, so the finding text offers both remedies.
         /// </summary>
         Undecodable,
+
+        /// <summary>
+        /// No decoder on this platform. <c>System.Drawing.Common</c> is
+        /// Windows-only, so off-Windows there is no decoder and the gate never
+        /// saw the file's pixels. Says nothing about the file itself.
+        /// </summary>
+        /// <remarks>
+        /// Distinct from <see cref="Undecodable"/> on purpose. Undecodable is a
+        /// statement about the file; this is a statement about the run, and
+        /// folding it into the other would blame every image in the corpus for a
+        /// property of the machine — telling an author to `git checkout` files
+        /// that are perfectly fine. It is equally not <see cref="Ok"/>: a gate
+        /// that could not run has not found nothing, and reporting those as the
+        /// same outcome is the exact defect this gate exists to close.
+        ///
+        /// Reached by a platform test, not by catching an exception: which
+        /// exception System.Drawing.Common raises off-Windows has already
+        /// changed between runtimes, so a catch clause naming one of them is a
+        /// guard that would quietly stop firing. See ComputeRasterVerdict.
+        /// </remarks>
+        Unavailable,
     }
 
     private static RasterVerdict ComputeRasterVerdict(string path)
@@ -452,6 +498,32 @@ internal static class DiagramProcessor
             if (!info.Exists || info.Length > ImageProcessor.MaxImageBytes) return RasterVerdict.Ok;
             if (info.Length == 0) return RasterVerdict.NotAnImage;
             if (!HasRasterMagic(path)) return RasterVerdict.NotAnImage;
+
+            // Everything above is decoder-free, so it keeps working off-Windows;
+            // everything below needs GDI+. Gate on the platform rather than on an
+            // exception type, because *which* exception System.Drawing.Common
+            // raises elsewhere is a moving target: .NET 6 documented a
+            // TypeInitializationException wrapping PlatformNotSupportedException
+            // (thrown from Gdip's .cctor, so the inner type is not what a catch
+            // clause sees), and the net10.0 assembly this repo resolves does not
+            // construct PlatformNotSupportedException at all — measured against
+            // both flavours in the package, the net8.0 one builds it inside a
+            // .cctor lambda and the net10.0 one builds it nowhere.
+            //
+            // A catch written against any single one of those spellings is a
+            // guard that stops firing when the next runtime changes it, and says
+            // nothing when it does. That is worse than no guard here, because
+            // this one exists to keep Phase 6 from dying outright: the assembly
+            // is [SupportedOSPlatform("windows")] and net10.0 exists only because
+            // PackAsTool requires it, but Phase 6 had no decoder dependency
+            // before this gate added one, and a phase that used to run has no
+            // business terminating a compile when it stops being able to.
+            //
+            // Placed after the pre-decode guards on purpose: a zero-byte or
+            // signature-less file is still REACTOR_DOC_IMAGE_003 on every
+            // platform. Returning Unavailable from the top of the method would
+            // have surrendered checks that never needed a decoder.
+            if (!OperatingSystem.IsWindows()) return RasterVerdict.Unavailable;
 
             using var bmp = new global::System.Drawing.Bitmap(path);
             if (bmp.Width > ImageProcessor.MaxImageDimension ||
