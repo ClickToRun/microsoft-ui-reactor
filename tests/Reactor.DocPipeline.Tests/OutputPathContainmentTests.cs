@@ -379,6 +379,55 @@ public class OutputPathContainmentTests
     }
 
     /// <summary>
+    /// The comparer and the comparison must give the same answer, on whatever
+    /// platform the test happens to run.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is deliberately an *agreement* test rather than a second copy of the
+    /// platform assertion above. That one's expected value is derived from
+    /// <c>OperatingSystem.IsWindows()</c> — the same input the code under test
+    /// reads — so on Windows it cannot separate a correct platform-selected
+    /// comparer from one hard-coded to <c>OrdinalIgnoreCase</c>. Both sides
+    /// would say "insensitive" and the test would pass either way. That is the
+    /// environment-derived-oracle shape from <c>AGENTS.md</c>: a check whose
+    /// inputs come from the environment rather than from the code cannot convict
+    /// the code.
+    /// </para>
+    /// <para>
+    /// Agreement has no such blind spot. A <c>PathComparer</c> written as an
+    /// independent literal disagrees with <c>PathComparison</c> on exactly one
+    /// of the two platforms, and this test fails there — whereas a comparer
+    /// *derived* from the comparison agrees on both by construction. So the
+    /// assertion is about the derivation, which is the property being claimed.
+    /// </para>
+    /// <para>
+    /// Measured, because the asymmetry is worth stating rather than implying.
+    /// Substituting <c>StringComparer.Ordinal</c> fails this test on Windows;
+    /// substituting <c>StringComparer.OrdinalIgnoreCase</c> — the literal this
+    /// change replaced — does <em>not</em>, and cannot, because on Windows that
+    /// is the right answer. The defect it caused was always Linux-only, so no
+    /// Windows run can convict it and this test does not claim to. What it
+    /// pins is that the two never diverge, which is checkable everywhere.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Path_comparer_and_path_comparison_agree()
+    {
+        foreach (var (a, b) in new[]
+        {
+            ("guide/x.md", "GUIDE/X.MD"),
+            ("guide/x.md", "guide/x.md"),
+            ("guide/x.md", "guide/y.md"),
+        })
+        {
+            Assert.Equal(
+                a.Equals(b, DocPaths.PathComparison),
+                DocPaths.PathComparer.Equals(a, b));
+        }
+    }
+
+    /// <summary>
     /// A sibling directory sharing a prefix is not "inside". Without the
     /// trailing separator in <see cref="DocPaths.IsUnder"/> this passes
     /// containment and writes outside the tree.

@@ -162,7 +162,7 @@ internal static partial class CompileCommand
 
         // Build screenshot registry from manifests
         var allScreenshots = new Dictionary<string, ScreenshotInfo>(StringComparer.OrdinalIgnoreCase);
-        var reservedSuffixIds = new List<string>();
+        var reservedSuffixIds = new List<(string Id, string FullId, string ManifestPath)>();
         foreach (var (topicId, appDir) in apps)
         {
             var manifestPath = Path.Combine(appDir, "doc-manifest.yaml");
@@ -180,19 +180,25 @@ internal static partial class CompileCommand
                 if (ImageProcessor.HasThumbSuffix(ss.Id)
                     && !string.Equals(ss.Kind, "catalog-thumb", StringComparison.OrdinalIgnoreCase))
                 {
-                    reservedSuffixIds.Add($"{fullId} ({manifestPath})");
+                    reservedSuffixIds.Add((ss.Id, fullId, manifestPath));
                 }
                 allScreenshots[fullId] = new ScreenshotInfo(ss.Id, topicId, ss.Description, ss.Format, ss.Kind);
             }
         }
         if (reservedSuffixIds.Count > 0)
         {
-            foreach (var id in reservedSuffixIds)
+            // The id is quoted on its own, not folded into the location, because
+            // it is the string an author greps their manifest for. Emitting
+            // "screenshot id 'topic/x-thumb (path/to/screenshots.yml)'" labels a
+            // composed locator as an id and finds nothing when pasted into a
+            // search — the diagnostic naming a value that does not exist in the
+            // file it is pointing at.
+            foreach (var (id, fullId, manifestPath) in reservedSuffixIds)
             {
                 Console.Error.WriteLine(
                     $"  ✗ REACTOR_DOC_SHOT_002: screenshot id '{id}' ends in the reserved " +
                     $"'{ImageProcessor.ThumbSuffix}' suffix, which is only valid for " +
-                    "'kind: catalog-thumb'. Rename it, or set the kind.");
+                    $"'kind: catalog-thumb'. Rename it, or set the kind. ({fullId} in {manifestPath})");
             }
             return 1;
         }
@@ -503,8 +509,13 @@ internal static partial class CompileCommand
         Directory.CreateDirectory(outputDir);
 
         // Shared across every page so the screenshot corpus is decoded once per
-        // compile rather than once per referencing page.
-        var blankImageCache = new Dictionary<string, DiagramProcessor.RasterVerdict>(StringComparer.OrdinalIgnoreCase);
+        // compile rather than once per referencing page. Keyed by resolved file
+        // path, so it uses the platform's path comparison rather than a fixed
+        // case-insensitive one: on a case-sensitive filesystem `a.png` and
+        // `A.png` are two files, and collapsing them would serve one's verdict
+        // for the other — a blank image inheriting a clean neighbour's Ok and
+        // never reaching REACTOR_DOC_IMAGE_002.
+        var blankImageCache = new Dictionary<string, DiagramProcessor.RasterVerdict>(DocPaths.PathComparer);
 
         foreach (var (topicId, template) in templates)
         {

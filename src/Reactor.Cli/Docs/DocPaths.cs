@@ -39,6 +39,36 @@ internal static class DocPaths
             : StringComparison.Ordinal;
 
     /// <summary>
+    /// <see cref="PathComparison"/> as a <see cref="StringComparer"/>, for
+    /// path-keyed dictionaries and sets.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Derived from <see cref="PathComparison"/> rather than written out again,
+    /// so the two cannot disagree. A second literal would be a second decision
+    /// about whether this platform's filesystem is case-sensitive, and the whole
+    /// point of having one is that a caller never has to make that call.
+    /// </para>
+    /// <para>
+    /// The direction of a wrong answer here is worth naming, because it is the
+    /// opposite of the containment guard's. A case-<em>insensitive</em> comparer
+    /// on a case-sensitive filesystem <em>collapses</em> two distinct files into
+    /// one key, so a cached verdict computed for one is served for the other —
+    /// a blank screenshot inheriting a clean neighbour's <c>Ok</c> and never
+    /// reaching <c>REACTOR_DOC_IMAGE_002</c>. That is a gate skipping analysis,
+    /// which is a gate passing. Containment errs loud; a cache errs silent.
+    /// </para>
+    /// <para>
+    /// Only genuinely path-keyed collections should use this. The id-keyed
+    /// dictionaries in <c>CompileCommand</c> (snippets, screenshots, CLI arg
+    /// names) are authored identifiers, not filenames, and their
+    /// case-insensitivity is deliberate on every platform.
+    /// </para>
+    /// </remarks>
+    internal static readonly StringComparer PathComparer =
+        StringComparer.FromComparison(PathComparison);
+
+    /// <summary>
     /// True when <paramref name="candidate"/> sits inside <paramref name="root"/>.
     /// Both must already be absolute (call <c>Path.GetFullPath</c> first) —
     /// this compares text and does no normalisation of its own.
