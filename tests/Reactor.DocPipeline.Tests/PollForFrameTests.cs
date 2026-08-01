@@ -85,7 +85,7 @@ public class PollForFrameTests
     [Fact]
     public void Fixtures_bind_the_address_the_capture_client_uses()
     {
-        var probe = new TcpListener(IPAddress.Loopback, 0);
+        using var probe = new TcpListener(IPAddress.Loopback, 0);
         probe.Start();
         var bound = ((IPEndPoint)probe.LocalEndpoint).Address;
         probe.Stop();
