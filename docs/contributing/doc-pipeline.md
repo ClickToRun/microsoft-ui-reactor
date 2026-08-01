@@ -211,6 +211,13 @@ the compile still exited 0 ([issue #989][i989]). Several guards now prevent that
   interior in the committed corpus is 0.6084 % content pixels, so any coverage
   floor able to catch a stub sits close enough to real assets to condemn them,
   while no genuine screenshot is a single colour.
+- The capture poller waits for a frame using **that same definition**, not a
+  looser one. It has to: the poller decides when to stop waiting, so if it
+  accepted a frame the processor then rejects, capture would fail on the first
+  poll rather than waiting out a deadline that would have produced the real
+  frame. The uniformly-dark case is the only one that separates the two
+  predicates — a white or transparent frame fails the content scan on its own —
+  which is why it is pinned by a test rather than left to the reader.
 - A referenced image that clears the pre-decode caps but that the decoder
   cannot read is reported as `REACTOR_DOC_IMAGE_003` rather than being scored.
   The distinction is load-bearing: "could not decode" is not "not blank", and

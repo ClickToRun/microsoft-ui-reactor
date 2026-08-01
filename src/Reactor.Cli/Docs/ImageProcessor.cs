@@ -147,11 +147,22 @@ internal static class ImageProcessor
 
     /// <summary>
     /// True when <paramref name="frameBytes"/> decodes to an image with at
-    /// least one visible content pixel. Cheap probe used by the capture poller
-    /// to hold out for a painted frame; returns <see langword="true"/> for
-    /// anything it cannot decode so an unexpected format falls through to the
-    /// normal validation path instead of being silently discarded as "blank".
+    /// least one visible content pixel and is not a uniform fill. Cheap probe
+    /// used by the capture poller to hold out for a painted frame; returns
+    /// <see langword="true"/> for anything it cannot decode so an unexpected
+    /// format falls through to the normal validation path instead of being
+    /// silently discarded as "blank".
     /// </summary>
+    /// <remarks>
+    /// The predicate deliberately mirrors what <see cref="Process"/> accepts,
+    /// because this decides when the poller stops waiting. If it were the
+    /// looser of the two, a frame that satisfies the poller and is then
+    /// refused by the processor would fail the capture at the first poll —
+    /// even though the deadline it abandoned would have produced a real frame.
+    /// The uniform-fill arm is what closes that gap: a themed window paints its
+    /// background first, and every pixel of a uniformly *dark* background reads
+    /// as content to <see cref="IsContent"/>.
+    /// </remarks>
     internal static bool FrameHasContent(byte[] frameBytes)
     {
         if (frameBytes is null || frameBytes.Length == 0) return false;
@@ -166,7 +177,12 @@ internal static class ImageProcessor
             // the whole frame (twice, with the full-resolution confirmation).
             // The locked-bits probe below short-circuits on the first content
             // pixel and reads a row at a time.
-            return HasContentPixel(bmp, new Rectangle(0, 0, bmp.Width, bmp.Height));
+            var full = new Rectangle(0, 0, bmp.Width, bmp.Height);
+            // Order is for cost, not correctness: HasContentPixel short-circuits
+            // on the first content pixel, and IsUniformFill short-circuits on the
+            // first pixel that differs from the first. A real painted frame
+            // therefore leaves both after roughly one row.
+            return HasContentPixel(bmp, full) && !IsUniformFill(bmp, full);
         }
         catch (Exception ex) when (ex is ArgumentException or OutOfMemoryException
                                       or global::System.Runtime.InteropServices.ExternalException)

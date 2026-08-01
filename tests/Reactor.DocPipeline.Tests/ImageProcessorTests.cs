@@ -299,6 +299,48 @@ public class ImageProcessorTests
     }
 
     /// <summary>
+    /// The poller must not stop waiting on a frame <see cref="ImageProcessor.Process"/>
+    /// will then refuse. <c>Process</c> rejects a uniform fill outright, so
+    /// <c>FrameHasContent</c> has to agree: otherwise a themed window whose
+    /// background painted before its content did satisfies the very first poll,
+    /// and the capture is failed outright when waiting out the remaining
+    /// deadline would have produced the real frame.
+    /// </summary>
+    /// <remarks>
+    /// A uniformly <em>dark</em> fill is the only case that separates the two
+    /// predicates. <c>IsContent</c> asks "darker than near-white", so every
+    /// pixel of a dark fill scores as content and the cheap probe alone answers
+    /// "painted". The white and transparent fills covered above are rejected by
+    /// the content scan on its own, so they cannot tell the two apart — which is
+    /// why this gap survived the existing coverage.
+    /// </remarks>
+    [Fact]
+    public void FrameHasContent_agrees_with_Process_on_a_uniformly_dark_frame()
+    {
+        var dark = MakeSolidPng(64, 64, Color.FromArgb(255, 32, 32, 32));
+
+        Assert.Throws<BlankFrameException>(() => ImageProcessor.Process(dark));
+        Assert.False(ImageProcessor.FrameHasContent(dark));
+
+        // Positive control. Without it this test would also pass if
+        // FrameHasContent were changed to return false unconditionally, which
+        // would hang every capture on the deadline instead of failing it.
+        using var bmp = new Bitmap(64, 64, PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(bmp))
+        {
+            g.Clear(Color.FromArgb(255, 32, 32, 32));
+            using var ink = new SolidBrush(Color.FromArgb(255, 200, 200, 200));
+            g.FillRectangle(ink, 20, 20, 10, 10);
+        }
+        using var ms = new MemoryStream();
+        bmp.Save(ms, ImageFormat.Png);
+        var painted = ms.ToArray();
+
+        Assert.NotEmpty(ImageProcessor.Process(painted));
+        Assert.True(ImageProcessor.FrameHasContent(painted));
+    }
+
+    /// <summary>
     /// The poll-loop probe and the corpus gate must agree on what "content"
     /// means, or a frame the poller waits out would be one the gate accepts
     /// (or worse, the reverse). They share <c>IsContent</c>; this pins the two
