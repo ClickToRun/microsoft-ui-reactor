@@ -404,6 +404,14 @@ public class SelfTestBatch
             ? $"{fixturesReported} of {total}"
             : $"{fixturesReported}";
 
+        // Say that the denominator is missing rather than just omitting it. A bare count reads as
+        // if it were the total, and the reason it is missing — fixture discovery did not complete —
+        // is itself a finding this message is the only place anyone would see it.
+        var totalNote = fixturesTotal is null
+            ? " — the suite total is UNKNOWN here because fixture discovery did not complete, " +
+              "which is worth investigating on its own"
+            : "";
+
         return $"SUITE BUDGET EXCEEDED — '{inFlight}' is NOT PROVEN to be the cause.\n" +
                $"The whole selftest suite shares ONE process budget. It expired while '{inFlight}' " +
                $"happened to be running, so the harness killed the Host and attributed the kill to " +
@@ -412,7 +420,7 @@ public class SelfTestBatch
                $"  elapsed   : {Fixed1(elapsedSeconds)}s against a {Fixed0(budgetSeconds)}s budget " +
                $"(these are necessarily close — the kill IS the budget expiring)\n" +
                $"  reported  : {progress} fixtures had TAP output parsed before the kill " +
-               $"(includes '{inFlight}', which was still running)\n" +
+               $"(includes '{inFlight}', which was still running){totalNote}\n" +
                $"  remaining : reported Skipped (Assert.Inconclusive) — never RUN, so their " +
                $"results say nothing\n" +
                $"Do NOT start by debugging '{inFlight}', and do NOT re-run it under `--filter`: " +

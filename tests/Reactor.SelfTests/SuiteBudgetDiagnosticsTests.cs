@@ -247,6 +247,11 @@ public class SuiteBudgetDiagnosticsTests
     /// <summary>
     /// Fixture discovery can fail independently of the timeout, and when it does the message must
     /// degrade rather than throw or print "1200 of ". Renders the count-unknown branch.
+    ///
+    /// <para>Also pins that the missing denominator is <i>named</i>, not merely omitted: a bare
+    /// count reads as if it were the total. Asserted differentially against the known-count
+    /// rendering, so hardcoding the note unconditionally fails just as loudly as dropping it —
+    /// the presence check alone would survive both.</para>
     /// </summary>
     [TestMethod]
     public void PositionalMessage_HandlesUnknownFixtureCount()
@@ -257,6 +262,14 @@ public class SuiteBudgetDiagnosticsTests
             positional);
         Assert.IsFalse(positional.Contains("1200 of", StringComparison.Ordinal),
             "With no total available the message must not render a half-formed ratio.\n" + positional);
+
+        Assert.IsTrue(positional.Contains("total is UNKNOWN", StringComparison.Ordinal),
+            "A missing denominator must be stated, not silently dropped — otherwise the bare count "
+            + "reads as the total and a failed discovery leaves no trace anywhere.\n" + positional);
+
+        var known = SelfTestBatch.DescribeBudgetOverrun("VictimFixture", 900_000, 901.2, 1200, 1401, Tail);
+        Assert.IsFalse(known.Contains("total is UNKNOWN", StringComparison.Ordinal),
+            "The note must be conditional on the count actually being unavailable.\n" + known);
     }
 
     /// <summary>
