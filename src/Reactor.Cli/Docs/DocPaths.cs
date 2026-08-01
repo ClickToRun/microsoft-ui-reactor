@@ -102,17 +102,19 @@ internal static class DocPaths
     /// segment is rejected before it can be joined.
     /// </para>
     /// </remarks>
-    internal static string ResolveContained(string root, string segment, string describe)
+    internal static string ResolveContained(string root, string segment, string describe, string? hint = null)
     {
+        var suffix = hint is null ? "" : " " + hint;
+
         if (OperatingSystem.IsWindows() && segment.Contains(':'))
             throw new InvalidOperationException(
                 $"{describe} contains ':', which Windows resolves as a drive or " +
-                "alternate-data-stream reference rather than part of a file name");
+                "alternate-data-stream reference rather than part of a file name." + suffix);
 
         var rootFull = Path.GetFullPath(root);
         var full = Path.GetFullPath(Path.Join(rootFull, segment));
         if (!IsUnder(full, rootFull))
-            throw new InvalidOperationException($"{describe} would escape '{rootFull}'");
+            throw new InvalidOperationException($"{describe} would escape '{rootFull}'.{suffix}");
         return full;
     }
 }

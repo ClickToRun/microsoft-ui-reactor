@@ -24,14 +24,22 @@ namespace Microsoft.UI.Reactor.Cli.Docs.Tests;
 /// these pin <see cref="DocPaths.IsUnder"/> and the Combine-vs-Join
 /// difference, and mutating <c>IsUnder</c> (dropping the trailing-separator
 /// normalisation) does turn the prefix-sibling case red. They do <em>not</em>
-/// cover the call site in <c>Run</c> — reverting line 518 to
-/// <c>Path.Combine</c> and deleting the guard leaves the whole suite green.
+/// cover the call site in <c>CompileCommand.Run</c> that builds the compiled
+/// page path — replacing that call with a bare <c>Path.Combine</c> and no guard
+/// leaves the whole suite green. Re-measured after that site was moved onto
+/// <see cref="DocPaths.ResolveContained"/>; still 258 passed, 0 failed.
 /// Reaching that guard needs a topic id that is rooted or traversing, which
 /// <c>Path.GetRelativePath</c> only produces for a templates root on another
 /// volume or behind a link, and that is not constructible portably in a unit
 /// test. The guard is therefore defence-in-depth against a future refactor,
 /// not a currently reachable bug, and is deliberately shipped without
 /// call-site coverage rather than with a test that would pass either way.
+/// </para>
+/// <para>
+/// The previous wording named a line number. That is the same drift generator
+/// this file exists to catch — the line had moved by the time anyone read it,
+/// and a stale pointer invites the reader to conclude the claim is stale too.
+/// Named by symbol instead.
 /// </para>
 /// </remarks>
 public class OutputPathContainmentTests
@@ -279,6 +287,56 @@ public class OutputPathContainmentTests
             Assert.Equal(["topic"], listed);
             Assert.Equal(0, new global::System.IO.FileInfo(
                 global::System.IO.Path.Join(root, "topic")).Length);
+        }
+        finally
+        {
+            global::System.IO.Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The boundary that made the old comment at the `CompileCommand` call site
+    /// look safe: whether a colon path is loud or silent depends on whether the
+    /// tail contains a separator, and only one of the two is loud.
+    /// </summary>
+    /// <remarks>
+    /// This is why the rule rejects any colon rather than the shapes known to
+    /// be dangerous. <c>GetRelativePath</c> across volumes usually produces the
+    /// loud shape, so the quiet one is the one that would have gone unnoticed,
+    /// and "safe because the tail happens to contain a separator" is not a
+    /// property anyone would think to preserve through a refactor.
+    /// </remarks>
+    [Fact]
+    public void Colon_paths_are_loud_or_silent_depending_on_a_separator()
+    {
+        Assert.SkipUnless(global::System.OperatingSystem.IsWindows(),
+            "alternate data streams are an NTFS concept");
+
+        var dir = global::System.IO.Path.Join(
+            global::System.IO.Path.GetTempPath(),
+            "ads-edge-" + global::System.Guid.NewGuid().ToString("N")[..8]);
+        global::System.IO.Directory.CreateDirectory(dir);
+        try
+        {
+            var root = global::System.IO.Path.GetFullPath(dir);
+
+            var withSeparator = global::System.IO.Path.GetFullPath(
+                global::System.IO.Path.Join(root, "D:/other/topic.md"));
+            var bare = global::System.IO.Path.GetFullPath(
+                global::System.IO.Path.Join(root, "D:foo"));
+
+            Assert.True(DocPaths.IsUnder(withSeparator, root));
+            Assert.True(DocPaths.IsUnder(bare, root),
+                "premise: containment passes for both, so it cannot be what separates them");
+
+            // Loud: a stream name cannot contain a separator.
+            Assert.ThrowsAny<global::System.IO.IOException>(
+                () => global::System.IO.File.WriteAllBytes(withSeparator, [1, 2, 3, 4]));
+
+            // Silent: same containment verdict, and it writes.
+            global::System.IO.File.WriteAllBytes(bare, [1, 2, 3, 4]);
+            Assert.Equal(0, new global::System.IO.FileInfo(
+                global::System.IO.Path.Join(root, "D")).Length);
         }
         finally
         {

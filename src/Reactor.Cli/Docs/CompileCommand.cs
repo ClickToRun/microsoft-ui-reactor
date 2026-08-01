@@ -536,24 +536,36 @@ internal static partial class CompileCommand
             // base; the containment check then covers the traversal case,
             // which a rooted-only guard would miss.
             //
-            // What containment does NOT give you, stated because the paragraph
-            // above reads as though it does: a drive-rooted id stays inside
-            // outputDir but is not thereby writable. Measured on .NET 10,
-            // Join("C:/out", "D:/other/topic.md") is "C:/out/D:/other/topic.md"
-            // and GetFullPath returns it unchanged rather than rejecting the
-            // embedded colon — so IsUnder answers "yes" about a path Windows
-            // reads as an alternate data stream, and the compile fails later at
-            // the write. That is a worse error message, not an escape; the
-            // containment guarantee here is "cannot leave outputDir", never
-            // "is a valid file path". OutputPathContainmentTests pins the
-            // GetFullPath half so this comment cannot quietly become false.
-            var outputPath = Path.GetFullPath(Path.Join(outputDir, $"{topicId}.md"));
-            if (!DocPaths.IsUnder(outputPath, Path.GetFullPath(outputDir)))
-            {
-                throw new InvalidOperationException(
-                    $"topic '{topicId}' resolves to '{outputPath}', outside the docs output " +
-                    $"directory '{outputDir}'. Templates must live under the templates root.");
-            }
+            // Containment is necessary and not sufficient, and the sufficiency
+            // gap is narrower and stranger than the earlier version of this
+            // comment claimed. It said a drive-rooted id "fails later at the
+            // write", and that this was "a worse error message, not an escape".
+            // Measured, both halves and the boundary between them:
+            //
+            //   Join(root, "D:/other/topic.md") -> root\D:\other\topic.md
+            //       IsUnder=True, write THROWS  (a stream name cannot contain
+            //       a separator) — so for THIS shape the old claim held.
+            //   Join(root, "D:foo")             -> root\D:foo
+            //       IsUnder=True, write SUCCEEDS into the alternate data stream
+            //       "foo" on a file named D. The directory then lists a single
+            //       zero-byte D and the real bytes are invisible to a listing,
+            //       to git, and to any size check.
+            //
+            // So the old comment generalised from the one colon shape that is
+            // loud to the one that is silent, and the difference is whether the
+            // tail happens to contain a separator. GetRelativePath across
+            // volumes usually produces the loud shape, which is exactly why the
+            // quiet one would have gone unnoticed. Rather than depend on that —
+            // a coupling nobody would think to preserve — the shared helper
+            // rejects any colon up front, before the join, with a message that
+            // names the cause.
+            //
+            // Using the helper rather than spelling the pair inline is the
+            // point: the colon rule lives with the containment rule, so a call
+            // site cannot end up with one and not the other. This one had.
+            var outputPath = DocPaths.ResolveContained(
+                outputDir, $"{topicId}.md", $"Topic '{topicId}'",
+                "Templates must live under the templates root.");
 
             // Image-ref validation per spec §10.3: every ![..](images/...)
             // path in the compiled output must resolve — and, since issue #989,
