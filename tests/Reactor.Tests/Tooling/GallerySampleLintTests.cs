@@ -885,6 +885,17 @@ public sealed class GallerySampleLintTests
     /// synthetic source, plus the multi-card floor below — neither of which depends on the tree
     /// still containing offenders.
     /// </para>
+    /// <para>
+    /// At zero the whole ledger apparatus goes, in one commit with the fix that empties it: this
+    /// array, <see cref="SharedStateDebtAtIntroduction"/>, all three <c>Except</c> arms, and the
+    /// ambiguity arm — which exists only because <c>Except</c> dedups, so with no ledger to dedup
+    /// through it guards nothing that <c>offenders.Count == 0</c> does not already catch. What
+    /// remains is that single assertion plus the vacuity floors. Doing it in the same commit
+    /// matters because emptying the list without deleting the arms leaves a suppression mechanism
+    /// with nothing in it, which is an invitation to refill rather than a fixed rule, and because
+    /// the intermediate state — pages fixed, entries still listed — is red, so splitting it across
+    /// two commits puts that red on main rather than on either branch.
+    /// </para>
     /// </summary>
     static readonly string[] KnownSharedStatePages =
     [
