@@ -920,6 +920,31 @@ public class SuiteBudgetDiagnosticsTests
     }
 
     /// <summary>
+    /// The budget-kill publish must not be able to displace the budget kill.
+    ///
+    /// <para><c>TryAppendSummary</c>'s catch is deliberately narrow, so an exception type it has no
+    /// reason to see escapes rather than being swallowed. On the asserted path that is correct. On
+    /// the failure path the next statement is the <c>Assert.Inconclusive</c> carrying the
+    /// attribution caveat, so an escape there reports a summary-file problem <em>instead of</em> the
+    /// budget kill — the finding buried by its own diagnostics, which is the failure this PR
+    /// exists to remove.</para>
+    /// </summary>
+    [TestMethod]
+    public void BestEffortPublish_AbsorbsWhatTheNarrowCatchLetsThrough()
+    {
+        var absorbed = SelfTestBatch.PublishBestEffort(
+            () => throw new OutOfMemoryException("simulated"), "the test summary");
+        var completed = SelfTestBatch.PublishBestEffort(() => { }, "the test summary");
+
+        Assert.IsFalse(absorbed,
+            "An exception escaping here skips the caller's Assert.Inconclusive, so the run reports " +
+            "a summary-file problem instead of the budget kill it was written to explain.");
+        Assert.IsTrue(completed,
+            "A real publish must report as having happened, or the return value cannot separate " +
+            "'absorbed a fault' from 'ran normally' and carries no information at all.");
+    }
+
+    /// <summary>
     /// The trailer decides the whole message, not one line of it.
     ///
     /// <para>This test exists because it was missing. Every other case here passes

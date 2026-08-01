@@ -871,7 +871,9 @@ public class SelfTestBatch
         {
             // Elapsed == budget by construction here; the overrun is already reported against the
             // in-flight fixture, and repeating it as a duration warning would add nothing.
-            PublishBudgetKill(SelfTestTimeoutMs / 1000, summaryPath);
+            PublishBestEffort(
+                () => PublishBudgetKill(SelfTestTimeoutMs / 1000, summaryPath),
+                "the budget-kill summary");
 
             Assert.Inconclusive(
                 $"Suite hit its {SelfTestTimeoutMs / 1000}s hard budget and was killed; see the " +
@@ -1036,6 +1038,35 @@ public class SelfTestBatch
                                       or System.Security.SecurityException)
         {
             Console.WriteLine($"Could not write the job summary ({ex.GetType().Name}: {ex.Message}).");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Runs a diagnostics publish whose failure must not displace the finding it accompanies.
+    /// Returns whether the publish ran to completion.
+    ///
+    /// <para><see cref="TryAppendSummary"/> deliberately lets an undocumented exception type escape,
+    /// so a genuine bug is not hidden behind the silence this gate exists to remove. That default is
+    /// right for <see cref="PublishSuiteDuration"/>, where delivery <em>is</em> the gate. It is wrong
+    /// for exactly one caller: the budget-kill path publishes <em>while already failing</em>, and its
+    /// next statement is the <c>Assert.Inconclusive</c> carrying the attribution caveat. An exception
+    /// escaping the publish would skip that statement and replace the finding with a complaint about
+    /// the summary file — the outcome <see cref="PublishBudgetKill"/>'s contract explicitly rejects.
+    /// Since non-delivery policy is the caller's, the widening lives here and not in
+    /// <see cref="TryAppendSummary"/>, which keeps its narrow catch.</para>
+    /// </summary>
+    internal static bool PublishBestEffort(Action publish, string label)
+    {
+        try
+        {
+            publish();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Could not publish {label} ({ex.GetType().Name}: {ex.Message}). The " +
+                              "finding this accompanies is reported separately and is unaffected.");
             return false;
         }
     }
