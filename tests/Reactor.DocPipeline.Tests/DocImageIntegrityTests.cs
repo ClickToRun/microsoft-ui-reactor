@@ -582,10 +582,26 @@ public class DocImageIntegrityTests
     }
 
     /// <summary>
-    /// Minimal <c>docs/guide/images</c> tree. <c>ValidateImageRefs</c> resolves
-    /// <c>images/&lt;rel&gt;</c> against the <em>parent</em> of the images root,
-    /// so the layout has to mirror the real one.
+    /// Minimal <c>docs/guide/images</c> tree, laid out to mirror the real one.
     /// </summary>
+    /// <remarks>
+    /// <c>ValidateImageRefs</c> resolves a reference against the directory of
+    /// the <em>page</em> that carries it, so this fixture exposes the images
+    /// root and the page directory separately and callers pass whichever page
+    /// depth they mean. <see cref="GuideDir"/> is only the depth-0 case.
+    /// <para>
+    /// This said "resolves against the parent of the images root" until now,
+    /// which was true of the pre-<c>7c1806bf</c> implementation and remains
+    /// accidentally true for a top-level page, because that page's directory
+    /// <em>is</em> that parent. It is wrong for every other depth, and
+    /// <c>Image_ref_must_carry_the_right_traversal_for_its_page_depth</c>
+    /// already relies on the real rule. The distinction is the whole point of
+    /// that test: "resolve against the images tree" is exactly the model that
+    /// made a wrong <c>../</c> count undetectable, so describing the fixture
+    /// that way re-documents the defect as the design for whoever writes the
+    /// next test against it.
+    /// </para>
+    /// </remarks>
     private sealed class TempGuideTree : global::System.IDisposable
     {
         private readonly string _root;
@@ -601,9 +617,11 @@ public class DocImageIntegrityTests
         public string ImagesDir => global::System.IO.Path.Join(_root, "guide", "images");
 
         /// <summary>
-        /// Directory a top-level guide page compiles to. References resolve
-        /// relative to this, so <c>images/x.png</c> from here lands in
-        /// <see cref="ImagesDir"/> exactly as it does in the real tree.
+        /// Directory a top-level (depth-0) guide page compiles to. References
+        /// resolve relative to the page directory, so <c>images/x.png</c> from
+        /// here lands in <see cref="ImagesDir"/> exactly as it does in the real
+        /// tree. A nested page passes a deeper directory instead, and needs the
+        /// matching <c>../</c> run to reach the same place.
         /// </summary>
         public string GuideDir => global::System.IO.Path.Join(_root, "guide");
 
