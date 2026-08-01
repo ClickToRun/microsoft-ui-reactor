@@ -181,6 +181,140 @@ public class DocImageIntegrityTests
         var finding = Assert.Single(findings);
         Assert.Equal("REACTOR_DOC_IMAGE_003", finding.Code);
         Assert.Contains("decode", finding.Message, global::System.StringComparison.OrdinalIgnoreCase);
+
+        // The other arm of the same code. This file has a valid PNG signature
+        // and faulted inside the decoder, so it must not be reported as "not an
+        // image" — that message would tell the reader to run `git lfs pull` on a
+        // file that is a real, corrupt PNG.
+        Assert.DoesNotContain("not an image", finding.Message, global::System.StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A <c>.png</c> reference whose bytes are not an image at all must be
+    /// convicted, not skipped. The pre-decode guards exist so a hostile or
+    /// oversized file never reaches GDI+, but "these bytes are not PNG or
+    /// JPEG" is a finding about the file's content, not a decision the gate
+    /// made to leave it alone.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The extension filter above this guard means the file is already named
+    /// <c>.png</c>/<c>.jpg</c>, so failing the magic check is unambiguous: it
+    /// will not render. Reporting <c>Ok</c> let the gate return a clean run on
+    /// a page with a broken image — the precise outcome it exists to prevent.
+    /// </para>
+    /// <para>
+    /// The remark on <c>Gate_reports_an_undecodable_image_instead_of_passing_it</c>
+    /// above stated this behaviour as a fact — "a file with no signature at all
+    /// is turned away by HasRasterMagic before the decode step" — to explain why
+    /// its fixture keeps a real signature. It was accurate, and it went four
+    /// commits without anyone asking whether "turned away" was the right
+    /// verdict. Describing a branch is not the same as agreeing with it.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("html", "<html><body>404 Not Found</body></html>")]
+    [InlineData("svg-mislabelled", "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect/></svg>")]
+    [InlineData("lfs-pointer", "version https://git-lfs.github.com/spec/v1\noid sha256:ab\nsize 12\n")]
+    public void Gate_reports_a_png_reference_that_is_not_an_image(string name, string content)
+    {
+        using var tree = new TempGuideTree();
+        tree.WriteBytes($"controls/{name}.png", global::System.Text.Encoding.UTF8.GetBytes(content));
+
+        var findings = DiagramProcessor.ValidateImageRefs(
+            "controls.md.dt",
+            $"![Not an image](images/controls/{name}.png)",
+            tree.ImagesDir,
+            tree.GuideDir);
+
+        // Premise guard: a missing file reports IMAGE_001, which would satisfy
+        // "something was reported" while testing a different rule entirely.
+        Assert.True(
+            global::System.IO.File.Exists(
+                global::System.IO.Path.Join(tree.ImagesDir, "controls", $"{name}.png")),
+            "fixture did not write the file — the finding below would be IMAGE_001 about a missing file");
+
+        Assert.Equal("REACTOR_DOC_IMAGE_003", Assert.Single(findings).Code);
+
+        // The code is shared with the read/decode-fault path, so the code alone
+        // cannot show the two are told apart. The message is where the split is
+        // observable, and the wrong one sends a reader to check file locks and
+        // permissions on a file whose problem is that it is a line of text.
+        var message = findings[0].Message;
+        Assert.Contains("not an image", message, global::System.StringComparison.Ordinal);
+        Assert.DoesNotContain("locked", message, global::System.StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The other half of the split above: an over-cap file must be *skipped*,
+    /// and skipped ahead of the content checks. The cap is a decision this gate
+    /// makes about how much work it will do, so converting it into a verdict
+    /// would report a file as broken on the strength of its size.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The fixture is deliberately an over-cap file that is <em>also</em> not a
+    /// raster, and that is the only shape that can fail. A genuine 64 MiB PNG
+    /// scores <c>Ok</c> whether or not the cap is honoured — deleting the cap
+    /// entirely would leave such a test green — so it would assert nothing. Here
+    /// the two guards disagree about the same file, and only the ordering the
+    /// production code actually has produces zero findings.
+    /// </para>
+    /// <para>
+    /// Written because a mutation run found this side unpinned: turning both
+    /// skips into <c>Undecodable</c> killed no test, while the comment above
+    /// them argued at length for why they are skips. The claim was careful, and
+    /// carefully wrong things are the ones that survive review.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Gate_skips_an_over_cap_file_before_judging_its_content()
+    {
+        using var tree = new TempGuideTree();
+        var path = global::System.IO.Path.Join(tree.ImagesDir, "controls", "huge.png");
+        global::System.IO.Directory.CreateDirectory(global::System.IO.Path.GetDirectoryName(path)!);
+
+        // SetLength gives an over-cap file without writing 64 MiB; the content is
+        // zeros, so it carries no PNG or JPEG signature.
+        using (var fs = new global::System.IO.FileStream(path, global::System.IO.FileMode.Create))
+        {
+            fs.SetLength((long)ImageProcessor.MaxImageBytes + 1);
+        }
+
+        // Premise: the file must actually be over the cap and actually lack a
+        // signature, or "zero findings" below is about neither guard.
+        var len = new global::System.IO.FileInfo(path).Length;
+        Assert.True(len > ImageProcessor.MaxImageBytes, $"fixture is only {len} bytes — not over the cap");
+
+        var findings = DiagramProcessor.ValidateImageRefs(
+            "controls.md.dt",
+            "![Huge](images/controls/huge.png)",
+            tree.ImagesDir,
+            tree.GuideDir);
+
+        Assert.Empty(findings.Select(f => $"{f.Code} {f.Message}"));
+    }
+
+    /// <summary>
+    /// A zero-byte <c>.png</c> is the same class as the above and the most
+    /// likely one to occur by accident — an interrupted or truncated write
+    /// leaves exactly this. It was skipped by the length guard, which is there
+    /// to keep an empty read away from the magic check, not to bless the file.
+    /// </summary>
+    [Fact]
+    public void Gate_reports_an_empty_png_reference()
+    {
+        using var tree = new TempGuideTree();
+        tree.WriteBytes("controls/empty.png", []);
+
+        var findings = DiagramProcessor.ValidateImageRefs(
+            "controls.md.dt",
+            "![Empty](images/controls/empty.png)",
+            tree.ImagesDir,
+            tree.GuideDir);
+
+        Assert.Equal("REACTOR_DOC_IMAGE_003", Assert.Single(findings).Code);
+        Assert.Contains("not an image", findings[0].Message, global::System.StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -235,8 +369,9 @@ public class DocImageIntegrityTests
     }
 
     /// <summary>
-    /// A file too short to hold a signature is skipped as "not a raster", not
-    /// crashed on.
+    /// A file too short to hold a signature is reported, not skipped and not
+    /// crashed on. Four bytes named <c>.png</c> is a broken image by any
+    /// reading, and it belongs with the empty and wrong-magic cases above.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -245,21 +380,28 @@ public class DocImageIntegrityTests
     /// <c>EndOfStreamException</c> on a file shorter than the buffer, a throw
     /// site the old code did not have. The test proves that throw is absorbed
     /// rather than escaping <c>ValidateImageRefs</c> and taking a whole compile
-    /// down on one stray short file. Verified by making the exception escape
-    /// both catches, which fails exactly this test and nothing else.
+    /// down on one stray short file.
     /// </para>
     /// <para>
-    /// It <em>now</em> also proves the dedicated <c>EndOfStreamException</c>
-    /// catch is load-bearing, which it did not when first written. The original
-    /// claim here was that it was, and the measurement refuted it: deleting the
-    /// catch changed no test, because <c>EndOfStreamException</c> derives from
-    /// <c>IOException</c> and a blanket handler covered it. That blanket handler
-    /// has since been removed — it was swallowing genuine read faults and
-    /// returning "not a raster", the fail-open
-    /// <c>Gate_reports_a_locked_image_instead_of_skipping_it</c> pins — which is
-    /// exactly the tightening the old comment anticipated. With it gone, this
-    /// inner catch is the only thing keeping a 4-byte stub from being reported
-    /// as undecodable, and deleting it now fails this test.
+    /// It asserted the opposite until the gate stopped treating "carries no
+    /// raster signature" as a skip. That earlier expectation was this file's own
+    /// contribution to the fail-open: the assertion was real, it ran, and it
+    /// held the wrong behaviour in place — a 4-byte stub sailing through is the
+    /// same defect as an HTML 404 page named <c>.png</c>, and the test named it
+    /// "skips" without anyone asking whether skipping was right.
+    /// </para>
+    /// <para>
+    /// Third revision of what the dedicated <c>EndOfStreamException</c> catch in
+    /// <c>HasRasterMagic</c> proves, so the honest answer is that it currently
+    /// proves nothing. It was claimed load-bearing when written and measured not
+    /// to be (a blanket <c>IOException</c> handler covered it); removing that
+    /// blanket handler made it load-bearing; and now both routes converge on
+    /// <c>Undecodable</c> — the inner catch returns false, which is a verdict,
+    /// and the outer catch reports the same verdict for the escaping
+    /// <c>EndOfStreamException</c>. No test can separate them. It is kept
+    /// because a predicate asked "does this file carry raster magic?" should
+    /// answer "no" for a 4-byte file rather than throw, which is a claim about
+    /// the shape of the API and not one this test measures.
     /// </para>
     /// <para>
     /// Nor does it prove the fail-open the <c>ReadExactly</c> change actually
@@ -273,7 +415,7 @@ public class DocImageIntegrityTests
     /// </para>
     /// </remarks>
     [Fact]
-    public void Gate_skips_a_file_too_short_to_carry_a_signature()
+    public void Gate_reports_a_file_too_short_to_carry_a_signature()
     {
         using var tree = new TempGuideTree();
         tree.WriteImage("controls/stub.png", [0x89, 0x50, 0x4E, 0x47]);
@@ -284,17 +426,15 @@ public class DocImageIntegrityTests
             tree.ImagesDir,
             tree.GuideDir);
 
-        // Premise guard: a missing file would also produce no raster finding,
-        // for an entirely different reason.
+        // Premise guard: a missing file would report IMAGE_001, which is a
+        // different rule reaching the same "something was found" shape.
         var path = global::System.IO.Path.Join(tree.ImagesDir, "controls", "stub.png");
         Assert.True(
             global::System.IO.File.Exists(path),
             "fixture did not write the file — the assertion below would be about a missing file");
         Assert.Equal(4, new global::System.IO.FileInfo(path).Length);
 
-        Assert.DoesNotContain(
-            findings,
-            f => f.Code is "REACTOR_DOC_IMAGE_002" or "REACTOR_DOC_IMAGE_003");
+        Assert.Equal("REACTOR_DOC_IMAGE_003", Assert.Single(findings).Code);
     }
 
     [Fact]
@@ -525,6 +665,61 @@ public class DocImageIntegrityTests
         _output.WriteLine(
             $"scanned {files.Length} PNGs ({thumbs} scored whole); sparsest interior = {minRatio:P4} ({minFile})");
         Assert.Empty(blank);
+    }
+
+    /// <summary>
+    /// Calibration for the pre-decode verdicts, through the gate's own entry
+    /// point rather than around it. Every committed PNG is referenced from a
+    /// synthetic depth-0 page and run through <c>ValidateImageRefs</c>, so the
+    /// real corpus meets the real code path.
+    /// </summary>
+    /// <remarks>
+    /// The sibling above decodes each file with <c>new Bitmap</c> directly,
+    /// which is the right shape for calibrating the blankness threshold and the
+    /// wrong shape for this: it cannot observe a verdict the gate reaches
+    /// *before* decoding. When "carries no raster signature" and "is empty"
+    /// stopped being skips and became <c>REACTOR_DOC_IMAGE_003</c>, nothing in
+    /// the suite would have noticed them false-firing across the committed
+    /// corpus — the tests for the change all use synthesized files, and a rule
+    /// validated only against inputs built to trip it has never been shown not
+    /// to trip everything else.
+    /// </remarks>
+    [Fact]
+    public void Committed_corpus_passes_the_gate_end_to_end()
+    {
+        var imagesDir = global::System.IO.Path.Join(FindRepoRoot(), "docs", "guide", "images");
+        var guideDir = global::System.IO.Path.Join(FindRepoRoot(), "docs", "guide");
+
+        var files = global::System.IO.Directory
+            .GetFiles(imagesDir, "*.png", global::System.IO.SearchOption.AllDirectories);
+        Assert.True(files.Length >= 200,
+            $"expected the full committed corpus, found only {files.Length} PNGs under {imagesDir}");
+
+        var body = string.Join('\n', files.Select(f =>
+        {
+            var rel = global::System.IO.Path.GetRelativePath(imagesDir, f).Replace('\\', '/');
+            return $"![shot](images/{rel})";
+        }));
+
+        var findings = DiagramProcessor.ValidateImageRefs(
+            "corpus.md.dt", body, imagesDir, guideDir);
+
+        // Report the inputs, not just the verdict: a body that referenced
+        // nothing would produce zero findings and look identical to a clean run.
+        _output.WriteLine($"referenced {files.Length} committed PNGs; findings = {findings.Count}");
+        Assert.Equal(files.Length, body.Split('\n').Length);
+
+        Assert.Empty(findings.Select(f => $"{f.Code} {f.Message}"));
+
+        // ...and prove the scanner reached this body rather than skipping it.
+        // Same call, same tree, one extra reference that must be convicted: if
+        // the regex stopped matching these paths the clean result above would be
+        // clean for the wrong reason, and this line is what separates the two.
+        var withBogus = DiagramProcessor.ValidateImageRefs(
+            "corpus.md.dt", body + "\n![shot](images/no-such-file-in-corpus.png)", imagesDir, guideDir);
+        var extra = Assert.Single(withBogus);
+        Assert.Equal("REACTOR_DOC_IMAGE_001", extra.Code);
+        Assert.Contains("no-such-file-in-corpus.png", extra.Message);
     }
 
     /// <summary>

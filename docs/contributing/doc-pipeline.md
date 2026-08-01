@@ -214,6 +214,16 @@ the compile still exited 0 ([issue #989][i989]). Several guards now prevent that
   `UnauthorizedAccessException` from the same call and letting them escape would
   kill the whole compile over one file handle. The gate cannot distinguish the
   two, so the finding names both remedies rather than asserting corruption.
+- `_003` also covers a file that never reaches the decoder because it is not an
+  image at all: zero bytes, or bytes carrying no PNG/JPEG signature under a
+  `.png`/`.jpg` name. Both were once *skipped*, which meant an HTML error page,
+  a mislabelled SVG, or a Git-LFS pointer saved as `.png` produced **zero
+  findings**. The likely way to hit it is a checkout of an LFS-tracked repo made
+  without LFS: every image is a short text pointer, and the whole corpus passed
+  clean. The two guards that remain skips are the *caps* — an over-cap or
+  missing file — because those are decisions the gate makes about how much work
+  to do, not statements about the file. A missing file is already
+  `REACTOR_DOC_IMAGE_001`'s business.
   This is also why the magic-bytes pre-check does *not* swallow those two
   exceptions: it answers "is this a raster?" from the file's content, and a read
   it could not perform is not an answer. It used to return `false` for them,
@@ -273,7 +283,7 @@ reference-generation codes.
 | `REACTOR_DOC_DIAGRAM_001`  | `mermaid-cli` not on PATH but the topic has `.mmd` files   |
 | `REACTOR_DOC_IMAGE_001`    | `![..](images/<topic>/...)` doesn't resolve to a file inside `docs/guide/images/` — missing file, a `../` run that doesn't match the page's depth, or reference text that isn't a usable path at all |
 | `REACTOR_DOC_IMAGE_002`    | Referenced screenshot exists but its interior is blank — a failed capture overwrote it. Restore from git and re-capture on an interactive desktop |
-| `REACTOR_DOC_IMAGE_003`    | Referenced image exists and is within the decode caps but could not be read or decoded. Either it is corrupt and will not render (restore from git and re-capture) or it is intact but locked / permission-denied (clear that and re-run) |
+| `REACTOR_DOC_IMAGE_003`    | Referenced image cannot be scored as an image. Either it is not one — zero bytes, or no PNG/JPEG signature under a `.png`/`.jpg` name (a Git-LFS pointer, an HTML error page, a mislabelled SVG) — or it is corrupt and will not render (restore from git and re-capture), or it is intact but locked / permission-denied (clear that and re-run) |
 | `REACTOR_DOC_SHOT_001`     | Captured frame was contentless; nothing was written and the existing screenshot was left untouched |
 | `REACTOR_DOC_SHOT_002`     | Manifest screenshot id ends in the reserved `-thumb` suffix without `kind: catalog-thumb` |
 | `REACTOR_DOC_REGISTRY_W001`| Registry rule maps to a category with no `guide-pages`     |

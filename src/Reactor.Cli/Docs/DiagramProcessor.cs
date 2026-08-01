@@ -306,6 +306,16 @@ internal static class DiagramProcessor
                         filePath, line, TierLintSeverity.Error));
                     break;
 
+                case RasterVerdict.NotAnImage:
+                    findings.Add(new TierLintFinding(
+                        "REACTOR_DOC_IMAGE_003",
+                        $"not an image: {rel} is named as a raster but its bytes carry no PNG or " +
+                        "JPEG signature (or it is empty), so it will not render anywhere. Common " +
+                        "causes are a checkout of an LFS-tracked file made without Git LFS " +
+                        "(run `git lfs pull`), a saved HTML error page, or an SVG given a .png name.",
+                        filePath, line, TierLintSeverity.Error));
+                    break;
+
                 case RasterVerdict.Undecodable:
                     findings.Add(new TierLintFinding(
                         "REACTOR_DOC_IMAGE_003",
@@ -349,10 +359,13 @@ internal static class DiagramProcessor
     }
 
     /// <summary>
-    /// Outcome of scanning a referenced image. Three states rather than two
+    /// Outcome of scanning a referenced image. Four states rather than two
     /// because "not blank" and "could not tell" must not be spelled the same
     /// way: a gate that reports the second as the first passes silently on
-    /// exactly the corrupt files it exists to notice.
+    /// exactly the corrupt files it exists to notice. The two failure states
+    /// are split because the gate genuinely knows which it is, and folding them
+    /// together would make the finding text offer a remedy it can already rule
+    /// out — telling someone to check file permissions on a Git-LFS pointer.
     /// </summary>
     internal enum RasterVerdict
     {
@@ -363,10 +376,19 @@ internal static class DiagramProcessor
         Blank,
 
         /// <summary>
+        /// Rejected before the decode step by a check about the file's own
+        /// content: empty, or carrying no PNG/JPEG signature despite a raster
+        /// extension. The file was read successfully — it simply is not an
+        /// image, so it will not render for anyone, anywhere. A Git-LFS pointer,
+        /// a saved HTML error page, or a mislabelled SVG all land here.
+        /// </summary>
+        NotAnImage,
+
+        /// <summary>
         /// Admitted to the decode step and the read or decode faulted. Spans
-        /// both corruption and a file that is merely unreadable right now
-        /// (locked, permission-denied) — the gate cannot tell them apart, so
-        /// the finding text offers both remedies.
+        /// corruption and a file that is merely unreadable right now (locked,
+        /// permission-denied) — those raise from the same call and the gate
+        /// cannot tell them apart, so the finding text offers both remedies.
         /// </summary>
         Undecodable,
     }
@@ -388,19 +410,34 @@ internal static class DiagramProcessor
             // it to GDI+, so a hostile or corrupt image must be rejected on
             // cheap metadata before a decoder ever sees it.
             //
-            // These three are deliberate *skips*, not verdicts: an over-cap or
-            // non-raster-magic file was never admitted to the decode step, so
-            // reporting it as undecodable would blame the file for a decision
-            // this gate made about it.
+            // Only one of these is a *skip*. Over-cap means the gate declined to
+            // scan a file that is still a real image, so reporting it would blame
+            // the file for a decision this gate made about it; a missing file is
+            // REACTOR_DOC_IMAGE_001's business and is already reported there.
             //
-            // That framing only holds while HasRasterMagic answers a question
-            // about the file's *content*. It must not answer "false" because it
-            // could not read the file — that is a check that did not run, not a
-            // file that is not a raster, and it lands in the catch below with
-            // every other read fault. See the remarks on HasRasterMagic.
+            // The other two are verdicts. The extension filter above has already
+            // established that this path ends in .png/.jpg/.jpeg, so "empty" and
+            // "carries no PNG or JPEG signature" are statements about the file's
+            // content: it will not render, wherever it came from. Returning Ok
+            // for those let the gate finish clean on a page with a broken image —
+            // the outcome it exists to prevent. A checkout of an LFS-tracked repo
+            // without LFS is the ordinary way to get there: every image is a short
+            // text pointer named .png, and the whole corpus passed silently.
+            //
+            // They report NotAnImage rather than Undecodable because the file read
+            // fine and the gate knows it: both spell REACTOR_DOC_IMAGE_003, but the
+            // message must not send someone to check file locks and permissions on
+            // a file whose problem is that it is a line of text.
+            //
+            // That split only holds while HasRasterMagic answers a question about
+            // the file's *content*. It must not answer "false" because it could
+            // not read the file — that is a check that did not run, not a file
+            // that is not a raster, and it lands in the catch below with every
+            // other read fault. See the remarks on HasRasterMagic.
             var info = new FileInfo(path);
-            if (!info.Exists || info.Length == 0 || info.Length > ImageProcessor.MaxImageBytes) return RasterVerdict.Ok;
-            if (!HasRasterMagic(path)) return RasterVerdict.Ok;
+            if (!info.Exists || info.Length > ImageProcessor.MaxImageBytes) return RasterVerdict.Ok;
+            if (info.Length == 0) return RasterVerdict.NotAnImage;
+            if (!HasRasterMagic(path)) return RasterVerdict.NotAnImage;
 
             using var bmp = new global::System.Drawing.Bitmap(path);
             if (bmp.Width > ImageProcessor.MaxImageDimension ||
