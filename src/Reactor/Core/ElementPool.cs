@@ -300,24 +300,27 @@ public sealed class ElementPool : IDisposable
         fe.ClearValue(Layout.FlexPanel.RightProperty);
         fe.ClearValue(Layout.FlexPanel.BottomProperty);
 
+        // These properties are declared by the concrete panel types, not by Panel.
+        // Keep their resets above the type dispatch so the pool/reset consistency
+        // tests can account for every modifier-backed local value.
+        if (fe is WinUI.Panel resetPanel)
+        {
+            if (resetPanel is WinUI.Grid resetGrid)
+            {
+                resetGrid.ClearValue(WinUI.Grid.PaddingProperty);
+                resetGrid.ClearValue(WinUI.Grid.CornerRadiusProperty);
+            }
+            else if (resetPanel is WinUI.StackPanel resetStack)
+            {
+                resetStack.ClearValue(WinUI.StackPanel.CornerRadiusProperty);
+            }
+        }
+
         // Type-specific cleanup
         switch (fe)
         {
             case WinUI.Panel panel:
                 panel.Children.Clear();
-                // These border-box properties are declared by the concrete panel types,
-                // not by Panel. Clear only the pairs newly supported by this gate widening;
-                // StackPanel.Padding predates it and remains part of the #965 debt described
-                // by the TextBlock.Padding cleanup note below.
-                if (panel is WinUI.Grid grid)
-                {
-                    grid.ClearValue(WinUI.Grid.PaddingProperty);
-                    grid.ClearValue(WinUI.Grid.CornerRadiusProperty);
-                }
-                else if (panel is WinUI.StackPanel stack)
-                {
-                    stack.ClearValue(WinUI.StackPanel.CornerRadiusProperty);
-                }
                 break;
             case WinUI.Border border:
                 border.Child = null;

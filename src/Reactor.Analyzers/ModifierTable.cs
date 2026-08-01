@@ -577,6 +577,9 @@ internal static class ModifierTable
             ["AutomationProperties.DescribedBy"] = "No static setter — WinUI exposes GetDescribedBy(...) returning a mutable IList<DependencyObject>.",
             ["AutomationProperties.FlowsTo"] = "No static setter — WinUI exposes GetFlowsTo(...) returning a mutable IList<DependencyObject>.",
             ["AutomationProperties.FlowsFrom"] = "No static setter — WinUI exposes GetFlowsFrom(...) returning a mutable IList<DependencyObject>.",
+            ["Grid.Padding"] = "Instance dependency property on Grid, not an attached property with a static setter.",
+            ["Grid.CornerRadius"] = "Instance dependency property on Grid, not an attached property with a static setter.",
+            ["StackPanel.CornerRadius"] = "Instance dependency property on StackPanel, not an attached property with a static setter.",
         };
 
     private static IReadOnlyDictionary<string, AttachedModifierInfo> BuildAttached(
