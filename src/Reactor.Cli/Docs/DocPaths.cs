@@ -96,6 +96,23 @@ internal static class DocPaths
     }
 
     /// <summary>
+    /// True when <paramref name="segment"/> carries a <c>:</c>, which Windows
+    /// resolves as a drive or alternate-data-stream reference rather than as
+    /// part of a file name.
+    /// </summary>
+    /// <remarks>
+    /// Extracted so the rule has one home. It was previously spelled inline in
+    /// <see cref="ResolveContained"/> only, and the second place that needed it
+    /// — the read side, in <c>DiagramProcessor.ValidateImageRefs</c> — had a
+    /// comment asserting the hazard was "handled where it is real, in
+    /// ResolveContained" while never calling it. Duplication by omission is
+    /// still duplication: two sites held the same rule and only one implemented
+    /// it.
+    /// </remarks>
+    internal static bool HasStreamOrDriveSeparator(string segment) =>
+        OperatingSystem.IsWindows() && segment.Contains(':');
+
+    /// <summary>
     /// Appends <paramref name="segment"/> to <paramref name="root"/> and returns
     /// the absolute result, throwing when it lands outside
     /// <paramref name="root"/>. <paramref name="describe"/> names the offending
@@ -129,26 +146,10 @@ internal static class DocPaths
     /// invisible to a listing, to <c>git</c>, and to any size check. That is the
     /// same defect this helper exists to close, one layer down — a guard that
     /// runs, returns a correct answer, and answers the wrong question — so the
-    /// segment is rejected before it can be joined.
+    /// segment is rejected, via <see cref="HasStreamOrDriveSeparator"/>, before
+    /// it can be joined.
     /// </para>
     /// </remarks>
-    /// <summary>
-    /// True when <paramref name="segment"/> carries a <c>:</c>, which Windows
-    /// resolves as a drive or alternate-data-stream reference rather than as
-    /// part of a file name.
-    /// </summary>
-    /// <remarks>
-    /// Extracted so the rule has one home. It was previously spelled inline in
-    /// <see cref="ResolveContained"/> only, and the second place that needed it
-    /// — the read side, in <c>DiagramProcessor.ValidateImageRefs</c> — had a
-    /// comment asserting the hazard was "handled where it is real, in
-    /// ResolveContained" while never calling it. Duplication by omission is
-    /// still duplication: two sites held the same rule and only one implemented
-    /// it.
-    /// </remarks>
-    internal static bool HasStreamOrDriveSeparator(string segment) =>
-        OperatingSystem.IsWindows() && segment.Contains(':');
-
     internal static string ResolveContained(string root, string segment, string describe, string? hint = null)
     {
         var suffix = hint is null ? "" : " " + hint;
