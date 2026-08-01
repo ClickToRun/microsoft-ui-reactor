@@ -188,16 +188,12 @@ public class PollForFrameTests
 
         Assert.True(stall.Accepted > 0,
             "the listener was never reached, so nothing was ever stalled — this asserts nothing");
+        // Must be read before Dispose cancels the token — see StallingListener for why
+        Assert.Null(stall.Fault);
         Assert.Empty(got);
         Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10),
             $"the deadline did not bound the request: {sw.Elapsed.TotalSeconds:F1}s elapsed " +
             $"against a {deadline.TotalSeconds:F1}s deadline");
-
-        // The accept loop is detached, so a transport fault there would surface
-        // only as a short Accepted count above — the downstream symptom, with the
-        // cause gone. This is what makes the loop's shutdown catch safe to keep
-        // quiet, and it must be read before Dispose cancels the token.
-        Assert.Null(stall.Fault);
     }
 
     /// <summary>
@@ -215,7 +211,8 @@ public class PollForFrameTests
 
         public StallingListener()
         {
-            _listener = new TcpListener(IPAddress.Loopback, 0);
+            _listener = new TcpListener(IPAddress.IPv6Any, 0);
+            _listener.Server.DualMode = true;
             _listener.Start();
             Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
             _ = Task.Run(AcceptLoop);
@@ -382,6 +379,7 @@ public class PollForFrameTests
     /// a scripted sequence, sticking on the last one.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// A body slot is consumed only once a complete request head (<c>\r\n\r\n</c>)
     /// has actually been read. An earlier version keyed the response on the
     /// accepted-connection ordinal instead, and any connection that carried no
@@ -391,6 +389,16 @@ public class PollForFrameTests
     /// "the poller accepted a blank frame" when the poller had done nothing
     /// wrong. Keying on a parsed request removes the ambiguity: a connection
     /// with no request gets no body and advances nothing.
+    /// </para>
+    /// <para>
+    /// The listener binds to <c>IPv6Any</c> with <c>DualMode = true</c> so that
+    /// <c>::1</c> connections are served directly. On CI, <c>localhost</c> often
+    /// resolves to <c>::1</c> first; without dual-mode the OS silently drops the
+    /// <c>::1</c> SYN (no RST) and happy-eyeballs falls back to <c>127.0.0.1</c>
+    /// after a ~2 s delay — long enough to exhaust a short per-request
+    /// <see cref="System.Threading.CancellationTokenSource"/> before any frame
+    /// is served.
+    /// </para>
     /// </remarks>
     /// <summary>A scripted HTTP reply: the status line to send and the body to send with it.</summary>
     private readonly record struct Reply(int Status, byte[] Body);
@@ -420,7 +428,8 @@ public class PollForFrameTests
         public FrameServer(IReadOnlyList<Reply> replies)
         {
             _replies = replies;
-            _listener = new TcpListener(IPAddress.Loopback, 0);
+            _listener = new TcpListener(IPAddress.IPv6Any, 0);
+            _listener.Server.DualMode = true;
             _listener.Start();
             Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
             _ = Task.Run(AcceptLoop);
