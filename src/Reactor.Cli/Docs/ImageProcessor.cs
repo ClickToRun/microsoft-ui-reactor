@@ -58,7 +58,7 @@ internal static class ImageProcessor
         var bounds = FindContentBounds(source)
             ?? throw BlankFrameException.ForFrame(source.Width, source.Height);
         if (IsUniformFill(source, new Rectangle(0, 0, source.Width, source.Height)))
-            throw BlankFrameException.ForFrame(source.Width, source.Height);
+            throw BlankFrameException.ForUniformFrame(source.Width, source.Height);
         bounds = InflateClamp(bounds, ContentPadding, source.Width, source.Height);
         using var cropped = source.Clone(bounds, PixelFormat.Format32bppArgb);
 
@@ -121,7 +121,7 @@ internal static class ImageProcessor
         // A frame that is one flat colour has no content regardless of what
         // that colour is; IsContent alone only catches the near-white case.
         if (IsUniformFill(source, new Rectangle(0, 0, source.Width, source.Height)))
-            throw BlankFrameException.ForFrame(source.Width, source.Height);
+            throw BlankFrameException.ForUniformFrame(source.Width, source.Height);
 
         var bounds = cropMode switch
         {

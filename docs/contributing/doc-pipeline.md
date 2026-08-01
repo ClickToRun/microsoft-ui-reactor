@@ -339,7 +339,7 @@ reference-generation codes.
 | `REACTOR_DOC_IMAGE_001`    | `![..](images/<topic>/...)` doesn't resolve to a file inside `docs/guide/images/` — missing file, a `../` run that doesn't match the page's depth, or reference text that isn't a usable path at all |
 | `REACTOR_DOC_IMAGE_002`    | Referenced screenshot exists but its interior is blank — a failed capture overwrote it. Restore from git and re-capture on an interactive desktop |
 | `REACTOR_DOC_IMAGE_003`    | Referenced image cannot be scored as an image. Either it is not one — zero bytes, or no PNG/JPEG signature under a `.png`/`.jpg` name (a Git-LFS pointer, an HTML error page, a mislabelled SVG) — or it is corrupt and will not render (restore from git and re-capture), or it is intact but locked / permission-denied (clear that and re-run) |
-| `REACTOR_DOC_SHOT_001`     | Captured frame was contentless; nothing was written and the existing screenshot was left untouched |
+| `REACTOR_DOC_SHOT_001`     | Captured frame was contentless; nothing was written and the existing screenshot was left untouched. The message names which clause fired — *no pixel below the threshold* or *one flat colour* — because for a dark fill the first wording states the opposite of what happened |
 | `REACTOR_DOC_SHOT_002`     | Manifest screenshot id ends in the reserved `-thumb` suffix without `kind: catalog-thumb` |
 | `REACTOR_DOC_REGISTRY_W001`| Registry rule maps to a category with no `guide-pages`     |
 | `REACTOR_DOC_REGISTRY_W002`| Registry-declared guide page has no inbound `<!-- ref:Member -->` marker (doc-coverage gate, spec [041 §5.3](../specs/041-docs-comprehensive-uplift.md)) |

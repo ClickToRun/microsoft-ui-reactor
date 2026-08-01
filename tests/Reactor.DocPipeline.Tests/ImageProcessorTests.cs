@@ -572,6 +572,34 @@ public class ImageProcessorTests
     }
 
     /// <summary>
+    /// The two blankness clauses produce different messages, because for a dark
+    /// fill the near-white wording is not merely incomplete — it is inverted.
+    /// </summary>
+    /// <remarks>
+    /// A uniformly dark frame has <em>every</em> pixel below
+    /// <c>ContentThreshold</c>, so telling its author "no pixel below 248" sends
+    /// them to check a condition that is the opposite of what happened. Both
+    /// clauses throw the same exception type, so nothing but this test stops the
+    /// two factories being collapsed back into one; a type-only assertion passes
+    /// either way.
+    /// </remarks>
+    [Fact]
+    public void Blank_frame_message_names_the_clause_that_fired()
+    {
+        var white = Assert.Throws<BlankFrameException>(
+            () => ImageProcessor.Process(MakeSolidPng(400, 300, Color.White)));
+        var dark = Assert.Throws<BlankFrameException>(
+            () => ImageProcessor.Process(MakeSolidPng(400, 300, Color.FromArgb(20, 20, 24))));
+
+        Assert.Contains("no pixel below", white.Message);
+        Assert.Contains("one flat colour", dark.Message);
+
+        // The inversion, stated directly: the dark frame must not be described
+        // by the near-white clause it contradicts.
+        Assert.DoesNotContain("no pixel below", dark.Message);
+    }
+
+    /// <summary>
     /// A frame that renders as one flat white sheet is uniform even when its
     /// pixels reach that white through different alpha values.
     /// </summary>
