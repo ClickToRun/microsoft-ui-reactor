@@ -856,14 +856,19 @@ public sealed class GallerySampleLintTests
     /// exactly the drift the rule exists to stop. A floor and a ceiling each miss one of those two
     /// directions too.
     /// <para>
-    /// Treated as an <em>upper bound</em>, not an equality pin. #980 is draining this list in a
-    /// separate change, and an equality pin would redden here the moment that lands — on a branch
-    /// whose own checks nothing re-runs, so the break would surface on main rather than on either
-    /// PR. The upper bound keeps both directions the rule is for: a page that is not on the list
-    /// fails, and so does a compensating edit that fixes one page while breaking another, because
-    /// the new offender is not on the list either. What it gives up is noticing that an entry has
-    /// gone stale — harmless, since a stale entry can only mask a re-regression of that exact
-    /// page-and-slot pair, and prunable at any time.
+    /// Pinned in <em>both</em> directions: an offender missing from the list fails, and a list
+    /// entry with no matching offender fails too. An upper bound alone was the earlier design,
+    /// on the reasoning that #980 drains this list in a separate change and an equality pin would
+    /// redden the moment that lands — on a branch whose own checks nothing re-runs, so the break
+    /// would surface on main rather than on either PR. That trade is the wrong way round. Every
+    /// page listed here is one #980 fixes, so a stale entry is this list's expected end state
+    /// rather than an edge case, and an entry that outlives its offender is indistinguishable
+    /// from a permanent suppression of the exact page-and-slot pair the rule exists to protect.
+    /// The red is the draining mechanism: it names the lines to delete, is discharged by deleting
+    /// them, and cannot recur once they are gone — whereas a masked re-regression is silent and
+    /// survives forever. Both directions the rule is for are kept either way: a page that is not
+    /// on the list fails, and so does a compensating edit that fixes one page while breaking
+    /// another, because the new offender is not on the list either.
     /// </para>
     /// <para>
     /// This does not make the test vacuous when the list drains to nothing: non-vacuity here comes
@@ -915,6 +920,17 @@ public sealed class GallerySampleLintTests
         Assert.True(added.Count == 0,
             "these SampleCards share a UseState slot, so driving one silently retargets its " +
             "neighbour (#982). Give each card its own slot:\n  " + string.Join("\n  ", added));
+
+        // The other direction. Once a listed page is fixed its entry stops describing the tree and
+        // starts suppressing it, silently, for the one page-and-slot pair most likely to regress.
+        var stale = KnownSharedStatePages.Except(offenders)
+            .OrderBy(entry => entry, global::System.StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(stale.Count == 0,
+            "these KnownSharedStatePages entries no longer match a live offender — the page was " +
+            "fixed (#980), so the entry now only masks a re-regression of that exact page and " +
+            "slot. Delete them from KnownSharedStatePages:\n  " + string.Join("\n  ", stale));
     }
 
     [Theory]
