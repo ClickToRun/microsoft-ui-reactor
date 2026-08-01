@@ -941,7 +941,20 @@ public sealed class GallerySampleLintTests
         EqualsValueClauseSyntax { Parent: PropertyDeclarationSyntax property } => property.Type,
         ArrowExpressionClauseSyntax { Parent: PropertyDeclarationSyntax property } => property.Type,
         ArrowExpressionClauseSyntax { Parent: MethodDeclarationSyntax method } => method.ReturnType,
-        ReturnStatementSyntax statement => statement.FirstAncestorOrSelf<MethodDeclarationSyntax>()?.ReturnType,
+        ArrowExpressionClauseSyntax { Parent: LocalFunctionStatementSyntax local } => local.ReturnType,
+
+        // Nearest enclosing *function*, not nearest enclosing method. A `return` inside a local
+        // function whose ancestor chain continues into `Element Render()` would otherwise be typed
+        // by `Element`, so the site is silently not a Uri construction at all — a false negative
+        // that the row guard reports as "no `new Uri(...)` in the source" rather than as a miscount.
+        ReturnStatementSyntax statement => statement
+            .Ancestors()
+            .FirstOrDefault(node => node is MethodDeclarationSyntax or LocalFunctionStatementSyntax) switch
+        {
+            MethodDeclarationSyntax method => method.ReturnType,
+            LocalFunctionStatementSyntax local => local.ReturnType,
+            _ => null,
+        },
         _ => null,
     };
 
@@ -1330,6 +1343,13 @@ public sealed class GallerySampleLintTests
     [InlineData(@"class P { Uri? Parse(string t) => new(t); }", 1)]
     [InlineData(@"class P { Uri? Parse(string t) { return new(t); } }", 1)]
     [InlineData(@"class P { System.Uri? Parse(string t) => new(t); }", 1)]
+    // The same two spellings as *local* functions. Worth pinning separately: an arrow clause on a
+    // local function has a different parent type, and a `return` inside one walks past it to the
+    // enclosing method — whose return type is `Element`, so the site is silently not a Uri at all.
+    [InlineData(@"class P { Element R(string t) { Uri? Parse(string s) => new(s); return WebView2(Parse(t)); } }", 1)]
+    [InlineData(@"class P { Element R(string t) { Uri Parse(string s) { return new(s); } return WebView2(Parse(t)); } }", 1)]
+    // …and a local function still accepts a constant, so recognising it did not widen the rule.
+    [InlineData(@"class P { Element R() { Uri? Parse() => new(""https://example.com""); return WebView2(Parse()); } }", 0)]
     [InlineData(@"class P { Uri? Home { get; } = new(Fetch()); }", 1)]
     // …and the nullable target type still accepts a constant, so unwrapping it did not simply
     // turn the arm into a blanket report.
