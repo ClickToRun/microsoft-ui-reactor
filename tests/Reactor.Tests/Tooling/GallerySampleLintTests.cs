@@ -1240,13 +1240,22 @@ public sealed class GallerySampleLintTests
     /// <c>using WebUri = System.Uri;</c> alias, which would otherwise construct a Uri under a
     /// name the rule never looks for.
     /// </summary>
+    /// <remarks>
+    /// The alias is matched on its <em>whole</em> name rather than its last identifier.
+    /// <c>Windows.Foundation.Uri</c> also ends in <c>Uri</c> and is a different type, so a rightmost
+    /// match adopts it and reports a construction the rule knows nothing about — a false positive
+    /// whose stated remedy (<c>Uri.TryCreate</c>) may not even apply to the aliased type. A bare
+    /// <c>Uri</c> on the right-hand side is still accepted: it can only resolve to
+    /// <c>System.Uri</c> here, and rejecting it would fail open, which is the direction that costs a
+    /// missed defect rather than a blocked tree.
+    /// </remarks>
     static HashSet<string> UriTypeNames(SyntaxNode root)
     {
         var names = new HashSet<string>(global::System.StringComparer.Ordinal) { "Uri" };
 
         var aliases = root.DescendantNodes()
             .OfType<UsingDirectiveSyntax>()
-            .SelectMany(directive => directive.Alias is { } alias && RightmostName(directive.Name) == "Uri"
+            .SelectMany(directive => directive.Alias is { } alias && IsSystemUriName(directive.Name)
                 ? new[] { alias.Name.Identifier.Text }
                 : []);
 
@@ -1254,6 +1263,31 @@ public sealed class GallerySampleLintTests
 
         return names;
     }
+
+    /// <summary>
+    /// Whether a name form denotes <c>System.Uri</c> — <c>Uri</c>, <c>global::Uri</c>,
+    /// <c>System.Uri</c>, <c>global::System.Uri</c> — rather than merely ending in <c>Uri</c>.
+    /// </summary>
+    static bool IsSystemUriName(SyntaxNode? name) => name switch
+    {
+        IdentifierNameSyntax identifier => identifier.Identifier.Text == "Uri",
+        AliasQualifiedNameSyntax alias => alias.Name.Identifier.Text == "Uri",
+        QualifiedNameSyntax qualified =>
+            qualified.Right.Identifier.Text == "Uri" && IsSystemQualifier(qualified.Left),
+        _ => false,
+    };
+
+    /// <summary>
+    /// Whether a qualifier is the <c>System</c> namespace, spelled plainly or through
+    /// <c>global::</c>. Anything else — <c>Windows.Foundation</c>, <c>Foo</c> — is a different
+    /// namespace, so the <c>Uri</c> it qualifies is a different type.
+    /// </summary>
+    static bool IsSystemQualifier(SyntaxNode? name) => name switch
+    {
+        IdentifierNameSyntax identifier => identifier.Identifier.Text == "System",
+        AliasQualifiedNameSyntax alias => alias.Name.Identifier.Text == "System",
+        _ => false,
+    };
 
     /// <summary>
     /// Every DSL surface with a <c>Uri</c> parameter, mapped to <em>which</em> parameter that is.
@@ -1797,6 +1831,17 @@ public sealed class GallerySampleLintTests
     [InlineData(@"class P { const string url = ""https://example.com""; Uri R() { try { return new Uri(url); } catch (UriFormatException url) { return new Uri(url + """"); } } }", 1)]
     // Spellings that hide the type: a using-alias, global::Uri, and target-typed new.
     [InlineData(@"using WebUri = System.Uri; class P { Element R(string t) { return WebView2(new WebUri(t)); } }", 1)]
+    // …but the alias has to be to *System*.Uri. `Windows.Foundation.Uri` also ends in `Uri`, so a
+    // rightmost-name match adopts it and reports a construction of a type this rule knows nothing
+    // about — a false positive whose stated remedy (`Uri.TryCreate`) may not even apply to it.
+    // The accepted `new Uri(t)` alongside is not decoration: once the alias is correctly ignored the
+    // row guard needs *something* it recognises, so `1` separates "the alias was rejected" from
+    // "nothing in this row parsed as a Uri construction at all".
+    [InlineData(@"using WebUri = Windows.Foundation.Uri; class P { Element R(string t) { WebUri a = new WebUri(t); return WebView2(new Uri(t)); } }", 1)]
+    // …and `global::` in front of the aliased name must not defeat that System check. This is the
+    // over-tightening direction: dropping the alias-qualified arm silently stops recognising a real
+    // `System.Uri` alias, which is a false negative rather than a blocked tree.
+    [InlineData(@"using WebUri = global::System.Uri; class P { Element R(string t) { return WebView2(new WebUri(t)); } }", 1)]
     [InlineData(@"class P { Element R(string t) { return WebView2(new global::Uri(t)); } }", 1)]
     [InlineData(@"class P { Element R(string t) { Uri u = new(t); return WebView2(u); } }", 1)]
     [InlineData(@"class P { Element R(string t) { return WebView2(new(t)); } }", 1)]
