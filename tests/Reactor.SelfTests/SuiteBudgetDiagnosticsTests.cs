@@ -429,14 +429,21 @@ public class SuiteBudgetDiagnosticsTests
     {
         var budget = SelfTestBatch.EffectiveTimeoutSeconds;
 
-        // Asserted through the builder rather than against the constant directly: a threshold of
-        // zero or less warns on every run, which trains readers to ignore the one signal this
-        // whole gate produces. (Comparing the const to 0 inline is const-folded and flagged as a
-        // known-true assertion; routing it through DescribeSuiteDuration tests the behaviour.)
+        // Probed through the builder rather than compared against the constant inline (a const
+        // comparison is const-folded and flagged as a known-true assertion). The probe elapsed
+        // must be POSITIVE-but-tiny, never 0.0: the builder warns on `elapsed > warnSeconds`, so
+        // a 0.0 probe still passes against a threshold regressed to 0 — the exact value this
+        // guard names — and would only catch a negative one, while every real run (hundreds of
+        // seconds) warned. Half a second is below any threshold worth configuring and above
+        // every non-positive one, so it fails on both regressions.
+        const double InstantSuiteSeconds = 0.5;
+
         Assert.IsFalse(
-            SelfTestBatch.DescribeSuiteDuration(0.0, SelfTestBatch.SuiteDurationWarnSeconds, budget).Warn,
-            $"A zero-second suite triggered the duration warning, so the configured threshold " +
-            $"({SelfTestBatch.SuiteDurationWarnSeconds}s) is not positive and every run warns.");
+            SelfTestBatch.DescribeSuiteDuration(
+                InstantSuiteSeconds, SelfTestBatch.SuiteDurationWarnSeconds, budget).Warn,
+            $"A {InstantSuiteSeconds}s suite triggered the duration warning, so the configured " +
+            $"threshold ({SelfTestBatch.SuiteDurationWarnSeconds}s) is not positive and every real " +
+            $"run warns — training readers to ignore the one signal this gate produces.");
 
         Assert.IsTrue(SelfTestBatch.SuiteDurationWarnSeconds < budget,
             $"Warn threshold {SelfTestBatch.SuiteDurationWarnSeconds}s must be below the {budget}s " +
