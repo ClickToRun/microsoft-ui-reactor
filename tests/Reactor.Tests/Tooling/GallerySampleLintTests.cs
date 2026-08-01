@@ -38,6 +38,50 @@ namespace Microsoft.UI.Reactor.Tests.Tooling;
 /// </summary>
 public sealed class GallerySampleLintTests
 {
+    /// <summary>
+    /// The class doc above opens with a count word — "the <i>five</i> mistakes guarded here" — and
+    /// then lists them. Both halves are hand-maintained, and that opening line is the one place two
+    /// branches each adding a rule edit the *same* line while their rule bodies land far enough
+    /// apart to auto-merge in silence. Resolving that conflict by taking either side ships a number
+    /// contradicting its own list, and nothing else in this file would notice.
+    ///
+    /// So: union the list, and let this fail if the word does not follow. It fires in both
+    /// directions — a word bumped without an item, or an item added without the word.
+    /// </summary>
+    [Fact]
+    public void ClassDoc_CountWordMatchesTheRuleList()
+    {
+        var source = global::System.IO.File.ReadAllText(ThisFile());
+        var declaration = source.IndexOf("public sealed class GallerySampleLintTests", global::System.StringComparison.Ordinal);
+        Assert.True(declaration > 0, "Could not locate the class declaration — this check reads the doc comment above it.");
+
+        var doc = source[..declaration];
+        var items = Regex.Matches(doc, "<item>").Count;
+        var counted = Regex.Match(doc, @"the (\w+) mistakes");
+
+        // Both halves have to be found before they can be compared: a doc reworded past these
+        // patterns would otherwise leave this silently comparing "" to "" and passing.
+        Assert.True(counted.Success, "Class doc no longer contains a 'the <word> mistakes' count — update this check alongside it.");
+        Assert.True(items > 0, "Class doc no longer contains an <item> list — update this check alongside it.");
+
+        Assert.Equal(NumberWord(items), counted.Groups[1].Value);
+    }
+
+    static string NumberWord(int value) => value switch
+    {
+        1 => "one",
+        2 => "two",
+        3 => "three",
+        4 => "four",
+        5 => "five",
+        6 => "six",
+        7 => "seven",
+        8 => "eight",
+        _ => value.ToString(global::System.Globalization.CultureInfo.InvariantCulture),
+    };
+
+    static string ThisFile([global::System.Runtime.CompilerServices.CallerFilePath] string path = "") => path;
+
     // Source loading lives in GallerySources so the snippet-agreement lint next door reads the
     // same pages through the same code path.
     static string GalleryDir() => GallerySources.GalleryDir();
@@ -631,14 +675,23 @@ public sealed class GallerySampleLintTests
         // Locals of the enclosing member that are declared outside every card — the ones a card can
         // name without containing them.
         //
-        // Filtered to declarations whose scope encloses *this* card, and tie-broken to the innermost
-        // of those, because a name does not map to one declarator: two disjoint sibling blocks may
-        // each declare it (legal C#, no CS0136, since the scopes never overlap). Choosing between
-        // them by document order chooses a declarator the card may not be able to see, and then the
-        // widening pass reads the wrong initializer — the card stops reaching the page slot and a
-        // coupled page reports clean. Fail-open, in the guard for issue #982, one level out from the
-        // card scan. `Last()` is not the fix either: it just moves which of the two orderings breaks,
-        // which is why both are pinned below.
+        // Filtered to declarations whose scope encloses *this* card, because a name does not map to
+        // one declarator: two disjoint sibling blocks may each declare it (legal C#, no CS0136,
+        // since the scopes never overlap). Choosing between them by document order chooses a
+        // declarator the card may not be able to see, and then the widening pass reads the wrong
+        // initializer — the card stops reaching the page slot and a coupled page reports clean.
+        // Fail-open, in the guard for issue #982, one level out from the card scan. `Last()` is not
+        // the fix either: it just moves which of the two orderings breaks, which is why the scope
+        // filter is pinned below by a *pair* of rows, decoy-first and decoy-second.
+        //
+        // The tie-break after it is defensive, and measured to be unreachable rather than assumed
+        // so: `member` above is the enclosing *method*, so a field is never a candidate, and two
+        // locals that both enclose this card are necessarily in nested scopes — where CS0136
+        // forbids them sharing a name. Replacing the tie-break with a throw-on-ambiguity ran clean
+        // over every row here and over the real gallery tree, so each group holds exactly one
+        // declarator today. Kept deterministic (innermost = the scope that starts last) so that if
+        // some future shape does reach it, it picks the one C# would rather than an arbitrary one.
+        // Note this means no row here pins the *ordering* — flipping it changes nothing, by design.
         var lifted = member.DescendantNodes()
             .OfType<VariableDeclaratorSyntax>()
             .Where(v => v.Initializer is not null)
