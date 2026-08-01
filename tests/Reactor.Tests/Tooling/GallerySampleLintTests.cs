@@ -1158,8 +1158,11 @@ public sealed class GallerySampleLintTests
             .ToArray();
 
         Assert.True(regressed.Length == 0,
-            "the scan stopped recognising `new Uri(...)` constructions it used to see, so a clean " +
-            "result below would not mean the tree is clean:\n  " + string.Join("\n  ", regressed));
+            "fewer recognised `new Uri(...)` sites than pinned. There are two very different causes " +
+            "and the edit that resolves one silences the other: if the site was deliberately removed, " +
+            "lower the pin; if it was not, the scan stopped recognising a construction it used to " +
+            "see, and the clean `offenders` result below is then reporting on a tree it no longer " +
+            "reads. Confirm which before changing the number:\n  " + string.Join("\n  ", regressed));
 
         Assert.True(offenders.Count == 0, string.Join("\n", offenders));
     }
