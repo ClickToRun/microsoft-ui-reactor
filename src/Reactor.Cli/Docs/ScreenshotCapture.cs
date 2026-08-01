@@ -205,7 +205,8 @@ internal static class ScreenshotCapture
                         using var switchResp = await http.PostAsync(PreviewUrl(port), content);
                         if (!switchResp.IsSuccessStatusCode)
                         {
-                            Console.Error.WriteLine($" ✗ Failed to switch to component '{screenshot.Component}' ({switchResp.StatusCode})");
+                            ReportCaptureFailure(screenshot.Id,
+                                $"Failed to switch to component '{screenshot.Component}' ({switchResp.StatusCode})");
                             failed++;
                             continue;
                         }
@@ -221,7 +222,7 @@ internal static class ScreenshotCapture
                     var frameBytes = await PollForFrame(http, port, TimeSpan.FromSeconds(5), requireContent: true);
                     if (frameBytes.Length == 0)
                     {
-                        Console.Error.WriteLine($" ✗ no frame produced within deadline");
+                        ReportCaptureFailure(screenshot.Id, "no frame produced within deadline");
                         failed++;
                         continue;
                     }
@@ -245,7 +246,7 @@ internal static class ScreenshotCapture
                     var existing = outputPath is not null && File.Exists(outputPath)
                         ? " — existing screenshot left untouched"
                         : "";
-                    Console.Error.WriteLine($" ✗ {ex.Message}{existing}");
+                    ReportCaptureFailure(screenshot.Id, $"{ex.Message}{existing}");
                     failed++;
                 }
                 catch (Exception ex) when (ex is HttpRequestException or IOException
@@ -275,7 +276,7 @@ internal static class ScreenshotCapture
                     // would let one undeletable file abort the whole capture
                     // pass — which is the same silent-mass-failure shape the
                     // Written/Failed counters exist to prevent.
-                    Console.Error.WriteLine($" ✗ {ex}");
+                    ReportCaptureFailure(screenshot.Id, ex.ToString());
                     failed++;
                 }
             }
@@ -297,7 +298,36 @@ internal static class ScreenshotCapture
     }
 
     /// <summary>
-    /// Polls <c>/frame</c> until the server returns a body the caller can use,
+    /// Reports a per-screenshot capture failure so that <em>each stream is
+    /// independently readable</em>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The progress line <c>"    Capturing &lt;id&gt;..."</c> is written to stdout
+    /// without a newline, and the success path completes it with <c>" ✓"</c> on the
+    /// same stream. Every failure path used to complete it with <c>" ✗ ..."</c> on
+    /// <em>stderr</em> — formatted as a continuation of a line living on a different
+    /// stream. That is only legible when the two are interleaved into one console,
+    /// which is not how CI captures them and not what a pipe does.
+    /// </para>
+    /// <para>
+    /// Read separately it failed in both directions: stdout showed a
+    /// <c>Capturing &lt;id&gt;...</c> that never resolved, with the next screenshot's
+    /// text appended to the same visual line; and stderr showed a bare
+    /// <c>✗ no frame produced within deadline</c> carrying <strong>no id at
+    /// all</strong>, because the id only ever went to stdout. A capture diagnostic
+    /// that cannot name which screenshot it is about is the silent-failure shape
+    /// issue #989 exists to remove — so this terminates the stdout line and repeats
+    /// the id on stderr rather than relying on the reader to splice the streams.
+    /// </para>
+    /// </remarks>
+    internal static void ReportCaptureFailure(string id, string detail)
+    {
+        Console.WriteLine(" ✗");
+        Console.Error.WriteLine($"    ✗ {id}: {detail}");
+    }
+
+
     /// or the deadline expires. The capture timer starts lazily on first
     /// reader, so early calls return HTTP 204 with no content.
     /// </summary>
