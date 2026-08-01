@@ -664,11 +664,8 @@ public class ImageProcessorTests
     /// </summary>
     [Fact]
     public void Thumb_aware_file_base_is_idempotent()
-    {
-        foreach (var id in new[] { "widget", "widget-thumb", "a-thumb-b", "thumb" })
-        {
-            var once = ImageProcessor.ThumbAwareFileBase(id, isThumb: true);
-            Assert.Equal(once, ImageProcessor.ThumbAwareFileBase(once, isThumb: true));
-        }
-    }
+        => Assert.All(
+            new[] { "widget", "widget-thumb", "a-thumb-b", "thumb" }
+                .Select(id => ImageProcessor.ThumbAwareFileBase(id, isThumb: true)),
+            once => Assert.Equal(once, ImageProcessor.ThumbAwareFileBase(once, isThumb: true)));
 }
