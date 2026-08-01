@@ -155,14 +155,26 @@ byte-identical — the CI `docs-build` job proves this on every PR with
 
 It is *not* the only phase that writes under `docs/guide/images/`, and the
 distinction matters if you are reasoning about that directory rather than about
-screenshots. Phase 5.5 (diagrams) copies `docs/_pipeline/diagrams/<topic>/*.svg`
-into `docs/guide/images/<topic>/` and writes `.<name>.mmd.sha256` sidecars beside
-them; both are text, both have filenames disjoint from any captured `.png`, and
-neither is skipped by `--no-screenshots` (use `--skip-diagrams` for that). So the
-guarantee is about screenshots, not about the directory. **The CI gate above is
-deliberately broader than the guarantee** — it watches the whole directory, so a
-diagram write on the skip path fails the build rather than being assumed away.
-Do not narrow the gate to `*.png` to "match" this paragraph.
+screenshots. Phase 5.5 (diagrams) writes there **three** ways: it copies
+`docs/_pipeline/diagrams/<topic>/*.svg` into `docs/guide/images/<topic>/`, it
+renders each `<name>.mmd` to `<name>.svg` in that same directory via `mmdc`, and
+it writes a `.<name>.mmd.sha256` cache sidecar beside it. All three are text, all
+three have filenames disjoint from any captured `.png`, and none is skipped by
+`--no-screenshots` (use `--skip-diagrams` for that). So the guarantee is about
+screenshots, not about the directory. **The CI gate above is deliberately broader
+than the guarantee** — it watches the whole directory, so a diagram write on the
+skip path fails the build rather than being assumed away. Do not narrow the gate
+to `*.png` to "match" this paragraph.
+
+The mermaid render is the one to remember, because it is the one a source-level
+audit misses: `mmdc` is a separate process, so that write appears in **no**
+`File.Write*`/`File.Copy` search of this repo. The first version of this
+paragraph enumerated only the two managed writes for exactly that reason. What
+keeps the rendered file off the `.png` namespace is that its `.svg` destination
+is hard-coded at the call site in `DiagramProcessor` — it is not a property of
+`mmdc`, which will happily render PNG when asked. `DiagramTests` pins the full
+written set for that reason, so adding a fourth writer fails a test that names
+this paragraph rather than silently outdating it.
 
 `git status`, not `git diff`: `git diff` reports tracked modifications only, so
 it is blind to a *new* PNG appearing under `docs/guide/images/`. That is the

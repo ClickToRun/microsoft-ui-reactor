@@ -384,14 +384,23 @@ internal static partial class CompileCommand
             //
             // It is not the only writer under docs/guide/images/. Phase 5.5
             // (Diagrams) also targets that tree: DiagramProcessor.Process is
-            // called with imagesDir and copies docs/_pipeline/diagrams/<topic>/
-            // *.svg plus .<name>.mmd.sha256 sidecars into it. Those are text and
-            // a disjoint set of filenames, so they cannot collide with a .png —
-            // but "--no-screenshots means nothing writes here" is false, and
-            // stating it that way would invite someone to weaken the CI gate to
-            // match. The gate is deliberately broader than this guarantee: it
-            // watches the whole directory, so a diagram write on the skip path
-            // is caught too rather than assumed impossible.
+            // called with imagesDir and writes three kinds of file into it —
+            // copied docs/_pipeline/diagrams/<topic>/*.svg, mmdc-rendered
+            // <name>.svg, and .<name>.mmd.sha256 cache sidecars. All are text
+            // with filenames disjoint from any captured .png, so they cannot
+            // collide — but "--no-screenshots means nothing writes here" is
+            // false, and stating it that way would invite someone to weaken the
+            // CI gate to match. The gate is deliberately broader than this
+            // guarantee: it watches the whole directory, so a diagram write on
+            // the skip path is caught too rather than assumed impossible.
+            //
+            // The mmdc render is the easy one to miss: it happens in a separate
+            // process, so no File.Write*/File.Copy search of this repo finds it,
+            // and the first version of this comment listed only the two managed
+            // writes. Its .svg destination is hard-coded at the DiagramProcessor
+            // call site rather than being a property of mmdc — which renders PNG
+            // on request — and DiagramTests pins the full written set so a
+            // fourth writer breaks a test instead of outdating this quietly.
             Console.WriteLine("═══ Phase 3: Capture (skipped — existing screenshots left untouched) ═══");
         }
         else
