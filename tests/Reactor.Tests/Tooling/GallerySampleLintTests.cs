@@ -476,6 +476,22 @@ public sealed class GallerySampleLintTests
     /// one, reporting a coupled page as clean. Callers walk the ancestor chain of each identifier
     /// instead, so shadowing is decided per occurrence.
     /// </para>
+    /// <para>
+    /// The block and statement arms are deliberately <em>position-insensitive</em>: they return every
+    /// local a block declares, not only those declared before the identifier being tested. That looks
+    /// like a false-negative hole — an occurrence resolving outward past a same-named local declared
+    /// later would be reported as shadowed — but the shape does not exist in source that compiles.
+    /// C# reserves a simple name for one meaning per block (CS0136) and rejects a use that precedes
+    /// its declaration (CS0841, or CS0844 when the later local hides a field), so the ambiguity the
+    /// position check would resolve is a compile error before this lint ever parses it. Verified by
+    /// compiling the four candidate spellings — outer local read from an inner block, the same inside
+    /// a lambda body, a field read from a block that later declares the name, and a deconstruction
+    /// slot read before a same-named local — plus a local function capturing a later local, which is
+    /// CS0841 as well rather than the legal capture it looks like. Adding a <c>SpanStart</c> filter
+    /// would therefore change no answer on any input this lint can receive, while reading as though
+    /// it distinguishes something. If you are here to add one, produce a <em>compiling</em>
+    /// counterexample first; if you have one, this paragraph is wrong and the filter belongs.
+    /// </para>
     /// </summary>
     static IEnumerable<string> NamesIntroducedBy(SyntaxNode node) => node switch
     {
