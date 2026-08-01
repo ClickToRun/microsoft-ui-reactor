@@ -71,6 +71,16 @@ public sealed class GallerySampleLintTests
         Assert.Equal(NumberWord(items), counted.Groups[1].Value);
     }
 
+    /// <summary>
+    /// Spells a count the way the class doc does. The ceiling is twenty, and it is not arbitrary:
+    /// the check captures the count with <c>(\w+)</c>, a single word, and English needs a hyphen
+    /// from twenty-one on — which <c>\w</c> does not match. So twenty is exactly where the
+    /// single-word assumption breaks, and past it the *pattern* is what needs widening, not this
+    /// map. Falling back to digits instead would quietly force the doc to read "the 21 mistakes"
+    /// mid-sentence, so this fails with the real remedy named instead.
+    ///
+    /// The throw is a signpost, not a tested path — five rules today, so nothing reaches it.
+    /// </summary>
     static string NumberWord(int value) => value switch
     {
         1 => "one",
@@ -81,8 +91,46 @@ public sealed class GallerySampleLintTests
         6 => "six",
         7 => "seven",
         8 => "eight",
-        _ => value.ToString(global::System.Globalization.CultureInfo.InvariantCulture),
+        9 => "nine",
+        10 => "ten",
+        11 => "eleven",
+        12 => "twelve",
+        13 => "thirteen",
+        14 => "fourteen",
+        15 => "fifteen",
+        16 => "sixteen",
+        17 => "seventeen",
+        18 => "eighteen",
+        19 => "nineteen",
+        20 => "twenty",
+        _ => throw new global::System.NotSupportedException(
+            $"No single-word spelling for {value}. English hyphenates from twenty-one on, which the " +
+            @"(\w+) capture in ClassDoc_CountWordMatchesTheRuleList cannot match — widen that pattern " +
+            "alongside this map."),
     };
+
+    /// <summary>
+    /// Every spelling the map produces has to survive the capture that reads it back. A hyphenated
+    /// or spaced word would still <em>match</em> <c>(\w+)</c> — it would just capture the first
+    /// piece, so the check would end up comparing "twenty" against "twenty-one". That coupling
+    /// between the map and the pattern is the whole reason the ceiling is twenty, so it is
+    /// asserted rather than left as a comment.
+    /// </summary>
+    [Fact]
+    public void NumberWord_SpellingsSurviveTheCountPatternThatReadsThemBack()
+    {
+        for (var count = 1; count <= 20; count++)
+        {
+            var word = NumberWord(count);
+            var match = Regex.Match($"the {word} mistakes", @"the (\w+) mistakes");
+
+            Assert.True(match.Success, $"'{word}' is not reachable by the count pattern at all.");
+            Assert.Equal(word, match.Groups[1].Value);
+        }
+
+        // And the ceiling is a decision, not an accident: restoring a digit fallback fails here.
+        Assert.Throws<global::System.NotSupportedException>(() => NumberWord(21));
+    }
 
     /// <summary>
     /// This file's own source, located the way every other reader here locates the tree — by
