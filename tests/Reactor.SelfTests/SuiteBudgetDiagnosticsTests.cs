@@ -894,6 +894,32 @@ public class SuiteBudgetDiagnosticsTests
     }
 
     /// <summary>
+    /// The two abort-reason prefixes are a published interface, not an implementation detail.
+    ///
+    /// <para>They are stamped verbatim onto every skipped fixture, so triage reads them straight
+    /// off the trailer with no re-run. The <c>after</c> arm is pinned above; this pins the
+    /// <c>before</c> arm, which was inline and therefore had no seam and no assertion. The comment
+    /// on <c>TrailerDiscriminator</c> claims BOTH prefixes are stable, and a two-part claim with
+    /// one part checked rots on the unchecked side.</para>
+    /// </summary>
+    [TestMethod]
+    public void EarlyAbort_KeepsTheGreppablePrefix_AndStillCarriesTheDiscriminator()
+    {
+        var midRun = SelfTestBatch.EarlyAbortReason("F", sawTotalFailures: false);
+        var teardown = SelfTestBatch.EarlyAbortReason("F", sawTotalFailures: true);
+
+        Assert.IsTrue(midRun.StartsWith("Run aborted before fixture 'F'", StringComparison.Ordinal),
+            "Published triage procedures grep this prefix. Changing it returns zero matches, which " +
+            "reads as 'no abort happened' rather than 'the wording moved'.\n" + midRun);
+        Assert.IsTrue(teardown.StartsWith("Run aborted before fixture 'F'", StringComparison.Ordinal),
+            teardown);
+        Assert.AreNotEqual(midRun, teardown,
+            "The discriminator has to reach this arm too. Without it the prefix alone is not a " +
+            "diagnosis: an issue #978 mid-run death and an ordinary early abort read identically.\n"
+            + midRun);
+    }
+
+    /// <summary>
     /// The trailer decides the whole message, not one line of it.
     ///
     /// <para>This test exists because it was missing. Every other case here passes

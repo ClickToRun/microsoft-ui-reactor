@@ -713,14 +713,21 @@ public class SelfTestBatch
         }
         else
         {
-            _abortedReason = $"Run aborted before fixture '{fixtureNames[firstMissingIndex]}'" +
-                             $"{TrailerDiscriminator(tap.SawTotalFailures)}";
+            _abortedReason = EarlyAbortReason(fixtureNames[firstMissingIndex], tap.SawTotalFailures);
         }
     }
 
     // Appended to the early-abort reasons, which are stamped verbatim onto every unexecuted
-    // fixture. The prefixes ("Run aborted after/before fixture '<name>'") are unchanged, so
-    // existing greps and published triage procedures keep working.
+    // fixture. The two prefixes ("Run aborted after/before fixture '<name>'") are unchanged, so
+    // greps anchored to THOSE keep working — and both are pinned by tests, so this stays true.
+    //
+    // That is deliberately not a general compatibility promise, because one string did not
+    // survive: main emitted "timed out after 300000ms with this fixture in flight", and a saved
+    // grep for it returns zero here. Zero reads as "no budget kill happened" — the reassuring
+    // direction, and therefore the dangerous one. The wording had to go (it asserts the positional
+    // attribution this change exists to retire, and the budget is no longer a fixed 300000), so
+    // anchor triage to TrailerDiscriminator, which reports what the Host got to do rather than how
+    // the harness worded it.
     private static string TrailerDiscriminator(bool sawTotalFailures) =>
         sawTotalFailures
             ? " (Host finished its run, then exited abnormally)"
@@ -728,6 +735,9 @@ public class SelfTestBatch
 
     internal static string SilentDeathAbortReason(string fixture, bool sawTotalFailures) =>
         $"Run aborted after fixture '{fixture}'{TrailerDiscriminator(sawTotalFailures)}";
+
+    internal static string EarlyAbortReason(string fixture, bool sawTotalFailures) =>
+        $"Run aborted before fixture '{fixture}'{TrailerDiscriminator(sawTotalFailures)}";
 
     /// <summary>
     /// Wording for a Host that stopped without the wrapper's budget killing it.
