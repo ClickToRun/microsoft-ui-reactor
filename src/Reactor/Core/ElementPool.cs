@@ -302,7 +302,7 @@ public sealed class ElementPool : IDisposable
 
         // These properties are declared by the concrete panel types, not by Panel.
         // Keep their resets above the type dispatch so the pool/reset consistency
-        // tests can account for every modifier-backed local value.
+        // tests can account for the concrete-panel resets added by this gate widening.
         if (fe is WinUI.Panel resetPanel)
         {
             if (resetPanel is WinUI.Grid resetGrid)
