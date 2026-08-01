@@ -1055,6 +1055,32 @@ public sealed class GallerySampleLintTests
         return false;
     }
 
+    /// <summary>
+    /// Whether the nearest binding of <paramref name="name"/> above <paramref name="site"/> is the one
+    /// <paramref name="declaringScope"/> introduces — that is, whether this declaration is what the
+    /// site actually sees.
+    /// <para>
+    /// The local-tier counterpart of <see cref="IsShadowedAt"/>, which cannot be reused here: a const
+    /// local is itself a binding, so it would always report as shadowed by its own declaration.
+    /// "Declared in a scope that encloses the site" is a weaker question than "what the site resolves
+    /// to", and only the second is sound — a lambda parameter may legally shadow an enclosing const
+    /// local (this is not CS0136), which lets a constant vouch for a name the site reads as a
+    /// runtime value.
+    /// </para>
+    /// </summary>
+    static bool ResolvesTo(string name, SyntaxNode site, SyntaxNode declaringScope)
+    {
+        for (var node = site; node is not null; node = node.Parent)
+        {
+            if (NamesIntroducedBy(node).Contains(name, global::System.StringComparer.Ordinal))
+                return ReferenceEquals(node, declaringScope);
+
+            if (node is TypeDeclarationSyntax) break;
+        }
+
+        return false;
+    }
+
     static HashSet<string> AcceptedNames(SyntaxNode site, HashSet<string> uriTypeNames)
     {
         var names = new HashSet<string>(global::System.StringComparer.Ordinal);
@@ -1080,7 +1106,8 @@ public sealed class GallerySampleLintTests
             constants.AddRange(scope.ChildNodes()
                 .OfType<LocalDeclarationStatementSyntax>()
                 .Where(local => local.Modifiers.Any(SyntaxKind.ConstKeyword))
-                .SelectMany(local => local.Declaration.Variables));
+                .SelectMany(local => local.Declaration.Variables)
+                .Where(variable => ResolvesTo(variable.Identifier.Text, site, scope)));
         }
 
         var staticReadonly = site.Ancestors().OfType<TypeDeclarationSyntax>()
@@ -1286,6 +1313,11 @@ public sealed class GallerySampleLintTests
     [InlineData(@"class P { const string url = ""https://example.com""; Element R() => Items.Select(url => WebView2(new Uri(url))); }", 1)]
     // …and the `static readonly` tier is reachable by name the same way, so it needs the same filter.
     [InlineData(@"class P { static readonly string url = ""https://example.com""; Element R() { var (url, s) = UseState(""""); return WebView2(new Uri(url)); } }", 1)]
+    // The local tier needs the same treatment, and this one is legal C# rather than merely
+    // representable: a lambda parameter *may* shadow an enclosing const local (verified against the
+    // compiler, not assumed — it is not CS0136). So "declared in a scope that encloses the site" is
+    // not the same question as "what the site resolves to", and only the second one is sound.
+    [InlineData(@"class P { Element R() { const string url = ""https://example.com""; return Items.Select(url => WebView2(new Uri(url))); } }", 1)]
     // Spellings that hide the type: a using-alias, global::Uri, and target-typed new.
     [InlineData(@"using WebUri = System.Uri; class P { Element R(string t) { return WebView2(new WebUri(t)); } }", 1)]
     [InlineData(@"class P { Element R(string t) { return WebView2(new global::Uri(t)); } }", 1)]
