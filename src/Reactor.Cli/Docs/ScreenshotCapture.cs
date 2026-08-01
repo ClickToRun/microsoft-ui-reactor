@@ -327,7 +327,8 @@ internal static class ScreenshotCapture
         Console.Error.WriteLine($"    ✗ {id}: {detail}");
     }
 
-
+    /// <summary>
+    /// Polls <c>/frame</c> until the server returns a body the caller can use,
     /// or the deadline expires. The capture timer starts lazily on first
     /// reader, so early calls return HTTP 204 with no content.
     /// </summary>
