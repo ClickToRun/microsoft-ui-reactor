@@ -1106,22 +1106,20 @@ public sealed class GallerySampleLintTests
     }
 
     /// <summary>The type a single binding scope declares <paramref name="name"/> with, if any.</summary>
-    static TypeSyntax? DeclaredTypeIn(SyntaxNode scope, string name)
-    {
-        foreach (var declaration in scope.DescendantNodes(descendIntoChildren: child => ReferenceEquals(child, scope) || child is not (BlockSyntax or MemberDeclarationSyntax))
-                     .OfType<VariableDeclarationSyntax>())
-        {
-            if (declaration.Variables.Any(v => v.Identifier.Text == name))
-                return declaration.Type;
-        }
-
-        foreach (var parameter in scope.ChildNodes().OfType<ParameterListSyntax>().SelectMany(list => list.Parameters))
-        {
-            if (parameter.Identifier.Text == name) return parameter.Type;
-        }
-
-        return null;
-    }
+    /// <remarks>
+    /// Nested blocks are deliberately not descended into. A declaration inside one is not visible to
+    /// a site outside it, and a site <em>inside</em> it never reaches this scope —
+    /// <see cref="DeclaredTypeOfName"/> walks outward, so the inner block is offered its own
+    /// declarations first and wins there.
+    /// </remarks>
+    static TypeSyntax? DeclaredTypeIn(SyntaxNode scope, string name) =>
+        scope.DescendantNodes(descendIntoChildren: child => ReferenceEquals(child, scope) || child is not (BlockSyntax or MemberDeclarationSyntax))
+            .OfType<VariableDeclarationSyntax>()
+            .FirstOrDefault(declaration => declaration.Variables.Any(v => v.Identifier.Text == name))?.Type
+        ?? scope.ChildNodes()
+            .OfType<ParameterListSyntax>()
+            .SelectMany(list => list.Parameters)
+            .FirstOrDefault(parameter => parameter.Identifier.Text == name)?.Type;
 
     /// <summary>
     /// The declared type a target-typed <c>new(...)</c> is initializing, where the syntax carries
@@ -1598,6 +1596,14 @@ public sealed class GallerySampleLintTests
     [InlineData(@"class P { Element R(string t) { Uri u; u = new(t); return WebView2(u); } }", 1)]
     // …and the *nearest* declaration wins, so an inner binding is not typed by an outer one.
     [InlineData(@"class P { string u; Element R(string t) { Uri u; u = new(t); return WebView2(u); } }", 1)]
+    // An assignment inside a *nested* block still resolves. DeclaredTypeIn deliberately does not
+    // descend into nested blocks, so this only works because the outward walk offers the innermost
+    // block first — the two halves are one mechanism, and this row fails if either is dropped.
+    [InlineData(@"class P { Element R(string t, bool f) { if (f) { Uri u; u = new(t); return WebView2(u); } return null; } }", 1)]
+    // …and that same non-descent is what stops a *sibling* block answering for this one. The decoy
+    // `string u` is earlier in document order and would win under a whole-member scan, typing the
+    // construction as not-a-Uri and dropping the report. Fail-open, and invisible without the decoy.
+    [InlineData(@"class P { Element R(string t, bool f) { if (f) { string u; u = """"; } { Uri u; u = new(t); return WebView2(u); } } }", 1)]
     public void UriConstantRule_AcceptsFixedValues_AndReportsRuntimeOnes(string source, int expected)
     {
         var root = CSharpSyntaxTree
