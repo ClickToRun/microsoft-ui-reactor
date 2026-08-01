@@ -1007,28 +1007,6 @@ public sealed class GallerySampleLintTests
         _ => false,
     };
 
-    /// <summary>Names a <c>new Uri(...)</c> at <paramref name="site"/> may safely reference.</summary>
-    /// <remarks>
-    /// Two tiers, and the scoping is the point:
-    /// <list type="bullet">
-    /// <item><c>const</c> fields of the enclosing type(s) <em>that the site is not shadowed from</em>,
-    /// and <c>const</c> locals of the blocks that <em>enclose the site</em>. A file-wide set would let
-    /// an unrelated <c>const string url</c>
-    /// in one method whitelist a runtime <c>url</c> in another — which is issue #982 itself,
-    /// undetected — and a member-wide set does the same thing across two sibling blocks. A field is
-    /// visible throughout its type without any scope walk, which is exactly why one is needed to
-    /// trust it: a local or a parameter may legally hide it, and then the constant being vouched for
-    /// is not what the site resolves to;</item>
-    /// <item><c>static readonly</c> fields — under the same shadowing filter — whose own initializer
-    /// is a fixed value or a
-    /// <c>new Uri(...)</c> over accepted arguments. That covers <c>new Uri(BaseUri, "page.html")</c>
-    /// without hand-waving: the referenced field's construction is checked by this same rule, so
-    /// accepting the reference adds no unchecked value. A <c>static readonly</c> initialized from a
-    /// runtime call is <em>not</em> accepted.</item>
-    /// </list>
-    /// Both tiers iterate to a fixed point so a chain — or a field referenced before it is declared —
-    /// resolves regardless of declaration order.
-    /// </remarks>
     /// <summary>
     /// Whether a name is bound by something between <paramref name="site"/> and its enclosing type —
     /// a local, a parameter, a lambda parameter, a <c>foreach</c> variable, a pattern designation.
@@ -1081,6 +1059,28 @@ public sealed class GallerySampleLintTests
         return false;
     }
 
+    /// <summary>Names a <c>new Uri(...)</c> at <paramref name="site"/> may safely reference.</summary>
+    /// <remarks>
+    /// Two tiers, and the scoping is the point:
+    /// <list type="bullet">
+    /// <item><c>const</c> fields of the enclosing type(s) <em>that the site is not shadowed from</em>,
+    /// and the <c>const</c> locals the site <em>actually resolves to</em>. A file-wide set would let
+    /// an unrelated <c>const string url</c>
+    /// in one method whitelist a runtime <c>url</c> in another — which is issue #982 itself,
+    /// undetected — and a member-wide set does the same thing across two sibling blocks. A field is
+    /// visible throughout its type without any scope walk, which is exactly why one is needed to
+    /// trust it: a local or a parameter may legally hide it, and then the constant being vouched for
+    /// is not what the site resolves to;</item>
+    /// <item><c>static readonly</c> fields — under the same shadowing filter — whose own initializer
+    /// is a fixed value or a
+    /// <c>new Uri(...)</c> over accepted arguments. That covers <c>new Uri(BaseUri, "page.html")</c>
+    /// without hand-waving: the referenced field's construction is checked by this same rule, so
+    /// accepting the reference adds no unchecked value. A <c>static readonly</c> initialized from a
+    /// runtime call is <em>not</em> accepted.</item>
+    /// </list>
+    /// Both tiers iterate to a fixed point so a chain — or a field referenced before it is declared —
+    /// resolves regardless of declaration order.
+    /// </remarks>
     static HashSet<string> AcceptedNames(SyntaxNode site, HashSet<string> uriTypeNames)
     {
         var names = new HashSet<string>(global::System.StringComparer.Ordinal);
