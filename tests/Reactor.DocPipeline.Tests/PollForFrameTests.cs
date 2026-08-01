@@ -109,11 +109,21 @@ public class PollForFrameTests
     }
 
     /// <summary>
-    /// 204/empty responses are the server's "timer hasn't started yet" reply and
-    /// must not be mistaken for a frame.
+    /// A 204 is the real capture server's "timer hasn't started yet" reply
+    /// (<c>PreviewCaptureServer</c> sends it whenever <c>_latestFrame</c> is
+    /// empty) and must not be mistaken for a frame.
     /// </summary>
+    /// <remarks>
+    /// This pins the production-realistic shape, which the fixture could not
+    /// even emit before — it answered every request 200. It does <em>not</em>
+    /// isolate the <c>StatusCode == OK</c> branch: a 204 carries no body by
+    /// definition, so deleting that check leaves the empty response to be
+    /// rejected by the <c>bytes.Length &gt; 0</c> arm and the poller behaves
+    /// identically. <see cref="An_error_status_carrying_a_body_is_not_returned_as_a_frame"/>
+    /// is the test that separates them.
+    /// </remarks>
     [Fact]
-    public async Task Empty_responses_are_not_treated_as_frames()
+    public async Task No_content_responses_are_not_treated_as_frames()
     {
         var painted = PaintedPng(60, 40);
 
@@ -121,6 +131,57 @@ public class PollForFrameTests
         using var http = new HttpClient();
 
         var got = await ScreenshotCapture.PollForFrame(http, server.Port, Deadline, requireContent: true);
+
+        Assert.Null(server.Fault);
+        Assert.Equal(painted, got);
+    }
+
+    /// <summary>
+    /// A 200 carrying a zero-length body is not something the real server
+    /// produces — it writes the frame only after checking the length — so this
+    /// covers the defensive <c>bytes.Length &gt; 0</c> arm against a server
+    /// that claims success and sends nothing.
+    /// </summary>
+    [Fact]
+    public async Task Empty_200_body_is_not_treated_as_a_frame()
+    {
+        var painted = PaintedPng(60, 40);
+
+        using var server = new FrameServer([[], [], painted], emptyAsNoContent: false);
+        using var http = new HttpClient();
+
+        var got = await ScreenshotCapture.PollForFrame(http, server.Port, Deadline, requireContent: true);
+
+        Assert.Null(server.Fault);
+        Assert.Equal(painted, got);
+    }
+
+    /// <summary>
+    /// An error status must never be read as a frame even though it carries a
+    /// body: <c>PreviewCaptureServer</c> answers 401/403/404/503 through
+    /// <c>WriteError</c>, which writes a JSON payload, so "has bytes" is true
+    /// for every one of them and only the status distinguishes them from a
+    /// real capture.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately polls with <c>requireContent: false</c>, which returns the
+    /// first non-empty body. That is what makes this test discriminating:
+    /// delete the <c>StatusCode == OK</c> guard and the poller hands back the
+    /// error JSON, which then reaches <c>ImageProcessor</c> as if it were image
+    /// bytes. With <c>requireContent: true</c> the content scan would reject
+    /// the JSON for its own reasons and the assertion would pass either way.
+    /// </remarks>
+    [Fact]
+    public async Task An_error_status_carrying_a_body_is_not_returned_as_a_frame()
+    {
+        var errorJson = Encoding.UTF8.GetBytes("{\"ok\":false,\"error\":\"unauthorized\"}");
+        var painted = PaintedPng(60, 40);
+
+        using var server = new FrameServer(
+            [new Reply(403, errorJson), new Reply(403, errorJson), new Reply(200, painted)]);
+        using var http = new HttpClient();
+
+        var got = await ScreenshotCapture.PollForFrame(http, server.Port, Deadline);
 
         Assert.Null(server.Fault);
         Assert.Equal(painted, got);
@@ -164,23 +225,58 @@ public class PollForFrameTests
     /// wrong. Keying on a parsed request removes the ambiguity: a connection
     /// with no request gets no body and advances nothing.
     /// </remarks>
+    /// <summary>A scripted HTTP reply: the status line to send and the body to send with it.</summary>
+    private readonly record struct Reply(int Status, byte[] Body);
+
     private sealed class FrameServer : global::System.IDisposable
     {
         private readonly TcpListener _listener;
-        private readonly IReadOnlyList<byte[]> _bodies;
+        private readonly IReadOnlyList<Reply> _replies;
         private readonly CancellationTokenSource _cts = new();
         private int _served;
         private int _accepted;
         private Exception? _fault;
 
-        public FrameServer(IReadOnlyList<byte[]> bodies)
+        /// <param name="emptyAsNoContent">
+        /// When true (the default) an empty body slot is answered with
+        /// <c>204 No Content</c>, matching <c>PreviewCaptureServer</c>, which
+        /// replies 204 whenever no frame has been captured yet and only ever
+        /// sends 200 with real bytes. Pass false to answer <c>200</c> with a
+        /// zero-length body — a response the real server cannot produce, used
+        /// to cover the poller's defensive length check.
+        /// </param>
+        public FrameServer(IReadOnlyList<byte[]> bodies, bool emptyAsNoContent = true)
+            : this(Script(bodies, emptyAsNoContent))
         {
-            _bodies = bodies;
+        }
+
+        public FrameServer(IReadOnlyList<Reply> replies)
+        {
+            _replies = replies;
             _listener = new TcpListener(IPAddress.Loopback, 0);
             _listener.Start();
             Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
             _ = Task.Run(AcceptLoop);
         }
+
+        private static IReadOnlyList<Reply> Script(IReadOnlyList<byte[]> bodies, bool emptyAsNoContent)
+        {
+            var replies = new Reply[bodies.Count];
+            for (var i = 0; i < bodies.Count; i++)
+                replies[i] = new Reply(
+                    bodies[i].Length == 0 && emptyAsNoContent ? 204 : 200, bodies[i]);
+            return replies;
+        }
+
+        private static string ReasonPhrase(int status) => status switch
+        {
+            200 => "OK",
+            401 => "Unauthorized",
+            403 => "Forbidden",
+            404 => "Not Found",
+            503 => "Service Unavailable",
+            _ => "Status",
+        };
 
         public int Port { get; }
 
@@ -218,13 +314,22 @@ public class PollForFrameTests
                     if (!await ReadRequestHead(stream)) continue;
 
                     var index = Interlocked.Increment(ref _served) - 1;
-                    var body = _bodies[global::System.Math.Min(index, _bodies.Count - 1)];
+                    var reply = _replies[global::System.Math.Min(index, _replies.Count - 1)];
+                    var body = reply.Body;
 
+                    // A 204 carries no body and, per RFC 7230 section 3.3.2,
+                    // no Content-Length — so the status line and Connection
+                    // header are the whole response. Error statuses mirror the
+                    // real server, which answers them through WriteError with a
+                    // JSON payload.
                     var header = Encoding.ASCII.GetBytes(
-                        "HTTP/1.1 200 OK\r\n" +
-                        "Content-Type: image/png\r\n" +
-                        $"Content-Length: {body.Length}\r\n" +
-                        "Connection: close\r\n\r\n");
+                        reply.Status == 204
+                            ? "HTTP/1.1 204 No Content\r\n" +
+                              "Connection: close\r\n\r\n"
+                            : $"HTTP/1.1 {reply.Status} {ReasonPhrase(reply.Status)}\r\n" +
+                              $"Content-Type: {(reply.Status == 200 ? "image/png" : "application/json")}\r\n" +
+                              $"Content-Length: {body.Length}\r\n" +
+                              "Connection: close\r\n\r\n");
                     await stream.WriteAsync(header, _cts.Token);
                     if (body.Length > 0) await stream.WriteAsync(body, _cts.Token);
                     await stream.FlushAsync(_cts.Token);
