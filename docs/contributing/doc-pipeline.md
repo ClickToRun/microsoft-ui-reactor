@@ -169,6 +169,15 @@ it is blind to a *new* PNG appearing under `docs/guide/images/`. That is the
 shape the near-miss in [issue #989][i989] actually took, because `git add -A`
 stages precisely the untracked files `git diff` never reports.
 
+One check, not two — `git status --porcelain` **subsumes** `git diff --exit-code`
+rather than complementing it. Against a tracked modification it reports
+` M docs/guide/images/…`; against a new file it reports `?? docs/guide/images/…`;
+`git diff` catches the first and exits 0 on the second. So pairing them adds a
+second failure path and no coverage. The first version of this gate ran only
+`git diff` while the comment above it claimed *nothing may write a PNG* — the
+narrower half of a two-part claim, which is why the wording here is deliberately
+specific about which writes are caught.
+
 Capture itself needs an **interactive desktop**. It launches each doc app,
 waits for the preview capture server, and reads real frames over HTTP. In a
 headless, locked, or RDP-disconnected session the app window never paints and
