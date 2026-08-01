@@ -316,7 +316,7 @@ internal static class IsOpenEdgeTriggeredFixtures
             var mounted = Declared(isOpen: true);
             if (rec.Mount(mounted, _noOp) is not WinUI.TeachingTip tip)
             {
-                H.Check("MountOpen_TeachingTip_Mounted", false);
+                H.Check("MountOpen_TeachingTip_PresentsFixtureMounted", false);
                 return;
             }
 
@@ -376,7 +376,7 @@ internal static class IsOpenEdgeTriggeredFixtures
 
             if (rec.Mount(mounted, _noOp) is not WinUI.TeachingTip tip)
             {
-                H.Check("MountOpen_TeachingTip_ControlMounted", false);
+                H.Check("MountOpen_TeachingTip_StaysClosedFixtureMounted", false);
                 return;
             }
 
