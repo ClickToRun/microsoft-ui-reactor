@@ -184,7 +184,7 @@ internal static class ScreenshotCapture
                     // containment check below could see it. Join concatenates
                     // unconditionally, leaving the guard as the decider.
                     outputPath = Path.GetFullPath(Path.Join(topicDir, $"{fileBase}.{screenshot.Format}"));
-                    if (!outputPath.StartsWith(Path.GetFullPath(topicDir) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                    if (!DocPaths.IsUnder(outputPath, Path.GetFullPath(topicDir)))
                         throw new InvalidOperationException($"Screenshot id '{screenshot.Id}' would escape output directory");
                     ProcessAndWrite(frameBytes, outputPath, screenshot);
                     written++;

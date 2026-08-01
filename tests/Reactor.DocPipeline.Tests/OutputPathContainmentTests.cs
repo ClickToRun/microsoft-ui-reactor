@@ -98,4 +98,38 @@ public class OutputPathContainmentTests
     {
         Assert.False(DocPaths.IsUnder(Root + "-old" + global::System.IO.Path.DirectorySeparatorChar + "x.md", Root));
     }
+
+    /// <summary>
+    /// A root that already ends in a separator must not gain a second one.
+    /// This is the case that made consolidating the third copy in
+    /// <c>ScreenshotCapture</c> more than cosmetic: that copy appended
+    /// <see cref="global::System.IO.Path.DirectorySeparatorChar"/>
+    /// unconditionally, so a root like <c>C:\</c> became <c>C:\\</c> and
+    /// <em>every</em> path under it was rejected as an escape.
+    /// <see cref="DocPaths.IsUnder"/> guards the append with an
+    /// <c>EndsWith</c> check, so it does not have that behaviour.
+    /// </summary>
+    [Fact]
+    public void Root_that_already_ends_in_a_separator_is_handled()
+    {
+        var driveRoot = global::System.IO.Path.GetPathRoot(
+            global::System.IO.Path.GetFullPath(Root))!;
+
+        Assert.EndsWith(
+            global::System.IO.Path.DirectorySeparatorChar.ToString(), driveRoot);
+
+        var child = driveRoot + "some-file.md";
+
+        Assert.True(DocPaths.IsUnder(child, driveRoot),
+            "a file at the drive root must count as inside the drive root");
+
+        // The formulation that was inlined in ScreenshotCapture, shown failing
+        // on the same input — so this test documents a real difference rather
+        // than asserting that two spellings of the same thing agree.
+        Assert.False(
+            child.StartsWith(
+                driveRoot + global::System.IO.Path.DirectorySeparatorChar,
+                global::System.StringComparison.OrdinalIgnoreCase),
+            "unconditional separator append double-separates an already-rooted path");
+    }
 }
