@@ -72,19 +72,98 @@ public class StrideOrientationTests
     [Fact]
     public void Content_bounds_match_the_oracle_for_a_bottom_up_negative_stride_bitmap()
     {
+        WithBottomUpBitmap(
+            (x, y) => x == DarkX && y == DarkY,
+            AssertBoundsMatchOracle);
+    }
+
+    /// <summary>
+    /// The blank-screenshot gate counts pixels rather than locating them, so it
+    /// must agree with the oracle's count under either orientation. This is the
+    /// scan that issue #989's gate actually runs.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>What this pair can and cannot distinguish.</strong> Counting is
+    /// order-insensitive by construction, so a scan that merely visited the rows
+    /// in the opposite order would produce the identical count — this pair
+    /// therefore <em>cannot</em> detect a row-order inversion, and it would be
+    /// dishonest to let the name imply otherwise. Detecting that is the job of
+    /// the bounds pair above, where the coordinate moves.
+    /// </para>
+    /// <para>
+    /// What it does pin is the failure a count <em>can</em> express: that the
+    /// scan stays inside the buffer and reads the same pixels the oracle sees.
+    /// An addressing change that keeps <c>Scan0</c> while indexing with
+    /// <c>|Stride|</c> walks off the end of a bottom-up allocation, and the
+    /// resulting garbage — or fault — separates from the oracle here. Both
+    /// claims are measured, not assumed: see the mutation notes on
+    /// <c>ScanRegion</c>.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Content_pixel_count_is_orientation_independent()
+    {
+        const int RectW = 3;
+        const int RectH = 2;
+        bool IsDark(int x, int y) =>
+            x >= DarkX && x < DarkX + RectW && y >= DarkY && y < DarkY + RectH;
+
+        var full = new Rectangle(0, 0, Width, Height);
+
+        using var topDown = new Bitmap(Width, Height, PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(topDown))
+        {
+            g.Clear(Color.White);
+            g.FillRectangle(Brushes.Black, new Rectangle(DarkX, DarkY, RectW, RectH));
+        }
+
+        Assert.True(StrideOf(topDown) > 0,
+            "expected a top-down bitmap; the negative-stride case is covered below");
+
+        int topDownCount = ImageProcessor.CountContentPixels(topDown, full);
+        Assert.Equal(OracleContentPixelCount(topDown), topDownCount);
+        Assert.Equal(RectW * RectH, topDownCount);
+
+        WithBottomUpBitmap(IsDark, bottomUp =>
+        {
+            int bottomUpCount = ImageProcessor.CountContentPixels(bottomUp, full);
+
+            // Against the oracle first: that is the assertion with an
+            // independent source of truth. The equality with the top-down count
+            // only adds anything because both are already pinned to it.
+            Assert.Equal(OracleContentPixelCount(bottomUp), bottomUpCount);
+            Assert.Equal(topDownCount, bottomUpCount);
+        });
+    }
+
+    /// <summary>
+    /// Builds a bottom-up (<c>Stride &lt; 0</c>) 32bpp bitmap whose visual pixel
+    /// (<paramref name="isDark"/>'s <c>x</c>, <c>y</c>) is dark where the
+    /// predicate says so, and hands it to <paramref name="body"/>.
+    /// </summary>
+    /// <remarks>
+    /// Authored over raw memory rather than produced by a decoder, because no
+    /// GDI+ decoder path returns a bottom-up buffer — handing GDI+ a raw pointer
+    /// with a negative stride is the only way to obtain one deterministically.
+    /// The sign is asserted before <paramref name="body"/> runs: a fixture that
+    /// quietly produced a top-down bitmap would turn every assertion inside into
+    /// a second copy of the top-down test while still reporting green.
+    /// </remarks>
+    private static void WithBottomUpBitmap(Func<int, int, bool> isDark, Action<Bitmap> body)
+    {
         int strideBytes = Width * 4;
         IntPtr buf = Marshal.AllocHGlobal(strideBytes * Height);
         try
         {
             // Declared bottom-up, so visual row v is stored at buffer row
-            // (Height - 1 - v). Authoring it this way rather than trusting a
-            // decoder is the only way to obtain stride < 0.
+            // (Height - 1 - v).
             for (int y = 0; y < Height; y++)
             {
                 for (int x = 0; x < Width; x++)
                 {
                     int visualY = Height - 1 - y;
-                    byte v = (byte)((visualY == DarkY && x == DarkX) ? 0 : 255);
+                    byte v = (byte)(isDark(x, visualY) ? 0 : 255);
                     for (int c = 0; c < 3; c++)
                         Marshal.WriteByte(buf, (y * strideBytes) + (x * 4) + c, v);
                     Marshal.WriteByte(buf, (y * strideBytes) + (x * 4) + 3, 255);
@@ -99,34 +178,12 @@ public class StrideOrientationTests
                 "fixture failed to produce a bottom-up bitmap — the test would " +
                 "otherwise pass without exercising the negative-stride path at all");
 
-            AssertBoundsMatchOracle(bmp);
+            body(bmp);
         }
         finally
         {
             Marshal.FreeHGlobal(buf);
         }
-    }
-
-    /// <summary>
-    /// The blank-screenshot gate counts pixels, which is order-insensitive, so
-    /// it must agree with the oracle's count under either orientation. This is
-    /// the assertion that matters for issue #989 itself.
-    /// </summary>
-    [Fact]
-    public void Content_pixel_count_is_orientation_independent()
-    {
-        using var topDown = new Bitmap(Width, Height, PixelFormat.Format32bppArgb);
-        using (var g = Graphics.FromImage(topDown))
-        {
-            g.Clear(Color.White);
-            g.FillRectangle(Brushes.Black, new Rectangle(DarkX, DarkY, 3, 2));
-        }
-
-        int counted = ImageProcessor.CountContentPixels(
-            topDown, new Rectangle(0, 0, Width, Height));
-
-        Assert.Equal(OracleContentPixelCount(topDown), counted);
-        Assert.Equal(6, counted);
     }
 
     private static void AssertBoundsMatchOracle(Bitmap bmp)

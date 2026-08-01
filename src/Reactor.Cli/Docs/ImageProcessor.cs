@@ -410,9 +410,14 @@ internal static class ImageProcessor
             for (int y = 0; y < region.Height; y++)
             {
                 // Sign-agnostic row addressing — see FindContentBounds. Counting
-                // is order-insensitive anyway, so this site is unaffected by the
-                // orientation either way; kept identical so the two scans can't
-                // drift apart.
+                // is order-insensitive anyway, so a pure row-order inversion is
+                // invisible at this site; what a count *can* express is an
+                // address that leaves the buffer. Both measured against
+                // StrideOrientationTests: normalising the base pointer (an order
+                // inversion) fails only the bounds test, while keeping Scan0 and
+                // indexing with |Stride| — which walks off the end of a
+                // bottom-up allocation — fails only the count test. The two
+                // tests are complementary, and this form is what passes both.
                 global::System.Runtime.InteropServices.Marshal.Copy(
                     data.Scan0 + (y * data.Stride), row, 0, row.Length);
                 for (int i = 0; i < row.Length; i += 4)
