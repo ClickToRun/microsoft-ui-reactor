@@ -515,6 +515,23 @@ public sealed class GallerySampleLintTests
         BlockSyntax block => DeclaredLocals(block.Statements),
         SwitchSectionSyntax section => DeclaredLocals(section.Statements),
 
+        // Two binder kinds that introduce a name without declaring a local, a field or a
+        // designation, so a walk built from those three alone never sees them and an outer constant
+        // of the same name wins by default — the fail-open direction, in the rule written to catch
+        // exactly that class of mistake.
+        //
+        // `catch (UriFormatException url)` is legal beside a type-level `const string url`, and an
+        // exception variable concatenates to a string, so it does reach a `new Uri(...)` argument as
+        // a bare identifier. Checked against the compiler rather than assumed: the first repro used
+        // `url.Message`, which the rule rejects as a member access on its own, so it passed whether
+        // or not the binder was understood and would have pinned nothing.
+        CatchClauseSyntax catchClause =>
+            catchClause.Declaration?.Identifier.Text is { Length: > 0 } caught ? [caught] : [],
+
+        // Range variables (`from url in`, `let url =`, `join … into url`, `into url`) bind for the
+        // rest of the query and are none of the three either.
+        QueryExpressionSyntax query => RangeVariablesOf(query),
+
         // Designations (`is { } v`, `out var v`, deconstruction) scope to the enclosing statement.
         // Nested lambdas are skipped: a designation inside one belongs to the scope that lambda
         // opens, and the walk visits that scope in its own right on the way up.
@@ -525,6 +542,25 @@ public sealed class GallerySampleLintTests
 
         _ => [],
     };
+
+    /// <summary>
+    /// Every range variable a query introduces — <c>from</c>, <c>let</c>, <c>join</c>, a join's
+    /// <c>into</c>, and a continuation's <c>into</c>. Nested lambdas and nested queries are skipped:
+    /// each opens its own scope and the ancestor walk visits it in its own right.
+    /// </summary>
+    static IEnumerable<string> RangeVariablesOf(QueryExpressionSyntax query) =>
+        new[] { query.FromClause.Identifier.Text }.Concat(query.Body
+            .DescendantNodesAndSelf(descend =>
+                descend is not (AnonymousFunctionExpressionSyntax or QueryExpressionSyntax))
+            .SelectMany<SyntaxNode, string>(node => node switch
+            {
+                FromClauseSyntax from => [from.Identifier.Text],
+                LetClauseSyntax let => [let.Identifier.Text],
+                JoinClauseSyntax join => [join.Identifier.Text],
+                JoinIntoClauseSyntax joinInto => [joinInto.Identifier.Text],
+                QueryContinuationSyntax continuation => [continuation.Identifier.Text],
+                _ => [],
+            }));
 
     static IEnumerable<string> DeclaredLocals(SyntaxList<StatementSyntax> statements) =>
         statements.SelectMany(statement => statement switch
@@ -1347,6 +1383,15 @@ public sealed class GallerySampleLintTests
     // compiler, not assumed — it is not CS0136). So "declared in a scope that encloses the site" is
     // not the same question as "what the site resolves to", and only the second one is sound.
     [InlineData(@"class P { Element R() { const string url = ""https://example.com""; return Items.Select(url => WebView2(new Uri(url))); } }", 1)]
+    // Binder kinds that introduce a name without declaring a local, a field or a designation, so a
+    // walk built from those three alone never sees them and the outer constant wins by default.
+    // All three are fail-open: the site reads a runtime value and the rule calls it fixed.
+    [InlineData(@"class P { const string url = ""https://example.com""; Element R(string[] items) { return VStack(from url in items select WebView2(new Uri(url))); } }", 1)]
+    [InlineData(@"class P { const string url = ""https://example.com""; Element R(string[] items) { return VStack(from s in items let url = s.Trim() select WebView2(new Uri(url))); } }", 1)]
+    // The catch arm needs concatenation rather than `url.Message`: a member access is rejected on its
+    // own, so that spelling passes whether or not the binder is understood and pins nothing. Verified
+    // against the compiler that this one is legal — an exception variable concatenates to a string.
+    [InlineData(@"class P { const string url = ""https://example.com""; Uri R() { try { return new Uri(url); } catch (UriFormatException url) { return new Uri(url + """"); } } }", 1)]
     // Spellings that hide the type: a using-alias, global::Uri, and target-typed new.
     [InlineData(@"using WebUri = System.Uri; class P { Element R(string t) { return WebView2(new WebUri(t)); } }", 1)]
     [InlineData(@"class P { Element R(string t) { return WebView2(new global::Uri(t)); } }", 1)]
