@@ -131,8 +131,7 @@ public class OutputPathContainmentTests
 
         // The pre-fix shape: Combine for the directory, then Join + IsUnder for
         // the file. The file guard is genuinely executed and genuinely passes.
-        var escapedBase = global::System.IO.Path.GetFullPath(
-            global::System.IO.Path.Combine(Root, rootedDir));
+        var escapedBase = global::System.IO.Path.GetFullPath(CombineAsTheOldCodeDid(Root, rootedDir));
         var file = global::System.IO.Path.GetFullPath(
             global::System.IO.Path.Join(escapedBase, "shot.png"));
 
@@ -145,6 +144,34 @@ public class OutputPathContainmentTests
         Assert.True(DocPaths.IsUnder(resolved, Root),
             $"the helper must keep a rooted segment inside the root, but resolved to {resolved}");
     }
+
+    /// <summary>
+    /// Reproduces the exact call the fix removed, so the tests above measure
+    /// <c>Path.Combine</c>'s real behaviour rather than a hand-rolled model of
+    /// it. Named for its purpose because the call is the subject of the test,
+    /// not an oversight in it.
+    /// </summary>
+    /// <remarks>
+    /// Static analysis flags this call for silently dropping <c>Root</c> when
+    /// <paramref name="segment"/> is rooted. That is correct, and it is the
+    /// property under test: <c>A_rooted_directory_segment_escapes_the_base…</c>
+    /// asserts <c>IsUnder(escapedBase, Root)</c> is <em>false</em>, which only
+    /// holds because the base is dropped. Switching this to <c>Path.Join</c> —
+    /// the suggested remedy, offered as being "without changing test
+    /// functionality" — makes that assertion fail; measured, not assumed.
+    /// <para>
+    /// Hand-rolling the drop instead would silence the analyser and cost the
+    /// test its point: it would then pin this file's model of
+    /// <c>Path.Combine</c> rather than <c>Path.Combine</c>, and a future
+    /// framework change to those semantics would go unnoticed by the one test
+    /// written to notice it.
+    /// </para>
+    /// </remarks>
+    [global::System.Diagnostics.CodeAnalysis.SuppressMessage(
+        "Security", "CA3006:Path.Combine may silently drop earlier arguments",
+        Justification = "The dropped base is the behaviour under test; see remarks.")]
+    private static string CombineAsTheOldCodeDid(string root, string segment)
+        => global::System.IO.Path.Combine(root, segment);
 
     [Theory]
     [InlineData("hooks")]
