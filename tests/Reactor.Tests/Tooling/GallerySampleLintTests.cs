@@ -894,17 +894,35 @@ public sealed class GallerySampleLintTests
     /// omitted: the pair was measured twice, hours apart, on the same two branches, and the totals
     /// differed by five as the other branch added tests while every load-bearing term — which test,
     /// which arm, the 1→0, the <c>Skipped: 0</c> — was identical. Only the delta is evidence; a
-    /// total is a scalar summary of a set and can be satisfied by the wrong members. The rest of
-    /// the apparatus is inert once <c>offenders</c> is empty: every <c>Except</c> arm is trivially
-    /// satisfied and <c>offenders.Except(KnownSharedStatePages)</c> has already become the bare
-    /// <c>offenders.Count == 0</c> gate.
+    /// total is a scalar summary of a set and can be satisfied by the wrong members.
     /// </para>
     /// <para>
-    /// Deleting the rest is therefore cleanup, not a correctness requirement, and the distinction is
+    /// The rest of the apparatus is inert once <c>offenders</c> is empty <em>and this array has been
+    /// emptied with it</em> — both conditions, not just the first. The staleness arm runs the other
+    /// way round, <c>KnownSharedStatePages.Except(offenders)</c>, so an empty <c>offenders</c>
+    /// measured against a populated ledger hands back all fourteen entries: that is the single red
+    /// measured above, not a trivially satisfied arm. Stated with only the first condition the
+    /// sentence is false, and false in the direction that reads as "nothing here is required" — which
+    /// is how it was in fact read by the first person to check it against the code.
+    /// </para>
+    /// <para>
+    /// Sharper, and not dependent on <c>offenders</c> reaching exactly zero: <c>stale</c> is empty
+    /// only while every entry still names a live offender, i.e. while <c>KnownSharedStatePages</c> is
+    /// a subset of <c>offenders</c> — which is to say, only while nothing has been fixed.
+    /// <em>Any</em> partial fix reddens it. So there is no state except "no page was ever fixed" in
+    /// which emptying this array is optional, and that, rather than the measured red alone, is why
+    /// the emptying belongs in the same commit as the fix.
+    /// </para>
+    /// <para>
+    /// <em>Emptying</em> this array is required, per the paragraphs above. <em>Deleting</em> the
+    /// emptied declaration and the arms around it is cleanup, not a correctness requirement. Two
+    /// different edits; collapsing them into one reading is what makes this section look
+    /// self-contradictory, and the list below is the second edit only. The distinction is
     /// recorded because stating it the other way round is what makes a merge instruction rot: a
     /// required-looking list whose items stop existing (this one already outlived a size ceiling and
     /// a <c>StaysClosed</c> fact) still parses as true, and the reader cannot tell which items were
-    /// load-bearing. The cleanup is: this array, <see cref="SharedStateDebtAtIntroduction"/>, all
+    /// load-bearing. The cleanup is: this array's emptied declaration,
+    /// <see cref="SharedStateDebtAtIntroduction"/>, all
     /// three <c>Except</c> arms, and the ambiguity arm — which exists only because <c>Except</c>
     /// dedups, so with no ledger to dedup through it guards nothing that <c>offenders.Count == 0</c>
     /// does not already catch. What remains is that single assertion plus the vacuity floors.
