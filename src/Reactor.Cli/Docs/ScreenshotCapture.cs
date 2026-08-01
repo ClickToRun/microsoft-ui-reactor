@@ -326,14 +326,18 @@ internal static class ScreenshotCapture
         // what keeps "the process is gone" from standing in for "something
         // unexamined went wrong during teardown".
         //
-        // The expected races stay silent because they are unactionable and
-        // would otherwise be the last word printed on a successful capture
-        // pass. A failure that matters has already gone through
-        // ReportCaptureFailure.
+        // The expected races stay off stdout/stderr because they are
+        // unactionable and would otherwise be the last word printed on a
+        // successful capture pass. A failure that matters has already gone
+        // through ReportCaptureFailure. Trace rather than nothing, so the
+        // absorbed exception is still inspectable under a listener or a
+        // debugger: the arm is silent on the user's streams, not blind.
         catch (Exception ex) when (ex is InvalidOperationException
                                       or Win32Exception
                                       or NotSupportedException)
         {
+            Trace.WriteLine(
+                $"capture teardown race absorbed: {ex.GetType().Name}: {ex.Message}");
         }
         catch (Exception ex)
         {
@@ -345,6 +349,20 @@ internal static class ScreenshotCapture
             // Silence and a throw are both wrong for the same reason: one
             // hides the surprise, the other hides the result. Reporting
             // keeps both.
+            //
+            // Deliberately generic, and it must stay that way. This arm's
+            // subject is the exception nobody anticipated — if it could be
+            // enumerated it would belong in the filter above. An enumeration
+            // is not exhaustive by construction, and the requirement here is
+            // exhaustiveness: an admitted type is reported, an unlisted one
+            // escapes a finally and destroys a completed pass. Measured
+            // against the two types a review suggested in its place:
+            // ObjectDisposedException derives from InvalidOperationException,
+            // so it never reaches this arm at all — the filter above already
+            // absorbs it; and SystemException excludes AggregateException,
+            // whose base is Exception, so the await paths above could still
+            // throw straight through. One suggestion was unreachable, the
+            // other reopened the hole.
             Console.Error.WriteLine(
                 $"    ⚠ capture teardown: {ex.GetType().Name}: {ex.Message}");
         }

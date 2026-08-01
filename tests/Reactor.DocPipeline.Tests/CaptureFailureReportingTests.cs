@@ -90,8 +90,11 @@ public class CaptureFailureReportingTests
     /// Silence is the assertion, not merely "does not throw". Both catch arms
     /// swallow the throw, so a no-throw check alone cannot tell them apart and
     /// would survive deleting the filter entirely. Asserting the expected race
-    /// produces <em>no output</em> is what pins it to the first arm — and it is
-    /// the behaviour that matters, since this runs on every successful capture.
+    /// produces <em>no console output</em> is what pins it to the first arm — and
+    /// it is the behaviour that matters, since this runs on every successful
+    /// capture. The arm does emit a <see cref="System.Diagnostics.Trace"/> line,
+    /// which is deliberately not a console stream: absorbed is not the same as
+    /// unrecorded, and this test is about what the user sees.
     /// </para>
     /// </remarks>
     [Fact]
