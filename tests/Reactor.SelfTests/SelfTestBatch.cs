@@ -906,7 +906,12 @@ public class SelfTestBatch
 
         var report = PublishSuiteDuration(
             ElapsedSeconds, SuiteDurationWarnSeconds, SelfTestTimeoutMs / 1000,
-            _hostElapsedSeconds is not null ? "Host-reported" : "wrapper-measured",
+            // Unconditional, and deliberately so: ElapsedSeconds falls back to the wrapper clock
+            // only when _hostElapsedSeconds is null, which the assertion directly above has just
+            // ruled out. A ternary here reads as though this path can report wrapper timing, which
+            // it cannot. If that assertion is ever relaxed, this label has to become conditional
+            // again — the two are one decision, not two.
+            "Host-reported",
             summaryPath);
 
         Console.WriteLine($"{report.Text} [{report.Source}]");
