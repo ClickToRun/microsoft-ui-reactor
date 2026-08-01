@@ -430,6 +430,48 @@ public class DocImageIntegrityTests
     }
 
     /// <summary>
+    /// The reference text is page content, not a path the pipeline authored:
+    /// <c>ImagePattern</c>'s <c>[^)]+</c> tail admits anything but a closing
+    /// paren, so a reference can be text that no path API will resolve. Measured
+    /// on .NET 10/Windows, only a NUL actually reaches that state — every other
+    /// hostile character resolves and then fails <c>File.Exists</c>, which is
+    /// already the right answer. A NUL is not contrived: a doc file saved as
+    /// UTF-16 and read as UTF-8 is NUL-interleaved throughout.
+    /// </summary>
+    /// <remarks>
+    /// The second reference is the point of the test, not padding. Before the
+    /// guard the <c>GetFullPath</c> throw escaped <c>ValidateImageRefs</c>
+    /// entirely — nothing between it and <c>Main</c> catches — so the compile
+    /// died on the first offending page and every page after it lost its
+    /// IMAGE_001/_002/_003 pass. Asserting only that the bad reference is
+    /// reported would pass just as well against <c>catch { break; }</c>, which
+    /// fixes the crash and keeps the blind spot. Requiring the *later* blank
+    /// image to be convicted is what makes the scan's continuation the subject.
+    /// </remarks>
+    [Fact]
+    public void An_unresolvable_reference_is_reported_without_ending_the_scan()
+    {
+        using var tree = new TempGuideTree();
+        tree.WriteImage("x/blank.png", MakeCapturedStub(499, 196, blank: true));
+
+        var body =
+            "![bad](images/\0broken.png)\n" +
+            "![blank](images/x/blank.png)";
+
+        var findings = DiagramProcessor.ValidateImageRefs(
+            "topic.md.dt", body, tree.ImagesDir, tree.GuideDir);
+
+        Assert.Equal(
+            ["REACTOR_DOC_IMAGE_001", "REACTOR_DOC_IMAGE_002"],
+            findings.Select(f => f.Code));
+
+        // The line number has to survive the guard too — it is the half of a
+        // TierLintFinding that an escaping exception could never have supplied.
+        Assert.Equal(1, findings[0].Line);
+        Assert.Equal(2, findings[1].Line);
+    }
+
+    /// <summary>
     /// The real corpus must pass. This is the calibration test: it fails if the
     /// gate is ever tightened past what genuine screenshots satisfy, and the
     /// logged minimum is the documented margin behind the <c>== 0</c> threshold.

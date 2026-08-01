@@ -250,8 +250,38 @@ internal static class DiagramProcessor
             // a rooted segment, which would hand IsUnder an absolute path derived
             // entirely from page content. Join keeps the base, so the containment
             // check below stays the thing that decides.
-            var full = Path.GetFullPath(Path.Join(
-                pageFull, rel.Replace('/', Path.DirectorySeparatorChar)));
+            //
+            // The resolve is guarded because `rel` is page content, not a path the
+            // pipeline authored: ImagePattern's [^)]+ tail admits anything but a
+            // closing paren. Measured on .NET 10/Windows, only a NUL actually
+            // throws here — ':', '|', '"', '<', '*', '?', an embedded drive
+            // letter, a 400-character name and a reserved name like `con` all
+            // resolve and then fail File.Exists, which is already the right
+            // answer. A NUL is not hypothetical either: a doc file saved as
+            // UTF-16 and read as UTF-8 is NUL-interleaved throughout.
+            //
+            // Letting it escape would be worse than the broken reference it
+            // describes. Nothing between here and Main catches it, so the compile
+            // dies on the first offending page and every page after it loses its
+            // IMAGE_001/_002/_003 pass entirely — the blank-screenshot gate stops
+            // covering the rest of the corpus while still reporting a failure that
+            // names Path.GetFullPath rather than the file and line at fault.
+            // A reference that cannot be turned into a path is broken, so say so
+            // and keep scanning.
+            string full;
+            try
+            {
+                full = Path.GetFullPath(Path.Join(
+                    pageFull, rel.Replace('/', Path.DirectorySeparatorChar)));
+            }
+            catch (ArgumentException)
+            {
+                findings.Add(new TierLintFinding(
+                    "REACTOR_DOC_IMAGE_001",
+                    $"broken image reference: {rel}",
+                    filePath, line, TierLintSeverity.Error));
+                continue;
+            }
 
             // Anything that resolves outside the images tree is a malformed
             // reference — including one whose ../ run doesn't match its page

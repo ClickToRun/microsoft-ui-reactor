@@ -271,7 +271,7 @@ reference-generation codes.
 | `REACTOR_DOC_SNIPPET_003`  | Region opened without a matching close marker              |
 | `REACTOR_DOC_SNIPPET_004`  | Nested region with same name as outer region               |
 | `REACTOR_DOC_DIAGRAM_001`  | `mermaid-cli` not on PATH but the topic has `.mmd` files   |
-| `REACTOR_DOC_IMAGE_001`    | `![..](images/<topic>/...)` reference resolves to nothing  |
+| `REACTOR_DOC_IMAGE_001`    | `![..](images/<topic>/...)` doesn't resolve to a file inside `docs/guide/images/` — missing file, a `../` run that doesn't match the page's depth, or reference text that isn't a usable path at all |
 | `REACTOR_DOC_IMAGE_002`    | Referenced screenshot exists but its interior is blank — a failed capture overwrote it. Restore from git and re-capture on an interactive desktop |
 | `REACTOR_DOC_IMAGE_003`    | Referenced image exists and is within the decode caps but could not be read or decoded. Either it is corrupt and will not render (restore from git and re-capture) or it is intact but locked / permission-denied (clear that and re-run) |
 | `REACTOR_DOC_SHOT_001`     | Captured frame was contentless; nothing was written and the existing screenshot was left untouched |
