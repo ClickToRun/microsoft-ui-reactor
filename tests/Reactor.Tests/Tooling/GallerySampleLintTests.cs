@@ -39,11 +39,12 @@ namespace Microsoft.UI.Reactor.Tests.Tooling;
 public sealed class GallerySampleLintTests
 {
     /// <summary>
-    /// The class doc above opens with a count word — "the <i>five</i> mistakes guarded here" — and
-    /// then lists them. Both halves are hand-maintained, and that opening line is the one place two
-    /// branches each adding a rule edit the *same* line while their rule bodies land far enough
-    /// apart to auto-merge in silence. Resolving that conflict by taking either side ships a number
-    /// contradicting its own list, and nothing else in this file would notice.
+    /// The class doc above opens with a count word — the one this test matches as
+    /// <c>the (\w+) mistakes</c> — and then lists them. Both halves are hand-maintained, and that
+    /// opening line is the one place two branches each adding a rule edit the *same* line while
+    /// their rule bodies land far enough apart to auto-merge in silence. Resolving that conflict
+    /// by taking either side ships a number contradicting its own list, and nothing else in this
+    /// file would notice.
     ///
     /// So: union the list, and let this fail if the word does not follow. It fires in both
     /// directions — a word bumped without an item, or an item added without the word.
