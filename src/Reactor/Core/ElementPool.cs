@@ -303,17 +303,14 @@ public sealed class ElementPool : IDisposable
         // These properties are declared by the concrete panel types, not by Panel.
         // Keep their resets above the type dispatch so the pool/reset consistency
         // tests can account for the concrete-panel resets added by this gate widening.
-        if (fe is WinUI.Panel resetPanel)
+        if (fe is WinUI.Grid resetGrid)
         {
-            if (resetPanel is WinUI.Grid resetGrid)
-            {
-                resetGrid.ClearValue(WinUI.Grid.PaddingProperty);
-                resetGrid.ClearValue(WinUI.Grid.CornerRadiusProperty);
-            }
-            else if (resetPanel is WinUI.StackPanel resetStack)
-            {
-                resetStack.ClearValue(WinUI.StackPanel.CornerRadiusProperty);
-            }
+            resetGrid.ClearValue(WinUI.Grid.PaddingProperty);
+            resetGrid.ClearValue(WinUI.Grid.CornerRadiusProperty);
+        }
+        else if (fe is WinUI.StackPanel resetStack)
+        {
+            resetStack.ClearValue(WinUI.StackPanel.CornerRadiusProperty);
         }
 
         // Type-specific cleanup

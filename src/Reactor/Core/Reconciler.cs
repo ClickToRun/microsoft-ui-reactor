@@ -3730,7 +3730,16 @@ public sealed partial class Reconciler : IDisposable
         if (m.PaddingInlineStart.HasValue || m.PaddingInlineEnd.HasValue)
         {
             var isRtl = fe.FlowDirection == FlowDirection.RightToLeft;
-            var basePad = resolvedPadding ?? (fe is WinUI.Control pc ? pc.Padding : fe is WinUI.Border pb ? pb.Padding : fe is WinUI.StackPanel psp ? psp.Padding : fe is WinUI.Grid pg ? pg.Padding : fe is WinUI.RelativePanel prp ? prp.Padding : fe is WinUI.TextBlock ptb ? ptb.Padding : new Thickness());
+            var basePad = resolvedPadding ?? fe switch
+            {
+                WinUI.Control pc => pc.Padding,
+                WinUI.Border pb => pb.Padding,
+                WinUI.StackPanel psp => psp.Padding,
+                WinUI.Grid pg => pg.Padding,
+                WinUI.RelativePanel prp => prp.Padding,
+                WinUI.TextBlock ptb => ptb.Padding,
+                _ => new Thickness(),
+            };
             var left = isRtl ? (m.PaddingInlineEnd ?? basePad.Left) : (m.PaddingInlineStart ?? basePad.Left);
             var right = isRtl ? (m.PaddingInlineStart ?? basePad.Right) : (m.PaddingInlineEnd ?? basePad.Right);
             resolvedPadding = new Thickness(left, basePad.Top, right, basePad.Bottom);
