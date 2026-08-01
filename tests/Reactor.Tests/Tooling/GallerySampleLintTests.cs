@@ -895,6 +895,12 @@ public sealed class GallerySampleLintTests
         "samples/ReactorGallery/ControlPages/Text/RichEditBoxPage.cs: text/setText",
     ];
 
+    /// <summary>
+    /// The size <see cref="KnownSharedStatePages"/> is pinned to. #980 drives it to zero, at which
+    /// point the list, this ceiling, and both <c>Except</c> arms should all go.
+    /// </summary>
+    const int KnownSharedStatePagesCeiling = 14;
+
     [Fact]
     public void SampleCards_SharedStateDoesNotSpread()
     {
@@ -931,6 +937,35 @@ public sealed class GallerySampleLintTests
             "these KnownSharedStatePages entries no longer match a live offender — the page was " +
             "fixed (#980), so the entry now only masks a re-regression of that exact page and " +
             "slot. Delete them from KnownSharedStatePages:\n  " + string.Join("\n  ", stale));
+    }
+
+    /// <summary>
+    /// Holds <see cref="KnownSharedStatePages"/> to a declared size, so the list can only be
+    /// changed by an edit that says so.
+    /// <para>
+    /// The staleness arm in <see cref="SampleCards_SharedStateDoesNotSpread"/> cannot reach the
+    /// case the list is most dangerous in. Stale means <em>no longer matching a live offender</em>,
+    /// so an entry that <em>is</em> masking one is by definition never stale and nothing will name
+    /// it again. Worse, pruning selects for exactly those: fixed pages lose their entries, broken
+    /// pages keep them, and a list groomed to only-live entries reads as well-maintained while
+    /// suppressing nothing but real defects. That residue is unreachable while the list is empty,
+    /// which is where #980 leaves it — so the move that has to be blocked is refilling it. Raising
+    /// the ceiling is still possible; it is just a named edit a reviewer sees rather than one more
+    /// line in an array.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void KnownSharedStatePages_StaysClosed()
+    {
+        Assert.True(KnownSharedStatePages.Length == KnownSharedStatePagesCeiling,
+            KnownSharedStatePages.Length > KnownSharedStatePagesCeiling
+                ? $"KnownSharedStatePages grew ({KnownSharedStatePagesCeiling} -> {KnownSharedStatePages.Length}). " +
+                  "It records debt that predates the rule (#980); it is not a way to accept new debt, and an " +
+                  "entry masking a live offender is never stale, so nothing will report it again. Fix the page. " +
+                  "If the exception is genuinely wanted, raise KnownSharedStatePagesCeiling in the same commit."
+                : $"KnownSharedStatePages shrank ({KnownSharedStatePagesCeiling} -> {KnownSharedStatePages.Length}). " +
+                  "Lower KnownSharedStatePagesCeiling to match so the list stays closed at its new size. " +
+                  "At zero, delete the list, the ceiling, and both Except arms.");
     }
 
     [Theory]
