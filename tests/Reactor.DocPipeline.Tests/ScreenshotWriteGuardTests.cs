@@ -288,10 +288,6 @@ public class ScreenshotWriteGuardTests
 
         public string Path(string name) => global::System.IO.Path.Join(_root, name);
 
-        public void Dispose()
-        {
-            try { global::System.IO.Directory.Delete(_root, recursive: true); }
-            catch (global::System.IO.IOException) { /* best effort */ }
-        }
+        public void Dispose() => FixtureCleanup.DeleteTree(_root);
     }
 }

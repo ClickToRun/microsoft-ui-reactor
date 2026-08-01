@@ -884,10 +884,6 @@ public class DocImageIntegrityTests
             return full;
         }
 
-        public void Dispose()
-        {
-            try { global::System.IO.Directory.Delete(_root, recursive: true); }
-            catch (global::System.IO.IOException) { /* best effort */ }
-        }
+        public void Dispose() => FixtureCleanup.DeleteTree(_root);
     }
 }
