@@ -100,6 +100,18 @@ public class StrideOrientationTests
     /// claims are measured, not assumed: see the mutation notes on
     /// <c>ScanRegion</c>.
     /// </para>
+    /// <para>
+    /// <strong>Why each count is checked against the oracle and not just
+    /// against the other orientation.</strong> A bare cross-orientation
+    /// equality would compare the scan to itself, so it is blind to any defect
+    /// that is orientation-symmetric — which is most of them. Measured:
+    /// forcing <c>IsContent</c> to return <c>true</c> makes both orientations
+    /// report 1200 of 1200 pixels, so they still <em>agree</em>, and only the
+    /// comparison against <see cref="OracleContentPixelCount"/> — an
+    /// independent <c>GetPixel</c> walk with its own hard-coded threshold —
+    /// converts. The oracle is the load-bearing half; the agreement between
+    /// orientations is the cheap half.
+    /// </para>
     /// </remarks>
     [Fact]
     public void Content_pixel_count_is_orientation_independent()
