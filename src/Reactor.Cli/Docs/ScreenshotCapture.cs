@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json.Nodes;
 
 namespace Microsoft.UI.Reactor.Cli.Docs;
 
@@ -199,9 +200,9 @@ internal static class ScreenshotCapture
                     // Switch to the target component if specified
                     if (!string.IsNullOrEmpty(screenshot.Component))
                     {
-                        var json = $"{{\"component\":\"{screenshot.Component}\"}}";
-                        var content = new StringContent(json, global::System.Text.Encoding.UTF8, "application/json");
-                        var switchResp = await http.PostAsync(PreviewUrl(port), content);
+                        var json = BuildComponentSwitchPayload(screenshot.Component);
+                        using var content = new StringContent(json, global::System.Text.Encoding.UTF8, "application/json");
+                        using var switchResp = await http.PostAsync(PreviewUrl(port), content);
                         if (!switchResp.IsSuccessStatusCode)
                         {
                             Console.Error.WriteLine($" ✗ Failed to switch to component '{screenshot.Component}' ({switchResp.StatusCode})");
@@ -403,6 +404,40 @@ internal static class ScreenshotCapture
     internal static string FrameUrl(int port) => $"http://{CaptureHost}:{port}/frame";
 
     internal static string PreviewUrl(int port) => $"http://{CaptureHost}:{port}/preview";
+
+    /// <summary>
+    /// Builds the <c>/preview</c> component-switch body for
+    /// <paramref name="component"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This was string interpolation — <c>$"{{\"component\":\"{component}\"}}"</c> —
+    /// which makes a manifest-authored value part of the JSON *grammar* rather
+    /// than one of its values. A quote in a component name produces a body the
+    /// server rejects with 400, and that arm is at least loud: the caller counts
+    /// a failure and moves on.
+    /// </para>
+    /// <para>
+    /// The quiet arm is the one worth naming. A value shaped like
+    /// <c>A", "component": "B</c> interpolates into <em>valid</em> JSON with a
+    /// duplicate key, so the switch succeeds against a component the manifest
+    /// did not name and the capture proceeds normally. What lands on disk is a
+    /// real, painted screenshot of the wrong control — and every blank/uniform
+    /// guard in this pipeline passes it, because they ask whether the frame was
+    /// painted, never whether it is the frame that was requested. That is the
+    /// one way left to silently overwrite a committed asset with a wrong image,
+    /// which is the failure this whole change exists to remove.
+    /// </para>
+    /// <para>
+    /// <see cref="JsonObject"/> rather than <c>JsonSerializer.Serialize</c>:
+    /// the node API is reflection-free, so it needs no source-generated context
+    /// to stay trim/AOT-clean, and it is what
+    /// <c>PreviewCaptureServer.HandleSwitchComponent</c> already uses to build
+    /// its side of the same exchange.
+    /// </para>
+    /// </remarks>
+    internal static string BuildComponentSwitchPayload(string component) =>
+        new JsonObject { ["component"] = component }.ToJsonString();
 
     /// <summary>
     /// Reads the app's stdout for the <c>CAPTURE_PORT=</c> and <c>CAPTURE_TOKEN=</c>

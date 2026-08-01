@@ -218,6 +218,16 @@ the compile still exited 0 ([issue #989][i989]). Several guards now prevent that
   frame. The uniformly-dark case is the only one that separates the two
   predicates — a white or transparent frame fails the content scan on its own —
   which is why it is pinned by a test rather than left to the reader.
+- Every guard above asks whether the frame was **painted**, never whether it is
+  the frame that was **requested**. Nothing downstream can tell a correct
+  screenshot of the wrong control from a correct one — it has real content, so
+  it passes cleanly. That gap is closed at the only point it can be: the
+  `POST /preview` component-switch body is JSON-*encoded* rather than
+  interpolated, so a manifest-authored component name is a value in that
+  request and cannot become part of its structure. It used to be able to: a
+  name shaped like `A", "component": "B` produced valid JSON with a duplicate
+  key, and `System.Text.Json` takes the last one — so the capture switched to
+  `B` while the manifest read as naming neither.
 - A referenced image that clears the pre-decode caps but that the decoder
   cannot read is reported as `REACTOR_DOC_IMAGE_003` rather than being scored.
   The distinction is load-bearing: "could not decode" is not "not blank", and
