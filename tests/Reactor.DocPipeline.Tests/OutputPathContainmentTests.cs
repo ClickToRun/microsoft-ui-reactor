@@ -89,6 +89,90 @@ public class OutputPathContainmentTests
     }
 
     /// <summary>
+    /// The nested case, which is the one a per-file guard cannot catch on its
+    /// own: a rooted <em>directory</em> segment relocates the base that a later
+    /// containment test measures against, so the file check compares an escaped
+    /// path to an escaped root and reports success.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is not a restatement of the test above. There the escaped value was
+    /// the thing being checked; here it is the thing being checked
+    /// <em>against</em> — the guard runs, returns a correct answer, and answers
+    /// the wrong question. That distinction is why
+    /// <see cref="DocPaths.ResolveContained"/> exists rather than a convention
+    /// of calling Join before IsUnder at each site.
+    /// </para>
+    /// <para>
+    /// Note what the helper does <em>not</em> do here: it does not reject the
+    /// rooted segment, it neutralises it. <c>Path.Join</c> keeps the base, so
+    /// the result is already inside and there is nothing to reject. The first
+    /// draft of this test asserted a throw and failed — worth recording,
+    /// because "rooted input is refused" and "rooted input cannot escape" are
+    /// different guarantees and only the second one is true. Traversal is the
+    /// case that genuinely needs the throw, covered separately below.
+    /// </para>
+    /// <para>
+    /// Non-vacuity: the first two assertions reconstruct the old two-step form
+    /// and require it to <em>pass</em> on input that escapes, so they fail if
+    /// the premise stops holding; the third requires the helper to contain the
+    /// same input. A helper that threw unconditionally would fail this test and
+    /// <see cref="Contained_segments_resolve_and_are_returned"/>; one that never
+    /// threw would fail
+    /// <see cref="Traversing_segments_are_rejected_by_the_helper"/>.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_rooted_directory_segment_escapes_the_base_a_file_guard_measures_against()
+    {
+        var rootedDir = global::System.IO.Path.IsPathRooted("/evil")
+            ? "/evil"
+            : global::System.IO.Path.Join(global::System.IO.Path.GetTempPath(), "evil");
+
+        // The pre-fix shape: Combine for the directory, then Join + IsUnder for
+        // the file. The file guard is genuinely executed and genuinely passes.
+        var escapedBase = global::System.IO.Path.GetFullPath(
+            global::System.IO.Path.Combine(Root, rootedDir));
+        var file = global::System.IO.Path.GetFullPath(
+            global::System.IO.Path.Join(escapedBase, "shot.png"));
+
+        Assert.False(DocPaths.IsUnder(escapedBase, Root),
+            "premise: a rooted directory segment must escape under Combine");
+        Assert.True(DocPaths.IsUnder(file, escapedBase),
+            "premise: the per-file guard passes, because it is measuring against the escaped base");
+
+        var resolved = DocPaths.ResolveContained(Root, rootedDir, "Topic id");
+        Assert.True(DocPaths.IsUnder(resolved, Root),
+            $"the helper must keep a rooted segment inside the root, but resolved to {resolved}");
+    }
+
+    [Theory]
+    [InlineData("hooks")]
+    [InlineData("recipes/login")]
+    public void Contained_segments_resolve_and_are_returned(string segment)
+    {
+        var resolved = DocPaths.ResolveContained(Root, segment, "Topic id");
+
+        Assert.True(DocPaths.IsUnder(resolved, Root));
+        Assert.Equal(
+            global::System.IO.Path.GetFullPath(global::System.IO.Path.Join(Root, segment)),
+            resolved);
+    }
+
+    /// <summary>
+    /// Join alone does not make the helper safe — a traversal segment keeps the
+    /// base and still walks out of it — so the containment half must remain.
+    /// </summary>
+    [Theory]
+    [InlineData("../escaped")]
+    [InlineData("recipes/../../escaped")]
+    public void Traversing_segments_are_rejected_by_the_helper(string segment)
+    {
+        Assert.Throws<global::System.InvalidOperationException>(
+            () => DocPaths.ResolveContained(Root, segment, "Topic id"));
+    }
+
+    /// <summary>
     /// A sibling directory sharing a prefix is not "inside". Without the
     /// trailing separator in <see cref="DocPaths.IsUnder"/> this passes
     /// containment and writes outside the tree.

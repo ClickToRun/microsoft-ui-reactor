@@ -29,4 +29,36 @@ internal static class DocPaths
             : root + Path.DirectorySeparatorChar;
         return candidate.StartsWith(rooted, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// Appends <paramref name="segment"/> to <paramref name="root"/> and returns
+    /// the absolute result, throwing when it lands outside
+    /// <paramref name="root"/>. <paramref name="describe"/> names the offending
+    /// input in the exception.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>Path.Join</c>, never <c>Path.Combine</c>. Combine silently discards
+    /// everything before a rooted segment, so a content-derived value like
+    /// <c>C:/x</c> relocates the result <em>before</em> any containment test can
+    /// see it — and the test then compares an already-escaped path against an
+    /// already-escaped root and passes. That is a guard which runs, returns a
+    /// correct answer, and answers the wrong question. Join concatenates
+    /// unconditionally, which leaves this check as the sole decider.
+    /// </para>
+    /// <para>
+    /// Both steps are needed, and neither subsumes the other: Join alone still
+    /// admits a <c>..</c> segment that walks back out, and a containment test
+    /// alone is defeated by rooting. Callers previously spelled the pair inline,
+    /// which meant each site's safety depended on remembering both halves.
+    /// </para>
+    /// </remarks>
+    internal static string ResolveContained(string root, string segment, string describe)
+    {
+        var rootFull = Path.GetFullPath(root);
+        var full = Path.GetFullPath(Path.Join(rootFull, segment));
+        if (!IsUnder(full, rootFull))
+            throw new InvalidOperationException($"{describe} would escape '{rootFull}'");
+        return full;
+    }
 }

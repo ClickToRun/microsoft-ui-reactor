@@ -148,7 +148,24 @@ internal static class ScreenshotCapture
             Console.WriteLine($"    Waiting {delay}ms for app startup...");
             await Task.Delay(delay);
 
-            var topicDir = Path.Combine(outputImagesDir, topicId);
+            // The file-level guard below decides whether a screenshot lands
+            // inside topicDir — but that is only meaningful if topicDir is
+            // itself inside outputImagesDir, and this line is what establishes
+            // it. With Path.Combine a rooted topicId would relocate topicDir,
+            // and the file guard would then compare an escaped path against an
+            // escaped root and pass: the guard would run, be correct, and
+            // answer the wrong question.
+            //
+            // Today topicId comes from Path.GetFileName over a directory
+            // enumeration (CompileCommand.DiscoverApps), so it can be neither
+            // rooted nor a traversal and this changes nothing at runtime. That
+            // safety is a property of a function three call levels away, which
+            // is exactly the coupling that holds until someone changes the other
+            // end. Resolving it here costs one call and removes the dependency.
+            // Note the helper *contains* a rooted segment rather than rejecting
+            // it — Join keeps the base, so there is nothing left to reject — and
+            // throws only for a traversal that walks back out.
+            var topicDir = DocPaths.ResolveContained(outputImagesDir, topicId, $"Topic id '{topicId}'");
             Directory.CreateDirectory(topicDir);
 
             using var http = new HttpClient();
@@ -212,14 +229,12 @@ internal static class ScreenshotCapture
                     // a full-size screenshot of the same id (spec 041 §6.3 + §12 Q7).
                     var isThumb = string.Equals(screenshot.Kind, "catalog-thumb", StringComparison.OrdinalIgnoreCase);
                     var fileBase = isThumb ? $"{screenshot.Id}{ImageProcessor.ThumbSuffix}" : screenshot.Id;
-                    // Path.Join, not Path.Combine: Combine silently discards the
-                    // base when a later segment is rooted, so a manifest id like
-                    // "C:/x" would place the file outside topicDir *before* the
-                    // containment check below could see it. Join concatenates
-                    // unconditionally, leaving the guard as the decider.
-                    outputPath = Path.GetFullPath(Path.Join(topicDir, $"{fileBase}.{screenshot.Format}"));
-                    if (!DocPaths.IsUnder(outputPath, Path.GetFullPath(topicDir)))
-                        throw new InvalidOperationException($"Screenshot id '{screenshot.Id}' would escape output directory");
+                    // A manifest-authored id reaches the filesystem here, so the
+                    // join and the containment test must happen together — see
+                    // DocPaths.ResolveContained for why either alone is
+                    // defeatable.
+                    outputPath = DocPaths.ResolveContained(
+                        topicDir, $"{fileBase}.{screenshot.Format}", $"Screenshot id '{screenshot.Id}'");
                     ProcessAndWrite(frameBytes, outputPath, screenshot);
                     written++;
                     Console.WriteLine(" ✓");
