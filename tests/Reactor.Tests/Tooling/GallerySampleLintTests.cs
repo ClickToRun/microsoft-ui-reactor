@@ -56,7 +56,7 @@ public sealed class GallerySampleLintTests
 
         var source = global::System.IO.File.ReadAllText(path);
         var declaration = source.IndexOf("public sealed class GallerySampleLintTests", global::System.StringComparison.Ordinal);
-        Assert.True(declaration > 0, "Could not locate the class declaration — this check reads the doc comment above it.");
+        Assert.True(declaration >= 0, "Could not locate the class declaration — this check reads the doc comment above it.");
 
         var doc = source[..declaration];
         var items = Regex.Matches(doc, "<item>").Count;
@@ -1658,6 +1658,12 @@ public sealed class GallerySampleLintTests
     [InlineData(@"class P { Element R(string t, bool f) { Uri u = f ? new(t) : Fallback; return WebView2(u); } }", 1)]
     // …and the condition slot is a bool, so ascending must not type a construction there as the
     // branch type. This is the false *positive* the ascent would introduce if it were careless.
+    // The accepted `new Uri("literal")` in the true branch is not decoration: the row guard below
+    // requires every row to contain a construction the rule recognises, and a condition-slot
+    // `new(t)` deliberately is not one. Without it the row would satisfy `expected: 0` for the
+    // wrong reason — the same vacuity the guard exists to catch.
+    [InlineData(@"class P { Element R(string t) { return WebView2(new(t) ? new Uri(""https://example.com"") : Fallback); } }", 0)]
+    // A plain literal argument stays accepted — the ascent above must not disturb the base case.
     [InlineData(@"class P { Element R(string t) { return WebView2(new Uri(""https://example.com"")); } }", 0)]
     // Assignment carries its type on the target's declaration, not at the construction.
     [InlineData(@"class P { Element R(string t) { Uri u; u = new(t); return WebView2(u); } }", 1)]
