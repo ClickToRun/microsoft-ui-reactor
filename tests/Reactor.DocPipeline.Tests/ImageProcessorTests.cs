@@ -506,6 +506,13 @@ public class ImageProcessorTests
         using var blankBmp = LoadBitmap(blank);
         var region = new Rectangle(0, 0, 80, 60);
 
+        // The row's format has to reach the scan, or every row is secretly the
+        // same 32bpp case and this theory's parameter decides nothing. Cheap to
+        // assert and the only thing standing between a helper "cleanup" and
+        // five green rows with one format's worth of coverage.
+        Assert.Equal(format, contentBmp.PixelFormat);
+        Assert.Equal(format, blankBmp.PixelFormat);
+
         var contentCount = ImageProcessor.CountContentPixels(contentBmp, region);
         var blankCount = ImageProcessor.CountContentPixels(blankBmp, region);
 
@@ -524,7 +531,38 @@ public class ImageProcessorTests
             () => ImageProcessor.Process(blank, ImageProcessor.ParseCropMode("content")));
     }
 
-    private static Bitmap LoadBitmap(byte[] bytes) => new(new MemoryStream(bytes));
+    /// <summary>
+    /// Decodes to a <see cref="Bitmap"/> that owns no stream, preserving the
+    /// pixel format the file decoded to.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two things here are easy to get wrong in opposite directions.
+    /// </para>
+    /// <para>
+    /// The stream cannot simply be wrapped in a <c>using</c> around
+    /// <c>new Bitmap(stream)</c>: GDI+ reads pixels lazily and requires the
+    /// stream to stay open for the bitmap's whole lifetime, so the obvious
+    /// tidy-up disposes something the bitmap still needs. Copying into a
+    /// stream-free bitmap is what lets the stream close here, deterministically.
+    /// </para>
+    /// <para>
+    /// But the obvious copy — <c>new Bitmap(decoded)</c> — is worse than the
+    /// leak it fixes. Measured across this theory's five rows, it normalises
+    /// everything to <c>Format32bppArgb</c>: 24bpp png, 24bpp jpeg, 8bppIndexed
+    /// and 1bppIndexed all collapse, leaving 32bpp as the only format any row
+    /// exercises. All five rows still pass, and the test goes on being named for
+    /// format coverage it no longer has. <c>Clone</c> with an explicit
+    /// <see cref="PixelFormat"/> preserves all five, indexed formats included.
+    /// </para>
+    /// </remarks>
+    private static Bitmap LoadBitmap(byte[] bytes)
+    {
+        using var stream = new global::System.IO.MemoryStream(bytes);
+        using var decoded = new Bitmap(stream);
+        return decoded.Clone(
+            new Rectangle(0, 0, decoded.Width, decoded.Height), decoded.PixelFormat);
+    }
 
     private static byte[] MakeInFormat(PixelFormat format, string container, bool content)
     {
