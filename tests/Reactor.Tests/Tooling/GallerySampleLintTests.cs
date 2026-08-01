@@ -544,6 +544,14 @@ public sealed class GallerySampleLintTests
     };
 
     /// <summary>
+    /// The nearest node that opens a declaration scope around <paramref name="node"/> — a block, a
+    /// switch section, or the member itself when nothing narrower encloses it.
+    /// </summary>
+    static SyntaxNode? ScopeOf(SyntaxNode node) =>
+        node.Ancestors().FirstOrDefault(ancestor =>
+            ancestor is BlockSyntax or SwitchSectionSyntax or MemberDeclarationSyntax);
+
+    /// <summary>
     /// Every range variable a query introduces — <c>from</c>, <c>let</c>, <c>join</c>, a join's
     /// <c>into</c>, and a continuation's <c>into</c>. Nested lambdas and nested queries are skipped:
     /// each opens its own scope and the ancestor walk visits it in its own right.
@@ -622,12 +630,27 @@ public sealed class GallerySampleLintTests
 
         // Locals of the enclosing member that are declared outside every card — the ones a card can
         // name without containing them.
+        //
+        // Filtered to declarations whose scope encloses *this* card, and tie-broken to the innermost
+        // of those, because a name does not map to one declarator: two disjoint sibling blocks may
+        // each declare it (legal C#, no CS0136, since the scopes never overlap). Choosing between
+        // them by document order chooses a declarator the card may not be able to see, and then the
+        // widening pass reads the wrong initializer — the card stops reaching the page slot and a
+        // coupled page reports clean. Fail-open, in the guard for issue #982, one level out from the
+        // card scan. `Last()` is not the fix either: it just moves which of the two orderings breaks,
+        // which is why both are pinned below.
         var lifted = member.DescendantNodes()
             .OfType<VariableDeclaratorSyntax>()
             .Where(v => v.Initializer is not null)
             .Where(v => v.Ancestors().OfType<InvocationExpressionSyntax>().All(a => InvokedName(a) != "SampleCard"))
+            .Where(v => ScopeOf(v) is { } scope && scope.Span.Contains(card.Span))
             .GroupBy(v => v.Identifier.Text, global::System.StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.First(), global::System.StringComparer.Ordinal);
+            .ToDictionary(
+                g => g.Key,
+                // All candidates enclose the card, so they are nested in one another and the
+                // innermost is the one that starts last.
+                g => g.OrderByDescending(v => ScopeOf(v)!.SpanStart).First(),
+                global::System.StringComparer.Ordinal);
 
         // A lifted local can be built from another, so widen until nothing new appears.
         bool grew;
@@ -892,6 +915,33 @@ public sealed class GallerySampleLintTests
         return VStack(
             SampleCard(""one"", TextBox(slot.Item1, slot.Item2), ""snippet""),
             SampleCard(""two"", TextBlock(slot.Item1), ""snippet""));")]
+    // Two disjoint sibling blocks may each declare the same name — legal C#, no CS0136, because the
+    // scopes never overlap. So a name maps to more than one lifted declarator, and choosing between
+    // them by document order can choose the one this card cannot see: here the decoy comes first, so
+    // the widening pass reads `TextBlock(""literal"")`, card two never reaches `a`, and a genuinely
+    // coupled page reports clean. Fail-open, one level out from the card scan.
+    [InlineData(1, @"
+        var (a, setA) = UseState(""x"");
+        { var listing = TextBlock(""literal""); }
+        {
+            var listing = TextBlock(a);
+            return VStack(
+                SampleCard(""one"", TextBox(a, setA), ""snippet""),
+                SampleCard(""two"", listing, ""snippet""));
+        }")]
+    // …and the mirror, so the fix has to be scope resolution rather than a flip to `Last()`: the
+    // decoy is second here, which document order already gets right. A rule that simply reversed the
+    // tie-break would pass the row above and redden this one.
+    [InlineData(1, @"
+        var (a, setA) = UseState(""x"");
+        {
+            var listing = TextBlock(a);
+            var result = VStack(
+                SampleCard(""one"", TextBox(a, setA), ""snippet""),
+                SampleCard(""two"", listing, ""snippet""));
+            return result;
+        }
+        { var listing = TextBlock(""literal""); }")]
     public void CrossCardRule_ReportsOnlySlotsSpanningCards(int expected, string body)
     {
         var root = CSharpSyntaxTree.ParseText($@"
