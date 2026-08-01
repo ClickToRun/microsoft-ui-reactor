@@ -937,8 +937,18 @@ public sealed class GallerySampleLintTests
 
     /// <summary>
     /// The same 14 pairs, frozen as the debt that existed when this rule was written (#982).
-    /// <see cref="KnownSharedStatePages"/> is a live ledger and shrinks as #980 fixes pages; this
-    /// does not move, and is compared against the <em>tree</em> rather than against the ledger.
+    /// <see cref="KnownSharedStatePages"/> is the live ledger; this does not move, and is compared
+    /// against the <em>tree</em> rather than against the ledger.
+    /// <para>
+    /// The ledger does not drain an entry at a time. That is worth stating because "shrinks as pages
+    /// get fixed" is the natural reading of a mutable allowlist and it is wrong here: #980's fix
+    /// branch rewrites all thirteen distinct files this array names, so the entire ledger goes stale
+    /// on a single merge. Measured rather than predicted — swapping that branch's copies of those
+    /// thirteen files into this tree fails <see cref="SampleCards_SharedStateDoesNotSpread"/> with
+    /// the staleness arm naming all fourteen entries, and restoring the files takes it back to
+    /// green. The merge instruction above is therefore all-or-nothing; an entry-at-a-time reading of
+    /// it leaves a red tree.
+    /// </para>
     /// <para>
     /// Two identical arrays look redundant and are not: the point is that no single edit reaches
     /// both. Every arm that consults only the ledger can be satisfied by editing the ledger — add
