@@ -283,6 +283,10 @@ public class PersistenceEtwBridgeTests : IDisposable
     /// <see cref="AssertEvent_discriminates_against_a_concurrent_foreign_event"/>. Deliberately
     /// hand-rolled rather than routed through <c>AssertEvent</c>: this is the setup oracle for a
     /// test whose subject IS <c>AssertEvent</c>, so using the helper here would be circular.
+    /// Bounds-checks the payload the same way <c>AssertEvent</c> does — <c>Payload?[0]</c> guards
+    /// a null payload but not a short one, and this scans every SwallowedError in a
+    /// process-global buffer, so a differently-shaped one must not throw here and fail the test
+    /// for a reason unrelated to its subject.
     /// </summary>
     private static int IndexOfForeignProbe(IReadOnlyList<EventWrittenEventArgs> events)
     {
@@ -290,8 +294,9 @@ public class PersistenceEtwBridgeTests : IDisposable
         {
             var e = events[i];
             if (e.EventName == nameof(ReactorEventSource.SwallowedError)
-                && (e.Payload?[0] as string) == nameof(LogCategory.Intl)
-                && (e.Payload?[1] as string) == ForeignOperation)
+                && e.Payload is { Count: > 1 } payload
+                && (payload[0] as string) == nameof(LogCategory.Intl)
+                && (payload[1] as string) == ForeignOperation)
             {
                 return i;
             }
