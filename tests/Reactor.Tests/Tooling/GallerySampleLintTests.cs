@@ -51,7 +51,10 @@ public sealed class GallerySampleLintTests
     [Fact]
     public void ClassDoc_CountWordMatchesTheRuleList()
     {
-        var source = global::System.IO.File.ReadAllText(ThisFile());
+        var path = ThisFile();
+        Assert.True(global::System.IO.File.Exists(path), $"Could not read this file's own source at {path} — if it moved, update ThisFile().");
+
+        var source = global::System.IO.File.ReadAllText(path);
         var declaration = source.IndexOf("public sealed class GallerySampleLintTests", global::System.StringComparison.Ordinal);
         Assert.True(declaration > 0, "Could not locate the class declaration — this check reads the doc comment above it.");
 
@@ -80,7 +83,18 @@ public sealed class GallerySampleLintTests
         _ => value.ToString(global::System.Globalization.CultureInfo.InvariantCulture),
     };
 
-    static string ThisFile([global::System.Runtime.CompilerServices.CallerFilePath] string path = "") => path;
+    /// <summary>
+    /// This file's own source, located the way every other reader here locates the tree — by
+    /// walking up from <c>AppContext.BaseDirectory</c> for <c>Reactor.slnx</c>.
+    ///
+    /// Deliberately *not* <c>[CallerFilePath]</c>, which bakes in the path the assembly was
+    /// **compiled** at. That is the machine it was built on, not the machine it runs on: it passes
+    /// locally and fails only in CI, where the build happens under a different root and the test
+    /// dies on <c>D:\_\tests\…</c>. Measured, not hypothesised — this check failed exactly that way
+    /// on its first CI run.
+    /// </summary>
+    static string ThisFile() =>
+        global::System.IO.Path.Join(GallerySources.RepoRoot(), "tests", "Reactor.Tests", "Tooling", "GallerySampleLintTests.cs");
 
     // Source loading lives in GallerySources so the snippet-agreement lint next door reads the
     // same pages through the same code path.
