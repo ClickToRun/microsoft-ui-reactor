@@ -218,12 +218,36 @@ internal static class ImageProcessor
         if (a == 0) return false;
         if (a == 255) return b < ContentThreshold || g < ContentThreshold || r < ContentThreshold;
 
-        // Source-over composite against opaque white, rounded.
+        var packed = CompositeOverWhite(b, g, r, a);
+        return (byte)(packed >> 16) < ContentThreshold
+            || (byte)(packed >> 8) < ContentThreshold
+            || (byte)packed < ContentThreshold;
+    }
+
+    /// <summary>
+    /// The visible colour of a BGRA pixel once composited source-over opaque
+    /// white, packed as 0x00RRGGBB.
+    /// </summary>
+    /// <remarks>
+    /// Shared by <see cref="IsContent"/> and <see cref="IsUniformFill"/> on
+    /// purpose. They ask different questions — "is this pixel darker than
+    /// near-white" and "is every pixel the same colour" — but both are questions
+    /// about the <em>visible</em> pixel, and two copies of that arithmetic is
+    /// two definitions of "visible" that can drift. When they drifted before,
+    /// uniformity compared raw bytes while content composited, so a frame that
+    /// renders as one flat sheet through mixed alpha scored as varied and a
+    /// blank capture would have been written over a committed screenshot.
+    /// </remarks>
+    private static uint CompositeOverWhite(byte b, byte g, byte r, byte a)
+    {
+        if (a == 255) return ((uint)r << 16) | ((uint)g << 8) | b;
+        if (a == 0) return 0x00FFFFFFu;
+
         int inv = 255 - a;
-        int cb = ((b * a) + (255 * inv) + 127) / 255;
-        int cg = ((g * a) + (255 * inv) + 127) / 255;
-        int cr = ((r * a) + (255 * inv) + 127) / 255;
-        return cb < ContentThreshold || cg < ContentThreshold || cr < ContentThreshold;
+        uint cb = (uint)(((b * a) + (255 * inv) + 127) / 255);
+        uint cg = (uint)(((g * a) + (255 * inv) + 127) / 255);
+        uint cr = (uint)(((r * a) + (255 * inv) + 127) / 255);
+        return (cr << 16) | (cg << 8) | cb;
     }
 
     /// <summary>
@@ -370,14 +394,18 @@ internal static class ImageProcessor
                     data.Scan0 + (y * data.Stride), row, 0, row.Length);
                 for (int i = 0; i < row.Length; i += 4)
                 {
-                    // Format32bppArgb is BGRA in memory. A fully transparent
-                    // pixel composites to white regardless of its stored RGB,
-                    // so normalise it — otherwise transparent-black noise in
-                    // unused channels would read as "varied" on a frame that
-                    // renders as one flat white sheet.
-                    var packed = row[i + 3] == 0
-                        ? 0xFFFFFFFFu
-                        : ((uint)row[i + 3] << 24) | ((uint)row[i + 2] << 16) | ((uint)row[i + 1] << 8) | row[i];
+                    // Format32bppArgb is BGRA in memory. Compare what the pixel
+                    // LOOKS like, not what it stores: IsContent composites
+                    // source-over white for 0 < a < 255, and a uniformity test
+                    // that compared raw bytes would disagree with it. Two
+                    // pixels that composite to the same visible colour through
+                    // different (RGB, A) pairs would read as "varied", the frame
+                    // would score as non-uniform, and a contentless frame would
+                    // be written over a committed screenshot — the gate failing
+                    // open, which is the failure this whole file exists to stop.
+                    // Same class as the poller/processor mismatch above: two
+                    // predicates that must agree, with nothing making them.
+                    var packed = CompositeOverWhite(row[i], row[i + 1], row[i + 2], row[i + 3]);
 
                     if (!haveFirst)
                     {
@@ -477,6 +505,35 @@ internal static class ImageProcessor
     internal static bool HasThumbSuffix(string path) =>
         Path.GetFileNameWithoutExtension(path)
             .EndsWith(ThumbSuffix, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The file-name stem a screenshot is written to and linked as, given its
+    /// manifest id and whether it is a catalog thumb. Idempotent: an id that
+    /// already carries the suffix is not given a second one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// One function because there are two callers that must never disagree —
+    /// <c>ScreenshotCapture</c> chooses the filename it writes and
+    /// <c>DocAssembler</c> chooses the URL that points at it. Two copies of an
+    /// append rule is two chances to fix one and not the other, and the symptom
+    /// would be a broken image link rather than a compile error.
+    /// </para>
+    /// <para>
+    /// Idempotent because the alternative surprises the author in a way nothing
+    /// reports: <c>id: widget-thumb</c> with <c>kind: catalog-thumb</c> yielded
+    /// <c>widget-thumb-thumb.png</c>. Both sides agreed, so links resolved and
+    /// no gate fired. The reserved-suffix check in <c>CompileCommand</c> does
+    /// not cover it either — it exempts <c>catalog-thumb</c> by design, since
+    /// for a thumb the suffix is correct rather than a collision. So this shape
+    /// had no diagnostic anywhere, which is why it is closed here rather than
+    /// reported.
+    /// </para>
+    /// </remarks>
+    internal static string ThumbAwareFileBase(string id, bool isThumb) =>
+        !isThumb || id.EndsWith(ThumbSuffix, StringComparison.OrdinalIgnoreCase)
+            ? id
+            : id + ThumbSuffix;
 
     /// <summary>
     /// Region of a committed image the blank-screenshot gate should score.

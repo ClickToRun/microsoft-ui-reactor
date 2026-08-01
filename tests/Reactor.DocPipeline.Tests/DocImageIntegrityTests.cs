@@ -612,6 +612,49 @@ public class DocImageIntegrityTests
     }
 
     /// <summary>
+    /// The same guarantee for the other exception <c>GetFullPath</c> actually
+    /// raises: an over-long reference is convicted, and the scan continues.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>PathTooLongException</c> derives from <c>IOException</c>, not
+    /// <c>ArgumentException</c>, so the original single-type catch did not cover
+    /// it and one pathological reference would have aborted the pass for every
+    /// page after it — the same blind spot the test above closes, reached by a
+    /// different exception type.
+    /// </para>
+    /// <para>
+    /// The threshold is measured rather than assumed. On .NET 10 a 5,000-character
+    /// path returns normally and 40,000 throws, so the length below is chosen to
+    /// be past the real boundary rather than past the historical <c>MAX_PATH</c>.
+    /// The neighbouring claim in the same review — that
+    /// <c>NotSupportedException</c> also needs catching — is a .NET Framework-era
+    /// assumption and has no test here because it cannot be provoked:
+    /// <c>'C:\x\a:b:c'</c>, <c>'http://x/y'</c>, <c>'C:\x\a|b'</c>, <c>'?'</c> and
+    /// <c>'*'</c> all resolve without throwing.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void An_over_long_reference_is_reported_without_ending_the_scan()
+    {
+        using var tree = new TempGuideTree();
+        tree.WriteImage("x/blank.png", MakeCapturedStub(499, 196, blank: true));
+
+        var body =
+            "![bad](images/" + new string('a', 40_000) + ".png)\n" +
+            "![blank](images/x/blank.png)";
+
+        var findings = DiagramProcessor.ValidateImageRefs(
+            "topic.md.dt", body, tree.ImagesDir, tree.GuideDir);
+
+        Assert.Equal(
+            ["REACTOR_DOC_IMAGE_001", "REACTOR_DOC_IMAGE_002"],
+            findings.Select(f => f.Code));
+        Assert.Equal(1, findings[0].Line);
+        Assert.Equal(2, findings[1].Line);
+    }
+
+    /// <summary>
     /// The real corpus must pass. This is the calibration test: it fails if the
     /// gate is ever tightened past what genuine screenshots satisfy, and the
     /// logged minimum is the documented margin behind the <c>== 0</c> threshold.

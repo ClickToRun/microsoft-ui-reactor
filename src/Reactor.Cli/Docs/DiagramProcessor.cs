@@ -274,8 +274,22 @@ internal static class DiagramProcessor
                 full = Path.GetFullPath(Path.Join(
                     pageFull, rel.Replace('/', Path.DirectorySeparatorChar)));
             }
-            catch (ArgumentException)
+            catch (Exception ex) when (ex is ArgumentException or PathTooLongException)
             {
+                // ArgumentException covers the empty/whitespace/embedded-NUL
+                // shapes. PathTooLongException is separate — it derives from
+                // IOException, not ArgumentException — and GetFullPath does
+                // raise it: measured on .NET 10, a ~40,000-character reference
+                // throws it while 5,000 does not. Without this arm one
+                // pathological reference aborts the scan, which is precisely the
+                // failure this catch exists to prevent.
+                //
+                // NotSupportedException is deliberately absent. It was the
+                // .NET Framework behaviour for a colon mid-path, and on .NET 10
+                // it is not raised at all: 'C:\x\a:b:c', 'http://x/y',
+                // 'C:\x\a|b', '?' and '*' all return normally. Catching it would
+                // be a dead arm, so the colon hazard is handled where it is real
+                // — DocPaths.ResolveContained — rather than here.
                 findings.Add(new TierLintFinding(
                     "REACTOR_DOC_IMAGE_001",
                     $"broken image reference: {rel}",

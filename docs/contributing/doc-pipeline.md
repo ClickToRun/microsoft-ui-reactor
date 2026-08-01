@@ -211,6 +211,15 @@ the compile still exited 0 ([issue #989][i989]). Several guards now prevent that
   interior in the committed corpus is 0.6084 % content pixels, so any coverage
   floor able to catch a stub sits close enough to real assets to condemn them,
   while no genuine screenshot is a single colour.
+- **Both clauses judge the composited pixel, through one shared function.**
+  They previously did not: the darkness test composited against white while the
+  uniformity test compared stored BGRA bytes. A frame reaching one flat colour
+  through mixed alpha — opaque white beside half-transparent white, which is
+  what a partially-composed surface produces — then read as *varied*, scored as
+  content, and would have been written over a committed screenshot. The two
+  predicates ask different questions but both ask them about the *visible*
+  pixel, so a second copy of that arithmetic is a second definition of "visible"
+  that can drift, and the drift fails open.
 - The capture poller waits for a frame using **that same definition**, not a
   looser one. It has to: the poller decides when to stop waiting, so if it
   accepted a frame the processor then rejects, capture would fail on the first
@@ -270,6 +279,16 @@ the compile still exited 0 ([issue #989][i989]). Several guards now prevent that
   ends in it without `kind: catalog-thumb` is rejected with
   `REACTOR_DOC_SHOT_002` — otherwise a full-size screenshot could claim the
   chrome-free scoring rule and hide a blank capture behind its own border.
+  The reservation deliberately **exempts** `kind: catalog-thumb`, since there the
+  suffix is correct rather than a collision — which is exactly why appending it
+  is done once, by `ImageProcessor.ThumbAwareFileBase`, and is idempotent. An id
+  of `widget-thumb` with `kind: catalog-thumb` otherwise produced
+  `widget-thumb-thumb.png`, and because the filename and the generated URL were
+  derived by two separate copies of the append they *agreed*, so links resolved
+  and no gate fired. One function, because the two callers must never diverge:
+  `ScreenshotCapture` chooses the file that is written and `DocAssembler` chooses
+  the URL that points at it, and a divergence surfaces as a broken image rather
+  than a compile error.
 - Image-reference validation runs on the *assembled* page, where `DocAssembler`
   prefixes one `../` per level of topic nesting. References resolve **relative
   to the page**, so nested topics (`recipes/*`) are checked like flat ones — and

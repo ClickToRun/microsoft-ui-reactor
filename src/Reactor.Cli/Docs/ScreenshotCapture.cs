@@ -229,7 +229,7 @@ internal static class ScreenshotCapture
                     // controls-catalog index can refer to them without colliding with
                     // a full-size screenshot of the same id (spec 041 §6.3 + §12 Q7).
                     var isThumb = string.Equals(screenshot.Kind, "catalog-thumb", StringComparison.OrdinalIgnoreCase);
-                    var fileBase = isThumb ? $"{screenshot.Id}{ImageProcessor.ThumbSuffix}" : screenshot.Id;
+                    var fileBase = ImageProcessor.ThumbAwareFileBase(screenshot.Id, isThumb);
                     // A manifest-authored id reaches the filesystem here, so the
                     // join and the containment test must happen together — see
                     // DocPaths.ResolveContained for why either alone is

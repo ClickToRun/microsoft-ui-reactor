@@ -570,4 +570,105 @@ public class ImageProcessorTests
         bmp.Save(ms, ImageFormat.Png);
         return ms.ToArray();
     }
+
+    /// <summary>
+    /// A frame that renders as one flat white sheet is uniform even when its
+    /// pixels reach that white through different alpha values.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The regression this pins is a disagreement between two predicates in this
+    /// file. <c>IsContent</c> composites source-over white for
+    /// <c>0 &lt; a &lt; 255</c>; <c>IsUniformFill</c> used to compare the stored
+    /// BGRA bytes, normalising only <c>a == 0</c>. So the pixels below — both
+    /// visibly white — compared as different, the frame scored as varied, and a
+    /// contentless capture passed the blankness gate and was written over a
+    /// committed screenshot. The direction is what makes it worth a test:
+    /// the gate fails <em>open</em>, which is the exact failure this file exists
+    /// to prevent.
+    /// </para>
+    /// <para>
+    /// Non-vacuity: the assertion is <c>True</c> and the pre-fix code returned
+    /// <c>False</c>, measured. The paired test below supplies the other
+    /// direction, so neither is satisfied by a constant.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Uniform_fill_compares_composited_colour_not_stored_bytes()
+    {
+        using var bmp = new Bitmap(8, 8, PixelFormat.Format32bppArgb);
+        for (int y = 0; y < bmp.Height; y++)
+        {
+            for (int x = 0; x < bmp.Width; x++)
+            {
+                // Alternate opaque white with half-transparent white. Both
+                // composite to (255,255,255) over a white page; their stored
+                // bytes differ in the alpha channel alone.
+                var a = ((x + y) % 2 == 0) ? 255 : 128;
+                bmp.SetPixel(x, y, Color.FromArgb(a, 255, 255, 255));
+            }
+        }
+
+        // Premise: the two pixel kinds really are stored differently, so the old
+        // byte comparison had something to disagree about. Without this the test
+        // would still pass if SetPixel silently flattened alpha.
+        Assert.NotEqual(bmp.GetPixel(0, 0).A, bmp.GetPixel(1, 0).A);
+
+        Assert.True(
+            ImageProcessor.IsUniformFill(bmp, new Rectangle(0, 0, bmp.Width, bmp.Height)),
+            "a frame that renders as one flat white sheet must read as uniform regardless of the alpha it got there through");
+    }
+
+    /// <summary>
+    /// The other direction: compositing must not flatten a frame that genuinely
+    /// varies. Guards against "return true" satisfying the test above.
+    /// </summary>
+    [Fact]
+    public void Uniform_fill_still_rejects_a_frame_with_two_visible_colours()
+    {
+        using var bmp = new Bitmap(8, 8, PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(bmp)) g.Clear(Color.White);
+        bmp.SetPixel(4, 4, Color.FromArgb(255, 0, 0, 0));
+
+        Assert.False(
+            ImageProcessor.IsUniformFill(bmp, new Rectangle(0, 0, bmp.Width, bmp.Height)),
+            "a white sheet with one black pixel composites to two distinct colours and is not uniform");
+    }
+
+    /// <summary>
+    /// The catalog-thumb stem is derived once, and adding the suffix to an id
+    /// that already carries it is not a second append.
+    /// </summary>
+    /// <remarks>
+    /// <c>ScreenshotCapture</c> picks the filename it writes and
+    /// <c>DocAssembler</c> picks the URL that points at it. They used to hold
+    /// separate copies of this rule, so a divergence would have surfaced as a
+    /// broken image link rather than a compile error. The double-suffix case had
+    /// no diagnostic at all: the reserved-suffix check in <c>CompileCommand</c>
+    /// exempts <c>catalog-thumb</c> by design, since for a thumb the suffix is
+    /// correct rather than a collision.
+    /// </remarks>
+    [Theory]
+    [InlineData("widget", true, "widget-thumb")]
+    [InlineData("widget", false, "widget")]
+    [InlineData("widget-thumb", true, "widget-thumb")]
+    [InlineData("widget-THUMB", true, "widget-THUMB")]
+    [InlineData("widget-thumb", false, "widget-thumb")]
+    [InlineData("thumbnail", true, "thumbnail-thumb")]
+    public void Thumb_aware_file_base_appends_at_most_once(string id, bool isThumb, string expected)
+        => Assert.Equal(expected, ImageProcessor.ThumbAwareFileBase(id, isThumb));
+
+    /// <summary>
+    /// Applying the rule twice changes nothing — the property both call sites
+    /// depend on, stated directly rather than inferred from the cases above.
+    /// </summary>
+    [Fact]
+    public void Thumb_aware_file_base_is_idempotent()
+    {
+        foreach (var id in new[] { "widget", "widget-thumb", "a-thumb-b", "thumb" })
+        {
+            var once = ImageProcessor.ThumbAwareFileBase(id, isThumb: true);
+            Assert.Equal(once, ImageProcessor.ThumbAwareFileBase(once, isThumb: true));
+        }
+    }
 }
