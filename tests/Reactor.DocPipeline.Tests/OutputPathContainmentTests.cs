@@ -113,6 +113,17 @@ public class OutputPathContainmentTests
     /// case that genuinely needs the throw, covered separately below.
     /// </para>
     /// <para>
+    /// This does not re-derive the escape with <c>Path.Combine</c>.
+    /// <see cref="Rooted_topic_id_drops_the_base_under_Combine_but_not_under_Join"/>
+    /// is the one place that measures the framework behaviour, and duplicating
+    /// the call here bought nothing: what this test adds is what happens
+    /// <em>downstream</em> of an escaped base, not the escape itself. The
+    /// escaped base is therefore constructed directly and the first assertion
+    /// is a premise guard on it, so a framework change fails the
+    /// characterization test loudly rather than quietly changing what this one
+    /// is about.
+    /// </para>
+    /// <para>
     /// Non-vacuity: the first two assertions reconstruct the old two-step form
     /// and require it to <em>pass</em> on input that escapes, so they fail if
     /// the premise stops holding; the third requires the helper to contain the
@@ -129,14 +140,15 @@ public class OutputPathContainmentTests
             ? "/evil"
             : global::System.IO.Path.Join(global::System.IO.Path.GetTempPath(), "evil");
 
-        // The pre-fix shape: Combine for the directory, then Join + IsUnder for
-        // the file. The file guard is genuinely executed and genuinely passes.
-        var escapedBase = global::System.IO.Path.GetFullPath(CombineAsTheOldCodeDid(Root, rootedDir));
+        // The pre-fix shape: the topic directory came out of Path.Combine, which
+        // returns a rooted segment verbatim, so it is the escaped base itself.
+        // Then Join + IsUnder for the file — genuinely executed, genuinely passes.
+        var escapedBase = global::System.IO.Path.GetFullPath(rootedDir);
         var file = global::System.IO.Path.GetFullPath(
             global::System.IO.Path.Join(escapedBase, "shot.png"));
 
         Assert.False(DocPaths.IsUnder(escapedBase, Root),
-            "premise: a rooted directory segment must escape under Combine");
+            "premise: a rooted directory segment must escape the output root");
         Assert.True(DocPaths.IsUnder(file, escapedBase),
             "premise: the per-file guard passes, because it is measuring against the escaped base");
 
@@ -144,34 +156,6 @@ public class OutputPathContainmentTests
         Assert.True(DocPaths.IsUnder(resolved, Root),
             $"the helper must keep a rooted segment inside the root, but resolved to {resolved}");
     }
-
-    /// <summary>
-    /// Reproduces the exact call the fix removed, so the tests above measure
-    /// <c>Path.Combine</c>'s real behaviour rather than a hand-rolled model of
-    /// it. Named for its purpose because the call is the subject of the test,
-    /// not an oversight in it.
-    /// </summary>
-    /// <remarks>
-    /// Static analysis flags this call for silently dropping <c>Root</c> when
-    /// <paramref name="segment"/> is rooted. That is correct, and it is the
-    /// property under test: <c>A_rooted_directory_segment_escapes_the_base…</c>
-    /// asserts <c>IsUnder(escapedBase, Root)</c> is <em>false</em>, which only
-    /// holds because the base is dropped. Switching this to <c>Path.Join</c> —
-    /// the suggested remedy, offered as being "without changing test
-    /// functionality" — makes that assertion fail; measured, not assumed.
-    /// <para>
-    /// Hand-rolling the drop instead would silence the analyser and cost the
-    /// test its point: it would then pin this file's model of
-    /// <c>Path.Combine</c> rather than <c>Path.Combine</c>, and a future
-    /// framework change to those semantics would go unnoticed by the one test
-    /// written to notice it.
-    /// </para>
-    /// </remarks>
-    [global::System.Diagnostics.CodeAnalysis.SuppressMessage(
-        "Security", "CA3006:Path.Combine may silently drop earlier arguments",
-        Justification = "The dropped base is the behaviour under test; see remarks.")]
-    private static string CombineAsTheOldCodeDid(string root, string segment)
-        => global::System.IO.Path.Combine(root, segment);
 
     [Theory]
     [InlineData("hooks")]
