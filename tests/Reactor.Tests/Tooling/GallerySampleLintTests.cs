@@ -810,6 +810,14 @@ public sealed class GallerySampleLintTests
     /// other — the reader sees a control move that they did not touch (issue #982, and #980 for the
     /// pages that still do it).
     /// </summary>
+    /// <remarks>
+    /// Only the first clause is measured. This walks syntax and never renders, so the retargeting
+    /// is an inference from the shared slot plus the independently-copy-pasteable premise, not an
+    /// observation — #982 and #980 are where it was actually observed. The premise is what makes
+    /// the inference sound and what makes "split the slot" the right remedy rather than one of
+    /// several, so callers reporting this to a human should carry it rather than assert the
+    /// consequence bare.
+    /// </remarks>
     static IReadOnlyList<(string Names, List<InvocationExpressionSyntax> Cards)> CrossCardState(SyntaxNode root)
     {
         var cards = SampleCards(root);
@@ -990,7 +998,11 @@ public sealed class GallerySampleLintTests
             "these SampleCards share a UseState slot on a page that was not already doing so when " +
             "the rule was written (#982), so this is new coupling rather than the debt #980 is " +
             "draining. Give each card its own slot — adding it to KnownSharedStatePages will not " +
-            "silence this:\n  " + string.Join("\n  ", unrecorded));
+            "silence this. That leaves no escape on purpose, and the premise is falsifiable rather " +
+            "than assumed: a card is an independently copy-pasteable demo, so a slot spanning two " +
+            "of them is the anti-pattern by construction. A demo whose subject genuinely is shared " +
+            "state belongs inside a single card, where this rule does not look:\n  "
+            + string.Join("\n  ", unrecorded));
     }
 
     [Theory]
