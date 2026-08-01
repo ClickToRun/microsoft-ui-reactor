@@ -170,8 +170,14 @@ public class PersistenceEtwBridgeTests : IDisposable
         // foreign event won the race and it failed with "Intl != Persistence" — observed
         // ~1 full-suite run in 4, and 9/9 passing in isolation, which is why it was
         // mis-triaged for so long. It was the only one of this class's three SwallowedError
-        // lookups missing the discriminator; AssertEvent now makes that omission
-        // unrepresentable rather than something each author has to remember.
+        // lookups missing the discriminator. Every lookup in this class now goes through
+        // AssertEvent, which cannot be called without a discriminator argument.
+        //
+        // That is a convention backed by a helper, NOT a structural guarantee: a raw
+        // _listener.Events query is still writable, and there is one at the collision repro
+        // below — deliberately, as the specimen. What holds is that no lookup here omits the
+        // discriminator, not that none could. Making it genuinely unrepresentable would take
+        // an analyzer rule, or putting the raw event list out of reach.
         var evt = AssertEvent(
             _listener.Events,
             nameof(ReactorEventSource.SwallowedError),
