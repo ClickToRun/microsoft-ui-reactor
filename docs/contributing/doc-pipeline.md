@@ -181,6 +181,13 @@ the compile still exited 0 ([issue #989][i989]). Several guards now prevent that
   compile rather than at review time. Full-size captures are scored with the
   border/shadow chrome excluded; catalog thumbs (`<id>-thumb.<ext>`) carry no
   chrome and are scored whole.
+- A referenced image that clears the pre-decode caps but that the decoder
+  cannot read is reported as `REACTOR_DOC_IMAGE_003` rather than being scored.
+  The distinction is load-bearing: "could not decode" is not "not blank", and
+  spelling them the same way is what let a corrupt file pass the gate silently.
+  Note that a *truncated* PNG — the shape an interrupted capture leaves behind —
+  decodes rather than faulting, so it surfaces as `REACTOR_DOC_IMAGE_002`; the
+  `_003` path covers corruption that defeats the decoder outright.
 - The `-thumb` suffix is therefore **reserved**. A manifest entry whose `id`
   ends in it without `kind: catalog-thumb` is rejected with
   `REACTOR_DOC_SHOT_002` — otherwise a full-size screenshot could claim the
@@ -234,6 +241,7 @@ reference-generation codes.
 | `REACTOR_DOC_DIAGRAM_001`  | `mermaid-cli` not on PATH but the topic has `.mmd` files   |
 | `REACTOR_DOC_IMAGE_001`    | `![..](images/<topic>/...)` reference resolves to nothing  |
 | `REACTOR_DOC_IMAGE_002`    | Referenced screenshot exists but its interior is blank — a failed capture overwrote it. Restore from git and re-capture on an interactive desktop |
+| `REACTOR_DOC_IMAGE_003`    | Referenced image exists and is within the decode caps but could not be decoded — it is corrupt and will not render. Restore from git and re-capture |
 | `REACTOR_DOC_SHOT_001`     | Captured frame was contentless; nothing was written and the existing screenshot was left untouched |
 | `REACTOR_DOC_SHOT_002`     | Manifest screenshot id ends in the reserved `-thumb` suffix without `kind: catalog-thumb` |
 | `REACTOR_DOC_REGISTRY_W001`| Registry rule maps to a category with no `guide-pages`     |

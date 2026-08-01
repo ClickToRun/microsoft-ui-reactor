@@ -236,7 +236,7 @@ internal static class DiagramProcessor
     /// </param>
     public static List<TierLintFinding> ValidateImageRefs(
         string filePath, string body, string imagesRoot, string pageDir,
-        Dictionary<string, bool>? blankCache = null)
+        Dictionary<string, RasterVerdict>? blankCache = null)
     {
         var findings = new List<TierLintFinding>();
         var imagesFull = Path.GetFullPath(imagesRoot);
@@ -265,25 +265,37 @@ internal static class DiagramProcessor
                 continue;
             }
 
-            if (IsBlankRaster(full, blankCache))
+            switch (ScanRaster(full, blankCache))
             {
-                findings.Add(new TierLintFinding(
-                    "REACTOR_DOC_IMAGE_002",
-                    $"blank screenshot: {rel} has no visible content — it was most likely " +
-                    "overwritten by a capture whose doc-app window never painted. Restore it " +
-                    "from git and re-capture on an interactive desktop.",
-                    filePath, line, TierLintSeverity.Error));
+                case RasterVerdict.Blank:
+                    findings.Add(new TierLintFinding(
+                        "REACTOR_DOC_IMAGE_002",
+                        $"blank screenshot: {rel} has no visible content — it was most likely " +
+                        "overwritten by a capture whose doc-app window never painted. Restore it " +
+                        "from git and re-capture on an interactive desktop.",
+                        filePath, line, TierLintSeverity.Error));
+                    break;
+
+                case RasterVerdict.Undecodable:
+                    findings.Add(new TierLintFinding(
+                        "REACTOR_DOC_IMAGE_003",
+                        $"corrupt image: {rel} exists but could not be decoded, so it cannot be " +
+                        "checked for content and will not render. Restore it from git and re-capture.",
+                        filePath, line, TierLintSeverity.Error));
+                    break;
             }
         }
         return findings;
     }
 
     /// <summary>
-    /// True when <paramref name="path"/> is a raster image whose interior
-    /// (excluding the border + drop shadow the capture pipeline draws) contains
-    /// no content at all. Non-raster references (SVG) and undecodable files are
-    /// never reported — this gate exists to catch the specific solid-white stub
-    /// a failed capture produces, not to second-guess authored assets.
+    /// Classifies <paramref name="path"/> as scannable-and-fine, blank, or
+    /// undecodable. "Blank" means a raster image whose interior (excluding the
+    /// border + drop shadow the capture pipeline draws) contains no content at
+    /// all. Non-raster references (SVG) and files rejected by a pre-decode cap
+    /// are reported <see cref="RasterVerdict.Ok"/> — this gate exists to catch
+    /// the specific solid-white stub a failed capture produces, not to
+    /// second-guess authored assets.
     /// </summary>
     /// <remarks>
     /// The predicate is strictly "zero content pixels", never "small". The
@@ -295,23 +307,41 @@ internal static class DiagramProcessor
     /// <c>DocImageIntegrityTests.Committed_screenshot_corpus_has_no_blank_images</c>
     /// re-measures this on every run and logs it.
     /// </remarks>
-    private static bool IsBlankRaster(string path, Dictionary<string, bool>? cache)
+    private static RasterVerdict ScanRaster(string path, Dictionary<string, RasterVerdict>? cache)
     {
         if (cache is not null && cache.TryGetValue(path, out var cached)) return cached;
 
-        var blank = ComputeIsBlankRaster(path);
-        cache?[path] = blank;
-        return blank;
+        var verdict = ComputeRasterVerdict(path);
+        cache?[path] = verdict;
+        return verdict;
     }
 
-    private static bool ComputeIsBlankRaster(string path)
+    /// <summary>
+    /// Outcome of scanning a referenced image. Three states rather than two
+    /// because "not blank" and "could not tell" must not be spelled the same
+    /// way: a gate that reports the second as the first passes silently on
+    /// exactly the corrupt files it exists to notice.
+    /// </summary>
+    internal enum RasterVerdict
+    {
+        /// <summary>Decoded and has visible content, or deliberately not scanned (SVG, over-cap).</summary>
+        Ok,
+
+        /// <summary>Decoded, and the scanned region contains no content pixel at all.</summary>
+        Blank,
+
+        /// <summary>Admitted to the decode step and the decoder faulted.</summary>
+        Undecodable,
+    }
+
+    private static RasterVerdict ComputeRasterVerdict(string path)
     {
         var ext = Path.GetExtension(path);
         if (!ext.Equals(".png", StringComparison.OrdinalIgnoreCase) &&
             !ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) &&
             !ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase))
         {
-            return false;
+            return RasterVerdict.Ok;
         }
 
         try
@@ -320,31 +350,41 @@ internal static class DiagramProcessor
             // This walks every referenced file in the committed corpus and hands
             // it to GDI+, so a hostile or corrupt image must be rejected on
             // cheap metadata before a decoder ever sees it.
+            //
+            // These three are deliberate *skips*, not verdicts: an over-cap or
+            // non-raster-magic file was never admitted to the decode step, so
+            // reporting it as undecodable would blame the file for a decision
+            // this gate made about it.
             var info = new FileInfo(path);
-            if (!info.Exists || info.Length == 0 || info.Length > ImageProcessor.MaxImageBytes) return false;
-            if (!HasRasterMagic(path)) return false;
+            if (!info.Exists || info.Length == 0 || info.Length > ImageProcessor.MaxImageBytes) return RasterVerdict.Ok;
+            if (!HasRasterMagic(path)) return RasterVerdict.Ok;
 
             using var bmp = new global::System.Drawing.Bitmap(path);
             if (bmp.Width > ImageProcessor.MaxImageDimension ||
                 bmp.Height > ImageProcessor.MaxImageDimension)
             {
-                return false;
+                return RasterVerdict.Ok;
             }
 
             var region = ImageProcessor.ContentRegionFor(path, bmp.Width, bmp.Height);
-            return !ImageProcessor.HasContentPixel(bmp, region);
+            return ImageProcessor.HasContentPixel(bmp, region) ? RasterVerdict.Ok : RasterVerdict.Blank;
         }
         catch (Exception ex) when (ex is ArgumentException or OutOfMemoryException or IOException
                                       or UnauthorizedAccessException
                                       or global::System.Runtime.InteropServices.ExternalException)
         {
-            // Undecodable or unreadable — REACTOR_DOC_IMAGE_001 already proved
-            // the file exists, and misreporting a decode failure as "blank"
-            // would send an author chasing the wrong problem. GDI+ surfaces
-            // decode faults as ArgumentException *or* ExternalException
-            // depending on the fault, so both are caught here; a compile must
-            // not die on one bad byte in one image.
-            return false;
+            // The file cleared every pre-decode guard and the decoder still
+            // faulted, so it is corrupt rather than merely unscannable. GDI+
+            // surfaces decode faults as ArgumentException *or* ExternalException
+            // depending on the fault, so both are caught here: a compile must
+            // not die on one bad byte in one image, but it must not pass
+            // silently either, which is what returning "not blank" used to do.
+            //
+            // Reported separately from IMAGE_002 because the remedy differs —
+            // a blank capture is re-captured, a corrupt file is restored — and
+            // because a decode fault misreported as "blank" sends an author
+            // chasing a rendering problem that isn't there.
+            return RasterVerdict.Undecodable;
         }
     }
 

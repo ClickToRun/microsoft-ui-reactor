@@ -129,6 +129,111 @@ public class DocImageIntegrityTests
         Assert.Empty(findings);
     }
 
+    /// <summary>
+    /// A raster file that exists, carries valid magic and sits inside the size
+    /// caps but cannot be decoded must be reported, not silently accepted.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the gate's own fail-open. The blankness scan is wrapped in a
+    /// catch that returns "not blank" on any decode fault, so before this
+    /// change an undecodable image produced <em>zero</em> findings — the
+    /// compile printed nothing and exited 0, which is the same silent-success
+    /// shape as issue #989 itself, one layer up.
+    /// </para>
+    /// <para>
+    /// It is reachable rather than theoretical: any corruption that survives
+    /// the magic check but defeats the decoder lands here. The fixture keeps a
+    /// real PNG signature and replaces the body, because a file with no
+    /// signature at all is turned away by <c>HasRasterMagic</c> before the
+    /// decode step and would not exercise the catch. Note the sibling test
+    /// below: a *truncated* PNG does not reach this path — GDI+ decodes it —
+    /// so this branch and the blank branch each own a distinct real shape.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Gate_reports_an_undecodable_image_instead_of_passing_it()
+    {
+        using var tree = new TempGuideTree();
+        var valid = MakeCapturedStub(200, 150, blank: false);
+
+        // Keep the 8-byte PNG signature so HasRasterMagic still admits the file
+        // to the decode step, but replace the body so the decoder cannot read it.
+        var corrupt = new byte[valid.Length];
+        global::System.Array.Copy(valid, corrupt, 8);
+        for (var i = 8; i < corrupt.Length; i++) corrupt[i] = (byte)(i * 31 % 251);
+        tree.WriteImage("controls/half-written.png", corrupt);
+
+        var findings = DiagramProcessor.ValidateImageRefs(
+            "controls.md.dt",
+            "![Half written](images/controls/half-written.png)",
+            tree.ImagesDir,
+            tree.GuideDir);
+
+        // Guard the premise: if the truncated file still decoded, or were
+        // rejected by the magic check, this test would be asserting something
+        // other than what it claims.
+        Assert.True(
+            global::System.IO.File.Exists(
+                global::System.IO.Path.Combine(tree.ImagesDir, "controls", "half-written.png")),
+            "fixture did not write the file — every assertion below would be about a missing file");
+
+        var finding = Assert.Single(findings);
+        Assert.Equal("REACTOR_DOC_IMAGE_003", finding.Code);
+        Assert.Contains("decode", finding.Message, global::System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Non-vacuity pair: the untruncated original of the very same image is
+    /// accepted. Only the byte count differs, so the two together show the new
+    /// code fires on undecodability rather than on the fixture in general.
+    /// </summary>
+    [Fact]
+    public void Gate_accepts_the_untruncated_original_of_that_image()
+    {
+        using var tree = new TempGuideTree();
+        tree.WriteImage("controls/fully-written.png", MakeCapturedStub(200, 150, blank: false));
+
+        var findings = DiagramProcessor.ValidateImageRefs(
+            "controls.md.dt",
+            "![Fully written](images/controls/fully-written.png)",
+            tree.ImagesDir,
+            tree.GuideDir);
+
+        Assert.Empty(findings);
+    }
+
+    /// <summary>
+    /// A PNG cut off mid-write — what an interrupted capture leaves behind — is
+    /// reported as <c>REACTOR_DOC_IMAGE_002</c>, not as a decode failure.
+    /// </summary>
+    /// <remarks>
+    /// This is a measurement, not an aspiration, and it is the reason the
+    /// undecodable branch above uses a corrupted body rather than a truncation:
+    /// GDI+ decodes a truncated PNG rather than throwing, yielding the
+    /// unwritten scanlines as blank, so the realistic interrupted-write shape
+    /// lands on the blank gate and never reaches the catch. Pinning it here
+    /// means that if a future decoder change starts throwing instead, this test
+    /// moves rather than silently swapping which code fires.
+    /// </remarks>
+    [Fact]
+    public void Gate_reports_a_truncated_capture_as_blank_not_as_corrupt()
+    {
+        using var tree = new TempGuideTree();
+        var valid = MakeCapturedStub(200, 150, blank: false);
+        var truncated = new byte[valid.Length / 3];
+        global::System.Array.Copy(valid, truncated, truncated.Length);
+        tree.WriteImage("controls/interrupted.png", truncated);
+
+        var findings = DiagramProcessor.ValidateImageRefs(
+            "controls.md.dt",
+            "![Interrupted](images/controls/interrupted.png)",
+            tree.ImagesDir,
+            tree.GuideDir);
+
+        Assert.Equal("REACTOR_DOC_IMAGE_002", Assert.Single(findings).Code);
+    }
+
     [Fact]
     public void Gate_does_not_report_an_undecodable_file_as_blank()
     {

@@ -492,7 +492,7 @@ internal static partial class CompileCommand
 
         // Shared across every page so the screenshot corpus is decoded once per
         // compile rather than once per referencing page.
-        var blankImageCache = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        var blankImageCache = new Dictionary<string, DiagramProcessor.RasterVerdict>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var (topicId, template) in templates)
         {
