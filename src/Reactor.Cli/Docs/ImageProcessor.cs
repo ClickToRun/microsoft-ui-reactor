@@ -535,12 +535,35 @@ internal static class ImageProcessor
     internal const string ThumbSuffix = "-thumb";
 
     /// <summary>
+    /// True when <paramref name="id"/> — a manifest id or file-name stem, never a
+    /// path — ends in the reserved catalog-thumbnail suffix.
+    /// </summary>
+    /// <remarks>
+    /// The single definition of the suffix rule. <see cref="HasThumbSuffix"/> is
+    /// this predicate with filename extraction layered on top, for the case where
+    /// the subject really is a path; keeping them as one rule plus one adapter is
+    /// what stops the two from disagreeing about the same string.
+    /// <para>
+    /// Passing an <em>id</em> to the path overload is the mistake this split
+    /// exists to make hard: <c>Path.GetFileNameWithoutExtension("widget.v2-thumb")</c>
+    /// returns <c>"widget"</c>, because it reads <c>.v2-thumb</c> as an extension.
+    /// An id is not a path and has no extension to strip, so the transformation
+    /// silently changed the subject and the check then answered correctly about a
+    /// string nobody asked about.
+    /// </para>
+    /// </remarks>
+    internal static bool IdHasThumbSuffix(string id) =>
+        id.EndsWith(ThumbSuffix, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// True when <paramref name="path"/> carries the reserved catalog-thumbnail
     /// suffix, i.e. it was written by <see cref="ProcessThumb"/> and has no chrome.
     /// </summary>
+    /// <remarks>
+    /// For paths only — see <see cref="IdHasThumbSuffix"/> for manifest ids.
+    /// </remarks>
     internal static bool HasThumbSuffix(string path) =>
-        Path.GetFileNameWithoutExtension(path)
-            .EndsWith(ThumbSuffix, StringComparison.OrdinalIgnoreCase);
+        IdHasThumbSuffix(Path.GetFileNameWithoutExtension(path));
 
     /// <summary>
     /// The file-name stem a screenshot is written to and linked as, given its
@@ -567,7 +590,7 @@ internal static class ImageProcessor
     /// </para>
     /// </remarks>
     internal static string ThumbAwareFileBase(string id, bool isThumb) =>
-        !isThumb || id.EndsWith(ThumbSuffix, StringComparison.OrdinalIgnoreCase)
+        !isThumb || IdHasThumbSuffix(id)
             ? id
             : id + ThumbSuffix;
 
@@ -590,6 +613,15 @@ internal static class ImageProcessor
     /// blank capture behind its own border — the exact failure this gate exists
     /// to catch. The inference is sound because the reservation makes the
     /// collision unrepresentable, not because the convention is usually followed.
+    /// </para>
+    /// <para>
+    /// That soundness depends on the reservation testing the id with
+    /// <see cref="IdHasThumbSuffix"/>. It previously used the path overload, which
+    /// strips from the last dot, so a dotted id such as <c>widget.v2-thumb</c>
+    /// passed the reservation and still produced <c>widget.v2-thumb.png</c> — a
+    /// file this method then scored as a thumb. The two ends disagreed about the
+    /// same screenshot, which is precisely the collision the paragraph above
+    /// claims cannot be authored.
     /// </para>
     /// </remarks>
     internal static Rectangle ContentRegionFor(string path, int width, int height) =>

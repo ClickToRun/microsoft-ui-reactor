@@ -687,6 +687,59 @@ public class ImageProcessorTests
         => Assert.Equal(expected, ImageProcessor.ThumbAwareFileBase(id, isThumb));
 
     /// <summary>
+    /// The id predicate and the path predicate must agree about the same
+    /// screenshot: whatever the reservation decides about an id, the gate must
+    /// decide about the file that id produces.
+    /// </summary>
+    /// <remarks>
+    /// This is the property that broke. <c>HasThumbSuffix</c> is a path predicate
+    /// — it strips from the last dot — and the reservation was calling it with a
+    /// manifest <em>id</em>. An id has no extension, so for the dotted cases the
+    /// strip removed a real part of the name and the check then answered
+    /// correctly about a string nobody had asked about. Stated as agreement
+    /// rather than as two expected values, because the failure was never that
+    /// either side was wrong on its own — it was that they disagreed.
+    /// <para>
+    /// Measured limitation, recorded so a green here is not over-read: now that
+    /// <c>HasThumbSuffix</c> delegates to <c>IdHasThumbSuffix</c>, mutating the
+    /// shared rule moves <em>both</em> sides and this test still passes — it was
+    /// one of four kills before the two were unified and is zero after. It cannot
+    /// convict a wrong rule; <c>Id_thumb_suffix_is_read_off_the_whole_id</c> and
+    /// the end-to-end <c>Reserved_thumb_suffix_is_rejected_for_non_catalog_screenshots</c>
+    /// row do that. What this one convicts is <em>re-divergence</em> — someone
+    /// giving either predicate its own copy of the rule again, which is how the
+    /// bug arrived in the first place.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("widget-thumb")]
+    [InlineData("widget.v2-thumb")]
+    [InlineData("a.b.c-thumb")]
+    [InlineData("widget")]
+    [InlineData("widget.v2")]
+    public void The_id_and_the_file_it_produces_agree_about_thumbness(string id)
+    {
+        var fileName = ImageProcessor.ThumbAwareFileBase(id, isThumb: false) + ".png";
+
+        Assert.Equal(
+            ImageProcessor.IdHasThumbSuffix(id),
+            ImageProcessor.HasThumbSuffix(fileName));
+    }
+
+    /// <summary>
+    /// The id predicate reads the whole id, including any dots.
+    /// </summary>
+    [Theory]
+    [InlineData("widget-thumb", true)]
+    [InlineData("widget.v2-thumb", true)]
+    [InlineData("a.b.c-thumb", true)]
+    [InlineData("widget", false)]
+    [InlineData("widget.v2", false)]
+    [InlineData("widget-thumb.v2", false)]
+    public void Id_thumb_suffix_is_read_off_the_whole_id(string id, bool expected)
+        => Assert.Equal(expected, ImageProcessor.IdHasThumbSuffix(id));
+
+    /// <summary>
     /// Applying the rule twice changes nothing — the property both call sites
     /// depend on, stated directly rather than inferred from the cases above.
     /// </summary>

@@ -195,10 +195,22 @@ public class CompileCaptureSkipTests
     /// that name would be scored whole and could hide a blank capture behind its
     /// own border. The suffix is reserved to make that unrepresentable.
     /// </summary>
+    /// <remarks>
+    /// The dotted row is the one that used to slip through. The reservation
+    /// tested the id with the <em>path</em> predicate, which strips from the last
+    /// dot, so <c>widget.v2-thumb</c> was read as <c>widget</c> and passed — while
+    /// the file it produced, <c>widget.v2-thumb.png</c>, still had its extension
+    /// stripped to <c>widget.v2-thumb</c> and so <em>was</em> scored as a thumb.
+    /// The two ends disagreed about one screenshot, which is exactly the
+    /// collision this rule exists to prevent.
+    /// </remarks>
     [Theory]
     [InlineData("widget-thumb", "screenshot", 1)]
+    [InlineData("widget.v2-thumb", "screenshot", 1)]
     [InlineData("widget-thumb", "catalog-thumb", 0)]
+    [InlineData("widget.v2-thumb", "catalog-thumb", 0)]
     [InlineData("widget", "screenshot", 0)]
+    [InlineData("widget.v2", "screenshot", 0)]
     public void Reserved_thumb_suffix_is_rejected_for_non_catalog_screenshots(
         string id, string kind, int expectedExit)
     {

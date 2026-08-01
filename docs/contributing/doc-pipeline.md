@@ -289,6 +289,15 @@ the compile still exited 0 ([issue #989][i989]). Several guards now prevent that
   `ScreenshotCapture` chooses the file that is written and `DocAssembler` chooses
   the URL that points at it, and a divergence surfaces as a broken image rather
   than a compile error.
+- The reservation reads the **whole id**, via `ImageProcessor.IdHasThumbSuffix`.
+  This is not incidental: the sibling `HasThumbSuffix` is a *path* predicate that
+  strips from the last dot, and calling it with an id — which has no extension —
+  silently changed the subject. A dotted id such as `widget.v2-thumb` was read as
+  `widget`, passed the reservation, and still produced `widget.v2-thumb.png`,
+  which the gate then *did* score as a thumb. The two ends disagreed about one
+  screenshot, which is precisely the collision this rule claims to make
+  unrepresentable. One suffix rule, plus one adapter that adds filename
+  extraction for the case where the subject really is a path.
 - Image-reference validation runs on the *assembled* page, where `DocAssembler`
   prefixes one `../` per level of topic nesting. References resolve **relative
   to the page**, so nested topics (`recipes/*`) are checked like flat ones — and
@@ -340,7 +349,7 @@ reference-generation codes.
 | `REACTOR_DOC_IMAGE_002`    | Referenced screenshot exists but its interior is blank — a failed capture overwrote it. Restore from git and re-capture on an interactive desktop |
 | `REACTOR_DOC_IMAGE_003`    | Referenced image cannot be scored as an image. Either it is not one — zero bytes, or no PNG/JPEG signature under a `.png`/`.jpg` name (a Git-LFS pointer, an HTML error page, a mislabelled SVG) — or it is corrupt and will not render (restore from git and re-capture), or it is intact but locked / permission-denied (clear that and re-run) |
 | `REACTOR_DOC_SHOT_001`     | Captured frame was contentless; nothing was written and the existing screenshot was left untouched. The message names which clause fired — *no pixel below the threshold* or *one flat colour* — because for a dark fill the first wording states the opposite of what happened |
-| `REACTOR_DOC_SHOT_002`     | Manifest screenshot id ends in the reserved `-thumb` suffix without `kind: catalog-thumb` |
+| `REACTOR_DOC_SHOT_002`     | Manifest screenshot id ends in the reserved `-thumb` suffix without `kind: catalog-thumb`. Matched against the whole id, so a dotted id (`widget.v2-thumb`) is caught too |
 | `REACTOR_DOC_REGISTRY_W001`| Registry rule maps to a category with no `guide-pages`     |
 | `REACTOR_DOC_REGISTRY_W002`| Registry-declared guide page has no inbound `<!-- ref:Member -->` marker (doc-coverage gate, spec [041 §5.3](../specs/041-docs-comprehensive-uplift.md)) |
 

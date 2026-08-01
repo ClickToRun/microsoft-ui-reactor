@@ -177,7 +177,7 @@ internal static partial class CompileCommand
                 // would be scored whole, and its own chrome would then mask a blank
                 // capture from the REACTOR_DOC_IMAGE_002 gate. Reserve the suffix so
                 // that collision cannot be authored in the first place.
-                if (ImageProcessor.HasThumbSuffix(ss.Id)
+                if (ImageProcessor.IdHasThumbSuffix(ss.Id)
                     && !string.Equals(ss.Kind, "catalog-thumb", StringComparison.OrdinalIgnoreCase))
                 {
                     reservedSuffixIds.Add((ss.Id, fullId, manifestPath));
