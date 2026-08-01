@@ -38,6 +38,62 @@ public class PollForFrameTests
     public PollForFrameTests(ITestOutputHelper output) => _output = output;
 
     /// <summary>
+    /// The capture client must address the server by IP literal, not by name.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the regression that broke every socket test in this class on CI
+    /// while passing locally, and the reason it deserves a deterministic oracle
+    /// rather than trust in the fixtures: they only discriminate on a machine
+    /// where <c>localhost</c> resolves to <c>::1</c> first and the IPv6 connect
+    /// stalls. There, every request is cancelled inside the doomed attempt and
+    /// nothing reaches the IPv4 listener — which is also what production does,
+    /// since <c>PreviewCaptureServer</c> binds <c>http://127.0.0.1:{port}/</c>
+    /// and nothing else.
+    /// </para>
+    /// <para>
+    /// The assertion is on the property, not the spelling: the host must parse
+    /// as an <see cref="IPAddress"/>, which is exactly the condition under which
+    /// no name resolution happens. It fails for <c>localhost</c>, for any other
+    /// hostname, and for a future change back to one.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("frame")]
+    [InlineData("preview")]
+    public void Capture_urls_address_the_server_by_ip_literal(string endpoint)
+    {
+        var url = endpoint == "frame"
+            ? ScreenshotCapture.FrameUrl(4242)
+            : ScreenshotCapture.PreviewUrl(4242);
+        var uri = new global::System.Uri(url);
+
+        Assert.True(IPAddress.TryParse(uri.Host, out var ip),
+            $"host '{uri.Host}' is a name, so the request depends on how it resolves — " +
+            "the failure mode is a stalled IPv6 attempt that eats the whole deadline");
+        Assert.Equal(IPAddress.Loopback, ip);
+        Assert.Equal(4242, uri.Port);
+        Assert.Equal($"/{endpoint}", uri.AbsolutePath);
+    }
+
+    /// <summary>
+    /// The fixtures in this file bind <see cref="IPAddress.Loopback"/>, so the
+    /// address the client uses has to be one they are reachable on. Stated as a
+    /// test because "the client and the fixture agree" is otherwise an
+    /// assumption that only fails somewhere else, on a different machine.
+    /// </summary>
+    [Fact]
+    public void Fixtures_bind_the_address_the_capture_client_uses()
+    {
+        var probe = new TcpListener(IPAddress.Loopback, 0);
+        probe.Start();
+        var bound = ((IPEndPoint)probe.LocalEndpoint).Address;
+        probe.Stop();
+
+        Assert.Equal(bound, IPAddress.Parse(ScreenshotCapture.CaptureHost));
+    }
+
+    /// <summary>
     /// The whole point of the hold-out: a blank first frame must not be what
     /// gets written. Without <c>requireContent</c> the same server returns the
     /// blank frame, which is asserted below as the differential control — so
@@ -211,8 +267,8 @@ public class PollForFrameTests
 
         public StallingListener()
         {
-            _listener = new TcpListener(IPAddress.IPv6Any, 0);
-            _listener.Server.DualMode = true;
+            // Loopback-only, mirroring PreviewCaptureServer — see FrameServer.
+            _listener = new TcpListener(IPAddress.Loopback, 0);
             _listener.Start();
             Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
             _ = Task.Run(AcceptLoop);
@@ -374,6 +430,9 @@ public class PollForFrameTests
         return ms.ToArray();
     }
 
+    /// <summary>A scripted HTTP reply: the status line to send and the body to send with it.</summary>
+    private readonly record struct Reply(int Status, byte[] Body);
+
     /// <summary>
     /// Minimal HTTP/1.1 server that answers each <c>GET</c> with the next body in
     /// a scripted sequence, sticking on the last one.
@@ -383,26 +442,28 @@ public class PollForFrameTests
     /// A body slot is consumed only once a complete request head (<c>\r\n\r\n</c>)
     /// has actually been read. An earlier version keyed the response on the
     /// accepted-connection ordinal instead, and any connection that carried no
-    /// request — <c>localhost</c> resolves to both <c>::1</c> and
-    /// <c>127.0.0.1</c>, so the client's happy-eyeballs probing can leave one —
-    /// silently shifted the whole sequence by one. That made the fixture report
-    /// "the poller accepted a blank frame" when the poller had done nothing
-    /// wrong. Keying on a parsed request removes the ambiguity: a connection
-    /// with no request gets no body and advances nothing.
+    /// request silently shifted the whole sequence by one. That made the fixture
+    /// report "the poller accepted a blank frame" when the poller had done
+    /// nothing wrong. Keying on a parsed request removes the ambiguity: a
+    /// connection with no request gets no body and advances nothing.
     /// </para>
     /// <para>
-    /// The listener binds to <c>IPv6Any</c> with <c>DualMode = true</c> so that
-    /// <c>::1</c> connections are served directly. On CI, <c>localhost</c> often
-    /// resolves to <c>::1</c> first; without dual-mode the OS silently drops the
-    /// <c>::1</c> SYN (no RST) and happy-eyeballs falls back to <c>127.0.0.1</c>
-    /// after a ~2 s delay — long enough to exhaust a short per-request
-    /// <see cref="System.Threading.CancellationTokenSource"/> before any frame
-    /// is served.
+    /// Binds <see cref="IPAddress.Loopback"/> — IPv4, loopback only — because
+    /// that is exactly what <c>PreviewCaptureServer</c> binds in production. The
+    /// fidelity is the point: a fixture that accepts addresses production does
+    /// not cannot observe a client/server address mismatch, which is the defect
+    /// that took this class from green to seven failures. Making the fixture
+    /// dual-stack would turn those failures green while leaving real captures
+    /// broken on the same machine.
+    /// </para>
+    /// <para>
+    /// There is no loopback-only dual-stack bind to reach for as a compromise:
+    /// <c>DualMode</c> maps IPv4 only under <c>IPv6Any</c>, which binds
+    /// <c>::</c> — every interface — so the fixture would accept connections
+    /// from the network. Measured, not assumed. The address mismatch belongs to
+    /// the client, and that is where it is fixed.
     /// </para>
     /// </remarks>
-    /// <summary>A scripted HTTP reply: the status line to send and the body to send with it.</summary>
-    private readonly record struct Reply(int Status, byte[] Body);
-
     private sealed class FrameServer : global::System.IDisposable
     {
         private readonly TcpListener _listener;
@@ -428,8 +489,7 @@ public class PollForFrameTests
         public FrameServer(IReadOnlyList<Reply> replies)
         {
             _replies = replies;
-            _listener = new TcpListener(IPAddress.IPv6Any, 0);
-            _listener.Server.DualMode = true;
+            _listener = new TcpListener(IPAddress.Loopback, 0);
             _listener.Start();
             Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
             _ = Task.Run(AcceptLoop);

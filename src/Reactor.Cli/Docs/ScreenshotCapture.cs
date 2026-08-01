@@ -201,7 +201,7 @@ internal static class ScreenshotCapture
                     {
                         var json = $"{{\"component\":\"{screenshot.Component}\"}}";
                         var content = new StringContent(json, global::System.Text.Encoding.UTF8, "application/json");
-                        var switchResp = await http.PostAsync($"http://localhost:{port}/preview", content);
+                        var switchResp = await http.PostAsync(PreviewUrl(port), content);
                         if (!switchResp.IsSuccessStatusCode)
                         {
                             Console.Error.WriteLine($" ✗ Failed to switch to component '{screenshot.Component}' ({switchResp.StatusCode})");
@@ -348,7 +348,7 @@ internal static class ScreenshotCapture
             using var cts = new CancellationTokenSource(remaining);
             try
             {
-                using var resp = await http.GetAsync($"http://localhost:{port}/frame", cts.Token);
+                using var resp = await http.GetAsync(FrameUrl(port), cts.Token);
                 if (resp.StatusCode == global::System.Net.HttpStatusCode.OK)
                 {
                     var bytes = await resp.Content.ReadAsByteArrayAsync(cts.Token);
@@ -373,6 +373,36 @@ internal static class ScreenshotCapture
     }
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>
+    /// Base address of the capture server, as an IP literal rather than a name.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>PreviewCaptureServer</c> binds <c>http://127.0.0.1:{port}/</c> — IPv4
+    /// only. Asking for <c>localhost</c> instead made every request depend on
+    /// how that name resolves: where it yields <c>::1</c> first and the IPv6
+    /// connect stalls rather than being refused, each attempt burns the TCP
+    /// connect timeout before falling back to IPv4.
+    /// </para>
+    /// <para>
+    /// That was survivable only by accident. <see cref="HttpClient"/>'s 100-second
+    /// default timeout was long enough to absorb the stall, so the mismatch was
+    /// invisible until requests were bounded by the 5-second capture deadline —
+    /// at which point every poll is cancelled during the doomed IPv6 attempt and
+    /// no frame is ever retrieved. The deadline did not cause that; it revealed
+    /// it, and the same machine would have failed every real capture.
+    /// </para>
+    /// <para>
+    /// Using the literal removes name resolution from the path entirely. It is
+    /// also what the server's own Host-header check accepts.
+    /// </para>
+    /// </remarks>
+    internal const string CaptureHost = "127.0.0.1";
+
+    internal static string FrameUrl(int port) => $"http://{CaptureHost}:{port}/frame";
+
+    internal static string PreviewUrl(int port) => $"http://{CaptureHost}:{port}/preview";
 
     /// <summary>
     /// Reads the app's stdout for the <c>CAPTURE_PORT=</c> and <c>CAPTURE_TOKEN=</c>
