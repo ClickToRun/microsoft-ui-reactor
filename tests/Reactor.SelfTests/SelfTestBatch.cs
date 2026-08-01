@@ -904,6 +904,12 @@ public class SelfTestBatch
         // pass by skipping rather than by succeeding, and the pass would look identical. So on CI
         // the premise is asserted too. Without this the check cannot come out the other way, and a
         // check that cannot fail is the instrument bug this whole PR is about.
+        //
+        // What this does not prove: that GITHUB_ACTIONS itself is set. Verification has to bottom
+        // out somewhere, and this is a deliberate choice of where — one documented platform
+        // invariant, rather than the two silently-skippable unknowns it replaced. Note the summary
+        // file cannot be checked from a later step instead: GITHUB_STEP_SUMMARY is unique per step,
+        // so a following step reads its own empty file, not this one's.
         if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true")
         {
             Assert.IsFalse(string.IsNullOrWhiteSpace(summaryPath),
