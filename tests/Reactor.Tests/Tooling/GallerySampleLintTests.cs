@@ -886,15 +886,30 @@ public sealed class GallerySampleLintTests
     /// still containing offenders.
     /// </para>
     /// <para>
-    /// At zero the whole ledger apparatus goes, in one commit with the fix that empties it: this
-    /// array, <see cref="SharedStateDebtAtIntroduction"/>, all three <c>Except</c> arms, and the
-    /// ambiguity arm — which exists only because <c>Except</c> dedups, so with no ledger to dedup
-    /// through it guards nothing that <c>offenders.Count == 0</c> does not already catch. What
-    /// remains is that single assertion plus the vacuity floors. Doing it in the same commit
-    /// matters because emptying the list without deleting the arms leaves a suppression mechanism
-    /// with nothing in it, which is an invitation to refill rather than a fixed rule, and because
-    /// the intermediate state — pages fixed, entries still listed — is red, so splitting it across
-    /// two commits puts that red on main rather than on either branch.
+    /// At zero, emptying this array is on its own enough to keep the tree green — measured against
+    /// the real combined tree rather than reasoned about: merging the fix branch with this array
+    /// intact gives <c>Failed: 1, Passed: 227</c> (the staleness arm, naming the entries), and
+    /// emptying it and nothing else gives <c>Failed: 0, Passed: 228</c>, <c>Skipped: 0</c> in both
+    /// legs. The rest of the apparatus is inert once <c>offenders</c> is empty: every
+    /// <c>Except</c> arm is trivially satisfied and <c>offenders.Except(KnownSharedStatePages)</c>
+    /// has already become the bare <c>offenders.Count == 0</c> gate.
+    /// </para>
+    /// <para>
+    /// Deleting the rest is therefore cleanup, not a correctness requirement, and the distinction is
+    /// recorded because stating it the other way round is what makes a merge instruction rot: a
+    /// required-looking list whose items stop existing (this one already outlived a size ceiling and
+    /// a <c>StaysClosed</c> fact) still parses as true, and the reader cannot tell which items were
+    /// load-bearing. The cleanup is: this array, <see cref="SharedStateDebtAtIntroduction"/>, all
+    /// three <c>Except</c> arms, and the ambiguity arm — which exists only because <c>Except</c>
+    /// dedups, so with no ledger to dedup through it guards nothing that <c>offenders.Count == 0</c>
+    /// does not already catch. What remains is that single assertion plus the vacuity floors.
+    /// </para>
+    /// <para>
+    /// Do it in the same commit as the fix that empties it. The intermediate state — pages fixed,
+    /// entries still listed — is the red measured above, so splitting it across two commits puts
+    /// that red on <c>main</c> rather than on either branch; and an emptied list left standing is a
+    /// suppression mechanism with nothing in it, which is an invitation to refill rather than a
+    /// fixed rule.
     /// </para>
     /// </summary>
     static readonly string[] KnownSharedStatePages =
