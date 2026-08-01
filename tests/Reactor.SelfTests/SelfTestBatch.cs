@@ -730,7 +730,9 @@ public class SelfTestBatch
     // direction, and therefore the dangerous one. The wording had to go (it asserts the positional
     // attribution this change exists to retire, and the budget is no longer a fixed 300000), so
     // anchor triage to TrailerDiscriminator, which reports what the Host got to do rather than how
-    // the harness worded it.
+    // the harness worded it. Bounded, though: it says what the Host got to do, not WHICH BINARY
+    // did it — a stale binary run under --no-build after a failed build emits an identical
+    // trailer. See TESTING.md for the fail-closed build step.
     private static string TrailerDiscriminator(bool sawTotalFailures) =>
         sawTotalFailures
             ? " (Host finished its run, then exited abnormally)"

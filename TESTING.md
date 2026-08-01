@@ -158,6 +158,14 @@ This shape cost six separate investigations before it was diagnosed (issue #988)
 
 Positional attribution means **unproven, not exonerated**. The absence of a `HANG_DETECTED` signal does not clear `X`: the watchdog can be disabled by env or by an attached debugger, and a pathologically slow or order-dependent fixture can pump the dispatcher often enough never to trip it. Start with suite duration; if duration looks normal, `X` becoming the suspect again is the one scenario that fits.
 
+> **The trailer states what the Host *got to do* — not *which binary did it*.** Every reading above assumes the Host you ran was built from the tree you are debugging, and `--no-build` does not check that. If the preceding build failed and an earlier binary is still on disk, the run proceeds against the stale one and emits a byte-identical trailer, exit code and TAP plan. Nothing in the output distinguishes it. Note the direction: this fails toward **a false green, which ends an investigation**, whereas the more familiar staleness traps produce a false red, which starts one. So whenever you pass `--no-build`, make the build a separate step that fails closed:
+>
+> ```powershell
+> dotnet build tests/Reactor.AppTests.Host -c Debug -p:Platform=x64
+> if ($LASTEXITCODE -ne 0) { throw "build failed - selftest output would be STALE" }
+> dotnet run --project tests/Reactor.AppTests.Host --no-build -c Debug -p:Platform=x64 -- --self-test --filter "<Prefix>"
+> ```
+
 Fixtures with no result are reported **Skipped (`Assert.Inconclusive`)**, not passed. A skipped fixture carries no information about itself.
 
 **The budget is a backstop, not the hang detector.** Two Host-side watchdogs detect hangs and both name a culprit: a per-fixture graceful timeout (emits `not ok <n> <fixture>_TIMEOUT`) and the 60 s off-dispatcher watchdog (emits `Bail out! HANG_DETECTED: <name>`). The wrapper cap only fires when both were unable to. So it is sized as *"the suite could not legitimately take this long"*, not *"the suite normally takes this long"* — raising it does not delay hang detection.
