@@ -234,6 +234,65 @@ public class DocImageIntegrityTests
         Assert.Equal("REACTOR_DOC_IMAGE_002", Assert.Single(findings).Code);
     }
 
+    /// <summary>
+    /// A file too short to hold a signature is skipped as "not a raster", not
+    /// crashed on.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This guards the regression risk introduced by reading the header with
+    /// <c>ReadExactly</c> instead of <c>Read</c>: <c>ReadExactly</c> throws
+    /// <c>EndOfStreamException</c> on a file shorter than the buffer, a throw
+    /// site the old code did not have. The test proves that throw is absorbed
+    /// rather than escaping <c>ValidateImageRefs</c> and taking a whole compile
+    /// down on one stray short file. Verified by making the exception escape
+    /// both catches, which fails exactly this test and nothing else.
+    /// </para>
+    /// <para>
+    /// It does <em>not</em> prove the dedicated <c>EndOfStreamException</c>
+    /// catch is load-bearing. That was the claim first written here and the
+    /// measurement refuted it: deleting that catch changes no test, because
+    /// <c>EndOfStreamException</c> derives from <c>IOException</c> and the
+    /// outer handler already covers it. The inner catch earns its place by
+    /// separating two cases that deserve different answers later, not by being
+    /// necessary now.
+    /// </para>
+    /// <para>
+    /// Nor does it prove the fail-open the <c>ReadExactly</c> change actually
+    /// fixes — a short read returning fewer bytes without being at EOF, which
+    /// silently skipped blank-frame validation for a valid PNG.
+    /// <c>HasRasterMagic</c> takes a path and opens its own
+    /// <c>FileStream</c>, so there is no seam to inject a stream that
+    /// under-reads, and a local <c>FileStream</c> will not do it on demand.
+    /// That change is kept because the contract of <c>Stream.Read</c> permits
+    /// the short read, not because anything here demonstrates one.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Gate_skips_a_file_too_short_to_carry_a_signature()
+    {
+        using var tree = new TempGuideTree();
+        tree.WriteImage("controls/stub.png", [0x89, 0x50, 0x4E, 0x47]);
+
+        var findings = DiagramProcessor.ValidateImageRefs(
+            "controls.md.dt",
+            "![Stub](images/controls/stub.png)",
+            tree.ImagesDir,
+            tree.GuideDir);
+
+        // Premise guard: a missing file would also produce no raster finding,
+        // for an entirely different reason.
+        var path = global::System.IO.Path.Join(tree.ImagesDir, "controls", "stub.png");
+        Assert.True(
+            global::System.IO.File.Exists(path),
+            "fixture did not write the file — the assertion below would be about a missing file");
+        Assert.Equal(4, new global::System.IO.FileInfo(path).Length);
+
+        Assert.DoesNotContain(
+            findings,
+            f => f.Code is "REACTOR_DOC_IMAGE_002" or "REACTOR_DOC_IMAGE_003");
+    }
+
     [Fact]
     public void Gate_does_not_report_an_undecodable_file_as_blank()
     {

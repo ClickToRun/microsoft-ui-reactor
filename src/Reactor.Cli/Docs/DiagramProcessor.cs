@@ -397,14 +397,44 @@ internal static class DiagramProcessor
     /// Reads only the leading signature bytes to confirm a file really is a PNG
     /// or JPEG, so a mislabelled or crafted <c>.png</c> is never handed to GDI+.
     /// </summary>
+    /// <remarks>
+    /// <c>ReadExactly</c> rather than <c>Read</c>: a single <c>Read</c> may
+    /// legally return fewer bytes than asked for without being at EOF, and the
+    /// old <c>read == head.Length</c> test turned that into "no magic" — which
+    /// this gate treats as "not a raster" and skips. A short read would
+    /// therefore have silently disabled blank-frame validation for a perfectly
+    /// good PNG, which is the same fail-open this pipeline reports as
+    /// REACTOR_DOC_IMAGE_003 elsewhere. <c>ReadExactly</c> either fills the
+    /// buffer or throws, so the only remaining way out is a genuinely short
+    /// file, which is handled below and really is not an image.
+    /// </remarks>
     private static bool HasRasterMagic(string path)
     {
         try
         {
             using var fs = File.OpenRead(path);
             var head = new byte[8];
-            var read = fs.Read(head, 0, head.Length);
-            return read == head.Length && ImageProcessor.HasKnownImageMagic(head);
+            try
+            {
+                fs.ReadExactly(head);
+            }
+            catch (EndOfStreamException)
+            {
+                // Shorter than any signature we recognise. Distinct from a
+                // short read: there is nothing more to wait for, so this is a
+                // real answer ("not a raster") rather than a skipped check.
+                //
+                // Redundant against the outer catch today, since
+                // EndOfStreamException derives from IOException — measured by
+                // deleting this catch, which changed no test. Kept because the
+                // two cases warrant different answers if the outer catch is
+                // ever tightened to report unreadable files rather than skip
+                // them: a short file genuinely is not a raster, an unreadable
+                // one is a check that did not run.
+                return false;
+            }
+
+            return ImageProcessor.HasKnownImageMagic(head);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
