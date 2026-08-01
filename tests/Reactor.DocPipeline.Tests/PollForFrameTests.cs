@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Net;
@@ -354,6 +355,8 @@ public class PollForFrameTests
 
         Assert.Null(server.Fault);
         Assert.Equal(painted, got);
+        // The point of this test over the empty-200 one: a 204 really went out.
+        Assert.Equal([204, 204, 200], server.Statuses);
     }
 
     /// <summary>
@@ -374,6 +377,9 @@ public class PollForFrameTests
 
         Assert.Null(server.Fault);
         Assert.Equal(painted, got);
+        // No 204 anywhere: this is the arm that catches a server claiming
+        // success and sending nothing, which is a different defect.
+        Assert.Equal([200, 200, 200], server.Statuses);
     }
 
     /// <summary>
@@ -472,6 +478,7 @@ public class PollForFrameTests
         private int _served;
         private int _accepted;
         private Exception? _fault;
+        private readonly ConcurrentQueue<int> _statuses = new();
 
         /// <param name="emptyAsNoContent">
         /// When true (the default) an empty body slot is answered with
@@ -528,6 +535,23 @@ public class PollForFrameTests
         public int Accepted => Volatile.Read(ref _accepted);
 
         /// <summary>
+        /// Status codes actually written to the wire, in order.
+        /// </summary>
+        /// <remarks>
+        /// Exists so a test that claims to cover a status code has to show one.
+        /// <see cref="No_content_responses_are_not_treated_as_frames"/> and
+        /// <see cref="Empty_200_body_is_not_treated_as_a_frame"/> are otherwise
+        /// byte-identical apart from the <c>emptyAsNoContent</c> argument, and
+        /// the poller answers both the same way — a 204 carries no body, so the
+        /// <c>bytes.Length &gt; 0</c> arm rejects it whether or not the status
+        /// check exists. Without this, breaking the 204 mapping in
+        /// <see cref="Script"/> would leave both tests green, both sending 200,
+        /// and the one named for 204 still appearing to guard it. Asserting the
+        /// wire shape is what makes the two tests different from each other.
+        /// </remarks>
+        public IReadOnlyList<int> Statuses => [.. _statuses];
+
+        /// <summary>
         /// First exception the accept loop hit that was <em>not</em> explained by
         /// teardown, or null. The loop runs detached on a background task, so
         /// without this a genuine socket/IO fault would be swallowed and the test
@@ -552,6 +576,7 @@ public class PollForFrameTests
                     var index = Interlocked.Increment(ref _served) - 1;
                     var reply = _replies[global::System.Math.Min(index, _replies.Count - 1)];
                     var body = reply.Body;
+                    _statuses.Enqueue(reply.Status);
 
                     // A 204 carries no body and, per RFC 7230 section 3.3.2,
                     // no Content-Length — so the status line and Connection
