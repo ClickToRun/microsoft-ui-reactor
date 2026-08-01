@@ -465,27 +465,64 @@ public sealed class GallerySampleLintTests
             .ToList();
 
     /// <summary>
-    /// Names bound by declarations inside <paramref name="scope"/> — locals, lambda parameters,
-    /// deconstruction designations, foreach variables. A card that declares its own <c>url</c> is
-    /// not touching a page-level slot that merely shares the name, so counting the bare identifier
-    /// would report a page that has no coupling at all.
+    /// The names a node introduces <em>directly</em> into the scope it opens — lambda and
+    /// anonymous-method parameters, a <c>foreach</c> variable, the locals declared straight inside a
+    /// block or switch section, and a statement's pattern designations.
+    /// <para>
+    /// Deliberately not the whole subtree. A card that declares its own <c>url</c> is not touching a
+    /// page-level slot of the same name — but that only holds <em>within that declaration's scope</em>.
+    /// A card can read the page slot at its top level and separately bind the same name in a nested
+    /// lambda, and collecting bindings subtree-wide drops the genuine read along with the shadowed
+    /// one, reporting a coupled page as clean. Callers walk the ancestor chain of each identifier
+    /// instead, so shadowing is decided per occurrence.
+    /// </para>
     /// </summary>
-    static HashSet<string> NamesBoundInside(SyntaxNode scope)
+    static IEnumerable<string> NamesIntroducedBy(SyntaxNode node) => node switch
     {
-        var bound = new HashSet<string>(global::System.StringComparer.Ordinal);
+        SimpleLambdaExpressionSyntax lambda => [lambda.Parameter.Identifier.Text],
+        ParenthesizedLambdaExpressionSyntax lambda =>
+            lambda.ParameterList.Parameters.Select(parameter => parameter.Identifier.Text),
+        AnonymousMethodExpressionSyntax anonymous =>
+            anonymous.ParameterList is { } list
+                ? list.Parameters.Select(parameter => parameter.Identifier.Text)
+                : [],
+        ForEachStatementSyntax loop => [loop.Identifier.Text],
+        BlockSyntax block => DeclaredLocals(block.Statements),
+        SwitchSectionSyntax section => DeclaredLocals(section.Statements),
 
-        foreach (var node in scope.DescendantNodes())
+        // Designations (`is { } v`, `out var v`, deconstruction) scope to the enclosing statement.
+        // Nested lambdas are skipped: a designation inside one belongs to the scope that lambda
+        // opens, and the walk visits that scope in its own right on the way up.
+        StatementSyntax statement => statement
+            .DescendantNodes(descend => descend is not AnonymousFunctionExpressionSyntax)
+            .OfType<SingleVariableDesignationSyntax>()
+            .Select(designation => designation.Identifier.Text),
+
+        _ => [],
+    };
+
+    static IEnumerable<string> DeclaredLocals(SyntaxList<StatementSyntax> statements) =>
+        statements.OfType<LocalDeclarationStatementSyntax>()
+            .SelectMany(statement => statement.Declaration.Variables)
+            .Select(variable => variable.Identifier.Text);
+
+    /// <summary>
+    /// Whether this particular occurrence of an identifier resolves to a binding introduced somewhere
+    /// between it and <paramref name="root"/>, rather than to the page-level name it spells.
+    /// </summary>
+    static bool IsShadowedWithin(IdentifierNameSyntax identifier, SyntaxNode root)
+    {
+        var name = identifier.Identifier.Text;
+
+        for (var node = identifier.Parent; node is not null; node = node.Parent)
         {
-            switch (node)
-            {
-                case VariableDeclaratorSyntax v: bound.Add(v.Identifier.Text); break;
-                case SingleVariableDesignationSyntax d: bound.Add(d.Identifier.Text); break;
-                case ParameterSyntax p: bound.Add(p.Identifier.Text); break;
-                case ForEachStatementSyntax f: bound.Add(f.Identifier.Text); break;
-            }
+            if (NamesIntroducedBy(node).Contains(name, global::System.StringComparer.Ordinal))
+                return true;
+
+            if (ReferenceEquals(node, root)) break;
         }
 
-        return bound;
+        return false;
     }
 
     /// <summary>
@@ -496,12 +533,11 @@ public sealed class GallerySampleLintTests
     /// </summary>
     static HashSet<string> ReachableNames(InvocationExpressionSyntax card)
     {
-        var shadowed = NamesBoundInside(card);
-
         var reachable = new HashSet<string>(
-            card.DescendantNodes().OfType<IdentifierNameSyntax>().Select(i => i.Identifier.Text),
+            card.DescendantNodes().OfType<IdentifierNameSyntax>()
+                .Where(identifier => !IsShadowedWithin(identifier, card))
+                .Select(identifier => identifier.Identifier.Text),
             global::System.StringComparer.Ordinal);
-        reachable.ExceptWith(shadowed);
 
         var member = card.FirstAncestorOrSelf<MemberDeclarationSyntax>();
         if (member is null) return reachable;
@@ -537,14 +573,13 @@ public sealed class GallerySampleLintTests
 
             foreach (var initializer in initializers)
             {
-                // Same exclusion the card subtree gets above: a lambda parameter or local bound
-                // *inside* the initializer is not the page-level slot that happens to share its
-                // name. `Repeat(items, value => Text(value))` must not make a slot named `value`
-                // reachable, or a page with no coupling at all reports as coupled.
-                var boundHere = NamesBoundInside(initializer);
-
+                // Same per-occurrence shadowing the card subtree gets above: a lambda parameter or
+                // local bound *inside* the initializer is not the page-level slot that happens to
+                // share its name. `Repeat(items, value => Text(value))` must not make a slot named
+                // `value` reachable, or a page with no coupling at all reports as coupled — while an
+                // initializer that both reads the slot and rebinds the name deeper still must.
                 foreach (var id in initializer.DescendantNodesAndSelf().OfType<IdentifierNameSyntax>()
-                             .Where(id => !boundHere.Contains(id.Identifier.Text)))
+                             .Where(id => !IsShadowedWithin(id, initializer)))
                     grew |= reachable.Add(id.Identifier.Text);
             }
         } while (grew);
@@ -749,6 +784,25 @@ public sealed class GallerySampleLintTests
     [InlineData(0, @"
         var (a, setA) = UseState(""x"");
         var listing = ItemsRepeater(items, a => TextBlock(a));
+        return VStack(
+            SampleCard(""one"", TextBox(a, setA), ""snippet""),
+            SampleCard(""two"", listing, ""snippet""));")]
+    // Shadowing is per-occurrence, not per-name: card two both reads the page slot `a` at its top
+    // level *and* binds an unrelated lambda parameter called `a` further in. Only the read inside
+    // the lambda is the parameter; the `TextBlock(a)` is the page slot, so this is real coupling.
+    // Excluding every mention of a name bound anywhere in the card drops that read and reports the
+    // page clean — the false negative, and the direction that matters: the three rows above keep a
+    // clean page from reddening, this one keeps a coupled page from passing.
+    [InlineData(1, @"
+        var (a, setA) = UseState(""x"");
+        return VStack(
+            SampleCard(""one"", TextBox(a, setA), ""snippet""),
+            SampleCard(""two"", VStack(TextBlock(a), ItemsRepeater(items, a => TextBlock(a))), ""snippet""));")]
+    // The same hole one level out, in the widening pass rather than the card scan: the lifted local
+    // both reads the slot and binds the name in a nested lambda.
+    [InlineData(1, @"
+        var (a, setA) = UseState(""x"");
+        var listing = VStack(TextBlock(a), ItemsRepeater(items, a => TextBlock(a)));
         return VStack(
             SampleCard(""one"", TextBox(a, setA), ""snippet""),
             SampleCard(""two"", listing, ""snippet""));")]
