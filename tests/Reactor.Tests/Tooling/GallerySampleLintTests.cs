@@ -1279,6 +1279,23 @@ public sealed class GallerySampleLintTests
     /// <c>System.Uri</c> here, and rejecting it would fail open, which is the direction that costs a
     /// missed defect rather than a blocked tree.
     /// </remarks>
+    /// <remarks>
+    /// <para><b>Known limit — a file that rebinds the name <c>Uri</c> itself.</b> The seed below is
+    /// unconditional, so under <c>using Uri = Some.Other.Type;</c> a bare <c>new Uri(x)</c> is still
+    /// adopted and reported. Pinned by the <c>Windows.Foundation.Uri</c>-as-<c>Uri</c> row, which
+    /// records the <em>current</em> answer rather than the correct one.</para>
+    /// <para>Left unfixed deliberately. The set is keyed on the <em>rightmost</em> identifier, so
+    /// dropping <c>"Uri"</c> when it is shadowed would also stop matching an explicitly qualified
+    /// <c>new System.Uri(x)</c> in the same file — that spelling is unambiguous and must keep
+    /// reporting. Separating them means deciding per site on the whole type form instead of by name
+    /// lookup, which is a different matcher, not a smaller seed.</para>
+    /// <para>The trade is bought by direction, not by rarity. This one fails <em>closed</em>: a false
+    /// positive naming a file and a line, which the next contributor reads and dismisses in seconds.
+    /// The aliasing case that fails <em>open</em> — <c>using WebUri = System.Uri;</c>, a real Uri
+    /// built under a name the rule never looks for — is the one that costs a missed defect, and it is
+    /// handled above and pinned by two rows. Fixing a loud limit by rebuilding the matcher that
+    /// closes the silent one is the wrong order.</para>
+    /// </remarks>
     static HashSet<string> UriTypeNames(SyntaxNode root)
     {
         var names = new HashSet<string>(global::System.StringComparer.Ordinal) { "Uri" };
@@ -1868,6 +1885,14 @@ public sealed class GallerySampleLintTests
     // row guard needs *something* it recognises, so `1` separates "the alias was rejected" from
     // "nothing in this row parsed as a Uri construction at all".
     [InlineData(@"using WebUri = Windows.Foundation.Uri; class P { Element R(string t) { WebUri a = new WebUri(t); return WebView2(new Uri(t)); } }", 1)]
+    // KNOWN LIMIT, pinned deliberately: when the alias rebinds `Uri` *itself*, the unconditional seed
+    // in UriTypeNames still adopts the bare name, so the aliased `new Uri(t)` is reported alongside
+    // the genuine `new System.Uri(t)`. The correct answer is 1; this row records the 2 the rule
+    // actually gives, so the limit is auditable instead of folklore. See the UriTypeNames remarks for
+    // why it stays: the set is keyed on the rightmost identifier, so suppressing the shadowed name
+    // would also silence the explicitly-qualified spelling next to it. If a future change makes this
+    // row fail, the limit was fixed — update the count to 1 and delete the remark, don't relax this.
+    [InlineData(@"using Uri = Windows.Foundation.Uri; class P { Element R(string t) { Uri a = new Uri(t); return WebView2(new System.Uri(t)); } }", 2)]
     // …and `global::` in front of the aliased name must not defeat that System check. This is the
     // over-tightening direction: dropping the alias-qualified arm silently stops recognising a real
     // `System.Uri` alias, which is a false negative rather than a blocked tree.
