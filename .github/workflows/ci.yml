@@ -661,11 +661,18 @@ jobs:
       # `git add -A`, which stages precisely those. Verified by planting each
       # case against this command: tracked overwrite and untracked create both
       # produce output; a clean tree produces none.
+      #
+      # `--untracked-files=all` is for the *message*, not the verdict: the
+      # default (normal) collapses a wholly-new directory to `?? path/dir/`,
+      # which is still non-empty output, so the gate fires either way. Measured
+      # both modes against a planted subdirectory — `all` names each PNG, so
+      # whoever hits this in CI sees which files appeared instead of a
+      # directory they then have to go and inspect.
       - name: Verify --no-screenshots left committed images untouched
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
-          $dirty = git status --porcelain -- docs/guide/images
+          $dirty = git status --porcelain --untracked-files=all -- docs/guide/images
           if ($LASTEXITCODE -ne 0) {
             Write-Error "git status failed (exit $LASTEXITCODE) — the gate could not run, so treat this as a failure rather than an all-clear."
             exit 1
