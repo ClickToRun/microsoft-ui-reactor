@@ -229,6 +229,63 @@ public class CompileCaptureSkipTests
     }
 
     /// <summary>
+    /// Phase 3 is the only phase that writes a <em>screenshot</em>, but it is
+    /// not the only phase that writes under <c>docs/guide/images/</c>, and
+    /// <c>--no-screenshots</c> does not skip the other one. Phase 5.5 (diagrams)
+    /// copies <c>docs/_pipeline/diagrams/&lt;topic&gt;/*.svg</c> straight into
+    /// that tree.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is here because the surrounding code and docs previously claimed
+    /// capture was the only writer under that directory. The claim was wrong,
+    /// and its danger is specific: it argues for narrowing the CI
+    /// non-destructiveness gate to <c>*.png</c>, since on that reading nothing
+    /// else can appear. Pinning the real behaviour keeps the gate's breadth
+    /// justified by a test rather than by a comment that can rot silently —
+    /// <c>DiagramTests</c> covers the copy, but against an arbitrary temp
+    /// directory, so nothing there notices if <c>CompileCommand</c> stops
+    /// passing the guide image root.
+    /// </para>
+    /// <para>
+    /// Non-vacuity: the SVG is asserted absent before the compile and present
+    /// after, so it fails if the copy stops happening, and it fails if the
+    /// destination moves out of <c>docs/guide/images/</c>. The paired
+    /// <c>--skip-diagrams</c> assertion below shows the same fixture produces
+    /// nothing when the phase is skipped, so "present" is attributable to the
+    /// phase rather than to the fixture having planted it there.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Diagrams_also_write_under_the_guide_image_tree_and_the_flag_does_not_skip_them()
+    {
+        const string Svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"8\" height=\"8\"></svg>";
+
+        using var skipped = new FakeRepo();
+        skipped.PlantDiagramSource("demo", "overview", Svg);
+        var notCopied = skipped.GuideImagePath("demo/overview.svg");
+        Assert.False(global::System.IO.File.Exists(notCopied));
+
+        skipped.Compile("--no-screenshots", "--no-build", "--skip-diagrams", "--skip-reference");
+        Assert.False(global::System.IO.File.Exists(notCopied));
+
+        using var repo = new FakeRepo();
+        repo.PlantDiagramSource("demo", "overview", Svg);
+        var copied = repo.GuideImagePath("demo/overview.svg");
+        Assert.False(global::System.IO.File.Exists(copied));
+
+        var (exitCode, _) = repo.Compile("--no-screenshots", "--no-build", "--skip-reference");
+
+        Assert.Equal(0, exitCode);
+        Assert.True(
+            global::System.IO.File.Exists(copied),
+            "Phase 5.5 must copy diagram SVGs into docs/guide/images/<topic>/. If this now " +
+            "fails because the destination moved, the CI non-destructiveness gate's scope " +
+            "comment and docs/contributing/doc-pipeline.md both need updating with it.");
+        Assert.Equal(Svg, global::System.IO.File.ReadAllText(copied));
+    }
+
+    /// <summary>
     /// Minimal repo the doc compiler will accept: a <c>.git</c> marker for root
     /// discovery, a <c>Directory.Build.props</c> carrying the version token
     /// source, one doc app (with the <c>.cs</c> file discovery requires and a
@@ -378,6 +435,21 @@ public class CompileCaptureSkipTests
             global::System.IO.File.WriteAllText(
                 global::System.IO.Path.Join(_root, "docs", "_pipeline", "apps", "demo", "doc-manifest.yaml"),
                 yaml);
+
+        /// <summary>
+        /// Writes a diagram source SVG at
+        /// <c>docs/_pipeline/diagrams/&lt;topic&gt;/&lt;name&gt;.svg</c> — the
+        /// input Phase 5.5 copies into the guide image tree.
+        /// </summary>
+        public void PlantDiagramSource(string topic, string name, string svg)
+        {
+            var dir = global::System.IO.Path.Join(_root, "docs", "_pipeline", "diagrams", topic);
+            global::System.IO.Directory.CreateDirectory(dir);
+            global::System.IO.File.WriteAllText(global::System.IO.Path.Join(dir, name + ".svg"), svg);
+        }
+
+        /// <summary>Absolute path of a file under the guide image tree.</summary>
+        public string GuideImagePath(string relative) => ImagePath(relative);
 
         private string ImagePath(string relative) =>
             global::System.IO.Path.Join(_root, "docs", "guide", "images",

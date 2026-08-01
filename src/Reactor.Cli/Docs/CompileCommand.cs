@@ -371,9 +371,21 @@ internal static partial class CompileCommand
         int captureFailed = 0;
         if (noScreenshots)
         {
-            // Explicit about the guarantee: this phase is the only thing in the
-            // pipeline that writes under docs/guide/images/, so skipping it
-            // leaves every committed screenshot exactly as it was (issue #989).
+            // Explicit about the guarantee, and about its edge: this phase is
+            // the only thing in the pipeline that writes a *screenshot* — the
+            // only binary writer — so skipping it leaves every committed
+            // screenshot exactly as it was (issue #989).
+            //
+            // It is not the only writer under docs/guide/images/. Phase 5.5
+            // (Diagrams) also targets that tree: DiagramProcessor.Process is
+            // called with imagesDir and copies docs/_pipeline/diagrams/<topic>/
+            // *.svg plus .<name>.mmd.sha256 sidecars into it. Those are text and
+            // a disjoint set of filenames, so they cannot collide with a .png —
+            // but "--no-screenshots means nothing writes here" is false, and
+            // stating it that way would invite someone to weaken the CI gate to
+            // match. The gate is deliberately broader than this guarantee: it
+            // watches the whole directory, so a diagram write on the skip path
+            // is caught too rather than assumed impossible.
             Console.WriteLine("═══ Phase 3: Capture (skipped — existing screenshots left untouched) ═══");
         }
         else

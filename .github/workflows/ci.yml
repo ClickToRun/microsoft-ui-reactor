@@ -654,6 +654,15 @@ jobs:
       # only the assertion, so it genuinely can come out either way (it fails
       # if anyone reintroduces a write on the skip path).
       #
+      # Scope note: this watches the whole directory, which is broader than the
+      # guarantee it defends. Phase 5.5 (diagrams) also writes there — *.svg
+      # copies and .mmd.sha256 sidecars — and is not skipped by
+      # --no-screenshots. Keep it broad on purpose: narrowing to *.png to match
+      # the screenshot guarantee would stop it noticing a diagram write that
+      # appears on the skip path, and an unexpected write is the signal here
+      # regardless of which phase produced it. The failure message therefore
+      # reports what changed instead of naming a cause it cannot know.
+      #
       # `git status --porcelain`, not `git diff`: diff sees tracked
       # modifications only. A capture emitting a *new* PNG (new topic, renamed
       # asset) leaves an untracked file that diff reports as nothing at all —
@@ -679,7 +688,7 @@ jobs:
           }
           if ($dirty) {
             $dirty | ForEach-Object { Write-Host "  $_" }
-            Write-Error 'docs compile --no-screenshots added, modified or deleted files under docs/guide/images. That path must be non-destructive: capture (Phase 3) is skipped, so nothing may write a PNG. See issue #989 and docs/contributing/doc-pipeline.md section 4.'
+            Write-Error 'docs compile --no-screenshots added, modified or deleted the files listed above under docs/guide/images. That path must be non-destructive on the skip path: capture (Phase 3) does not run, so no screenshot may be written. A .png here means a capture write was reintroduced; a .svg or .mmd.sha256 means Phase 5.5 (diagrams) wrote — that phase is not skipped by this flag, so check whether the source diagram or its committed copy drifted. See issue #989 and docs/contributing/doc-pipeline.md section 4.'
             exit 1
           }
 

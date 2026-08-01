@@ -147,11 +147,23 @@ mur docs new-diagram architecture-overview overview
 
 ### Screenshots and committed images
 
-Phase 3 (capture) is the **only** phase that writes under
-`docs/guide/images/`. `--skip-screenshots` (alias `--no-screenshots`) skips it
-outright, so a compile with that flag leaves every committed screenshot
+Phase 3 (capture) is the **only** phase that writes a screenshot — the only
+binary writer in the pipeline. `--skip-screenshots` (alias `--no-screenshots`)
+skips it outright, so a compile with that flag leaves every committed screenshot
 byte-identical — the CI `docs-build` job proves this on every PR with
 `git status --porcelain -- docs/guide/images` immediately after the compile.
+
+It is *not* the only phase that writes under `docs/guide/images/`, and the
+distinction matters if you are reasoning about that directory rather than about
+screenshots. Phase 5.5 (diagrams) copies `docs/_pipeline/diagrams/<topic>/*.svg`
+into `docs/guide/images/<topic>/` and writes `.<name>.mmd.sha256` sidecars beside
+them; both are text, both have filenames disjoint from any captured `.png`, and
+neither is skipped by `--no-screenshots` (use `--skip-diagrams` for that). So the
+guarantee is about screenshots, not about the directory. **The CI gate above is
+deliberately broader than the guarantee** — it watches the whole directory, so a
+diagram write on the skip path fails the build rather than being assumed away.
+Do not narrow the gate to `*.png` to "match" this paragraph.
+
 `git status`, not `git diff`: `git diff` reports tracked modifications only, so
 it is blind to a *new* PNG appearing under `docs/guide/images/`. That is the
 shape the near-miss in [issue #989][i989] actually took, because `git add -A`
@@ -196,7 +208,12 @@ the compile still exited 0 ([issue #989][i989]). Several guards now prevent that
   spelling them the same way is what let a corrupt file pass the gate silently.
   Note that a *truncated* PNG — the shape an interrupted capture leaves behind —
   decodes rather than faulting, so it surfaces as `REACTOR_DOC_IMAGE_002`; the
-  `_003` path covers corruption that defeats the decoder outright.
+  `_003` path covers corruption that defeats the decoder outright. It also
+  covers a file that is intact but *unreadable at that moment* — locked by
+  another process, or permission-denied — because those raise `IOException` /
+  `UnauthorizedAccessException` from the same call and letting them escape would
+  kill the whole compile over one file handle. The gate cannot distinguish the
+  two, so the finding names both remedies rather than asserting corruption.
 - The `-thumb` suffix is therefore **reserved**. A manifest entry whose `id`
   ends in it without `kind: catalog-thumb` is rejected with
   `REACTOR_DOC_SHOT_002` — otherwise a full-size screenshot could claim the
@@ -250,7 +267,7 @@ reference-generation codes.
 | `REACTOR_DOC_DIAGRAM_001`  | `mermaid-cli` not on PATH but the topic has `.mmd` files   |
 | `REACTOR_DOC_IMAGE_001`    | `![..](images/<topic>/...)` reference resolves to nothing  |
 | `REACTOR_DOC_IMAGE_002`    | Referenced screenshot exists but its interior is blank — a failed capture overwrote it. Restore from git and re-capture on an interactive desktop |
-| `REACTOR_DOC_IMAGE_003`    | Referenced image exists and is within the decode caps but could not be decoded — it is corrupt and will not render. Restore from git and re-capture |
+| `REACTOR_DOC_IMAGE_003`    | Referenced image exists and is within the decode caps but could not be read or decoded. Either it is corrupt and will not render (restore from git and re-capture) or it is intact but locked / permission-denied (clear that and re-run) |
 | `REACTOR_DOC_SHOT_001`     | Captured frame was contentless; nothing was written and the existing screenshot was left untouched |
 | `REACTOR_DOC_SHOT_002`     | Manifest screenshot id ends in the reserved `-thumb` suffix without `kind: catalog-thumb` |
 | `REACTOR_DOC_REGISTRY_W001`| Registry rule maps to a category with no `guide-pages`     |

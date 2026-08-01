@@ -279,8 +279,10 @@ internal static class DiagramProcessor
                 case RasterVerdict.Undecodable:
                     findings.Add(new TierLintFinding(
                         "REACTOR_DOC_IMAGE_003",
-                        $"corrupt image: {rel} exists but could not be decoded, so it cannot be " +
-                        "checked for content and will not render. Restore it from git and re-capture.",
+                        $"unreadable image: {rel} exists but could not be read or decoded, so it " +
+                        "cannot be checked for content. If the file is intact, check that it is not " +
+                        "locked by another process and that its permissions allow reading; otherwise " +
+                        "it is corrupt and will not render — restore it from git and re-capture.",
                         filePath, line, TierLintSeverity.Error));
                     break;
             }
@@ -330,7 +332,12 @@ internal static class DiagramProcessor
         /// <summary>Decoded, and the scanned region contains no content pixel at all.</summary>
         Blank,
 
-        /// <summary>Admitted to the decode step and the decoder faulted.</summary>
+        /// <summary>
+        /// Admitted to the decode step and the read or decode faulted. Spans
+        /// both corruption and a file that is merely unreadable right now
+        /// (locked, permission-denied) — the gate cannot tell them apart, so
+        /// the finding text offers both remedies.
+        /// </summary>
         Undecodable,
     }
 
@@ -378,17 +385,30 @@ internal static class DiagramProcessor
                                       or UnauthorizedAccessException
                                       or global::System.Runtime.InteropServices.ExternalException)
         {
-            // The file cleared every pre-decode guard and the decoder still
-            // faulted, so it is corrupt rather than merely unscannable. GDI+
-            // surfaces decode faults as ArgumentException *or* ExternalException
+            // The file cleared every pre-decode guard and the read or decode
+            // still faulted, so the gate could not score it. GDI+ surfaces
+            // decode faults as ArgumentException *or* ExternalException
             // depending on the fault, so both are caught here: a compile must
             // not die on one bad byte in one image, but it must not pass
             // silently either, which is what returning "not blank" used to do.
             //
+            // IOException and UnauthorizedAccessException are caught too, and
+            // they are *not* corruption — a file locked by another process or
+            // denied by permissions is intact and will render fine once the
+            // condition clears. They land here because the alternative is
+            // worse: letting them escape kills the whole compile over one
+            // transiently-locked file, and excluding them from the catch would
+            // do exactly that. So the verdict deliberately spans "corrupt" and
+            // "couldn't read right now", and the finding text must offer both
+            // remedies rather than sending someone to `git checkout` a file
+            // whose only problem is a file handle. Naming one cause when the
+            // catch admits several is the same over-claim this gate exists to
+            // stop, one level up.
+            //
             // Reported separately from IMAGE_002 because the remedy differs —
-            // a blank capture is re-captured, a corrupt file is restored — and
-            // because a decode fault misreported as "blank" sends an author
-            // chasing a rendering problem that isn't there.
+            // a blank capture is re-captured, an unreadable file is unlocked or
+            // restored — and because a decode fault misreported as "blank"
+            // sends an author chasing a rendering problem that isn't there.
             return RasterVerdict.Undecodable;
         }
     }
