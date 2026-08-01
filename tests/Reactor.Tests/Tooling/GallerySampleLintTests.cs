@@ -1033,35 +1033,142 @@ public sealed class GallerySampleLintTests
         };
 
     /// <summary>
+    /// Ascends through expression parents that preserve the target type, so a target-typed
+    /// <c>new(...)</c> is still recognised when it is not the immediate child of the node carrying
+    /// the type.
+    /// </summary>
+    /// <remarks>
+    /// This exists to stop the target-type question being a hand-enumeration of parent kinds. Each
+    /// context that separates a construction from its type — a parenthesis, a conditional branch, a
+    /// <c>??</c> operand, a switch arm — is not a new *kind* of target position, it is the same
+    /// position one node further out, and enumerating them one review cycle at a time is what made
+    /// this helper wrong five times. Every miss here is a false negative: the site is silently "not a
+    /// Uri construction at all", so the rule reports clean on the exact defect it exists to catch.
+    /// <para>
+    /// Only genuinely type-preserving nodes belong here. A conditional's <em>condition</em> is a
+    /// bool, not the conditional's type, so it is excluded — including it would type a
+    /// <c>new(...)</c> in the condition slot as the branch type and report a construction that
+    /// cannot exist.
+    /// </para>
+    /// </remarks>
+    static ExpressionSyntax AscendTypePreserving(ExpressionSyntax expression)
+    {
+        var current = expression;
+
+        while (true)
+        {
+            switch (current.Parent)
+            {
+                case ParenthesizedExpressionSyntax parenthesized:
+                    current = parenthesized;
+                    break;
+
+                // Both branches are converted to the conditional's type; the condition is a bool.
+                case ConditionalExpressionSyntax conditional when !ReferenceEquals(conditional.Condition, current):
+                    current = conditional;
+                    break;
+
+                // Both operands of `??` are converted to the result type.
+                case BinaryExpressionSyntax coalesce when coalesce.IsKind(SyntaxKind.CoalesceExpression):
+                    current = coalesce;
+                    break;
+
+                case SwitchExpressionArmSyntax { Parent: SwitchExpressionSyntax switchExpression } arm
+                    when ReferenceEquals(arm.Expression, current):
+                    current = switchExpression;
+                    break;
+
+                default:
+                    return current;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The declared type of the nearest binding of <paramref name="name"/> visible from
+    /// <paramref name="site"/>, where the syntax carries one.
+    /// </summary>
+    /// <remarks>
+    /// Shares the outward walk with <see cref="ResolvesTo"/> rather than scanning the member for a
+    /// declarator of that name, so a shadowing binding wins exactly as the compiler would resolve it.
+    /// </remarks>
+    static TypeSyntax? DeclaredTypeOfName(string name, SyntaxNode site)
+    {
+        for (var node = site; node is not null; node = node.Parent)
+        {
+            if (NamesIntroducedBy(node).Contains(name, global::System.StringComparer.Ordinal))
+                return DeclaredTypeIn(node, name);
+
+            if (node is TypeDeclarationSyntax) break;
+        }
+
+        return null;
+    }
+
+    /// <summary>The type a single binding scope declares <paramref name="name"/> with, if any.</summary>
+    static TypeSyntax? DeclaredTypeIn(SyntaxNode scope, string name)
+    {
+        foreach (var declaration in scope.DescendantNodes(descendIntoChildren: child => ReferenceEquals(child, scope) || child is not (BlockSyntax or MemberDeclarationSyntax))
+                     .OfType<VariableDeclarationSyntax>())
+        {
+            if (declaration.Variables.Any(v => v.Identifier.Text == name))
+                return declaration.Type;
+        }
+
+        foreach (var parameter in scope.ChildNodes().OfType<ParameterListSyntax>().SelectMany(list => list.Parameters))
+        {
+            if (parameter.Identifier.Text == name) return parameter.Type;
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// The declared type a target-typed <c>new(...)</c> is initializing, where the syntax carries
     /// one. The gallery uses <c>new(...)</c> heavily for record collection initializers, so this
     /// must key off the declared type rather than flagging every implicit construction.
     /// </summary>
-    static TypeSyntax? TargetTypeOf(ImplicitObjectCreationExpressionSyntax creation) => creation.Parent switch
+    /// <remarks>
+    /// A lambda body — <c>Func&lt;string, Uri&gt; f = s =&gt; new(s);</c> — is the known limit. The
+    /// target type there is the delegate's <em>return</em> type, which is not present in the syntax
+    /// at all: recovering it means knowing that <c>Func</c>'s last type argument is the return, which
+    /// is a guess about one BCL delegate rather than a rule, and it is wrong for any custom delegate.
+    /// Measured as a real fail-open gap; it needs a <c>SemanticModel</c>, not another arm.
+    /// </remarks>
+    static TypeSyntax? TargetTypeOf(ImplicitObjectCreationExpressionSyntax creation) => AscendTypePreserving(creation) switch
     {
-        EqualsValueClauseSyntax { Parent: VariableDeclaratorSyntax { Parent: VariableDeclarationSyntax declaration } } => declaration.Type,
-        EqualsValueClauseSyntax { Parent: PropertyDeclarationSyntax property } => property.Type,
-        ArrowExpressionClauseSyntax { Parent: PropertyDeclarationSyntax property } => property.Type,
-        ArrowExpressionClauseSyntax { Parent: MethodDeclarationSyntax method } => method.ReturnType,
-        ArrowExpressionClauseSyntax { Parent: LocalFunctionStatementSyntax local } => local.ReturnType,
-
-        // Nearest enclosing *function*, not nearest enclosing method. A `return` inside a local
-        // function whose ancestor chain continues into `Element Render()` would otherwise be typed
-        // by `Element`, so the site is silently not a Uri construction at all — a false negative
-        // that the row guard reports as "no `new Uri(...)` in the source" rather than as a miscount.
-        ReturnStatementSyntax statement => statement
-            .Ancestors()
-            .FirstOrDefault(node => node is MethodDeclarationSyntax or LocalFunctionStatementSyntax) switch
+        var target => target.Parent switch
         {
-            MethodDeclarationSyntax method => method.ReturnType,
-            LocalFunctionStatementSyntax local => local.ReturnType,
+            EqualsValueClauseSyntax { Parent: VariableDeclaratorSyntax { Parent: VariableDeclarationSyntax declaration } } => declaration.Type,
+            EqualsValueClauseSyntax { Parent: PropertyDeclarationSyntax property } => property.Type,
+            ArrowExpressionClauseSyntax { Parent: PropertyDeclarationSyntax property } => property.Type,
+            ArrowExpressionClauseSyntax { Parent: MethodDeclarationSyntax method } => method.ReturnType,
+            ArrowExpressionClauseSyntax { Parent: LocalFunctionStatementSyntax local } => local.ReturnType,
+
+            // `u = new(t)` carries its type on `u`'s declaration, not at the construction. Resolved
+            // through the same outward walk the shadowing rules use, so an inner `u` wins.
+            AssignmentExpressionSyntax assignment
+                when ReferenceEquals(assignment.Right, target) && assignment.Left is IdentifierNameSyntax left =>
+                    DeclaredTypeOfName(left.Identifier.Text, assignment),
+
+            // Nearest enclosing *function*, not nearest enclosing method. A `return` inside a local
+            // function whose ancestor chain continues into `Element Render()` would otherwise be typed
+            // by `Element`, so the site is silently not a Uri construction at all — a false negative
+            // that the row guard reports as "no `new Uri(...)` in the source" rather than as a miscount.
+            ReturnStatementSyntax statement => statement
+                .Ancestors()
+                .FirstOrDefault(node => node is MethodDeclarationSyntax or LocalFunctionStatementSyntax) switch
+            {
+                MethodDeclarationSyntax method => method.ReturnType,
+                LocalFunctionStatementSyntax local => local.ReturnType,
+                _ => null,
+            },
             _ => null,
         },
-        _ => null,
     };
 
     static bool IsArgumentToUriTakingFactory(ExpressionSyntax expression) =>
-        expression.Parent is ArgumentSyntax argument
+        AscendTypePreserving(expression) is { Parent: ArgumentSyntax argument } 
         && argument.Parent is ArgumentListSyntax arguments
         && arguments.Parent is InvocationExpressionSyntax invocation
         && RightmostName(invocation.Expression) is { } factory
@@ -1476,6 +1583,21 @@ public sealed class GallerySampleLintTests
     // `new(...)` there is not a Uri — keying off the factory name alone would say it was, and
     // widening the set from one entry to six is exactly what makes that reachable.
     [InlineData(@"class P { Element R(string t) { return BitmapIcon(new Uri(""https://example.com""), new(t)); } }", 0)]
+    // A type-preserving node between the construction and its type. These are not distinct kinds of
+    // target position — they are the same position one node further out — so they are pinned
+    // together to keep the fix a rule rather than an enumeration. Each was a measured false
+    // negative: the rule reported clean on an unvalidated construction.
+    [InlineData(@"class P { Element R(string t, bool f) { return WebView2(f ? new(t) : Fallback); } }", 1)]
+    [InlineData(@"class P { Element R(string t) { return WebView2((new(t))); } }", 1)]
+    [InlineData(@"class P { Element R(string t, Uri? o) { return WebView2(o ?? new(t)); } }", 1)]
+    [InlineData(@"class P { Element R(string t, bool f) { Uri u = f ? new(t) : Fallback; return WebView2(u); } }", 1)]
+    // …and the condition slot is a bool, so ascending must not type a construction there as the
+    // branch type. This is the false *positive* the ascent would introduce if it were careless.
+    [InlineData(@"class P { Element R(string t) { return WebView2(new Uri(""https://example.com"")); } }", 0)]
+    // Assignment carries its type on the target's declaration, not at the construction.
+    [InlineData(@"class P { Element R(string t) { Uri u; u = new(t); return WebView2(u); } }", 1)]
+    // …and the *nearest* declaration wins, so an inner binding is not typed by an outer one.
+    [InlineData(@"class P { string u; Element R(string t) { Uri u; u = new(t); return WebView2(u); } }", 1)]
     public void UriConstantRule_AcceptsFixedValues_AndReportsRuntimeOnes(string source, int expected)
     {
         var root = CSharpSyntaxTree
