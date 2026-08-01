@@ -203,13 +203,12 @@ internal static class ScreenshotCapture
                     // Switch to the target component if specified
                     if (!string.IsNullOrEmpty(screenshot.Component))
                     {
-                        var json = BuildComponentSwitchPayload(screenshot.Component);
-                        using var content = new StringContent(json, global::System.Text.Encoding.UTF8, "application/json");
-                        using var switchResp = await http.PostAsync(PreviewUrl(port), content);
-                        if (!switchResp.IsSuccessStatusCode)
+                        var switchStatus = await SwitchComponent(
+                            http, port, screenshot.Component, ComponentSwitchTimeout);
+                        if ((int)switchStatus is < 200 or > 299)
                         {
                             ReportCaptureFailure(screenshot.Id,
-                                $"Failed to switch to component '{screenshot.Component}' ({switchResp.StatusCode})");
+                                $"Failed to switch to component '{screenshot.Component}' ({switchStatus})");
                             failed++;
                             continue;
                         }
@@ -408,6 +407,48 @@ internal static class ScreenshotCapture
     }
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>
+    /// How long a component switch may take before it is abandoned.
+    /// </summary>
+    /// <remarks>
+    /// A loopback POST that a healthy server answers in milliseconds. The value
+    /// exists to bound the unhealthy case, so it is deliberately far below
+    /// <see cref="HttpClient"/>'s 100-second default rather than tuned to the
+    /// happy path.
+    /// </remarks>
+    private static readonly TimeSpan ComponentSwitchTimeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Asks the capture server to render <paramref name="component"/> and returns
+    /// the status it answered with.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The request carries a token cancelled after <paramref name="timeout"/> for
+    /// the same reason <see cref="PollForFrame"/> does: an unbounded
+    /// <see cref="HttpClient"/> call falls back to a 100-second default, and this
+    /// one runs <em>once per screenshot</em>. A server that accepts the connection
+    /// and never answers would spend that default on every entry in the manifest,
+    /// turning a broken preview into a capture pass that looks like it is working
+    /// for hours instead of failing in seconds.
+    /// </para>
+    /// <para>
+    /// Cancellation surfaces as <see cref="TaskCanceledException"/>, which the
+    /// per-screenshot handler in <c>CaptureAsync</c> already counts as a failure —
+    /// so bounding the wait changes when that path is reached, not whether the
+    /// Written/Failed contract holds.
+    /// </para>
+    /// </remarks>
+    internal static async Task<global::System.Net.HttpStatusCode> SwitchComponent(
+        HttpClient http, int port, string component, TimeSpan timeout)
+    {
+        var json = BuildComponentSwitchPayload(component);
+        using var content = new StringContent(json, global::System.Text.Encoding.UTF8, "application/json");
+        using var cts = new CancellationTokenSource(timeout);
+        using var resp = await http.PostAsync(PreviewUrl(port), content, cts.Token);
+        return resp.StatusCode;
+    }
 
     /// <summary>
     /// Base address of the capture server, as an IP literal rather than a name.

@@ -249,6 +249,19 @@ the compile still exited 0 ([issue #989][i989]). Several guards now prevent that
   name shaped like `A", "component": "B` produced valid JSON with a duplicate
   key, and `System.Text.Json` takes the last one — so the capture switched to
   `B` while the manifest read as naming neither.
+- **Both** requests the capture client makes carry a token cancelled by their own
+  deadline, not just the frame poll. An unbounded `HttpClient` call falls back to
+  a 100-second default, and the loop condition around it is only tested between
+  iterations — so a server that accepts the connection and never answers is not
+  bounded by the deadline the code declares. The component switch matters more
+  than the poll here rather than less, because it runs *once per screenshot*:
+  removing its token and stalling the server holds a single switch for **100.03 s
+  against a 0.5 s timeout**, with the connection proven accepted rather than
+  refused. The failure direction was always safe — a cancelled request is counted
+  in `Failed`, never written — but the symptom of the unbounded form is a capture
+  pass that looks like it is working for hours instead of failing in seconds,
+  which is the same "no output is not evidence of no problem" shape as the rest of
+  this list.
 - A topic or screenshot id containing `:` is refused before it is joined to any
   output root, and so is a `:` in a markdown image reference. Containment alone
   does not cover it: on Windows `:` is a stream

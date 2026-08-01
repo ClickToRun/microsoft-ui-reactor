@@ -254,6 +254,50 @@ public class PollForFrameTests
     }
 
     /// <summary>
+    /// The same bound, on the other request the capture client makes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="ScreenshotCapture.PollForFrame"/> was given a per-request
+    /// deadline; the component switch shares the <see cref="HttpClient"/> and was
+    /// not. That matters more, not less: the switch runs <em>once per screenshot</em>,
+    /// so an unbounded one multiplies <see cref="HttpClient"/>'s 100-second default
+    /// by the size of the manifest.
+    /// </para>
+    /// <para>
+    /// The premise guard carries the same weight it does above. A connection
+    /// refused outright throws the same exception type just as quickly and would
+    /// satisfy the timing assertion while testing nothing — the request has to be
+    /// genuinely in flight and abandoned. <c>stall.Accepted &gt; 0</c> is what
+    /// separates those two, and the elapsed time is what fails if the token is
+    /// removed: the call then waits out the 100-second default instead.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_stalled_component_switch_does_not_outlive_its_timeout()
+    {
+        using var stall = new StallingListener();
+        using var http = new HttpClient();
+        var timeout = TimeSpan.FromMilliseconds(500);
+
+        var sw = global::System.Diagnostics.Stopwatch.StartNew();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => ScreenshotCapture.SwitchComponent(http, stall.Port, "Demo", timeout));
+        sw.Stop();
+
+        _output.WriteLine($"elapsed={sw.Elapsed.TotalSeconds:F2}s accepted={stall.Accepted} " +
+                          $"(timeout={timeout.TotalSeconds:F2}s, HttpClient default={http.Timeout.TotalSeconds:F0}s)");
+
+        Assert.True(stall.Accepted > 0,
+            "the listener was never reached, so nothing was ever stalled — this asserts nothing");
+        // Must be read before Dispose cancels the token — see StallingListener for why
+        Assert.Null(stall.Fault);
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10),
+            $"the timeout did not bound the request: {sw.Elapsed.TotalSeconds:F1}s elapsed " +
+            $"against a {timeout.TotalSeconds:F1}s timeout");
+    }
+
+    /// <summary>
     /// Accepts connections and answers nothing, holding the socket open. The
     /// sockets are kept referenced rather than dropped so the OS cannot reset
     /// the connection and hand the client a fast failure instead of the stall.
