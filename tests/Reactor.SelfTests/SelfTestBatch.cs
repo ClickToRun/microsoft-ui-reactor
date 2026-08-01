@@ -488,7 +488,15 @@ public class SelfTestBatch
     /// Returns null when the marker is absent — an older Host, or a run killed before the trailer.
     /// </summary>
     /// <remarks>Marker literal is duplicated from <c>SelfTestRunner.SuiteElapsedMarker</c>; the
-    /// Host assembly is referenced with <c>ReferenceOutputAssembly=false</c> so it cannot be shared.</remarks>
+    /// Host assembly is referenced with <c>ReferenceOutputAssembly=false</c> so it cannot be shared.
+    /// <para>The whole-buffer <c>Split</c> is deliberate, not an oversight — review has suggested a
+    /// reverse scan to avoid allocating the line array. This runs <b>once</b> per suite in
+    /// <c>[ClassInitialize]</c>, not per fixture, on a buffer this process has just finished draining
+    /// from a pipe: the split is dominated by the I/O that produced it and is unmeasurable against a
+    /// budget counted in minutes. A hand-rolled reverse scan would trade a declarative form for two
+    /// behaviours that are easy to lose; <c>SuiteElapsed_LastParseableMarkerWins</c> is the test that
+    /// decides whether a rewrite kept them, failing on first-wins and, separately, on letting a
+    /// malformed trailing marker discard a value already parsed.</para></remarks>
     internal static double? ExtractSuiteElapsedSeconds(string stdout)
     {
         if (string.IsNullOrEmpty(stdout)) return null;
