@@ -535,6 +535,18 @@ internal static partial class CompileCommand
             // would come entirely from the discovered path. Join keeps the
             // base; the containment check then covers the traversal case,
             // which a rooted-only guard would miss.
+            //
+            // What containment does NOT give you, stated because the paragraph
+            // above reads as though it does: a drive-rooted id stays inside
+            // outputDir but is not thereby writable. Measured on .NET 10,
+            // Join("C:/out", "D:/other/topic.md") is "C:/out/D:/other/topic.md"
+            // and GetFullPath returns it unchanged rather than rejecting the
+            // embedded colon — so IsUnder answers "yes" about a path Windows
+            // reads as an alternate data stream, and the compile fails later at
+            // the write. That is a worse error message, not an escape; the
+            // containment guarantee here is "cannot leave outputDir", never
+            // "is a valid file path". OutputPathContainmentTests pins the
+            // GetFullPath half so this comment cannot quietly become false.
             var outputPath = Path.GetFullPath(Path.Join(outputDir, $"{topicId}.md"));
             if (!DocPaths.IsUnder(outputPath, Path.GetFullPath(outputDir)))
             {

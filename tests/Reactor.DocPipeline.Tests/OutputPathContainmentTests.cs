@@ -89,11 +89,48 @@ public class OutputPathContainmentTests
     }
 
     /// <summary>
-    /// The nested case, which is the one a per-file guard cannot catch on its
-    /// own: a rooted <em>directory</em> segment relocates the base that a later
-    /// containment test measures against, so the file check compares an escaped
-    /// path to an escaped root and reports success.
+    /// The drive-rooted variant, which the test above does not reach: its
+    /// rooted value is either a POSIX path or a temp path, neither of which
+    /// carries a colon into a non-leading position after <c>Join</c>.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This exists because a review argued that <c>GetFullPath</c> throws on
+    /// the embedded colon, crashing the compile before the containment check
+    /// runs. It does not, on .NET 10 — but the measurement is the load-bearing
+    /// part of that answer, and an assumption about BCL behaviour that only
+    /// lives in a comment is one framework update away from being false while
+    /// still reading as true.
+    /// </para>
+    /// <para>
+    /// Both halves matter and they point in opposite directions. Containment
+    /// says <em>yes</em>, so it is not the thing that would catch a
+    /// drive-rooted id; and the result is not a valid Windows file path, so
+    /// "contained" must not be read as "writable". If a future runtime starts
+    /// rejecting the colon, the first assertion fails here rather than the
+    /// guarantee silently widening in prose.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Drive_rooted_topic_id_stays_contained_and_is_not_rejected_by_GetFullPath()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        const string driveRooted = "D:/other/topic";
+        Assert.True(global::System.IO.Path.IsPathRooted(driveRooted),
+            "premise: the id must be rooted, else this measures nothing");
+
+        var joined = global::System.IO.Path.Join(Root, $"{driveRooted}.md");
+        var full = global::System.IO.Path.GetFullPath(joined);
+
+        Assert.True(DocPaths.IsUnder(full, Root),
+            $"containment reports '{full}' is outside '{Root}' — if this fails, a rooted id " +
+            "now escapes and the guard in CompileCommand must reject it rather than contain it");
+
+        Assert.Contains(":", full[Root.Length..], global::System.StringComparison.Ordinal);
+    }
+
+
     /// <remarks>
     /// <para>
     /// This is not a restatement of the test above. There the escaped value was
