@@ -143,6 +143,118 @@ public class DocImageIntegrityTests
     }
 
     /// <summary>
+    /// An image reference carrying a <c>:</c> is a broken reference, not a file
+    /// to read. On Windows it names an alternate data stream, so the gate would
+    /// otherwise score bytes that no reader of the docs can ever see.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The fixture is built so it can only pass for the right reason. The
+    /// committed <c>a.png</c> is <em>blank</em> — the exact thing this gate
+    /// exists to catch — while its alternate stream <c>hidden</c> holds a
+    /// <em>painted</em> PNG. Without the rejection, containment passes,
+    /// <c>File.Exists</c> succeeds, <c>HasRasterMagic</c> sees the stream's
+    /// valid PNG signature and the decoder scores the stream's content: the gate
+    /// returns clean on a page whose rendered image is blank. That is a
+    /// fail-open in the one gate this PR exists to make fail-closed, which is
+    /// why the assertion is on the finding rather than on an exception.
+    /// </para>
+    /// <para>
+    /// A test that merely referenced a non-existent stream would be vacuous:
+    /// <c>File.Exists</c> is false either way, so <c>_001</c> is reported with
+    /// or without the rejection. The stream has to be real, and it has to
+    /// contain something the gate would have accepted.
+    /// </para>
+    /// <para>
+    /// The control below is load-bearing for the same reason. If the filesystem
+    /// did not create the alternate stream, the whole fixture degenerates into
+    /// the vacuous version above — so it is asserted directly, before anything
+    /// depends on it, rather than trusted.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void An_alternate_data_stream_reference_is_broken_not_scanned()
+    {
+        if (!global::System.OperatingSystem.IsWindows()) return;
+
+        using var tree = new TempGuideTree();
+        tree.WriteImage("hooks/a.png", MakeCapturedStub(499, 196, blank: true));
+
+        var mainPath = global::System.IO.Path.Join(tree.ImagesDir, "hooks", "a.png");
+        var adsPath = mainPath + ":hidden";
+        var painted = MakeCapturedStub(499, 196, blank: false);
+        global::System.IO.File.WriteAllBytes(adsPath, painted);
+
+        // Control: the alternate stream must actually exist and carry the
+        // painted bytes, or this test proves nothing about the rejection.
+        Assert.True(global::System.IO.File.Exists(adsPath),
+            "fixture did not create an alternate data stream — the rest of this test would be vacuous");
+        Assert.Equal(painted, global::System.IO.File.ReadAllBytes(adsPath));
+        Assert.NotEqual(painted, global::System.IO.File.ReadAllBytes(mainPath));
+
+        var findings = DiagramProcessor.ValidateImageRefs(
+            "hooks.md.dt", "![a](images/hooks/a.png:hidden)", tree.ImagesDir, tree.GuideDir);
+
+        var broken = Assert.Single(findings);
+        Assert.Equal("REACTOR_DOC_IMAGE_001", broken.Code);
+        Assert.Equal(TierLintSeverity.Error, broken.Severity);
+
+        // Not scored: a verdict about the stream's pixels is exactly what must
+        // not be produced, and _002 is what the un-rejected path would emit if
+        // the stream happened to be blank too.
+        Assert.DoesNotContain(findings, f => f.Code is "REACTOR_DOC_IMAGE_002" or "REACTOR_DOC_IMAGE_003");
+    }
+
+    /// <summary>
+    /// The read side and the write side must refuse the same references. Both
+    /// ask "does this segment carry a drive or stream separator", and the read
+    /// side used to answer it with a comment instead of a predicate.
+    /// </summary>
+    /// <remarks>
+    /// This is the test that fails when the two diverge, which is the property
+    /// worth holding — not that either is correct today. It feeds both call
+    /// paths the same adversarial inputs and asserts they agree, so a future fix
+    /// to one that is not applied to the other is caught here rather than
+    /// discovered as a bypass in whichever caller kept the stale rule.
+    /// </remarks>
+    /// <remarks>
+    /// Measured limits, so a green is not over-read. Disabling the refusal
+    /// inside <c>ResolveContained</c> fails exactly the five colon-bearing rows
+    /// and correctly leaves the three ordinary ones passing — the discriminating
+    /// outcome; all eight failing would have been a bug report about this test.
+    /// But mutating the <em>shared</em> predicate moves both sides at once and
+    /// they agree by both being wrong, so this theory scores zero against that.
+    /// Re-divergence is what it convicts, and re-divergence is how the defect
+    /// arrived: the read side held the rule in a comment while only the write
+    /// side implemented it.
+    /// </remarks>
+    [Theory]
+    [InlineData("a.png:hidden")]
+    [InlineData("C:/x/a.png")]
+    [InlineData("a:b:c.png")]
+    [InlineData(":leading.png")]
+    [InlineData("trailing.png:")]
+    [InlineData("plain.png")]
+    [InlineData("sub/dir/plain.png")]
+    [InlineData("../escape.png")]
+    public void Both_containment_paths_agree_about_stream_separators(string segment)
+    {
+        if (!global::System.OperatingSystem.IsWindows()) return;
+
+        var writeSideRefuses = false;
+        try
+        {
+            DocPaths.ResolveContained(global::System.IO.Path.GetTempPath(), segment, "segment");
+        }
+        catch (global::System.InvalidOperationException ex)
+        {
+            writeSideRefuses = ex.Message.Contains("':'", global::System.StringComparison.Ordinal);
+        }
+
+        Assert.Equal(writeSideRefuses, DocPaths.HasStreamOrDriveSeparator(segment));
+    }
+
+    /// <summary>
     /// Catalog thumbnails are written by <c>ProcessThumb</c>, which draws no
     /// border and no drop shadow, so the chrome inset must not be applied to
     /// them. A thumbnail whose only content sits in the strip the inset would

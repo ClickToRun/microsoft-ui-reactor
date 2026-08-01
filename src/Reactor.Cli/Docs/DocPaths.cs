@@ -132,11 +132,28 @@ internal static class DocPaths
     /// segment is rejected before it can be joined.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// True when <paramref name="segment"/> carries a <c>:</c>, which Windows
+    /// resolves as a drive or alternate-data-stream reference rather than as
+    /// part of a file name.
+    /// </summary>
+    /// <remarks>
+    /// Extracted so the rule has one home. It was previously spelled inline in
+    /// <see cref="ResolveContained"/> only, and the second place that needed it
+    /// — the read side, in <c>DiagramProcessor.ValidateImageRefs</c> — had a
+    /// comment asserting the hazard was "handled where it is real, in
+    /// ResolveContained" while never calling it. Duplication by omission is
+    /// still duplication: two sites held the same rule and only one implemented
+    /// it.
+    /// </remarks>
+    internal static bool HasStreamOrDriveSeparator(string segment) =>
+        OperatingSystem.IsWindows() && segment.Contains(':');
+
     internal static string ResolveContained(string root, string segment, string describe, string? hint = null)
     {
         var suffix = hint is null ? "" : " " + hint;
 
-        if (OperatingSystem.IsWindows() && segment.Contains(':'))
+        if (HasStreamOrDriveSeparator(segment))
             throw new InvalidOperationException(
                 $"{describe} contains ':', which Windows resolves as a drive or " +
                 "alternate-data-stream reference rather than part of a file name." + suffix);

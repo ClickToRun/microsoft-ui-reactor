@@ -238,7 +238,8 @@ the compile still exited 0 ([issue #989][i989]). Several guards now prevent that
   key, and `System.Text.Json` takes the last one — so the capture switched to
   `B` while the manifest read as naming neither.
 - A topic or screenshot id containing `:` is refused before it is joined to any
-  output root. Containment alone does not cover it: on Windows `:` is a stream
+  output root, and so is a `:` in a markdown image reference. Containment alone
+  does not cover it: on Windows `:` is a stream
   and drive separator, so `<images>/topic:hidden` resolves to a path that
   genuinely *is* under the images root — the containment check passes — while
   the write lands in the alternate data stream `hidden` on a file named
@@ -247,6 +248,12 @@ the compile still exited 0 ([issue #989][i989]). Several guards now prevent that
   everything else on this list: a guard that runs, returns a correct answer,
   and answers the wrong question. None of the 194 committed `screenshot://`
   references contain a `:`, so this rejects nothing that exists today.
+  The read side needs the same rule for the mirrored reason: `File.Exists`
+  answers **true** for an existing stream, so the blank gate would decode the
+  stream's bytes and pass a page whose rendered image is blank. Both sides call
+  one predicate — `DocPaths.HasStreamOrDriveSeparator` — because for a while
+  only the write side implemented the rule while the read side asserted in a
+  comment that it was handled there, at a call site that never called it.
 - A referenced image that clears the pre-decode caps but that the decoder
   cannot read is reported as `REACTOR_DOC_IMAGE_003` rather than being scored.
   The distinction is load-bearing: "could not decode" is not "not blank", and
@@ -345,7 +352,7 @@ reference-generation codes.
 | `REACTOR_DOC_SNIPPET_003`  | Region opened without a matching close marker              |
 | `REACTOR_DOC_SNIPPET_004`  | Nested region with same name as outer region               |
 | `REACTOR_DOC_DIAGRAM_001`  | `mermaid-cli` not on PATH but the topic has `.mmd` files   |
-| `REACTOR_DOC_IMAGE_001`    | `![..](images/<topic>/...)` doesn't resolve to a file inside `docs/guide/images/` — missing file, a `../` run that doesn't match the page's depth, or reference text that isn't a usable path at all |
+| `REACTOR_DOC_IMAGE_001`    | `![..](images/<topic>/...)` doesn't resolve to a file inside `docs/guide/images/` — missing file, a `../` run that doesn't match the page's depth, a `:` in the reference (on Windows that names a drive or an alternate data stream, so the bytes read would not be the file the page appears to reference), or reference text that isn't a usable path at all |
 | `REACTOR_DOC_IMAGE_002`    | Referenced screenshot exists but its interior is blank — a failed capture overwrote it. Restore from git and re-capture on an interactive desktop |
 | `REACTOR_DOC_IMAGE_003`    | Referenced image cannot be scored as an image. Either it is not one — zero bytes, or no PNG/JPEG signature under a `.png`/`.jpg` name (a Git-LFS pointer, an HTML error page, a mislabelled SVG) — or it is corrupt and will not render (restore from git and re-capture), or it is intact but locked / permission-denied (clear that and re-run) |
 | `REACTOR_DOC_IMAGE_004`    | *(warning)* The blank-image gate could not run: `System.Drawing.Common` is Windows-only, so on any other platform there is no decoder. Emitted **once per page** — the condition is a property of the machine, not of any image, so one finding per screenshot would bury it. Nothing else is suppressed: reference validation (`_001`) and the decoder-free checks behind `_003` (zero-byte file, no PNG/JPEG signature) still run everywhere. Never fires on the supported configuration |

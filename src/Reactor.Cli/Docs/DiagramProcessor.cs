@@ -249,6 +249,32 @@ internal static class DiagramProcessor
             var rel = m.Groups[1].Value;
             var line = body[..m.Index].Count(c => c == '\n') + 1;
 
+            // A ':' never survives to the filesystem. On Windows it is a stream
+            // or drive separator, not an ordinary filename character, so
+            // 'images/t/a.png:hidden' resolves to a path that IS textually under
+            // imagesRoot — containment passes — and File.Exists succeeds, while
+            // every byte read comes from the alternate data stream rather than
+            // from the file the page appears to reference.
+            //
+            // Measured on .NET 10/Windows against a real ADS: IsUnder=True,
+            // File.Exists=True, and ReadAllBytes returns the stream's bytes, not
+            // the main stream's. So the gate would score content that no reader
+            // of the docs will ever see, and a blank committed screenshot whose
+            // alternate stream holds a painted image passes clean — a fail-open
+            // in the one gate this PR exists to make fail-closed.
+            //
+            // DocPaths.ResolveContained already refused this on the write side.
+            // It is the same rule, so it is the same predicate: a second copy
+            // here is how the two would drift.
+            if (DocPaths.HasStreamOrDriveSeparator(rel))
+            {
+                findings.Add(new TierLintFinding(
+                    "REACTOR_DOC_IMAGE_001",
+                    $"broken image reference: {rel}",
+                    filePath, line, TierLintSeverity.Error));
+                continue;
+            }
+
             // Path.Join rather than Path.Combine: Combine drops everything before
             // a rooted segment, which would hand IsUnder an absolute path derived
             // entirely from page content. Join keeps the base, so the containment
@@ -257,11 +283,13 @@ internal static class DiagramProcessor
             // The resolve is guarded because `rel` is page content, not a path the
             // pipeline authored: ImagePattern's [^)]+ tail admits anything but a
             // closing paren. Measured on .NET 10/Windows, only a NUL actually
-            // throws here — ':', '|', '"', '<', '*', '?', an embedded drive
-            // letter, a 400-character name and a reserved name like `con` all
-            // resolve and then fail File.Exists, which is already the right
-            // answer. A NUL is not hypothetical either: a doc file saved as
-            // UTF-16 and read as UTF-8 is NUL-interleaved throughout.
+            // throws here — '|', '"', '<', '*', '?', a 400-character name and a
+            // reserved name like `con` all resolve and then fail File.Exists,
+            // which is already the right answer. A NUL is not hypothetical
+            // either: a doc file saved as UTF-16 and read as UTF-8 is
+            // NUL-interleaved throughout. (':' no longer reaches here — it is
+            // refused above, because "resolve then fail File.Exists" is exactly
+            // what it does *not* do.)
             //
             // Letting it escape would be worse than the broken reference it
             // describes. Nothing between here and Main catches it, so the compile
@@ -291,8 +319,8 @@ internal static class DiagramProcessor
                 // .NET Framework behaviour for a colon mid-path, and on .NET 10
                 // it is not raised at all: 'C:\x\a:b:c', 'http://x/y',
                 // 'C:\x\a|b', '?' and '*' all return normally. Catching it would
-                // be a dead arm, so the colon hazard is handled where it is real
-                // — DocPaths.ResolveContained — rather than here.
+                // be a dead arm — which is also why the colon is rejected by an
+                // explicit test above rather than left to fall out of this catch.
                 findings.Add(new TierLintFinding(
                     "REACTOR_DOC_IMAGE_001",
                     $"broken image reference: {rel}",
