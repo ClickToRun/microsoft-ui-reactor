@@ -63,7 +63,10 @@ public class SelfTestBatch
     /// <summary>
     /// Resolves the suite budget in seconds from an environment value, falling back to
     /// <see cref="DefaultSelfTestTimeoutSeconds"/> for absent, unparseable, non-positive, or
-    /// absurdly large input. A malformed override must not silently produce a tiny (or zero)
+    /// overflowing input. There is deliberately no upper sanity cap, so a large-but-representable
+    /// override (say 2,000,000s) is accepted: the workflow's own <c>timeout-minutes</c> already
+    /// bounds the run, and a second ceiling here would only be a different arbitrary number to
+    /// keep in sync. A malformed override must not silently produce a tiny (or zero)
     /// budget — that would recreate the exact failure this constant exists to prevent, only
     /// faster — nor a value that overflows when converted to milliseconds, which lands as a
     /// *negative* timeout and fails initialization outright.
@@ -386,7 +389,7 @@ public class SelfTestBatch
     /// old message pointed the wrong way: the fixture name looked causal, MSTest printed the
     /// fixture's own elapsed time (<c>[16 ms]</c>) next to a 300-second process kill so it read as
     /// a fast assertion failure, and the <c>Repro:</c> line suggested <c>--filter &lt;fixture&gt;</c>
-    /// — which removes the ~1387 other fixtures sharing the budget, i.e. removes the cause, so the
+    /// — which removes the other fixtures sharing the budget, i.e. removes the cause, so the
     /// suggested reproduction essentially always passes and argues the fixture is fine.</para>
     ///
     /// <para>It must not overcorrect into the opposite false claim. The absence of a
@@ -1055,6 +1058,13 @@ public class SelfTestBatch
     /// the summary file — the outcome <see cref="PublishBudgetKill"/>'s contract explicitly rejects.
     /// Since non-delivery policy is the caller's, the widening lives here and not in
     /// <see cref="TryAppendSummary"/>, which keeps its narrow catch.</para>
+    ///
+    /// <para>The broad catch is the point, not an oversight. Narrowing it to
+    /// <see cref="TryAppendSummary"/>'s list would make this method dead code: those types are
+    /// already handled there and never reach here, so the filter would catch nothing that can
+    /// occur, while the types that <em>can</em> escape — the ones this guard exists to stop —
+    /// would still skip the caller's assertion. A filtered catch here reads safer and does
+    /// strictly less.</para>
     /// </summary>
     internal static bool PublishBestEffort(Action publish, string label)
     {
