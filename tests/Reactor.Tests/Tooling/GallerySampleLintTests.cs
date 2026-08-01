@@ -888,11 +888,16 @@ public sealed class GallerySampleLintTests
     /// <para>
     /// At zero, emptying this array is on its own enough to keep the tree green — measured against
     /// the real combined tree rather than reasoned about: merging the fix branch with this array
-    /// intact gives <c>Failed: 1, Passed: 227</c> (the staleness arm, naming the entries), and
-    /// emptying it and nothing else gives <c>Failed: 0, Passed: 228</c>, <c>Skipped: 0</c> in both
-    /// legs. The rest of the apparatus is inert once <c>offenders</c> is empty: every
-    /// <c>Except</c> arm is trivially satisfied and <c>offenders.Except(KnownSharedStatePages)</c>
-    /// has already become the bare <c>offenders.Count == 0</c> gate.
+    /// intact fails exactly one test, <see cref="SampleCards_SharedStateDoesNotSpread"/> via the
+    /// staleness arm, naming the entries; emptying it and nothing else takes that to
+    /// <c>Failed: 0</c>, with <c>Skipped: 0</c> in both legs. Absolute pass counts are deliberately
+    /// omitted: the pair was measured twice, hours apart, on the same two branches, and the totals
+    /// differed by five as the other branch added tests while every load-bearing term — which test,
+    /// which arm, the 1→0, the <c>Skipped: 0</c> — was identical. Only the delta is evidence; a
+    /// total is a scalar summary of a set and can be satisfied by the wrong members. The rest of
+    /// the apparatus is inert once <c>offenders</c> is empty: every <c>Except</c> arm is trivially
+    /// satisfied and <c>offenders.Except(KnownSharedStatePages)</c> has already become the bare
+    /// <c>offenders.Count == 0</c> gate.
     /// </para>
     /// <para>
     /// Deleting the rest is therefore cleanup, not a correctness requirement, and the distinction is
