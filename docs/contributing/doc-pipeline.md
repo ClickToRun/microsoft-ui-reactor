@@ -181,6 +181,15 @@ the compile still exited 0 ([issue #989][i989]). Several guards now prevent that
   compile rather than at review time. Full-size captures are scored with the
   border/shadow chrome excluded; catalog thumbs (`<id>-thumb.<ext>`) carry no
   chrome and are scored whole.
+- "Blank" means either *no pixel darker than near-white* or *one flat fill of
+  any colour*. The second clause matters because the first only recognises a
+  white stub: a themed window that painted its background but never its content
+  comes back uniformly dark, every pixel counts as content, and without the
+  uniformity test it would overwrite a committed screenshot and exit 0.
+  Uniformity rather than a minimum content-coverage ratio — the sparsest
+  interior in the committed corpus is 0.6084 % content pixels, so any coverage
+  floor able to catch a stub sits close enough to real assets to condemn them,
+  while no genuine screenshot is a single colour.
 - A referenced image that clears the pre-decode caps but that the decoder
   cannot read is reported as `REACTOR_DOC_IMAGE_003` rather than being scored.
   The distinction is load-bearing: "could not decode" is not "not blank", and

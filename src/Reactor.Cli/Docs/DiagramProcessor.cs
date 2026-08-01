@@ -367,7 +367,12 @@ internal static class DiagramProcessor
             }
 
             var region = ImageProcessor.ContentRegionFor(path, bmp.Width, bmp.Height);
-            return ImageProcessor.HasContentPixel(bmp, region) ? RasterVerdict.Ok : RasterVerdict.Blank;
+            if (!ImageProcessor.HasContentPixel(bmp, region)) return RasterVerdict.Blank;
+
+            // A committed image whose scored region is one flat colour is as
+            // blank as a white one — see ImageProcessor.IsUniformFill for why
+            // this is uniformity and not a coverage floor.
+            return ImageProcessor.IsUniformFill(bmp, region) ? RasterVerdict.Blank : RasterVerdict.Ok;
         }
         catch (Exception ex) when (ex is ArgumentException or OutOfMemoryException or IOException
                                       or UnauthorizedAccessException

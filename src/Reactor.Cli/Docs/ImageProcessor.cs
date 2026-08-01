@@ -57,6 +57,8 @@ internal static class ImageProcessor
         // Trim whitespace to focus the thumb on real content.
         var bounds = FindContentBounds(source)
             ?? throw BlankFrameException.ForFrame(source.Width, source.Height);
+        if (IsUniformFill(source, new Rectangle(0, 0, source.Width, source.Height)))
+            throw BlankFrameException.ForFrame(source.Width, source.Height);
         bounds = InflateClamp(bounds, ContentPadding, source.Width, source.Height);
         using var cropped = source.Clone(bounds, PixelFormat.Format32bppArgb);
 
@@ -115,6 +117,11 @@ internal static class ImageProcessor
         // this particular crop mode would have trimmed it away.
         var contentBounds = FindContentBounds(source)
             ?? throw BlankFrameException.ForFrame(source.Width, source.Height);
+
+        // A frame that is one flat colour has no content regardless of what
+        // that colour is; IsContent alone only catches the near-white case.
+        if (IsUniformFill(source, new Rectangle(0, 0, source.Width, source.Height)))
+            throw BlankFrameException.ForFrame(source.Width, source.Height);
 
         var bounds = cropMode switch
         {
@@ -304,6 +311,75 @@ internal static class ImageProcessor
     /// </summary>
     internal static int CountContentPixels(Bitmap bmp, Rectangle region) =>
         ScanRegion(bmp, region, stopAtFirst: false);
+
+    /// <summary>
+    /// True when every pixel in <paramref name="region"/> is the identical
+    /// colour — a single flat fill of any hue, not just white.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="IsContent"/> asks "is this pixel darker than near-white", so
+    /// a frame that is uniformly *dark* — a themed window whose background
+    /// painted but whose content never did — scores every pixel as content and
+    /// sails through the blank guard. That is the same failure as the
+    /// solid-white stub with the colour inverted, and the same remedy applies:
+    /// refuse to write it over a committed screenshot.
+    /// </para>
+    /// <para>
+    /// Deliberately uniformity rather than a minimum content-coverage ratio.
+    /// A coverage floor would also catch this, but the committed corpus's
+    /// sparsest interior is 0.6084&#160;% content pixels, so any floor able to
+    /// catch a stub sits close enough to real assets to start condemning them.
+    /// Uniformity has no such tension: every genuine screenshot contains at
+    /// least two distinct colours, so this cannot false-fail one. Measured
+    /// against all 227 committed images by
+    /// <c>DocImageIntegrityTests.Committed_screenshot_corpus_has_no_blank_images</c>.
+    /// </para>
+    /// </remarks>
+    internal static bool IsUniformFill(Bitmap bmp, Rectangle region)
+    {
+        region = Rectangle.Intersect(region, new Rectangle(0, 0, bmp.Width, bmp.Height));
+        if (region.Width <= 0 || region.Height <= 0) return false;
+
+        var data = bmp.LockBits(region, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        try
+        {
+            var row = new byte[region.Width * 4];
+            uint first = 0;
+            var haveFirst = false;
+            for (int y = 0; y < region.Height; y++)
+            {
+                // Sign-agnostic row addressing — see FindContentBounds.
+                global::System.Runtime.InteropServices.Marshal.Copy(
+                    data.Scan0 + (y * data.Stride), row, 0, row.Length);
+                for (int i = 0; i < row.Length; i += 4)
+                {
+                    // Format32bppArgb is BGRA in memory. A fully transparent
+                    // pixel composites to white regardless of its stored RGB,
+                    // so normalise it — otherwise transparent-black noise in
+                    // unused channels would read as "varied" on a frame that
+                    // renders as one flat white sheet.
+                    var packed = row[i + 3] == 0
+                        ? 0xFFFFFFFFu
+                        : ((uint)row[i + 3] << 24) | ((uint)row[i + 2] << 16) | ((uint)row[i + 1] << 8) | row[i];
+
+                    if (!haveFirst)
+                    {
+                        first = packed;
+                        haveFirst = true;
+                        continue;
+                    }
+
+                    if (packed != first) return false;
+                }
+            }
+            return haveFirst;
+        }
+        finally
+        {
+            bmp.UnlockBits(data);
+        }
+    }
 
     private static int ScanRegion(Bitmap bmp, Rectangle region, bool stopAtFirst)
     {

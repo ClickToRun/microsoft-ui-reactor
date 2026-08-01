@@ -43,7 +43,41 @@ internal static class ScreenshotCapture
         var processed = isThumb
             ? ImageProcessor.ProcessThumb(frameBytes, screenshot.ThumbWidth, screenshot.ThumbHeight)
             : ImageProcessor.Process(frameBytes, ImageProcessor.ParseCropMode(screenshot.Crop));
-        File.WriteAllBytes(outputPath, processed);
+
+        // Write to a sibling temp file and move it into place, rather than
+        // File.WriteAllBytes straight onto the destination.
+        //
+        // WriteAllBytes opens the destination with truncation, so a fault
+        // *during* the write (disk full, a transient IO error, an antivirus
+        // lock) leaves the committed screenshot destroyed and partially
+        // rewritten — and the caller then reports a failed capture, which this
+        // command advertises as leaving the existing file untouched. That
+        // contradiction is the exact failure this whole change exists to
+        // prevent, reached by a different door: a guard that refuses to write a
+        // bad frame is worth little if the write itself can shred a good file.
+        //
+        // The temp file is a sibling so the move stays within one volume and is
+        // a rename rather than a copy; a mid-write fault now destroys only the
+        // temp, and the destination is either fully old or fully new.
+        var dir = Path.GetDirectoryName(outputPath)!;
+        var temp = Path.Join(dir, $".{Path.GetFileName(outputPath)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            File.WriteAllBytes(temp, processed);
+            File.Move(temp, outputPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temp))
+            {
+                try { File.Delete(temp); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // A leaked temp is untidy, not harmful, and must never mask
+                    // the write fault that put us here.
+                }
+            }
+        }
     }
 
     public static async Task<CaptureResult> CaptureAsync(
@@ -201,6 +235,7 @@ internal static class ScreenshotCapture
                 catch (Exception ex) when (ex is HttpRequestException or IOException
                                              or InvalidOperationException or ArgumentException
                                              or TaskCanceledException or OutOfMemoryException
+                                             or UnauthorizedAccessException
                                              or global::System.Runtime.InteropServices.ExternalException)
                 {
                     // ArgumentException covers a malformed manifest (unknown
@@ -216,6 +251,14 @@ internal static class ScreenshotCapture
                     // the Written/Failed contract this method now advertises
                     // would silently not hold for exactly the malformed input
                     // this PR exists to handle.
+                    //
+                    // UnauthorizedAccessException is the shape a blocked
+                    // *replace* takes: ProcessAndWrite moves a temp file onto
+                    // the destination, and File.Move raises it (not IOException)
+                    // when the destination is locked or read-only. Omitting it
+                    // would let one undeletable file abort the whole capture
+                    // pass — which is the same silent-mass-failure shape the
+                    // Written/Failed counters exist to prevent.
                     Console.Error.WriteLine($" ✗ {ex}");
                     failed++;
                 }

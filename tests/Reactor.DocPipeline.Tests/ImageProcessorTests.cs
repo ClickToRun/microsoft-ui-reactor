@@ -16,7 +16,11 @@ public class ImageProcessorTests
     [Fact]
     public void ProcessThumb_produces_target_dimensions()
     {
-        var png = MakeSolidPng(800, 600, Color.CornflowerBlue);
+        // The mark is not decoration: ProcessThumb refuses a uniform frame
+        // (see ImageProcessor.IsUniformFill), and a solid fill of any colour is
+        // one. This test is about output dimensions, so it needs a frame that
+        // clears the blank guard for a reason unrelated to what it asserts.
+        var png = MakeMarkedPng(800, 600, Color.CornflowerBlue);
 
         var bytes = ImageProcessor.ProcessThumb(png, 320, 240);
 
@@ -31,7 +35,7 @@ public class ImageProcessorTests
     {
         // 1000×100 source against a 320×240 target — wide aspect should fit
         // horizontally with white letterbox top/bottom.
-        var png = MakeSolidPng(1000, 100, Color.Crimson);
+        var png = MakeMarkedPng(1000, 100, Color.Crimson);
 
         var bytes = ImageProcessor.ProcessThumb(png, 320, 240);
 
@@ -407,6 +411,24 @@ public class ImageProcessorTests
         {
             g.Clear(color);
         }
+        using var ms = new MemoryStream();
+        bmp.Save(ms, ImageFormat.Png);
+        return ms.ToArray();
+    }
+
+    /// <summary>
+    /// A solid fill with one contrasting pixel, so the frame is not a uniform
+    /// fill and clears the blank guard while staying trivially predictable for
+    /// dimension and letterbox assertions.
+    /// </summary>
+    private static byte[] MakeMarkedPng(int w, int h, Color color)
+    {
+        using var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(bmp))
+        {
+            g.Clear(color);
+        }
+        bmp.SetPixel(0, 0, Color.FromArgb(255, 16, 16, 16));
         using var ms = new MemoryStream();
         bmp.Save(ms, ImageFormat.Png);
         return ms.ToArray();
