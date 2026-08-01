@@ -486,6 +486,15 @@ public sealed class GallerySampleLintTests
             anonymous.ParameterList is { } list
                 ? list.Parameters.Select(parameter => parameter.Identifier.Text)
                 : [],
+
+        // A parameter binds its name for the whole body, so a field spelled the same way is not what
+        // a site inside that body resolves to. Local functions are matched ahead of the general
+        // statement arm below because `LocalFunctionStatementSyntax` *is* a `StatementSyntax` — the
+        // same derived-before-base ordering `BlockSyntax` needs.
+        BaseMethodDeclarationSyntax method =>
+            method.ParameterList.Parameters.Select(parameter => parameter.Identifier.Text),
+        LocalFunctionStatementSyntax localFunction =>
+            localFunction.ParameterList.Parameters.Select(parameter => parameter.Identifier.Text),
         ForEachStatementSyntax loop => [loop.Identifier.Text],
         BlockSyntax block => DeclaredLocals(block.Statements),
         SwitchSectionSyntax section => DeclaredLocals(section.Statements),
@@ -502,9 +511,26 @@ public sealed class GallerySampleLintTests
     };
 
     static IEnumerable<string> DeclaredLocals(SyntaxList<StatementSyntax> statements) =>
-        statements.OfType<LocalDeclarationStatementSyntax>()
-            .SelectMany(statement => statement.Declaration.Variables)
-            .Select(variable => variable.Identifier.Text);
+        statements.SelectMany(statement => statement switch
+        {
+            LocalDeclarationStatementSyntax local =>
+                local.Declaration.Variables.Select(variable => variable.Identifier.Text),
+
+            // `var (url, setUrl) = UseState(...)` — the canonical Reactor slot — is not a
+            // `LocalDeclarationStatementSyntax` at all. Roslyn models a deconstruction as an
+            // assignment whose left side is a `DeclarationExpressionSyntax`, so a scan for
+            // declarators misses every slot the gallery actually declares. Nested lambdas are
+            // skipped: a designation inside one belongs to the scope that lambda opens, and the
+            // ancestor walk visits that scope in its own right.
+            ExpressionStatementSyntax expression =>
+                expression.DescendantNodes(descend => descend is not AnonymousFunctionExpressionSyntax)
+                    .OfType<DeclarationExpressionSyntax>()
+                    .SelectMany(declaration => declaration.Designation.DescendantNodesAndSelf()
+                        .OfType<SingleVariableDesignationSyntax>())
+                    .Select(designation => designation.Identifier.Text),
+
+            _ => [],
+        });
 
     /// <summary>
     /// Whether this particular occurrence of an identifier resolves to a binding introduced somewhere
@@ -691,7 +717,9 @@ public sealed class GallerySampleLintTests
         Assert.True(pagesWithMultipleCards >= 20,
             $"only {pagesWithMultipleCards} gallery pages were seen to have multiple SampleCards — the rule would pass near-vacuously.");
 
-        var added = offenders.Except(KnownSharedStatePages).Order().ToList();
+        var added = offenders.Except(KnownSharedStatePages)
+            .OrderBy(entry => entry, global::System.StringComparer.Ordinal)
+            .ToList();
 
         Assert.True(added.Count == 0,
             "these SampleCards share a UseState slot, so driving one silently retargets its " +
@@ -983,11 +1011,16 @@ public sealed class GallerySampleLintTests
     /// <remarks>
     /// Two tiers, and the scoping is the point:
     /// <list type="bullet">
-    /// <item><c>const</c> fields of the enclosing type(s), and <c>const</c> locals of the blocks
-    /// that <em>enclose the site</em>. A file-wide set would let an unrelated <c>const string url</c>
+    /// <item><c>const</c> fields of the enclosing type(s) <em>that the site is not shadowed from</em>,
+    /// and <c>const</c> locals of the blocks that <em>enclose the site</em>. A file-wide set would let
+    /// an unrelated <c>const string url</c>
     /// in one method whitelist a runtime <c>url</c> in another — which is issue #982 itself,
-    /// undetected — and a member-wide set does the same thing across two sibling blocks;</item>
-    /// <item><c>static readonly</c> fields whose own initializer is a fixed value or a
+    /// undetected — and a member-wide set does the same thing across two sibling blocks. A field is
+    /// visible throughout its type without any scope walk, which is exactly why one is needed to
+    /// trust it: a local or a parameter may legally hide it, and then the constant being vouched for
+    /// is not what the site resolves to;</item>
+    /// <item><c>static readonly</c> fields — under the same shadowing filter — whose own initializer
+    /// is a fixed value or a
     /// <c>new Uri(...)</c> over accepted arguments. That covers <c>new Uri(BaseUri, "page.html")</c>
     /// without hand-waving: the referenced field's construction is checked by this same rule, so
     /// accepting the reference adds no unchecked value. A <c>static readonly</c> initialized from a
@@ -996,6 +1029,32 @@ public sealed class GallerySampleLintTests
     /// Both tiers iterate to a fixed point so a chain — or a field referenced before it is declared —
     /// resolves regardless of declaration order.
     /// </remarks>
+    /// <summary>
+    /// Whether a name is bound by something between <paramref name="site"/> and its enclosing type —
+    /// a local, a parameter, a lambda parameter, a <c>foreach</c> variable, a pattern designation.
+    /// <para>
+    /// The counterpart of <see cref="IsShadowedWithin"/> for names reached by <em>declaration</em>
+    /// rather than by occurrence. A type's <c>const</c> and <c>static readonly</c> fields are visible
+    /// throughout the type, so a name set built from its members needs no scope walk to be reached —
+    /// which is precisely why it needs one to be trusted. C# lets a local or a parameter hide a field
+    /// of the same name, and then the constant the set is vouching for is not what the site resolves
+    /// to. Unfiltered, that is issue #982's own shape reported as clean: a page-level
+    /// <c>const string url</c> beside a <c>UseState</c> slot spelled the same way.
+    /// </para>
+    /// </summary>
+    static bool IsShadowedAt(string name, SyntaxNode site)
+    {
+        for (var node = site; node is not null; node = node.Parent)
+        {
+            if (NamesIntroducedBy(node).Contains(name, global::System.StringComparer.Ordinal))
+                return true;
+
+            if (node is TypeDeclarationSyntax) break;
+        }
+
+        return false;
+    }
+
     static HashSet<string> AcceptedNames(SyntaxNode site, HashSet<string> uriTypeNames)
     {
         var names = new HashSet<string>(global::System.StringComparer.Ordinal);
@@ -1004,6 +1063,7 @@ public sealed class GallerySampleLintTests
             .SelectMany(type => type.Members.OfType<FieldDeclarationSyntax>())
             .Where(field => field.Modifiers.Any(SyntaxKind.ConstKeyword))
             .SelectMany(field => field.Declaration.Variables)
+            .Where(variable => !IsShadowedAt(variable.Identifier.Text, site))
             .ToList();
 
         // Only the blocks that actually enclose the site. `member.DescendantNodes()` would also
@@ -1027,6 +1087,7 @@ public sealed class GallerySampleLintTests
             .SelectMany(type => type.Members.OfType<FieldDeclarationSyntax>())
             .Where(field => field.Modifiers.Any(SyntaxKind.StaticKeyword) && field.Modifiers.Any(SyntaxKind.ReadOnlyKeyword))
             .SelectMany(field => field.Declaration.Variables)
+            .Where(variable => !IsShadowedAt(variable.Identifier.Text, site))
             .ToList();
 
         // Materialised once, outside the fixed-point loop: the filter is a property of the syntax
@@ -1154,7 +1215,7 @@ public sealed class GallerySampleLintTests
             .Where(pin => !seen.TryGetValue(pin.Key, out var count) || count < pin.Value)
             .Select(pin => $"{pin.Key}: expected at least {pin.Value} recognised `new Uri(...)` " +
                            $"site(s), saw {(seen.TryGetValue(pin.Key, out var c) ? c : 0)}")
-            .Order()
+            .OrderBy(entry => entry, global::System.StringComparer.Ordinal)
             .ToArray();
 
         Assert.True(regressed.Length == 0,
@@ -1215,6 +1276,16 @@ public sealed class GallerySampleLintTests
     // not overlap, so there is no CS0136 — and a member-wide name set accepts the runtime `url` on
     // the strength of a constant that is not visible from the site.
     [InlineData(@"class P { Element R() { { const string url = ""https://example.com""; } { var (url, s) = UseState(""""); return WebView2(new Uri(url)); } } }", 1)]
+    // Same bug at the *field* tier. A const field is visible everywhere in the type, so a name set
+    // built from the type's members needs no scope walk to be reached — and that is exactly why it
+    // has to be filtered by one. A local or a parameter may legally hide a field of the same name,
+    // and then the constant the set is vouching for is not what the site resolves to. This is #982's
+    // own shape: a page-level `const string url` beside a `UseState` slot spelled the same way.
+    [InlineData(@"class P { const string url = ""https://example.com""; Element R() { var (url, s) = UseState(""""); return WebView2(new Uri(url)); } }", 1)]
+    [InlineData(@"class P { const string url = ""https://example.com""; Element R(string url) { return WebView2(new Uri(url)); } }", 1)]
+    [InlineData(@"class P { const string url = ""https://example.com""; Element R() => Items.Select(url => WebView2(new Uri(url))); }", 1)]
+    // …and the `static readonly` tier is reachable by name the same way, so it needs the same filter.
+    [InlineData(@"class P { static readonly string url = ""https://example.com""; Element R() { var (url, s) = UseState(""""); return WebView2(new Uri(url)); } }", 1)]
     // Spellings that hide the type: a using-alias, global::Uri, and target-typed new.
     [InlineData(@"using WebUri = System.Uri; class P { Element R(string t) { return WebView2(new WebUri(t)); } }", 1)]
     [InlineData(@"class P { Element R(string t) { return WebView2(new global::Uri(t)); } }", 1)]
