@@ -540,6 +540,33 @@ public class SuiteBudgetDiagnosticsTests
     }
 
     /// <summary>
+    /// Two behaviours the parser has always had and nothing pinned, which a refactor could silently
+    /// drop: the <b>last</b> parseable marker wins, and an <b>unparseable</b> marker is skipped
+    /// rather than allowed to overwrite a good value.
+    /// <para>
+    /// Both matter because the wrapper falls back to its own stopwatch on null. Reading the first
+    /// marker would report a stale figure as if it were current, and letting a malformed later line
+    /// null out a good one would silently swap the Host's figure for the wrapper's — which is ≈2.5 s
+    /// higher and is exactly the discrepancy that made a 300 s kill read as 302.5 s in #988.
+    /// </para>
+    /// </summary>
+    [TestMethod]
+    public void SuiteElapsed_LastParseableMarkerWins()
+    {
+        Assert.AreEqual(250.5,
+            SelfTestBatch.ExtractSuiteElapsedSeconds(
+                "# Suite elapsed: 100.0\nok 1 A\n# Suite elapsed: 250.5\n")!.Value, 0.001,
+            "With two markers the later one is the run being reported on; reading the first " +
+            "reports a stale duration as though it were current.");
+
+        Assert.AreEqual(250.5,
+            SelfTestBatch.ExtractSuiteElapsedSeconds(
+                "# Suite elapsed: 250.5\n# Suite elapsed: not-a-number\n")!.Value, 0.001,
+            "A malformed marker must be skipped, not allowed to discard a value already parsed — " +
+            "otherwise one truncated line silently demotes the Host's figure to the wrapper's.");
+    }
+
+    /// <summary>
     /// The marker is parsed with <c>\n</c> splitting but the Host writes CRLF on Windows, so a
     /// naive implementation leaves a stray <c>\r</c> and fails to parse. Guard the real shape,
     /// and the leading-whitespace tolerance alongside it — a trailing <c>\r</c> alone is caught

@@ -482,18 +482,19 @@ public class SelfTestBatch
     {
         if (string.IsNullOrEmpty(stdout)) return null;
         const string marker = "# Suite elapsed: ";
-        double? last = null;
-        foreach (var line in stdout.Split('\n', StringSplitOptions.TrimEntries)
-                     .Where(line => line.StartsWith(marker, StringComparison.Ordinal)))
-        {
-            if (double.TryParse(line[marker.Length..].Trim(),
-                    System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture, out var seconds))
-            {
-                last = seconds;
-            }
-        }
-        return last;
+
+        // Last wins: a resumed or re-entered Host can emit the trailer more than once, and the
+        // final one is the run being reported on. Unparseable markers are skipped rather than
+        // treated as zero, so a malformed line cannot masquerade as an instantaneous suite.
+        return stdout.Split('\n', StringSplitOptions.TrimEntries)
+            .Where(line => line.StartsWith(marker, StringComparison.Ordinal))
+            .Select(line => double.TryParse(line[marker.Length..].Trim(),
+                                System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out var seconds)
+                ? seconds
+                : (double?)null)
+            .Where(seconds => seconds.HasValue)
+            .LastOrDefault();
     }
 
     /// <summary>
@@ -974,9 +975,12 @@ public class SelfTestBatch
     }
 
     /// <summary>
-    /// Appends to the job-summary file, reporting whether it landed. Mechanically best-effort: it
-    /// never throws, and reports success through its return value rather than an exception, so a
-    /// caller on a failure path cannot be derailed by the diagnostics it is trying to emit.
+    /// Appends to the job-summary file, reporting whether it landed. It does not throw for any
+    /// failure <c>File.AppendAllText</c> documents, and reports success through its return value
+    /// rather than an exception, so a caller on a failure path cannot be derailed by the
+    /// diagnostics it is trying to emit. The catch is an explicit list rather than a blanket
+    /// <c>Exception</c> on purpose: an exception type this method has no reason to see is a bug,
+    /// and swallowing it here would hide it behind the very silence this gate exists to remove.
     /// Returns false (rather than throwing) when there is no summary file, which is the normal
     /// case locally.
     /// <para>
@@ -1004,7 +1008,8 @@ public class SelfTestBatch
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                                      or NotSupportedException or ArgumentException)
+                                      or NotSupportedException or ArgumentException
+                                      or System.Security.SecurityException)
         {
             Console.WriteLine($"Could not write the job summary ({ex.GetType().Name}: {ex.Message}).");
             return false;
