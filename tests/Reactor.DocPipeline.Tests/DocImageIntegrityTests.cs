@@ -143,6 +143,62 @@ public class DocImageIntegrityTests
     }
 
     /// <summary>
+    /// A decoder-unavailable warning must not fail the compile, while the errors
+    /// raised alongside it must.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>REACTOR_DOC_IMAGE_004</c> means the blank-image scan <em>could not
+    /// run</em>, and it is raised precisely on a platform with no image decoder.
+    /// Treating it as fatal fails a docs build over a missing codec on a tree
+    /// where nothing is wrong with the docs — a verdict about the checker
+    /// reported as a verdict about the content.
+    /// </para>
+    /// <para>
+    /// The image-ref loop in <c>CompileCommand</c> set <c>hasErrors</c> for every
+    /// finding it received, so the <see cref="TierLintSeverity.Warning"/> this
+    /// gate declares was ignored by the only code that read it. Both halves are
+    /// asserted from one finding set, so neither an always-fatal nor a
+    /// never-fatal predicate survives: the first fails the warning assertion,
+    /// the second fails the error assertion. Asserting only the warning would
+    /// pass against a predicate that never breaks the build — which would
+    /// disable the gate this PR exists to add.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_decoder_unavailable_warning_does_not_fail_the_compile()
+    {
+        using var tree = new TempGuideTree();
+        tree.WriteImage("hooks/a.png", MakeCapturedStub(499, 196, blank: false));
+        tree.WriteImage("hooks/empty.png", global::System.Array.Empty<byte>());
+
+        var cache = new Dictionary<string, DiagramProcessor.RasterVerdict>
+        {
+            [global::System.IO.Path.GetFullPath(global::System.IO.Path.Join(
+                global::System.IO.Path.GetFullPath(tree.GuideDir),
+                global::System.IO.Path.Join("images", "hooks", "a.png")))]
+                = DiagramProcessor.RasterVerdict.Unavailable,
+        };
+
+        var findings = DiagramProcessor.ValidateImageRefs(
+            "hooks.md.dt",
+            "![a](images/hooks/a.png)\n" +
+            "![empty](images/hooks/empty.png)\n" +
+            "![gone](images/hooks/missing.png)\n",
+            tree.ImagesDir, tree.GuideDir, cache);
+
+        // Premise: this fixture must actually produce both kinds. Without it a
+        // filter that returned nothing would satisfy both assertions below.
+        var warning = Assert.Single(findings, f => f.Code == "REACTOR_DOC_IMAGE_004");
+        var errors = findings.Where(f => f.Code != "REACTOR_DOC_IMAGE_004").ToList();
+        Assert.Equal(TierLintSeverity.Warning, warning.Severity);
+        Assert.Equal(2, errors.Count);
+
+        Assert.False(CompileCommand.IsBuildBreaking(warning));
+        Assert.All(errors, f => Assert.True(CompileCommand.IsBuildBreaking(f)));
+    }
+
+    /// <summary>
     /// An image reference carrying a <c>:</c> is a broken reference, not a file
     /// to read. On Windows it names an alternate data stream, so the gate would
     /// otherwise score bytes that no reader of the docs can ever see.

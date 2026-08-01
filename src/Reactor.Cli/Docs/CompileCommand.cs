@@ -596,8 +596,23 @@ internal static partial class CompileCommand
                          template.FilePath, assembled, imagesDir,
                          Path.GetDirectoryName(outputPath)!, blankImageCache))
             {
-                Console.Error.WriteLine(f.Format());
-                hasErrors = true;
+                if (IsBuildBreaking(f))
+                {
+                    Console.Error.WriteLine(f.Format());
+                    hasErrors = true;
+                }
+                else
+                {
+                    // REACTOR_DOC_IMAGE_004 is the only non-error finding this
+                    // gate emits: the decoder was unavailable, so the blank scan
+                    // could not run. That is "not checked", not "checked and
+                    // bad" — and it is raised precisely on the platform that
+                    // cannot decode, so breaking --ci on it would fail a docs
+                    // build over a missing codec while nothing is wrong with the
+                    // docs. Routed like every other warning in this file:
+                    // visible on stdout, not fatal.
+                    Console.WriteLine($"  ⚠ {f.Format()}");
+                }
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
@@ -989,6 +1004,27 @@ internal static partial class CompileCommand
 
     internal static bool HasFlag(string[] args, string name) =>
         args.Contains(name, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether an image-gate finding should fail the compile.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The severity a finding declares is the severity that gets honoured. This
+    /// exists as a named predicate rather than an inline comparison so the
+    /// decision is reachable from a test: the image-ref loop previously set
+    /// <c>hasErrors</c> for <em>every</em> finding, which silently promoted
+    /// <c>REACTOR_DOC_IMAGE_004</c> — declared <see cref="TierLintSeverity.Warning"/>
+    /// — to a build break. Nothing could observe the disagreement, because the
+    /// only thing that read the severity was the code that ignored it.
+    /// </para>
+    /// <para>
+    /// Deliberately <c>== Error</c> rather than <c>!= Warning</c>: a severity
+    /// added later defaults to non-fatal, which is the recoverable direction.
+    /// </para>
+    /// </remarks>
+    internal static bool IsBuildBreaking(TierLintFinding finding) =>
+        finding.Severity == TierLintSeverity.Error;
 
     internal static IReadOnlySet<string>? ParseScreenshotFilter(string[] args, string? topic)
     {
