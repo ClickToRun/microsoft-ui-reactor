@@ -138,6 +138,34 @@ Conventions for contributors:
 
 ### Fixed
 
+- **Accessibility environment hooks now report the real system value on the
+  first render (issue #983).** `UseReducedMotion()`, `UseHighContrast()` and
+  `UseHighContrastScheme()` seeded their state inside `UseEffect`, which does
+  not run until after the first render commits. Every caller therefore rendered
+  its first frame against the default — `false` / `null` — and a component that
+  never re-renders kept that value for its whole lifetime. All three failed in
+  the one direction an accessibility hook must not: the first paint reports
+  "no accommodation needed", so it animates for exactly the users who asked it
+  not to. Each hook now reads its value during render (guarded so the WinRT
+  settings objects are still constructed once per component) and keeps the
+  effect for change notifications, plus a re-read after subscribing so a
+  preference flipped in the window between the two is not missed. Matches the
+  seed-then-subscribe shape the other environment hooks in `RenderContext`
+  already use.
+
+- **Reduced motion now updates while the app is running (issue #983).**
+  `UseReducedMotion()` and the charting host both listened on
+  `UISettings.ColorValuesChanged`, which does not fire when Windows'
+  "Animation effects" toggle changes — measured with a live subscription to both
+  events, it fired zero times in either direction while
+  `AnimationsEnabledChanged` fired on both. Because `UISettings.AnimationsEnabled`
+  still *reads back* the new value, the wrong subscription was invisible to any
+  static reading: the value was correct on first render and then frozen for the
+  life of the process, so a user turning animations off had to restart the app to
+  be taken at their word. Both listeners now subscribe to
+  `AnimationsEnabledChanged`, gated behind an `ApiInformation` probe because that
+  event needs Windows 10 2004 (19041) and Reactor's minimum is 17763; on older
+  builds the existing `ColorValuesChanged` re-read remains as the fallback.
 - **`DataGrid<T>`'s <kbd>Shift</kbd>+<kbd>Tab</kbd> now moves focus backward
   (issue #987).** The grid's routed `KeyDown` handler captured only the raw
   `VirtualKey` and then deferred dispatch through
