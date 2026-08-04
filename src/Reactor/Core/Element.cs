@@ -5266,8 +5266,11 @@ public partial record FlipViewElement(
 // ════════════════════════════════════════════════════════════════════════
 
 /// <summary>
-/// Declarative content dialog. Set IsOpen to true to show.
-/// OnClosed fires with the result when the user dismisses the dialog.
+/// Declarative content dialog. Set IsOpen to true to show, false to close;
+/// content is reconciled live while the dialog is open.
+/// OnClosed reports how the dialog was dismissed — the button the user chose,
+/// or <see cref="ContentDialogResult.None"/> for a declared IsOpen = false. It
+/// does not fire when the dialog is torn down because its owner unmounted.
 /// </summary>
 public record ContentDialogElement(
     string Title,
