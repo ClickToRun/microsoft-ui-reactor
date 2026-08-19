@@ -283,6 +283,15 @@ internal static class SelfTestRunner
                     int testIndex = 0;
                     bool isAot = !RuntimeFeature.IsDynamicCodeSupported;
                     var aotSkipPatterns = GetAotSkipPatterns();
+
+                    // Fixtures that finished having run ZERO assertions. Two ways in: skipped
+                    // wholesale by the AOT pattern list, or ran to completion emitting nothing but
+                    // H.Skip directives. Both are reported PASSED by a consumer that only counts
+                    // failures, which is issue #1061 — so the count goes in the trailer next to
+                    // "# Total failures:", where a raw-TAP reader (the AOT CI job pipes straight to
+                    // a .tap artifact and never goes through SelfTestBatch) can see it.
+                    var skippedFixtures = new List<string>();
+
                     foreach (var fixtureName in fixtures)
                     {
                         testIndex++;
@@ -298,6 +307,7 @@ internal static class SelfTestRunner
                         if (isAot && SkipAotPatterns && MatchesAnyPattern(fixtureName, aotSkipPatterns))
                         {
                             Console.WriteLine($"ok {testIndex} {fixtureName} # SKIP crashes/hangs under NativeAOT");
+                            skippedFixtures.Add(fixtureName);
                             harness.MarkFixtureSkipped(testIndex - 1);
                             // Clear progress so the hang watchdog doesn't trip
                             // while we yield between skips.
@@ -320,6 +330,8 @@ internal static class SelfTestRunner
                             new FixtureProgress(fixtureName, fixtureStart, HangTimeout));
 
                         int failuresBefore = harness.Failures;
+                        int checksBefore = harness.Checks;
+                        int skipsBefore = harness.Skips;
                         bool crashed = false;
                         try
                         {
@@ -389,8 +401,51 @@ internal static class SelfTestRunner
                         // its dispatcher-bound timeout fired) so the watchdog
                         // doesn't blame this fixture for an inter-fixture gap.
                         Volatile.Write(ref _currentFixture, null);
-                        harness.MarkFixtureResult(testIndex - 1,
-                            !crashed && harness.Failures == failuresBefore);
+
+                        // Three outcomes, not two (issue #1061). A fixture that ran to completion
+                        // having emitted only H.Skip directives asserted NOTHING, yet it produces
+                        // no `not ok` and so is indistinguishable from a real pass to anything that
+                        // counts failures. Paint it amber and name it, so the healthy and the
+                        // fully-degraded case are not the same green square.
+                        bool failed = crashed || harness.Failures != failuresBefore;
+                        bool assertedNothing = harness.Checks == checksBefore;
+                        bool skippedSomething = harness.Skips > skipsBefore;
+                        bool onlySkipped = !failed && assertedNothing && skippedSomething;
+
+                        // Nothing at all — no check, no skip, no crash. Same defect as above with
+                        // the one mitigating detail removed: a skip at least states a reason, so
+                        // it is reported rather than failed. Silence states nothing, so there is
+                        // no verdict to be generous about, and the wrapper has always called this
+                        // a failure ("fixture emitted no TAP checks"). The Host called it a PASS,
+                        // which meant the two disagreed and the raw-TAP consumers believed the
+                        // Host: the AOT job greps `^not ok `, and a silent fixture emitted no such
+                        // line, so it was invisible exactly where there is no wrapper to correct
+                        // it. Emit the failure here so both sides — and the title bar — agree.
+                        if (!failed && assertedNothing && !skippedSomething)
+                        {
+                            // Deliberately no `_CRASH`/`_TIMEOUT`-style suffix: the wrapper strips
+                            // only those two, so any other decoration would attribute this to a
+                            // fixture name that does not exist instead of to this one.
+                            Console.WriteLine(
+                                $"not ok {testIndex} {fixtureName} - fixture ran to completion " +
+                                $"without emitting a single check or skip");
+                            harness.RecordFailure();
+                            failed = true;
+                        }
+
+                        if (onlySkipped)
+                        {
+                            int skipped = harness.Skips - skipsBefore;
+                            Console.WriteLine(
+                                $"# Fully skipped fixture: {fixtureName} - {skipped} check(s) " +
+                                $"skipped, 0 assertions ran");
+                            skippedFixtures.Add(fixtureName);
+                            harness.MarkFixtureSkipped(testIndex - 1);
+                        }
+                        else
+                        {
+                            harness.MarkFixtureResult(testIndex - 1, !failed);
+                        }
 
                         // Per-fixture wall clock, as a TAP comment. Comments are
                         // inert to every consumer (SelfTestBatch.ParseTap keys only
@@ -404,6 +459,15 @@ internal static class SelfTestRunner
                     }
 
                     Console.WriteLine($"# Total failures: {harness.Failures}");
+
+                    // Deliberately AFTER the failures trailer: `# Total failures:` is the
+                    // documented discriminator for "the Host reached the end of its run"
+                    // (TESTING.md), and SelfTestBatch keys `sawTotalFailures` on it, so nothing may
+                    // come between it and the end of a healthy run's fixture output. This line is
+                    // the answer to "`# Total failures: 0` — but did anything actually assert?".
+                    Console.WriteLine($"# Total skipped fixtures: {skippedFixtures.Count}");
+                    if (skippedFixtures.Count > 0)
+                        Console.WriteLine($"# Skipped fixture list: {string.Join(", ", skippedFixtures)}");
                     Console.WriteLine(SuiteElapsedMarker +
                         Stopwatch.GetElapsedTime(suiteStart).TotalSeconds
                             .ToString("F1", global::System.Globalization.CultureInfo.InvariantCulture));

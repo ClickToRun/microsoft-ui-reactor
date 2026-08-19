@@ -149,6 +149,72 @@ rule, because its user has no reason to doubt the answer. Two probes with comple
 spots don't compose into coverage unless you run both, and if you're running both the
 whole-tree grep is cheaper than remembering why.
 
+### Skipping a check — `H.Skip` and the three-state verdict
+
+A selftest fixture has **three** outcomes, not two. `H.Check(name, cond)` asserts;
+`H.Skip(name, reason)` says *"I could not assert this here"* and emits `ok <name> # SKIP <reason>`.
+
+| what the fixture emitted | Host title-bar | `dotnet test` verdict |
+|---|---|---|
+| ≥1 `H.Check`, none failed | green | **Passed** |
+| any failed check | red | **Failed** |
+| ≥1 `H.Skip` and **zero** checks | amber | **Skipped** (`Assert.Inconclusive`) |
+| nothing at all | red | **Failed** — the Host emits `not ok <n> <fixture> - fixture ran to completion without emitting a single check or skip` |
+
+A fixture that both checks and skips stays **Passed**; its skipped check names and reasons are
+still listed in the run's skip report so a fixture cannot quietly erode to skipping everything
+it used to assert.
+
+The last row is enforced on **both** sides on purpose. The wrapper has always failed a silent
+fixture, but the Host used to paint it green and emit no `not ok` line at all — so the two
+disagreed, and the raw-TAP consumers had only the Host to go on. Since the AOT job greps
+`^not ok `, a fixture that asserted nothing was invisible precisely where nothing was left to
+correct it.
+
+Until [#1061](https://github.com/microsoft/microsoft-ui-reactor/issues/1061) the third row
+collapsed into the first: `ParseTap` treated any `ok ` line as evidence that the fixture had
+asserted something, so a fully-skipped fixture was reported **PASSED** — the `# SKIP` directive
+satisfied the very flag that exists to catch a fixture asserting nothing. Two anti-vacuity
+mechanisms cancelled each other out.
+
+**Prefer asserting the precondition, then skipping.** The strongest shape keeps a real check on
+the environment probe itself, so the fixture still proves *something* and only the part that
+genuinely cannot run is skipped (`NativeDockingA11yFixture.cs`):
+
+```csharp
+var ok = TryGetSomething(out var value);
+H.Check("Probe_Succeeded", ok);          // a real assertion, runs everywhere
+if (!ok) { H.Skip("Thing_Behaves", "probe unavailable on this desktop"); return; }
+H.Check("Thing_Behaves", value == expected);
+```
+
+Three reasons to skip are legitimate, and they are **not** interchangeable when you read a result:
+
+| reason | example | what a Skipped result means |
+|---|---|---|
+| Undeterminable precondition | `GetCursorPos` on a non-interactive desktop; DWM corners on Windows 10 | this machine cannot answer the question |
+| Coverage owned by another tier | `EventStateSplit_RawHatch_HandledChildParentStillFires` — live KeyDown, asserted by E2E | covered, just not here |
+| A tracked product gap | `"issue #942 - decorator retags the target"` | the product **is** broken; the skip is a referenced deferral |
+
+Because the third row exists, **never read a skip as evidence the product works** — only that this
+run did not establish otherwise. That is exactly why reporting one as PASSED was worth fixing, and
+why SKIPPED is not just a politer green. Always put an issue number in the reason when there is
+one; the reason string is all a reader of the skip report gets. And if you are reaching for a skip
+to silence a flake, fix the flake instead — a skip makes the flake invisible rather than absent.
+
+For raw-TAP consumers (the AOT job pipes `--self-test` straight to a `.tap` artifact and greps
+`^not ok `), the Host emits a `# Total skipped fixtures: N` trailer — placed *after*
+`# Total failures:` so the abort discriminator below is unaffected — followed by
+`# Skipped fixture list: <names>` when non-zero. Each fully-skipped fixture also gets its own
+`# Fully skipped fixture: <name> - N check(s) skipped, 0 assertions ran` line as it happens. The
+three prefixes are deliberately distinct so a grep for one does not match the others.
+
+One fixture, `SelfTestVerdict_OnlySkips_PositiveControl`, is **expected** to be Skipped on every
+run. It asserts nothing on purpose: it is the positive control that proves the SKIPPED verdict
+still works end to end, since the Host half of the mechanism lives in a project no test can
+reference. Its amber is the healthy result — don't "fix" it, and don't copy it as a template.
+`SkippedFixtures_AreReported` fails if it ever stops being reported as fully skipped.
+
 ### Selftest waiting patterns — `Render` vs `WaitFor` vs `WaitForIdleAsync`
 
 Selftests run against a real WinUI dispatcher: most user-visible work (template realization, layout, content-presenter materialization, control intrinsic `Loaded` handlers) lands on *later* dispatcher waves, not synchronously with the mount call. Always wait on a concrete idle signal — never `Task.Delay(<n>)` — and pick the right primitive for the host you're driving:
@@ -281,8 +347,12 @@ before theorising:**
   returns **ACCESS_DENIED (err 5)** and never writes its `out` param, so the cursor monitor
   cannot be determined at all — a **100% deterministic** condition, not a flake. Confirmed by
   direct P/Invoke probe on two separate machines. Both fixtures now `H.Skip` here rather than
-  assert, so the expected symptom on such a machine is a **skip, not a red**; a red means this
-  is not your mechanism. Note `System.Windows.Forms.Cursor.Position` **hides** the condition —
+  assert, so the expected symptom on such a machine is a **reported Skipped result, not a red**
+  — and, since [#1061](https://github.com/microsoft/microsoft-ui-reactor/issues/1061), not a
+  silent green either: a fixture whose only TAP output is a skip is now surfaced as MSTest
+  Skipped with its reason, so "this machine cannot test it" is distinguishable from "this
+  machine tested it and it worked". A red means this is not your mechanism. Note
+  `System.Windows.Forms.Cursor.Position` **hides** the condition —
   it surfaces the uninitialised `(0,0)` instead of the failure, so probe `GetCursorPos(out p)`
   directly (`False` / `LastError=5`) rather than through it.
 - **Interactive multi-monitor box.** A TOCTOU: `GetCursorPos` is sampled *before*
@@ -316,7 +386,7 @@ dotnet publish tests/Reactor.AppTests.Host `
 ./artifacts/aot-host/Reactor.AppTests.Host.exe --self-test
 ```
 
-Output is the same TAP stream as a normal selftest run. The runner detects AOT at startup (`RuntimeFeature.IsDynamicCodeSupported == false`) and emits `# SKIP crashes/hangs under NativeAOT` lines for known-bad fixtures.
+Output is the same TAP stream as a normal selftest run. The runner detects AOT at startup (`RuntimeFeature.IsDynamicCodeSupported == false`) and emits `# SKIP crashes/hangs under NativeAOT` lines for known-bad fixtures. Those roll into the `# Total skipped fixtures: N` trailer alongside `# Total failures: N`, so a raw `.tap` artifact tells you how much of the suite actually ran — grepping `^not ok ` alone cannot, because a skipped fixture produces no `not ok` line.
 
 **3. Filtering known-bad fixtures.** The skip list lives in `DefaultAotSkipPatterns` in `tests/Reactor.AppTests.Host/SelfTest/SelfTestRunner.cs`. Entries are either an exact fixture name or a prefix-wildcard ending in `*` — by convention these match a fixture family, e.g. `MyFamily_*`. When you discover a new AOT crasher, you have two choices:
 

@@ -107,8 +107,8 @@ public class SelfTestBatch
     internal static int EffectiveTimeoutSeconds => SelfTestTimeoutMs / 1000;
 
     // Per-fixture aggregated outcome, populated by ClassInitialize.
-    // Key = fixture name; Value = (passed, joined failure reasons).
-    private static readonly ConcurrentDictionary<string, (bool Passed, string Detail)> _byFixture = new();
+    // Key = fixture name; Value = the three-state verdict plus its detail.
+    private static readonly ConcurrentDictionary<string, FixtureOutcome> _byFixture = new();
     private static string _fullOutput = "";
     private static bool _initialized;
     private static string? _initError;
@@ -147,7 +147,7 @@ public class SelfTestBatch
 
         _hostElapsedSeconds = ExtractSuiteElapsedSeconds(stdout);
 
-        var tap = ParseTap(stdout);
+        var tap = ParseTap(stdout, _byFixture);
 
         // Off-dispatcher watchdog in the Host emits a structured signal on
         // dispatcher-starvation hangs. Parse it from stdout *and* stderr (the
@@ -185,6 +185,49 @@ public class SelfTestBatch
     internal sealed record AbortOutcome(string Fixture, string Detail, string AbortReason);
 
     /// <summary>
+    /// What a fixture's TAP output actually established. Three states, not two, because
+    /// <c>Harness.Skip</c> emits a line beginning <c>ok </c> and the parser used to let that
+    /// satisfy its own "did you assert anything?" guard — so a fixture whose <i>only</i> output
+    /// was a skip reported PASSED, with zero <c>not ok</c> lines and a <c># Total failures: 0</c>
+    /// trailer (issue #1061).
+    ///
+    /// <para><b>Why a third state rather than just not counting the skip.</b> Treating a skip line
+    /// as "no checks" makes <c>passed</c> false, which turns
+    /// <c>CenterOnCurrent_UsesCursorMonitor</c> and <c>CornerStyle_Apply</c> red on exactly the
+    /// machines their skip was introduced to accommodate — a non-interactive desktop where
+    /// <c>GetCursorPos</c> cannot answer, and Windows 10 where the DWM corner attribute is not
+    /// round-trippable. Those are undeterminable preconditions, not product defects. The verdict
+    /// has to carry "could not tell" as its own value; anything else re-creates one of the two
+    /// bugs.</para>
+    /// </summary>
+    internal enum FixtureStatus
+    {
+        /// <summary>At least one real assertion ran, and none failed.</summary>
+        Passed,
+
+        /// <summary>An assertion failed, the fixture crashed/timed out, or it emitted nothing at all.</summary>
+        Failed,
+
+        /// <summary>The fixture ran no assertions at all; everything it owns was skipped.</summary>
+        Skipped,
+    }
+
+    /// <summary>
+    /// A fixture's verdict, the text explaining it, and the checks it skipped.
+    ///
+    /// <para><paramref name="SkippedChecks"/> is carried for <b>passing</b> fixtures too, not just
+    /// fully-skipped ones: a fixture that asserted 26 of its 27 checks and skipped the 27th is
+    /// legitimately green, but the skipped leg is still information the TAP stream carried and the
+    /// consumer used to discard. It is reported rather than acted on.</para>
+    /// </summary>
+    internal sealed record FixtureOutcome(
+        FixtureStatus Status, string Detail, IReadOnlyList<string> SkippedChecks)
+    {
+        internal FixtureOutcome(FixtureStatus status, string detail)
+            : this(status, detail, Array.Empty<string>()) { }
+    }
+
+    /// <summary>
     /// What the runner does with a classified abort: the reason to stamp on every unexecuted
     /// fixture, an initialization error when a timeout could not be attributed at all, and whether
     /// the early-abort scan still runs.
@@ -210,11 +253,11 @@ public class SelfTestBatch
         bool timedOut,
         int budgetMs,
         string fullOutput,
-        IDictionary<string, (bool Passed, string Detail)> byFixture)
+        IDictionary<string, FixtureOutcome> byFixture)
     {
         if (outcome is not null)
         {
-            byFixture[outcome.Fixture] = (false, outcome.Detail);
+            byFixture[outcome.Fixture] = new FixtureOutcome(FixtureStatus.Failed, outcome.Detail);
             return new RunDisposition(outcome.AbortReason, null, RunEarlyAbortCheck: !timedOut);
         }
 
@@ -570,21 +613,33 @@ public class SelfTestBatch
         return "..." + s[^maxChars..];
     }
 
-    private sealed record TapParseResult(string? LastRunningFixture, bool SawTotalFailures);
+    internal sealed record TapParseResult(string? LastRunningFixture, bool SawTotalFailures);
 
-    private static TapParseResult ParseTap(string stdout)
+    /// <summary>
+    /// Folds the Host's TAP stream into a per-fixture verdict.
+    ///
+    /// <para>Takes <paramref name="byFixture"/> as a parameter rather than reading the static
+    /// field, for the same reason <see cref="ApplyAbortOutcome"/> does: it makes the <i>wiring</i>
+    /// testable, not just the classification. A parser that is correct in isolation says nothing
+    /// about whether production still routes through it, and issue #1061 was precisely a case of
+    /// the stream carrying a distinction the consumer discarded.</para>
+    /// </summary>
+    internal static TapParseResult ParseTap(string stdout, IDictionary<string, FixtureOutcome> byFixture)
     {
-        // Two TAP emitter sources:
+        // Three TAP emitter shapes:
         //   Harness check:   "ok <checkName>"  /  "not ok <checkName> - <reason>"
+        //   Harness skip:    "ok <checkName> # SKIP <reason>"
         //   SelfTestRunner:  "# Running: <fixtureName>"
+        //                    "ok <index> <fixtureName> # SKIP <reason>"              (AOT skip list)
         //                    "not ok <index> <fixtureName> - fixture not found"     (before any marker)
         //                    "not ok <index> <fixtureName>_CRASH - <type>: <msg>"   (after marker if RunAsync threw)
         //
-        // Runner-level "not ok" lines start with a numeric test index; check-level lines do not.
-        // Runner-level failures attribute to their own fixture name regardless of `current`.
+        // Runner-level lines start with a numeric test index; check-level lines do not.
+        // Runner-level results attribute to their own fixture name regardless of `current`.
 
         string? current = null;
         var failuresForCurrent = new List<string>();
+        var skipsForCurrent = new List<string>();
         var sawChecksForCurrent = false;
         string? lastRunningFixture = null;
         var sawTotalFailures = false;
@@ -592,37 +647,84 @@ public class SelfTestBatch
         void Flush()
         {
             if (current is null) return;
-            if (_byFixture.TryGetValue(current, out var existing) && !existing.Passed && failuresForCurrent.Count == 0)
+            if (byFixture.TryGetValue(current, out var existing)
+                && existing.Status == FixtureStatus.Failed
+                && failuresForCurrent.Count == 0)
                 return;
 
-            var passed = failuresForCurrent.Count == 0 && sawChecksForCurrent;
-            var detail = failuresForCurrent.Count == 0
-                ? (sawChecksForCurrent ? "" : "fixture emitted no TAP checks")
-                : string.Join("\n", failuresForCurrent);
-            _byFixture[current] = (passed, detail);
+            var skipped = skipsForCurrent.ToArray();
+
+            // Order matters, and each arm is a distinct claim about what the run established:
+            //   a failure          -> the product (or the fixture) is broken
+            //   a real assertion   -> the product was exercised and held
+            //   only skips         -> nothing was established; say so instead of showing green
+            //   nothing at all     -> the fixture is broken; this stays a FAILURE, because a
+            //                         silent fixture has no documented reason where a skip does
+            var outcome = failuresForCurrent.Count > 0
+                ? new FixtureOutcome(
+                    FixtureStatus.Failed, string.Join("\n", failuresForCurrent), skipped)
+                : sawChecksForCurrent
+                    ? new FixtureOutcome(FixtureStatus.Passed, "", skipped)
+                    : skipped.Length > 0
+                        ? new FixtureOutcome(
+                            FixtureStatus.Skipped, DescribeFullySkipped(current, skipped), skipped)
+                        : new FixtureOutcome(FixtureStatus.Failed, "fixture emitted no TAP checks");
+
+            byFixture[current] = outcome;
         }
 
         foreach (var raw in stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
             var line = raw.Trim();
-            if (line.StartsWith("# Running: "))
+            if (line.StartsWith("# Running: ", StringComparison.Ordinal))
             {
                 Flush();
                 current = line["# Running: ".Length..].Trim();
                 lastRunningFixture = current;
                 failuresForCurrent = new List<string>();
+                skipsForCurrent = new List<string>();
                 sawChecksForCurrent = false;
             }
             else if (line.StartsWith("# Total failures:", StringComparison.Ordinal))
             {
                 sawTotalFailures = true;
             }
-            else if (line.StartsWith("ok "))
+            else if (line.StartsWith("ok ", StringComparison.Ordinal))
             {
-                // Harness-level pass; ignore payload, just note that current saw checks.
-                sawChecksForCurrent = true;
+                var rest = line[3..].Trim();
+                if (TryParseSkipDirective(rest, out var skipName, out var skipReason))
+                {
+                    // A skip is NOT a check. Letting it set sawChecksForCurrent is the whole of
+                    // issue #1061: the flag exists to catch a fixture that asserted nothing, and a
+                    // skip is a fixture saying exactly that.
+                    if (TryParseRunnerLevelName(skipName, out var skippedFixture))
+                    {
+                        // Fixture-level skip (the AOT pattern list). It arrives with no
+                        // `# Running:` marker, so attributing it to `current` would credit an
+                        // unrelated, already-finished fixture with a skip it never emitted.
+                        //
+                        // The entry is labelled rather than named, because there is no check name
+                        // to give: the fixture never ran, so no `H.Skip` was reached and the TAP
+                        // name here is the FIXTURE's. Reusing it would render as
+                        // "`X` — X — <reason>" in the inventory, which both repeats the fixture
+                        // and asserts a check called X was skipped. No such check exists.
+                        byFixture[skippedFixture] = new FixtureOutcome(
+                            FixtureStatus.Skipped,
+                            $"Fixture '{skippedFixture}' was skipped by the runner before it ran: {skipReason}",
+                            [$"{RunnerLevelSkipLabel} — {skipReason}"]);
+                    }
+                    else
+                    {
+                        skipsForCurrent.Add($"{skipName} — {skipReason}");
+                    }
+                }
+                else
+                {
+                    // Harness-level pass; ignore payload, just note that current saw checks.
+                    sawChecksForCurrent = true;
+                }
             }
-            else if (line.StartsWith("not ok "))
+            else if (line.StartsWith("not ok ", StringComparison.Ordinal))
             {
                 var rest = line[7..].Trim();
                 if (TryParseRunnerLevelFailure(rest, out var fixtureName, out var detail))
@@ -636,7 +738,7 @@ public class SelfTestBatch
                     {
                         // Runner-level failure — attribute directly to the fixture name,
                         // overriding any in-progress `current` bucket.
-                        _byFixture[fixtureName] = (false, detail);
+                        byFixture[fixtureName] = new FixtureOutcome(FixtureStatus.Failed, detail);
                     }
                 }
                 else
@@ -651,6 +753,97 @@ public class SelfTestBatch
         }
         Flush();
         return new TapParseResult(lastRunningFixture, sawTotalFailures);
+    }
+
+    /// <summary>
+    /// The message a fully-skipped fixture reports. Written for someone reading a Skipped result
+    /// with no other context: it has to say that the fixture is <i>not</i> known-good, and that the
+    /// skip is a deliberate design choice rather than an oversight, or the next reader will either
+    /// trust it as a pass or "fix" it into a failure.
+    /// </summary>
+    private static string DescribeFullySkipped(string fixture, IReadOnlyList<string> skipped) =>
+        $"Fixture '{fixture}' ran NO assertions — all {skipped.Count} of its checks were skipped, " +
+        $"so this run establishes nothing about it either way.\n" +
+        $"  {string.Join("\n  ", skipped)}\n" +
+        $"This is reported as skipped rather than passed because a `# SKIP` directive is a fixture " +
+        $"saying it did not make its assertion (issue #1061). It is deliberately NOT a failure, " +
+        $"because a skip is usually a question this machine cannot answer — a non-interactive " +
+        $"desktop where GetCursorPos returns ACCESS_DENIED, a Windows 10 box where the DWM corner " +
+        $"attribute is not round-trippable — and failing those would redden the suite on exactly " +
+        $"the machines the skips accommodate. Read the reasons above before concluding anything: " +
+        $"some skips instead defer to the E2E tier, and some mark a tracked product gap with an " +
+        $"issue number, where the product really is broken. If you need coverage here, give the " +
+        $"fixture an observable precondition to assert before it skips (see " +
+        $"NativeDockingA11yFixture), rather than turning the skip into a red.";
+
+    /// <summary>
+    /// Stands in for the check name on a runner-level skip, where the fixture never ran and so
+    /// reached no <c>H.Skip</c> call. Reusing the fixture name there would render as
+    /// <c>`X` — X — reason</c> and claim a check named <c>X</c> was skipped.
+    /// </summary>
+    internal const string RunnerLevelSkipLabel = "(whole fixture)";
+
+    /// <summary>
+    /// Splits a TAP <c>SKIP</c> directive off the payload of an <c>ok </c> line, returning the
+    /// name and the reason. The directive is matched case-insensitively because TAP 14 specifies it
+    /// that way; the Host emits upper case today, and a parser that only accepts what the current
+    /// emitter happens to produce is one rename away from silently reporting every skip as a pass
+    /// again.
+    ///
+    /// <para><b>Every</b> <c>#</c> is a directive candidate, not just the first. Check names embed
+    /// a tracking number by convention — <c>ContentDialogLive_Rerender_TextAdvanced_#1069</c>,
+    /// <c>..._#948</c>, <c>..._#246</c> — so on those lines the first <c>#</c> belongs to the
+    /// <i>name</i>. Anchoring on it leaves <c>1069 # SKIP …</c> as the candidate directive, which
+    /// fails the match and drops the line into the ordinary-pass arm: issue #1061 restored in full,
+    /// and precisely for the checks most likely to carry an issue number, because those are the
+    /// ones already known to be problematic. The scan makes the name's own hashes inert.</para>
+    /// </summary>
+    internal static bool TryParseSkipDirective(string afterOk, out string name, out string reason)
+    {
+        name = "";
+        reason = "";
+
+        for (var hash = afterOk.IndexOf('#'); hash >= 0; hash = afterOk.IndexOf('#', hash + 1))
+        {
+            var directive = afterOk[(hash + 1)..].TrimStart();
+            if (!directive.StartsWith("SKIP", StringComparison.OrdinalIgnoreCase)) continue;
+
+            // Guard against a name that merely starts with "skip..." — the directive is the bare
+            // word. `continue` rather than `return false`: a later hash may still be the real
+            // directive, e.g. `Foo_#SKIPPABLE # SKIP reason`.
+            var afterWord = directive[4..];
+            if (afterWord.Length > 0 && !char.IsWhiteSpace(afterWord[0]) && afterWord[0] != ':')
+                continue;
+
+            name = afterOk[..hash].Trim();
+            if (name.Length == 0) continue;
+
+            reason = afterWord.TrimStart(' ', ':', '\t');
+            if (reason.Length == 0) reason = "(no reason given)";
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Recognises the runner's <c>&lt;index&gt; &lt;fixtureName&gt;</c> head and returns the
+    /// fixture name. Same numeric-index discriminator <see cref="TryParseRunnerLevelFailure"/>
+    /// uses: <c>Harness</c> check names are C# identifiers, so a leading all-digits token can only
+    /// have come from the runner.
+    /// </summary>
+    internal static bool TryParseRunnerLevelName(string head, out string fixtureName)
+    {
+        fixtureName = "";
+        var firstSpace = head.IndexOf(' ');
+        if (firstSpace <= 0) return false;
+        if (!head[..firstSpace].All(char.IsDigit)) return false;
+
+        var name = head[(firstSpace + 1)..].Trim();
+        if (name.Length == 0) return false;
+
+        fixtureName = StripRunnerFailureSuffix(name);
+        return true;
     }
 
     private static bool TryParseRunnerLevelFailure(string rest, out string fixtureName, out string detail)
@@ -713,9 +906,13 @@ public class SelfTestBatch
         var attributed = tap.LastRunningFixture;
         if (attributed is not null)
         {
-            if (!_byFixture.TryGetValue(attributed, out var existing) || existing.Passed)
+            // Overwrite anything that is not already a Failed verdict. A Skipped fixture reached
+            // here means the run died right after a fixture that established nothing — the silent
+            // death is the more important fact and must not be masked by the skip.
+            if (!_byFixture.TryGetValue(attributed, out var existing)
+                || existing.Status != FixtureStatus.Failed)
             {
-                _byFixture[attributed] = (false, DescribeSilentDeath(
+                _byFixture[attributed] = new FixtureOutcome(FixtureStatus.Failed, DescribeSilentDeath(
                     attributed, exitCode, tap.SawTotalFailures, ElapsedSeconds,
                     SelfTestTimeoutMs, Tail(_fullOutput, 4000)));
             }
@@ -840,8 +1037,284 @@ public class SelfTestBatch
             Assert.Fail($"Fixture '{name}' was not reported by the Host. Full output:\n{_fullOutput}");
         }
 
-        if (!result.Passed)
+        // Reported as an MSTest skip, not a pass. `Assert.Inconclusive` is the only verdict that
+        // is visible without being red: `dotnet test` prints `Skipped <FixtureName>` and the run
+        // stays green, so a machine that legitimately cannot observe the precondition does not
+        // manufacture a failure — while a reader can no longer mistake it for a fixture that ran.
+        if (result.Status == FixtureStatus.Skipped)
+            Assert.Inconclusive(result.Detail);
+
+        if (result.Status == FixtureStatus.Failed)
             Assert.Fail(result.Detail);
+    }
+
+    /// <summary>
+    /// What the run's skip directives added up to: how many fixtures established nothing, how many
+    /// were merely missing a leg, and the inventory behind both numbers.
+    /// </summary>
+    internal sealed record SkipInventory(
+        IReadOnlyList<string> FullySkippedFixtures,
+        IReadOnlyList<string> PartiallySkippedFixtures,
+        int TotalSkippedChecks,
+        string Text);
+
+    /// <summary>Entries listed in full before the report elides the tail.</summary>
+    private const int MaxListedSkips = 25;
+
+    /// <summary>
+    /// Folds the per-fixture verdicts into the run-level skip inventory.
+    ///
+    /// <para>Both halves are reported, and they mean different things. A <b>fully</b> skipped
+    /// fixture ran no assertions at all, so the run establishes nothing about it — that is issue
+    /// #1061's subject and it changes the fixture's verdict. The other bucket is everything else
+    /// that skipped at least one check: usually a passing fixture, but a <b>failed</b> one can
+    /// land here too, because a fixture that skips and then crashes keeps its skip. So this half
+    /// deliberately makes no claim about the verdict — listing it changes no verdict either way,
+    /// but the skipped leg is a real gap the TAP stream carried and the consumer used to throw
+    /// away, and a gap nobody can see is a gap nobody closes.</para>
+    /// </summary>
+    internal static SkipInventory BuildSkipInventory(IReadOnlyDictionary<string, FixtureOutcome> byFixture)
+    {
+        var fully = new List<string>();
+        var partial = new List<string>();
+        var totalChecks = 0;
+
+        foreach (var (fixture, outcome) in byFixture.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+        {
+            if (outcome.SkippedChecks.Count == 0) continue;
+            totalChecks += outcome.SkippedChecks.Count;
+
+            var entry = $"`{fixture}` — {string.Join("; ", outcome.SkippedChecks)}";
+            if (outcome.Status == FixtureStatus.Skipped) fully.Add(entry);
+            else partial.Add(entry);
+        }
+
+        var text = fully.Count == 0 && partial.Count == 0
+            ? "No checks were skipped in this run."
+            : $"{fully.Count} fixture(s) ran NO assertions (every check they own was skipped); " +
+              $"{partial.Count} more skipped at least one check. " +
+              $"{totalChecks} skipped check(s) in total.";
+
+        return new SkipInventory(fully, partial, totalChecks, text);
+    }
+
+    /// <summary>The skip inventory's markdown, and whether it landed on the job summary.</summary>
+    internal sealed record SkipReport(SkipInventory Inventory, string Markdown, bool Delivered);
+
+    /// <summary>
+    /// Builds the job-summary block for the run's skips and delivers it.
+    ///
+    /// <para>Composition and delivery live together for the same reason
+    /// <see cref="PublishSuiteDuration"/> does: delivery is the load-bearing half. An
+    /// <c>Assert.Inconclusive</c> message never reaches the Actions log — the tests run in a child
+    /// <c>testhost</c> whose stdout the runner does not forward, so all CI shows is the bare line
+    /// <c>Skipped &lt;FixtureName&gt;</c> with no reason attached. The job summary is plain file
+    /// I/O performed by this process, so it is the only channel that actually renders the
+    /// <i>why</i>.</para>
+    /// </summary>
+    internal static SkipReport PublishSkipReport(
+        IReadOnlyDictionary<string, FixtureOutcome> byFixture, string? summaryPath)
+    {
+        var inventory = BuildSkipInventory(byFixture);
+
+        var icon = inventory.FullySkippedFixtures.Count > 0 ? "⚠️" : "ℹ️";
+        var body = new global::System.Text.StringBuilder()
+            .Append($"### {icon} Selftest skipped checks\n\n")
+            .Append(inventory.Text)
+            .Append("\n\n");
+
+        AppendList(body, "Fully skipped — these establish nothing either way",
+            inventory.FullySkippedFixtures);
+        AppendList(body, "Partially skipped — these also ran real checks; see each fixture's own verdict",
+            inventory.PartiallySkippedFixtures);
+
+        body.Append("<sub>A `# SKIP` directive is a fixture reporting that it could not observe " +
+                    "its precondition. Background: issue #1061.</sub>");
+
+        var markdown = body.ToString();
+        return new SkipReport(inventory, markdown, TryAppendSummary(summaryPath, markdown));
+
+        static void AppendList(global::System.Text.StringBuilder sb, string heading, IReadOnlyList<string> entries)
+        {
+            if (entries.Count == 0) return;
+            sb.Append($"**{heading}:**\n\n");
+            foreach (var entry in entries.Take(MaxListedSkips))
+                sb.Append($"- {entry}\n");
+            if (entries.Count > MaxListedSkips)
+                sb.Append($"- …and {entries.Count - MaxListedSkips} more\n");
+            sb.Append('\n');
+        }
+    }
+
+    /// <summary>
+    /// Publishes the run's skip inventory, and reports a fixture that established nothing as a
+    /// skip rather than letting it pass unremarked.
+    ///
+    /// <para>Deliberately <c>Inconclusive</c> and not <c>Fail</c>, because most skips mark a
+    /// question this machine cannot answer — <c>GetCursorPos</c> returning <c>ACCESS_DENIED</c> on
+    /// a non-interactive desktop, or a Windows 10 box where the DWM corner attribute is not
+    /// round-trippable. Failing those would make the suite red on exactly the machines the skips
+    /// were introduced to accommodate, which is the regression the skips fixed.</para>
+    ///
+    /// <para>But <b>not every skip is benign</b>: some mark a tracked product gap (see
+    /// <c>Harness.Skip</c> — e.g. <c>"issue #942 - decorator retags the target"</c>), where the
+    /// product really is broken and the skip is a referenced deferral. That is why the reasons are
+    /// reproduced verbatim below rather than summarised into a count: a reader has to be able to
+    /// tell the two apart, and only the reason string can tell them.</para>
+    /// </summary>
+    [TestMethod]
+    public void SkippedFixtures_AreReported()
+    {
+        Assert.IsTrue(_initialized, "Self-test batch did not run.");
+        if (_initError is not null)
+            Assert.Fail(_initError);
+
+        if (_timedOut || _abortedReason is not null)
+        {
+            Assert.Inconclusive(
+                $"{_abortedReason ?? "The suite was killed by its process budget"}; the skip " +
+                $"inventory is not meaningful for a run that did not complete, because every " +
+                $"fixture downstream of the abort is missing rather than skipped.");
+        }
+
+        var report = PublishSkipReport(_byFixture, Environment.GetEnvironmentVariable(StepSummaryEnvVar));
+
+        // Kept for local vstest/IDE runs, where testhost stdout does show up.
+        Console.WriteLine(report.Inventory.Text);
+        foreach (var entry in report.Inventory.FullySkippedFixtures)
+            Console.WriteLine($"  fully skipped: {entry}");
+
+        // Same reasoning as the delivery check in SuiteDuration_WithinBudget, and the same failure
+        // mode: under `dotnet test` the Inconclusive message below never reaches the log, because
+        // the testhost's stdout is not forwarded. The step summary is therefore the ONLY channel
+        // that renders this inventory, so a dead channel leaves the skip report silently
+        // undelivered while everything else stays green — the suite passes, the report is composed,
+        // and nobody learns which fixtures asserted nothing.
+        var summaryPath = Environment.GetEnvironmentVariable(StepSummaryEnvVar);
+        if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true")
+        {
+            Assert.IsFalse(string.IsNullOrWhiteSpace(summaryPath),
+                $"{StepSummaryEnvVar} is unset on a GitHub Actions runner, so the skip inventory " +
+                $"had nowhere to go and the delivery check below silently skipped. Without this " +
+                $"the check cannot come out the other way, and a check that cannot fail is the " +
+                $"instrument bug issue #1061 was.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(summaryPath))
+        {
+            Assert.IsTrue(report.Delivered,
+                $"The skip inventory could not be written to {StepSummaryEnvVar} " +
+                $"('{summaryPath}'). This is a fault in the reporting channel, not in the suite: " +
+                $"the run itself is fine, but the only surface that names the skipped fixtures is " +
+                $"now silent.");
+        }
+
+        // The positive control. Everything else in this file feeds ParseTap a fabricated string,
+        // which proves the parser but not the Host: the decision "this fixture asserted nothing"
+        // is made in SelfTestRunner, in a project no test can reference
+        // (ReferenceOutputAssembly=false), so a fabricated stream cannot reach it. This fixture
+        // exists to be fully skipped, so its presence here is the one end-to-end proof that the
+        // Host still classifies, the `# SKIP` literal still matches across the duplicated
+        // boundary, and the wrapper still reports SKIPPED instead of green.
+        //
+        // It fails rather than warns because the regression it guards is silent by construction:
+        // if the chain breaks, this fixture goes GREEN, the suite stays green, and issue #1061 is
+        // back with nothing to show for it. Without this assertion the whole skip pipeline could
+        // rot while every test above it stayed passing — a check that cannot come out the other
+        // way, which is the exact instrument bug this work is about.
+        var controlSeen = report.Inventory.FullySkippedFixtures
+            .Any(e => e.Contains(SkipVerdictControlFixture, StringComparison.Ordinal));
+
+        Assert.IsTrue(controlSeen,
+            $"The positive control '{SkipVerdictControlFixture}' was not reported as a fully " +
+            $"skipped fixture. It asserts nothing on purpose, so it must land here on every run. " +
+            $"Something in the chain is broken, and the failure is silent everywhere else:\n" +
+            $"  (a) The fixture was deleted, renamed, or given a real H.Check — restore it; its " +
+            $"amber IS the healthy result (see SkipVerdictPositiveControlFixture.cs).\n" +
+            $"  (b) SelfTestRunner stopped classifying a zero-assertion fixture as skipped, so " +
+            $"fully-skipped fixtures are reported PASSED again — that is issue #1061 exactly.\n" +
+            $"  (c) The '# SKIP' literal drifted between Harness.Skip and TryParseSkipDirective. " +
+            $"The Host is referenced with ReferenceOutputAssembly=false, so it is duplicated, not " +
+            $"shared, and nothing but this assertion compares the two.\n" +
+            $"Fixtures reported fully skipped this run: " +
+            $"{(report.Inventory.FullySkippedFixtures.Count == 0 ? "(none)" : string.Join(", ", report.Inventory.FullySkippedFixtures))}");
+
+        // Report only the *unexpected* skips. The control is always here, so folding it in would
+        // make this permanently Inconclusive and drown the signal it exists to protect.
+        var unexpected = report.Inventory.FullySkippedFixtures
+            .Where(e => !e.Contains(SkipVerdictControlFixture, StringComparison.Ordinal))
+            .ToArray();
+
+        if (unexpected.Length > 0)
+        {
+            Assert.Inconclusive(
+                $"{report.Inventory.Text}\n" +
+                $"Fully skipped (excluding the '{SkipVerdictControlFixture}' control):\n  " +
+                $"{string.Join("\n  ", unexpected)}\n" +
+                $"Each of those is reported Skipped individually too. They are NOT automatically " +
+                $"failures — but they are not passes either: read the per-fixture reason, because " +
+                $"a skip can mean an undeterminable precondition, coverage owned by the E2E tier, " +
+                $"or a tracked product gap where the product really is broken.");
+        }
+    }
+
+    /// <summary>
+    /// Name of the fixture that exists purely to be fully skipped, so the SKIPPED verdict has an
+    /// end-to-end positive control. Duplicated from
+    /// <c>SkipVerdictPositiveControl.FixtureName</c> in the Host, which cannot be referenced from
+    /// here; <see cref="SkippedFixtures_AreReported"/> is what catches the two drifting apart.
+    /// </summary>
+    internal const string SkipVerdictControlFixture = "SelfTestVerdict_OnlySkips_PositiveControl";
+
+    /// <summary>
+    /// The one assertion that observes the <b>real</b> Host's real skip output, and the only thing
+    /// that can catch the two projects drifting apart.
+    ///
+    /// <para>Every other test of the skip pipeline feeds <see cref="ParseTap"/> a fabricated
+    /// string, so if <c>Harness.Skip</c> stopped emitting the <c># SKIP</c> directive — or the
+    /// literal changed on one side only, which it can, because the Host is referenced with
+    /// <c>ReferenceOutputAssembly=false</c> and the token is duplicated rather than shared — every
+    /// one of those tests would stay green while the wrapper quietly went back to reporting
+    /// fully-skipped fixtures as PASSED. That is issue #1061 restored in full, with a completely
+    /// green suite. The same reasoning, and the same shape, as the
+    /// <c>'# Suite elapsed: '</c> guard in <see cref="SuiteDuration_WithinBudget"/>.</para>
+    ///
+    /// <para>Non-vacuous by design, not by luck: <c>SelfTestVerdict_OnlySkips_PositiveControl</c>
+    /// exists to be fully skipped, so every full run emits at least one directive regardless of
+    /// the machine. It previously leaned on <c>Spec047EventStateSplitFixtures</c> skipping
+    /// unconditionally, which was true but incidental — that fixture's skip could be closed at any
+    /// time by work that had no idea this guard depended on it.</para>
+    /// </summary>
+    [TestMethod]
+    public void SkipDirectives_SurviveIntoTheReport()
+    {
+        Assert.IsTrue(_initialized, "Self-test batch did not run.");
+        if (_initError is not null)
+            Assert.Fail(_initError);
+
+        // An aborted run is truncated by definition, so "no skips seen" would mean "the run
+        // stopped before reaching one" rather than "the channel is broken". Reporting it would
+        // manufacture a second failure on top of the abort, blaming the wrong thing.
+        if (_timedOut || _abortedReason is not null)
+        {
+            Assert.Inconclusive(
+                $"{_abortedReason ?? "The suite was killed by its process budget"}; a truncated " +
+                $"run cannot establish whether skip directives still reach the parser.");
+        }
+
+        var inventory = BuildSkipInventory(_byFixture);
+
+        Assert.IsTrue(inventory.TotalSkippedChecks > 0,
+            "The Host completed its run but the parser saw ZERO '# SKIP' directives. That should " +
+            "be impossible: " + SkipVerdictControlFixture + " exists to emit one on every run. " +
+            "Two explanations, and they need different fixes:\n" +
+            "  (a) DRIFT — Harness.Skip stopped emitting 'ok <name> # SKIP <reason>', or " +
+            "SelfTestBatch.TryParseSkipDirective stopped recognising it. Every fully-skipped " +
+            "fixture is now silently reported PASSED again, which is issue #1061 exactly. Check " +
+            "the literal on BOTH sides: the Host is referenced with ReferenceOutputAssembly=false, " +
+            "so it is duplicated, not shared.\n" +
+            "  (b) The positive-control fixture was deleted or de-registered. Restore it rather " +
+            "than deleting this guard — it is the only thing keeping the check falsifiable.");
     }
 
     /// <summary>
