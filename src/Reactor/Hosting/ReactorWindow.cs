@@ -160,6 +160,14 @@ public sealed class ReactorWindow : IDisposable
     private SizeChangedEventHandler? _sizeToContentSizeChangedHandler;
     private EventHandler<object>? _sizeToContentLayoutUpdatedHandler;
     private bool _sizeToContentApplying;
+    // Edge-trigger for the "ignored while maximized" warning. ApplySizeToContent
+    // runs off LayoutUpdated, i.e. every layout pass, so this tracks whether the
+    // warning has already been emitted for the current maximized spell.
+    private bool _sizeToContentMaximizedWarned;
+    // Edge-trigger for WindowSpec's no-drag-affordance warning. Update validates
+    // ahead of its own equality check, so without this an app holding that
+    // configuration would emit one warning per spec change, indefinitely.
+    private bool _warnedNoDragAffordance;
     internal int SizeToContentApplyCountForTests;
 
     /// <summary>Stable id, e.g. <c>"win-3"</c>. Allocated monotonically per process.</summary>
@@ -354,6 +362,9 @@ public sealed class ReactorWindow : IDisposable
     {
         ArgumentNullException.ThrowIfNull(spec);
         spec.Validate();
+        // Validate() warned if the spec needs it; record that so Update doesn't
+        // repeat it for the same unchanged condition.
+        _warnedNoDragAffordance = spec.HasNoDragAffordance;
 
         _id = $"win-{Interlocked.Increment(ref s_nextId)}";
         _spec = spec;
@@ -1439,6 +1450,21 @@ public sealed class ReactorWindow : IDisposable
         if (args.DidPositionChange)
             TryUpdatePositionCache(raiseEvent: true);
 
+        // The size-to-content maximized warning latches for one maximized spell.
+        // This is the only root-independent observer of window state:
+        // ApplySizeToContent's re-arm is driven by the root's SizeChanged /
+        // LayoutUpdated handlers and returns at its own null-root guard, so with
+        // no root attached (an Empty() tree) nothing on the content path can see
+        // a restore and the next maximized spell would be silently suppressed.
+        // Deliberately above the presenter/visibility filter below: a
+        // ShowWindow-driven restore reports neither of those, only a size change.
+        // The latch read is free and false in the common case, so the state
+        // resolution is only paid while a spell is actually latched — this
+        // handler also runs per move event. Uses the same predicate as the warning
+        // itself, so the two can never disagree about what "maximized" means.
+        if (_sizeToContentMaximizedWarned && ResolveCurrentState() != WindowState.Maximized)
+            _sizeToContentMaximizedWarned = false;
+
         if (!args.DidPresenterChange && !args.DidVisibilityChange) return;
         var newState = ResolveCurrentState();
         var prev = (WindowState)Volatile.Read(ref _stateValue);
@@ -1634,6 +1660,13 @@ public sealed class ReactorWindow : IDisposable
         var resolved = _specTitleBarHeight ?? _elementTitleBarHeight;
         if (resolved is null)
         {
+            // No height is declared, so the invalid "height set on a
+            // non-extended window" combination cannot hold — re-arm, or
+            // re-declaring the height later would be a new invalid state that
+            // never warned. Must happen before the early return below: an
+            // invalid height is never applied, so _appliedTitleBarHeight stays
+            // null and that return is exactly the path a removal takes.
+            _warnedTitleBarHeightNotExtended = false;
             if (_appliedTitleBarHeight is null) return; // never declared — leave the app's value alone
             resolved = WindowTitleBarHeight.Standard;   // declaration removed — return to the default
         }
@@ -1648,7 +1681,15 @@ public sealed class ReactorWindow : IDisposable
 
         if (!extended)
         {
-            if (warnWhenNotExtended)
+            // Warn on entering the invalid combination, not on every re-apply.
+            // ApplyChrome runs for any unequal spec, so an app that leaves
+            // TitleBarHeight set on a non-extended window would otherwise emit
+            // one release-visible warning per unrelated field change. Re-armed
+            // below once the window is content-extended again.
+            if (warnWhenNotExtended && !_warnedTitleBarHeightNotExtended)
+            {
+                _warnedTitleBarHeightNotExtended = true;
+                Interlocked.Increment(ref TitleBarHeightNotExtendedWarningCountForTests);
                 DiagnosticLog.Warning(
                     LogCategory.Hosting,
                     "ReactorWindow.TitleBarHeight",
@@ -1661,11 +1702,16 @@ public sealed class ReactorWindow : IDisposable
                           + "The height option was not applied."
                         : "TitleBarHeight requires a content-extended window; set WindowSpec.ExtendsContentIntoTitleBar = true "
                           + "or render a TitleBar(...) element. The height option was not applied.");
+            }
             // The caption stayed Standard, so the control must not go tall either.
             _effectiveTitleBarHeight = WindowTitleBarHeight.Standard;
             SyncTitleBarControlHeight();
             return;
         }
+
+        // Content-extended: the invalid combination is gone, so a later relapse
+        // is a new edge and warns again.
+        _warnedTitleBarHeightNotExtended = false;
 
         try
         {
@@ -1917,8 +1963,26 @@ public sealed class ReactorWindow : IDisposable
 
     private void AttachSizeToContentRoot(WindowSpec spec, FrameworkElement? root)
     {
-        if (spec.SizeToContent == WindowSizeToContent.Manual || root is null)
+        if (spec.SizeToContent == WindowSizeToContent.Manual)
         {
+            DetachSizeToContentRoot();
+            // Size-to-content is off, which ends any ignored-while-maximized
+            // spell — re-arm so enabling it again reports. Deliberately here and
+            // not inside DetachSizeToContentRoot: that also runs when the
+            // reconciler merely swaps the root (below) while the window stays
+            // maximized, and re-arming there would emit one warning per render.
+            _sizeToContentMaximizedWarned = false;
+            return;
+        }
+
+        if (root is null)
+        {
+            // Size-to-content is still on; the tree just rendered to nothing
+            // (an Empty() root reconciles to a null control, as does a root that
+            // is not a FrameworkElement). That is a detach, not the end of the
+            // spell, so the latch is deliberately preserved — exactly as for the
+            // root-replacement path below. Re-arming here would let a component
+            // alternating Empty() with a real root warn once per render.
             DetachSizeToContentRoot();
             return;
         }
@@ -1962,21 +2026,43 @@ public sealed class ReactorWindow : IDisposable
 
     internal static int SizeToContentMaximizedWarningCountForTests;
 
+    // Edge-trigger for the title-bar-height "not extended" warning. ApplyChrome
+    // re-applies on any unequal spec, so without this an app that keeps the
+    // invalid combination would warn on every unrelated field change.
+    private bool _warnedTitleBarHeightNotExtended;
+    internal static int TitleBarHeightNotExtendedWarningCountForTests;
+
     internal void ApplySizeToContentForTests() => ApplySizeToContent();
 
     private void ApplySizeToContent()
     {
         var spec = Volatile.Read(ref _spec);
+        // Size-to-content off: nothing to apply. Re-arming the maximized-warning
+        // latch is AttachSizeToContentRoot's Manual branch's job, which ApplyChrome
+        // reaches via OnHostContentRendered on every spec change. Doing it here too
+        // would be redundant, and this method also runs for reasons unrelated to a
+        // spec change.
         if (spec.SizeToContent == WindowSizeToContent.Manual) return;
         var root = _sizeToContentRoot;
         if (root is null || _sizeToContentApplying) return;
 
         if (ResolveCurrentState() == WindowState.Maximized)
         {
-            Interlocked.Increment(ref SizeToContentMaximizedWarningCountForTests);
-            DiagnosticLog.Warning(LogCategory.Hosting, "ReactorWindow.SizeToContent", "SizeToContent is ignored while the window is maximized.");
+            // Warn on the edge into the ignored state, not on every layout pass.
+            // LayoutUpdated drives this method continuously, and DiagnosticLog.Warning
+            // is release-visible, so warning per pass would emit an unbounded ETW
+            // stream for as long as the window stays maximized. Re-armed below once
+            // it is restored, so a later maximize warns again.
+            if (!_sizeToContentMaximizedWarned)
+            {
+                _sizeToContentMaximizedWarned = true;
+                Interlocked.Increment(ref SizeToContentMaximizedWarningCountForTests);
+                DiagnosticLog.Warning(LogCategory.Hosting, "ReactorWindow.SizeToContent", "SizeToContent is ignored while the window is maximized.");
+            }
             return;
         }
+
+        _sizeToContentMaximizedWarned = false;
 
         var desiredDip = ResolveSizeToContentDesiredDip(root);
         if (!(desiredDip.Width > 0) || !(desiredDip.Height > 0)) return;
@@ -2159,7 +2245,23 @@ public sealed class ReactorWindow : IDisposable
         ThreadAffinity.ThrowIfNotOnUIThread(nameof(Update));
         if (_disposed) throw new ObjectDisposedException(nameof(ReactorWindow));
 
-        next.Validate();
+        next.ValidateThrowing();
+
+        // Warn on entering the condition, not on every Update. The throwing
+        // invariants above must run every time, but this validation happens
+        // ahead of the equality check below — so an app that keeps a chromeless,
+        // non-draggable window while changing any other field (a title, an
+        // opacity tween) would otherwise emit one ETW event per update for the
+        // life of the window. Re-armed when the condition clears.
+        if (!next.HasNoDragAffordance)
+        {
+            _warnedNoDragAffordance = false;
+        }
+        else if (!_warnedNoDragAffordance)
+        {
+            _warnedNoDragAffordance = true;
+            next.WarnOnSuspiciousCombinations();
+        }
 
         // Only re-apply chrome when something visible changed. Equality on the
         // record handles all simple scalar fields; reference-types (Icon,

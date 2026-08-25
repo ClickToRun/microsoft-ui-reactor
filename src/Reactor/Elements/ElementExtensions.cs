@@ -599,6 +599,20 @@ public static partial class ElementExtensions
     /// the variants different <see cref="WithKey{T}(T, string)"/> values to force
     /// a remount when the style itself must change.
     /// </para>
+    /// <para>
+    /// <b>Unresolved keys do not throw.</b> If <paramref name="styleName"/> is not
+    /// found in the application's resources (including merged dictionaries), or is
+    /// found but is not a <see cref="Style"/>, the element keeps its default
+    /// appearance and a warning naming the key is emitted on the
+    /// <c>Microsoft-UI-Reactor</c> ETW provider (and to <c>Debug.WriteLine</c> in
+    /// DEBUG builds). Earlier versions threw out of the mount action instead.
+    /// The warning fires once per distinct key, so one bad key in a virtualized
+    /// list does not warn per realized item; past a few hundred distinct
+    /// unresolved keys the de-duplication stops and every miss warns again,
+    /// because staying quiet there would hide a real typo. Under NativeAOT the
+    /// ETW half is compiled out unless the app sets
+    /// <c>EventSourceSupport=true</c>; the DEBUG mirror is unaffected.
+    /// </para>
     /// </summary>
     public static T ApplyStyle<T>(this T el, string styleName) where T : Element =>
         el.OnMount(StyleApplier(styleName));
@@ -614,6 +628,14 @@ public static partial class ElementExtensions
     // cache stops growing past StyleApplierCacheCap and falls back to a
     // per-call delegate (the pre-#174 behavior) — correctness is unchanged,
     // only the allocation optimization stops applying beyond the cap.
+    //
+    // The cap is deliberately approximate, not an invariant: the Count check and
+    // the insert are not atomic, so writers racing at the boundary can overshoot
+    // by at most the number of them. That is fine for what the cap is — a memory
+    // guard against a pathological caller, where 256 vs 258 entries is
+    // immaterial — and taking a lock on the miss path would put contention on a
+    // path that runs during render, which is the cost #174 exists to avoid. The
+    // same reasoning applies to the warned-key set below.
     private const int StyleApplierCacheCap = 256;
     private static readonly global::System.Collections.Concurrent.ConcurrentDictionary<string, Action<FrameworkElement>> _styleApplierCache = new();
 
@@ -624,11 +646,111 @@ public static partial class ElementExtensions
         // happens at most once per distinct style name.
         if (_styleApplierCache.TryGetValue(styleName, out var cached))
             return cached;
-        if (_styleApplierCache.Count >= StyleApplierCacheCap)
-            return fe => fe.Style = (Style)Application.Current.Resources[styleName];
+        // An overlong name is never cached, for the same reason the warned-key
+        // set refuses it: the cap bounds how many entries are retained but not
+        // how large each one is, and both the dictionary key and the cached
+        // delegate's capture hold the full string, so a data-driven caller
+        // could otherwise root 256 arbitrarily long keys for the process
+        // lifetime. Falls back to the per-call delegate, whose lifetime the
+        // caller's element tree controls.
+        if (styleName.Length > MaxKeyChars || _styleApplierCache.Count >= StyleApplierCacheCap)
+            return fe => ApplyNamedStyle(fe, styleName);
         return _styleApplierCache.GetOrAdd(styleName,
-            static name => fe => fe.Style = (Style)Application.Current.Resources[name]);
+            static name => fe => ApplyNamedStyle(fe, name));
     }
+
+    // Resolve a named Style out of the application resources and assign it.
+    //
+    // Previously this was a bare `fe.Style = (Style)Application.Current.Resources[name]`.
+    // `ResourceDictionary` implements `IDictionary`, so that indexer *throws* on a
+    // missing key, and the cast throws when a key resolves to a non-Style — so an
+    // author's typo surfaced as an exception out of `OnMountAction`, which
+    // `Reconciler.ApplyModifiers` invokes unguarded, failing the whole render.
+    // A misspelled style key is an authoring mistake, not a corrupt-state condition,
+    // so it now degrades to "keep the default appearance" and names the key in a
+    // warning instead. Lookup goes through `ResourceLookup.TryFind`, which is a
+    // single `TryGetValue` plus a typed check — `ResourceDictionary` performs the
+    // merged-dictionary traversal itself, so keys defined in a merged dictionary
+    // (`XamlControlsResources` and friends) still resolve.
+    private static void ApplyNamedStyle(FrameworkElement fe, string styleName)
+    {
+        if (ResourceLookup.TryFind<Style>(Application.Current?.Resources, styleName, out var style))
+        {
+            fe.Style = style;
+            return;
+        }
+
+        WarnUnresolvedStyle(styleName);
+    }
+
+    // A style key is resolved once per mount, so one bad key on a virtualized list
+    // would warn once per realized item. Warn once per distinct key instead, and
+    // skip building the message when nothing is listening — `DiagnosticLog.Warning`
+    // is an ordinary method, so an interpolated argument would otherwise be
+    // allocated and discarded on a path this file works to keep allocation-free (#174).
+    private static readonly global::System.Collections.Concurrent.ConcurrentDictionary<string, byte> _warnedStyles = new();
+
+    // Test seam. Both caches are process-wide and never cleared in normal
+    // operation, so a fixture that fills either to capacity silently changes the
+    // behaviour every later fixture in the same process sees — the warned-key
+    // set changes de-duplication, and a saturated applier cache pushes everyone
+    // onto the uncached fallback, masking the #174 cached path. Selftests that
+    // fill them reset both around themselves so they stay hermetic and
+    // order-independent.
+    internal static void ResetStyleCachesForTesting()
+    {
+        _warnedStyles.Clear();
+        _styleApplierCache.Clear();
+    }
+
+    private static void WarnUnresolvedStyle(string styleName)
+    {
+        // Repeat miss for a key already reported: lock-free, no allocation.
+        if (_warnedStyles.ContainsKey(styleName))
+            return;
+        // Checked before recording the key so that attaching a listener later
+        // still gets the first warning for it.
+        if (!Core.Diagnostics.DiagnosticLog.IsWarningEnabled)
+            return;
+
+        // Bounded like the applier cache above so a data-driven caller passing
+        // unbounded distinct bad keys cannot grow this set without limit — an
+        // approximate bound, for the reasons given on StyleApplierCacheCap. Past
+        // capacity we stop deduping rather than stop warning: going silent
+        // there would break the documented "unresolved keys are reported"
+        // contract exactly when an app is most badly misconfigured, and would
+        // hide a genuine typo behind 256 earlier ones.
+        //
+        // An overlong name is never stored, only warned: the entry cap bounds
+        // how MANY keys are retained but not how LARGE each one is, so a
+        // data-driven caller could otherwise root 256 arbitrarily long strings
+        // for the process lifetime. Skipping de-duplication for those matches
+        // the overflow behaviour above — warn every time, retain nothing.
+        var bounded = styleName.Length <= MaxKeyChars;
+        if (bounded && _warnedStyles.Count < StyleApplierCacheCap && !_warnedStyles.TryAdd(styleName, 0))
+            return;
+
+        // Spec 044 §6.2.1: resource keys are developer-authored identifiers and
+        // are allowed on the ETW payload (same category as IntlMissingKey's
+        // `key`), but payloads must still be length-bounded so a data-driven
+        // caller can't pump an oversized string through the ring buffer.
+        var safeName = bounded
+            ? styleName
+            : string.Concat(styleName.AsSpan(0, MaxKeyChars), "…");
+
+        Core.Diagnostics.DiagnosticLog.Warning(
+            Core.Diagnostics.LogCategory.Theme,
+            nameof(ApplyStyle),
+            $"Style '{safeName}' did not resolve to a Style in the application's resources; " +
+            "the element keeps its default appearance. Check the key spelling and that the " +
+            "resource dictionary defining it is merged into the application's resources.");
+    }
+
+    // Spec 044 §6.2.1 "typical cap: 256 chars". Bounds the variable part of the
+    // ETW message (the rest is a fixed literal), and doubles as the threshold
+    // past which a key is never retained — by either the applier cache or the
+    // warned-key set — so neither can be used to root unbounded strings.
+    private const int MaxKeyChars = 256;
 
     // ════════════════════════════════════════════════════════════════
     //  Sugar extensions (typed, return concrete element type)

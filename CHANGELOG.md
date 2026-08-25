@@ -28,7 +28,29 @@ Conventions for contributors:
 
 ### Added
 
+- **`TitleLarge()` and `Display()` type-ramp factories (spec 039 §17.6).** Extend the
+  named-style factory set alongside `Title`/`Subtitle`/`Body`/`BodyStrong`/`BodyLarge`,
+  mapping to `TitleLargeTextBlockStyle` (40px Semibold) and `DisplayTextBlockStyle`
+  (68px Semibold). `CaptionTextBlockStyle` still has no style-applying factory —
+  `Caption()` is a size-only preset — so reach for `.ApplyStyle()` when you need that
+  style's full setters.
+
 ### Changed
+
+- **`.ApplyStyle()` reports an unresolved style key instead of throwing (spec 044 §6.1).**
+  A missing key — or one that resolves to something that is not a `Style` — previously threw
+  out of the mount action, which `Reconciler.ApplyModifiers` invokes unguarded, failing the
+  whole render over an authoring typo. The element now keeps its default appearance and the
+  key is named in a warning on the `Microsoft-UI-Reactor` ETW provider (`Keywords.Errors`),
+  emitted once per distinct key — until a few hundred distinct keys have been reported, past
+  which de-duplication stops and every miss warns again rather than going silent. Overlong
+  keys are never de-duplicated and are truncated on the payload. Note that a NativeAOT app
+  emits no ETW at all unless it sets `EventSourceSupport=true`.
+- **`DiagnosticLog.Warning` is release-visible (spec 044 §6.1).** It previously only called a
+  `[Conditional("DEBUG")]` mirror, so every warning routed through it — backdrop fallback,
+  `SizeToContent` on a maximized window, and now unresolved style keys — was silently
+  discarded in shipped apps. It now emits ETW like its `SwallowedError` / `HResultFailed`
+  siblings.
 
 ### Deprecated
 
