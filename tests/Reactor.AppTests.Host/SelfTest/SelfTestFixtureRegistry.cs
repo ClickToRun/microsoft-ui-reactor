@@ -293,6 +293,9 @@ internal static class SelfTestFixtureRegistry
         // Issue #480 follow-up — incremental RTB update preserves child identity
         "InlineUI_IncrementalUpdate_PreservesChildIdentity",
         "InlineUI_IncrementalUpdate_RunMutatedInPlace",
+        // Reconcile ETW span depth bookkeeping
+        "ReconcileTraceDepth_TopLevelSpansSurviveNestedPasses",
+        "FocusTrapContentDialog_ContainmentProbe",
         // Issue #487 — RichTextBlock + inline UI inside ScrollViewer scroll anchor
         "Issue487_ScrollOffsetRestoredAfterRunMutation",
         "Issue487_RepeatedMutationDoesNotDrift",
@@ -2001,6 +2004,8 @@ internal static class SelfTestFixtureRegistry
         // Issue #480 follow-up — incremental RTB update preserves child identity.
         "InlineUI_IncrementalUpdate_PreservesChildIdentity" => new InlineUIContainerFixtures.InlineUI_IncrementalUpdate_PreservesChildIdentity(harness),
         "InlineUI_IncrementalUpdate_RunMutatedInPlace" => new InlineUIContainerFixtures.InlineUI_IncrementalUpdate_RunMutatedInPlace(harness),
+        "ReconcileTraceDepth_TopLevelSpansSurviveNestedPasses" => new ReconcileTraceDepth_TopLevelSpansSurviveNestedPasses(harness),
+        "FocusTrapContentDialog_ContainmentProbe" => new FocusTrapContentDialog_ContainmentProbe(harness),
         "Issue487_ScrollOffsetRestoredAfterRunMutation" => new Issue487ScrollAnchorFixtures.Issue487_ScrollOffsetRestoredAfterRunMutation(harness),
         "Issue487_RepeatedMutationDoesNotDrift" => new Issue487ScrollAnchorFixtures.Issue487_RepeatedMutationDoesNotDrift(harness),
         "Issue487_ScrollViewOffsetRestoredAfterRunMutation" => new Issue487ScrollAnchorFixtures.Issue487_ScrollViewOffsetRestoredAfterRunMutation(harness),

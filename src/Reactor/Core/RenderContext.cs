@@ -817,9 +817,9 @@ public sealed class RenderContext
     /// <remarks>
     /// Spec 033 §2. The cache is currently process-wide
     /// (<see cref="ApplicationPersistedScope.Default"/>) and bounded by an LRU
-    /// policy. The two-arg form will trigger an analyzer warning in a follow-up
-    /// release; new code should use the three-arg overload to make the
-    /// intended scope explicit.
+    /// policy. The two-arg form is flagged by <c>REACTOR_PERSIST_001</c>
+    /// (<c>UsePersistedScopeAnalyzer</c>); new code should use the three-arg
+    /// overload to make the intended scope explicit.
     /// </remarks>
     public (T Value, Action<T> Set) UsePersisted<T>(string key, T initialValue)
         => UsePersisted(key, initialValue, PersistedScope.Application);
@@ -1288,21 +1288,29 @@ public sealed class RenderContext
     // ════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Returns the effective <see cref="ColorScheme"/> at this component's
-    /// position in the tree. Automatically reflects the current system theme,
-    /// per-element <c>RequestedTheme</c> overrides, and High Contrast mode.
+    /// Returns the app-global <see cref="ColorScheme"/> — <see cref="ColorScheme.Light"/>
+    /// or <see cref="ColorScheme.Dark"/>, read from
+    /// <c>Application.Current.RequestedTheme</c>.
     /// <para>
-    /// The value is re-evaluated on every render — when the theme changes,
+    /// The value is re-evaluated on every render — when the app theme changes,
     /// <see cref="Microsoft.UI.Reactor.Hosting.ReactorHost"/> triggers a re-render so this hook
     /// naturally picks up the new value.
+    /// </para>
+    /// <para>
+    /// This hook does <b>not</b> observe per-element <c>RequestedTheme</c> overrides: it
+    /// consults the application, not the calling component's position in the tree, so a
+    /// component inside a <c>.RequestedTheme(Dark)</c> subtree still reports the app theme.
+    /// It also never returns <see cref="ColorScheme.HighContrast"/> in a running app — use
+    /// <see cref="UseHighContrast"/> for forced-colors mode.
     /// </para>
     /// </summary>
     public ColorScheme UseColorScheme()
     {
-        // Read effective theme from the application. On re-render after theme
-        // change, this returns the updated value. Components inside a
-        // RequestedTheme(Dark) subtree see the correct variant because the
-        // FrameworkElement.ActualTheme is read at reconcile time.
+        // App-global only. Application.Current.RequestedTheme is Light or Dark, so
+        // FromActualTheme never reaches its ElementTheme.Default branch (and therefore
+        // never reports HighContrast) unless Application.Current is null. Reading the
+        // calling component's FrameworkElement.ActualTheme instead would make this
+        // subtree-aware, but RenderContext has no element reference at hook time.
         var theme = Microsoft.UI.Xaml.Application.Current?.RequestedTheme;
         var elementTheme = theme switch
         {
@@ -1314,8 +1322,10 @@ public sealed class RenderContext
     }
 
     /// <summary>
-    /// Convenience wrapper — returns <c>true</c> when the effective color
-    /// scheme is <see cref="ColorScheme.Dark"/>.
+    /// Convenience wrapper — returns <c>true</c> when the app-global color
+    /// scheme is <see cref="ColorScheme.Dark"/>. Exactly
+    /// <c>UseColorScheme() == ColorScheme.Dark</c>, so it inherits that hook's
+    /// semantics: it does not observe per-element <c>RequestedTheme</c>.
     /// </summary>
     public bool UseIsDarkTheme() => UseColorScheme() == ColorScheme.Dark;
 
@@ -2350,8 +2360,9 @@ public sealed class RenderContext
     }
 
     /// <summary>
-    /// Parameterless overload — resolves the current host's window. Returns
-    /// false when called outside a window. (spec 036 §5.2)
+    /// Window-inferring overload — takes only <paramref name="minWidth"/> and
+    /// resolves the current host's window. Returns false when called outside a
+    /// window. (spec 036 §5.2)
     /// </summary>
     public bool UseBreakpoint(double minWidth)
     {

@@ -319,7 +319,7 @@ public abstract record Element
 
     /// <summary>
     /// Layout modifiers (margin, padding, size, alignment, etc.) applied to this element.
-    /// Set via fluent extension methods: Text("hi").Margin(10).Width(200)
+    /// Set via fluent extension methods: TextBlock("hi").Margin(10).Width(200)
     /// Modifiers are stored inline so the concrete element type is preserved through chaining.
     /// </summary>
     public ElementModifiers? Modifiers { get; init; }
@@ -337,7 +337,7 @@ appearance.
 
 ```csharp
 // Don't expect a red stripe inside the padding:
-Text("hi").Padding(10).Background("#FF0000");
+TextBlock("hi").Padding(10).Background("#FF0000");
 ```
 
 ```csharp
@@ -393,15 +393,15 @@ inside. In Reactor, both calls land in the same `Modifiers.Layout.Padding`
 and `Modifiers.Visual.Background` slots, and the WinUI control gets
 one padding and one background — the order doesn't change the
 geometry. If you want the SwiftUI semantics, wrap the inner element in
-a [`Border`](styling.md) explicitly: `Border(Text("hi").Padding(10)).Background("#FF0000")`
-gives you the outer stripe; `Border(Text("hi")).Padding(10).Background("#FF0000")`
+a [`Border`](styling.md) explicitly: `Border(TextBlock("hi").Padding(10)).Background("#FF0000")`
+gives you the outer stripe; `Border(TextBlock("hi")).Padding(10).Background("#FF0000")`
 gives you the inner.
 
 ### Re-setting the same property and expecting an additive effect
 
 ```csharp
 // Don't:
-Text("hi").Margin(8).Margin(left: 16);   // last wins — margin is (16,8,8,8)? NO. it's (16,0,0,0)
+TextBlock("hi").Margin(8).Margin(left: 16);   // last wins — margin is (16,8,8,8)? NO. it's (16,0,0,0)
 ```
 
 ```csharp

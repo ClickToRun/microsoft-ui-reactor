@@ -71,7 +71,7 @@ Echo handling is a documented hybrid (spec-047 §8.3). Synchronous, exact-compar
 
 ### Element pooling
 
-`ElementPool` recycles WinUI controls. Poolable types track one-time event wiring via `ConditionalWeakTable<FrameworkElement, PoolableWireFlags>` to avoid double-subscribing across rent/return cycles.
+`ElementPool` recycles WinUI controls. `PoolableTypes` includes interactive controls (`Button`, `TextBox`, `ToggleSwitch`) alongside the non-interactive ones: their event trampolines subscribe **once for the control's lifetime** and read the current element from attached state at invocation time, so a recycled control dispatches to the new element's callbacks. `Reconciler.ReturnControl<T>` therefore deliberately **preserves** `ReactorState.ControlEventState` across rent/return (issue #114) — clearing it would re-allocate on every rent and double-subscribe; the box is dropped only on full detach (`DetachReactorState`). New event wiring on a poolable control must go through that one-time trampoline, never a fresh per-rent subscription. It also keeps a `ConditionalWeakTable<UIElement, object>` (`_compositorTainted`) of elements that have had `GetElementVisual()` called on them — those permanently lose the XAML implicit-transition APIs (`OpacityTransition`, `ScaleTransition`, …), so they are excluded from pooling rather than handed to a future user that might need those APIs.
 
 ### Per-element state via attached DP
 
@@ -114,7 +114,21 @@ The legacy Element-record + `MountXxx`/`UpdateXxx` dispatch-switch path is gone.
 
 1. **Element record** in `src/Reactor/Core/Element.cs`
 2. **Authoring shape** — a `ControlDescriptor<TElement, TControl>` (the primary path) or a hand-coded `IElementHandler<TElement, TControl>` for irregular controls.
-3. **Register** it in `RegisterV1BuiltInHandlers`.
+3. **Register** it. Spec 048 §3.4 removed the old bootstrap: built-in handlers now
+   self-register **lazily on the first factory call**, via the per-control
+   `Reg<>` / `RegDecorator<>` cctor latch in `Dsl.cs`. A `[GenerateReactorWrapper]`
+   element gets a static constructor emitting `ControlRegistry.Register` (spec 058).
+   To register a third-party control or override a built-in globally, call
+   `ControlRegistry.Register<TElement, TControl>` (or `RegisterDecorator`,
+   `RegisterForDerivedTypes`) at startup. `ReactorApp.RegisterAllBuiltIns()` is the
+   opt-in bulk path for direct-record/AOT callers. Note the two latches differ:
+   for a **hand-authored built-in** the `Reg<>` touch lives in the factory body,
+   so `new MyElement(...)` alone registers nothing and the factory call is what
+   latches it; a **`[GenerateReactorWrapper]`** element registers from its
+   generated static constructor, so constructing one is already enough
+   (`UnregisteredHandlerAndRegisterAllBuiltInsTests` depends on that, and the
+   "unregistered handler" message deliberately never names
+   `GenerateReactorWrapper` as a cause).
 4. **Selftest fixture** in `tests/Reactor.AppTests.Host/SelfTest/Fixtures/`.
 
 See [`docs/guide/extending-reactor-controls.md`](docs/guide/extending-reactor-controls.md) for the authoring-shape decision tree (prop/engine shapes, children strategies, echo handling, pooling).

@@ -58,6 +58,13 @@ class BeforeUseResourceExample : Component
                     }
                 }
             });
+            // Cancel only. The fire-and-forget worker shares ownership of the
+            // source, and CancellationTokenSource.Dispose is not safe alongside
+            // concurrent member access — a cancellation-aware call still
+            // registering against the token would see ObjectDisposedException.
+            // Nothing leaks: a CTS with no timer holds no unmanaged resource, so
+            // dropping the reference is enough. Dispose only when a single owner
+            // can prove the worker has finished.
             return () => cts.Cancel();
         }, 42);
 

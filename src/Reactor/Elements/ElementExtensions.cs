@@ -23,7 +23,7 @@ namespace Microsoft.UI.Reactor;
 /// Modifiers are stored inline on Element.Modifiers, preserving the concrete type
 /// through the entire fluent chain. This means .Set() works after any modifier:
 ///
-///   Text("Hello")
+///   TextBlock("Hello")
 ///       .Bold()
 ///       .Margin(16)
 ///       .HAlign(HorizontalAlignment.Center)
@@ -590,7 +590,7 @@ public static partial class ElementExtensions
     /// <summary>
     /// Apply a named WinUI Style to the element's control. Style is on
     /// FrameworkElement — works on any element.
-    /// Usage: Text("Hello").ApplyStyle("BodyTextBlockStyle")
+    /// Usage: TextBlock("Hello").ApplyStyle("BodyTextBlockStyle")
     /// <para>
     /// <b>Applied at mount only.</b> This routes through <c>OnMount</c>, and the
     /// reconciler runs <c>OnMountAction</c> only when there is no previous
@@ -1324,7 +1324,7 @@ public static partial class ElementExtensions
     /// <summary>
     /// Sets the foreground from a WinUI theme resource. Resolves at render time
     /// and adapts when the theme changes (Light ↔ Dark).
-    /// Usage: <c>Text("Hello").Foreground(Theme.PrimaryText)</c>
+    /// Usage: <c>TextBlock("Hello").Foreground(Theme.PrimaryText)</c>
     /// </summary>
     public static T Foreground<T>(this T el, ThemeRef theme) where T : Element =>
         ModifyTheme(el, "Foreground", theme);
@@ -2874,7 +2874,7 @@ public static partial class ElementExtensions
     /// Sets AutomationProperties.HeadingLevel (Level1–Level9).
     /// Screen reader users navigate by headings, like HTML h1–h6.
     /// </summary>
-    /// <example>Text("Settings").HeadingLevel(AutomationHeadingLevel.Level1)</example>
+    /// <example>TextBlock("Settings").HeadingLevel(AutomationHeadingLevel.Level1)</example>
     public static T HeadingLevel<T>(this T el, Microsoft.UI.Xaml.Automation.Peers.AutomationHeadingLevel level) where T : Element =>
         Modify(el, new ElementModifiers { HeadingLevel = level });
 
@@ -3060,7 +3060,7 @@ public static partial class ElementExtensions
     /// Sets AutomationProperties.LiveSetting. Screen readers announce content changes.
     /// Polite = queued after current speech. Assertive = interrupts immediately.
     /// </summary>
-    /// <example>Text(statusMessage).LiveRegion(AutomationLiveSetting.Polite)</example>
+    /// <example>TextBlock(statusMessage).LiveRegion(AutomationLiveSetting.Polite)</example>
     public static T LiveRegion<T>(this T el, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting mode = Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite) where T : Element =>
         ModifyA11y(el, new AccessibilityModifiers { LiveSetting = mode });
 

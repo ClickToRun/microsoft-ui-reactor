@@ -30,7 +30,7 @@ public abstract record Element
 
     /// <summary>
     /// Layout modifiers (margin, padding, size, alignment, etc.) applied to this element.
-    /// Set via fluent extension methods: Text("hi").Margin(10).Width(200)
+    /// Set via fluent extension methods: TextBlock("hi").Margin(10).Width(200)
     /// Modifiers are stored inline so the concrete element type is preserved through chaining.
     /// </summary>
     public ElementModifiers? Modifiers { get; init; }
@@ -96,7 +96,7 @@ public abstract record Element
 
     /// <summary>
     /// Attached properties from parent containers (Grid.Row, Canvas.Left, etc.).
-    /// Set via fluent extension methods: Text("hi").Grid(row: 1, column: 2)
+    /// Set via fluent extension methods: TextBlock("hi").Grid(row: 1, column: 2)
     /// Stored as a type-keyed dictionary so each provider defines its own data record.
     /// </summary>
     public IReadOnlyDictionary<Type, object>? Attached
@@ -108,7 +108,7 @@ public abstract record Element
 
     /// <summary>
     /// Implicit transitions (opacity, scale, rotation, translation, background).
-    /// Set via fluent extension methods: Rectangle().WithOpacityTransition()
+    /// Set via fluent extension methods: Rectangle().OpacityTransition()
     /// Applied by the reconciler after mount/update, so they are always present when
     /// property values are set via .Set() callbacks.
     /// </summary>
@@ -121,7 +121,7 @@ public abstract record Element
 
     /// <summary>
     /// Theme transitions (children, item container).
-    /// Set via fluent extension methods: VStack(children).WithThemeTransitions(...)
+    /// Set via fluent extension methods: VStack(children).WithTransitions(...)
     /// </summary>
     public ThemeTransitions? ThemeTransitions
     {
@@ -133,7 +133,7 @@ public abstract record Element
     /// <summary>
     /// Theme-resource bindings for brush properties (Background, Foreground, BorderBrush).
     /// When set, the reconciler resolves from WinUI theme resources instead of using local values.
-    /// Set via fluent extension methods: Text("hi").Background(Theme.Accent)
+    /// Set via fluent extension methods: TextBlock("hi").Background(Theme.Accent)
     /// </summary>
     public IReadOnlyDictionary<string, ThemeRef>? ThemeBindings
     {
@@ -337,7 +337,7 @@ public abstract record Element
 
     /// <summary>
     /// Convenience: implicitly convert a string to a TextBlockElement.
-    /// Allows writing: VStack("Hello", "World") instead of VStack(Text("Hello"), Text("World"))
+    /// Allows writing: VStack("Hello", "World") instead of VStack(TextBlock("Hello"), TextBlock("World"))
     /// </summary>
     public static implicit operator Element(string text) => Microsoft.UI.Reactor.Factories.TextBlock(text);
 
@@ -1657,14 +1657,14 @@ public record ElementExtras
 {
     /// <summary>
     /// Attached properties from parent containers (Grid.Row, Canvas.Left, etc.).
-    /// Set via fluent extension methods: Text("hi").Grid(row: 1, column: 2)
+    /// Set via fluent extension methods: TextBlock("hi").Grid(row: 1, column: 2)
     /// Stored as a type-keyed dictionary so each provider defines its own data record.
     /// </summary>
     public IReadOnlyDictionary<Type, object>? Attached { get; init; }
 
     /// <summary>
     /// Implicit transitions (opacity, scale, rotation, translation, background).
-    /// Set via fluent extension methods: Rectangle().WithOpacityTransition()
+    /// Set via fluent extension methods: Rectangle().OpacityTransition()
     /// Applied by the reconciler after mount/update, so they are always present when
     /// property values are set via .Set() callbacks.
     /// </summary>
@@ -1672,14 +1672,14 @@ public record ElementExtras
 
     /// <summary>
     /// Theme transitions (children, item container).
-    /// Set via fluent extension methods: VStack(children).WithThemeTransitions(...)
+    /// Set via fluent extension methods: VStack(children).WithTransitions(...)
     /// </summary>
     public ThemeTransitions? ThemeTransitions { get; init; }
 
     /// <summary>
     /// Theme-resource bindings for brush properties (Background, Foreground, BorderBrush).
     /// When set, the reconciler resolves from WinUI theme resources instead of using local values.
-    /// Set via fluent extension methods: Text("hi").Background(Theme.Accent)
+    /// Set via fluent extension methods: TextBlock("hi").Background(Theme.Accent)
     /// </summary>
     public IReadOnlyDictionary<string, ThemeRef>? ThemeBindings { get; init; }
 
@@ -2955,6 +2955,7 @@ public partial record ButtonElement(string Label, Action? OnClick = null) : Elem
     /// </summary>
     internal bool EffectiveIsEnabled => IsEnabled && (Command?.IsEnabled ?? true);
 
+    // <snippet:click-trampoline>
     private static readonly global::Microsoft.UI.Xaml.RoutedEventHandler __ClickTrampoline = (s, _) =>
     {
         if (global::Microsoft.UI.Reactor.Core.Reconciler.GetElementTag((WinUI.Button)s!) is ButtonElement live)
@@ -2964,6 +2965,7 @@ public partial record ButtonElement(string Label, Action? OnClick = null) : Elem
             else if (live.Command is not null) global::Microsoft.UI.Reactor.Core.CommandBindings.Invoke(live.Command);
         }
     };
+    // </snippet:click-trampoline>
 
     private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<ButtonElement, WinUI.Button> Customize(
         global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<ButtonElement, WinUI.Button> d)
@@ -3633,7 +3635,7 @@ public partial record RadioButtonElement(
     internal override bool HasCallbacks => OnIsCheckedChanged is not null;
 }
 
-/// <summary>RadioButtons element. <c>SelectedIndex</c> defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional.Of(-1)</c> to force no selection.</summary>
+/// <summary>RadioButtons element. <c>SelectedIndex</c> defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional&lt;int&gt;.Of(-1)</c> to force no selection.</summary>
 [global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.RadioButtons))]  // spec 058 §15 (P5.4)
 [global::Microsoft.UI.Reactor.Wrappers.WrapControlled("SelectedIndex", Events = new[] { "SelectionChanged" })]
 public partial record RadioButtonsElement(
@@ -3647,7 +3649,7 @@ public partial record RadioButtonsElement(
     internal override bool HasCallbacks => OnSelectedIndexChanged is not null;
 }
 
-/// <summary>ComboBox element. <c>SelectedIndex</c> defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional.Of(-1)</c> to force no selection.</summary>
+/// <summary>ComboBox element. <c>SelectedIndex</c> defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional&lt;int&gt;.Of(-1)</c> to force no selection.</summary>
 // Spec 058 §15 (P5.21) — items control. Header/IsEditable/Description auto-map. The bespoke
 // parts (all in Customize): the dual-source ItemsHost (ItemElements Element[] takes precedence
 // over Items string[] — overwrites the auto single-source strategy), the value-diff SelectedIndex
@@ -4994,7 +4996,7 @@ public partial record TabViewElement(
     TabViewItemData[] Tabs
 ) : Element
 {
-    /// <summary>Selected tab index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional.Of(-1)</c> to force no selection.</summary>
+    /// <summary>Selected tab index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional&lt;int&gt;.Of(-1)</c> to force no selection.</summary>
     public Optional<int> SelectedIndex { get; init; } = default;
     public Action<int>? OnSelectedIndexChanged { get; init; }
     public Action<int>? OnTabCloseRequested { get; init; }
@@ -5096,7 +5098,7 @@ public partial record PivotElement(
 PivotItemData[] Items
 ) : Element
 {
-/// <summary>Selected pivot item index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional.Of(-1)</c> to force no selection.</summary>
+/// <summary>Selected pivot item index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional&lt;int&gt;.Of(-1)</c> to force no selection.</summary>
 public Optional<int> SelectedIndex { get; init; } = default;
 public Action<int>? OnSelectedIndexChanged { get; init; }
 public string? Title { get; init; }
@@ -5150,7 +5152,7 @@ public record ListViewElement(
     Element[] Items
 ) : Element
 {
-    /// <summary>Selected item index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional.Of(-1)</c> to force no selection.</summary>
+    /// <summary>Selected item index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional&lt;int&gt;.Of(-1)</c> to force no selection.</summary>
     public Optional<int> SelectedIndex { get; init; } = default;
     public Action<int>? OnSelectedIndexChanged { get; init; }
     public Action<int>? OnItemClick { get; init; }
@@ -5178,7 +5180,7 @@ public record GridViewElement(
     Element[] Items
 ) : Element
 {
-    /// <summary>Selected item index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional.Of(-1)</c> to force no selection.</summary>
+    /// <summary>Selected item index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional&lt;int&gt;.Of(-1)</c> to force no selection.</summary>
     public Optional<int> SelectedIndex { get; init; } = default;
     public Action<int>? OnSelectedIndexChanged { get; init; }
     public Action<int>? OnItemClick { get; init; }
@@ -5265,7 +5267,7 @@ public partial record FlipViewElement(
     Element[] Items
 ) : Element
 {
-    /// <summary>Selected item index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional.Of(-1)</c> to force no selection.</summary>
+    /// <summary>Selected item index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional&lt;int&gt;.Of(-1)</c> to force no selection.</summary>
     public Optional<int> SelectedIndex { get; init; } = default;
     public Action<int>? OnSelectedIndexChanged { get; init; }
     internal Action<WinUI.FlipView>[] Setters { get; init; } = [];
@@ -5940,7 +5942,7 @@ public record TemplatedFlipViewElement<T>(
     Func<T, int, Element> ViewBuilder
 ) : TemplatedFlipViewElementBase
 {
-    /// <summary>Selected item index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional.Of(-1)</c> to force no selection.</summary>
+    /// <summary>Selected item index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional&lt;int&gt;.Of(-1)</c> to force no selection.</summary>
     public Optional<int> SelectedIndex { get; init; } = default;
     public Action<int>? OnSelectedIndexChanged { get; init; }
     internal Action<WinUI.FlipView>[] Setters { get; init; } = [];
@@ -6676,7 +6678,7 @@ public partial record SemanticZoomElement(Element ZoomedInView, Element ZoomedOu
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("SelectedIndex")]
 public partial record ListBoxElement(string[] Items) : Element
 {
-    /// <summary>Selected item index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional.Of(-1)</c> to force no selection.</summary>
+    /// <summary>Selected item index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional&lt;int&gt;.Of(-1)</c> to force no selection.</summary>
     public Optional<int> SelectedIndex { get; init; } = default;
     public Action<int>? OnSelectedIndexChanged { get; init; }
     /// <summary>
@@ -6737,7 +6739,7 @@ public partial record ListBoxElement(string[] Items) : Element
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("SelectedIndex")]
 public partial record SelectorBarElement(SelectorBarItemData[] Items) : Element
 {
-    /// <summary>Selected item index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional.Of(-1)</c> to force no selection.</summary>
+    /// <summary>Selected item index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional&lt;int&gt;.Of(-1)</c> to force no selection.</summary>
     public Optional<int> SelectedIndex { get; init; } = default;
     public Action<int>? OnSelectedIndexChanged { get; init; }
     internal Action<WinUI.SelectorBar>[] Setters { get; init; } = [];
@@ -6814,7 +6816,7 @@ public record SelectorBarItemData(string Text, string? Icon = null);
 [global::Microsoft.UI.Reactor.Wrappers.WrapControlled("SelectedPageIndex", ChangedEvent = "SelectedIndexChanged")]
 public partial record PipsPagerElement(int NumberOfPages) : Element
 {
-    /// <summary>Selected page index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional.Of(-1)</c> to force no page selection.</summary>
+    /// <summary>Selected page index. Defaults to <see cref="Optional{T}.Unset"/>; use <c>Optional&lt;int&gt;.Of(-1)</c> to force no page selection.</summary>
     public Optional<int> SelectedPageIndex { get; init; } = default;
     public Action<int>? OnSelectedPageIndexChanged { get; init; }
     /// <summary>Whether the selected index wraps around the ends. Defaults to <c>None</c>.</summary>

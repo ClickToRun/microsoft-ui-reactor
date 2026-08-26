@@ -4,6 +4,7 @@ using Microsoft.UI.Reactor.Data;
 using Microsoft.UI.Reactor.Data.Providers;
 using Microsoft.UI.Reactor.Controls;
 using Microsoft.UI.Xaml;
+using System.Collections.ObjectModel;
 using static Microsoft.UI.Reactor.Factories;
 using static Microsoft.UI.Reactor.Advanced.Factories;
 
@@ -218,6 +219,76 @@ class RowDetailsDemo : Component
 }
 // </snippet:row-details>
 
+// <snippet:master-detail>
+class MasterDetailDemo : Component
+{
+    public override Element Render()
+    {
+        // Selection lives in the parent, so it survives sort, filter, and refresh.
+        var (selected, setSelected) = UseState<RowKey?>(null);
+
+        var source = UseMemo(() => new ListDataSource<Product>(
+            SampleProducts.Items, p => (RowKey)p.Id));
+
+        var columns = UseMemo(() => new FieldDescriptor[]
+        {
+            Column<Product>("Name", p => p.Name, width: 180),
+            Column<Product>("Price", p => p.Price, format: "C2", width: 100),
+        });
+
+        var detail = SampleProducts.Items.FirstOrDefault(
+            p => selected is { } key && (RowKey)p.Id == key);
+
+        return HStack(0,
+            DataGrid<Product>(source, columns,
+                selectionMode: SelectionMode.Single,
+                // The callback hands you the full selection snapshot, not a delta.
+                onSelectionChanged: keys => setSelected(
+                    keys.Count == 0 ? null : (RowKey?)keys.First())
+            ).Width(480).Height(350),
+            detail is null
+                ? Border(Caption("Select a product")).Padding(24)
+                : VStack(4,
+                    SubHeading(detail.Name),
+                    Caption($"{detail.Category} — {detail.Price:C2}")
+                  ).Padding(24).Width(360));
+    }
+}
+// </snippet:master-detail>
+
+// <snippet:observable-source>
+class ObservableSourceDemo : Component
+{
+    public override Element Render()
+    {
+        // One stable collection instance. UseMemo takes a factory, so the
+        // collection is allocated once; UseRef would re-evaluate its argument
+        // on every render and throw the copy away.
+        var collection = UseMemo(() => new ObservableCollection<Product>(SampleProducts.Items));
+
+        var source = UseMemo(() => new ObservableListDataSource<Product>(
+            collection, p => (RowKey)p.Id), collection);
+
+        // The source subscribes to CollectionChanged and is IDisposable, so
+        // memoizing it is not enough — dispose it on unmount or the collection
+        // keeps the source (and its per-item subscriptions) alive.
+        UseEffect(() => () => source.Dispose(), source);
+
+        var columns = UseMemo(() => new FieldDescriptor[]
+        {
+            Column<Product>("Name", p => p.Name, width: 180),
+            Column<Product>("Stock", p => p.Stock, width: 80),
+        });
+
+        return VStack(12,
+            // Mutations raise CollectionChanged -> DataChanged -> the grid re-fetches.
+            Button("Add product", () => collection.Add(new Product(
+                collection.Count + 1, "New item", "Accessories", 9.99, 1))),
+            DataGrid<Product>(source, columns).Height(320));
+    }
+}
+// </snippet:observable-source>
+
 class DataSystemApp : Component
 {
     public override Element Render()
@@ -227,7 +298,9 @@ class DataSystemApp : Component
                 Heading("Data System"),
                 Component<ExplicitColumnsDemo>(),
                 Component<SortFilterDemo>(),
-                Component<SelectionDemo>()
+                Component<SelectionDemo>(),
+                Component<MasterDetailDemo>(),
+                Component<ObservableSourceDemo>()
             ).Padding(24)
         );
     }
