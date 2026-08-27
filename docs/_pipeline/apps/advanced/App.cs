@@ -26,10 +26,10 @@ class ErrorBoundaryDemo : Component
                 Component<BuggyComponent>(),
                 (Exception ex) => VStack(8,
                     TextBlock("Something went wrong").Bold()
-                        .Foreground("#d13438"),
+                        .Foreground(Theme.SystemCritical),
                     TextBlock(ex.Message).FontSize(12).Opacity(0.7)
                 ).Padding(12)
-                 .Background("#fde7e9")
+                 .Background(Theme.SystemCriticalBackground)
                  .CornerRadius(8)
             )
         ).Padding(24);
@@ -68,7 +68,7 @@ class MemoSubtreeDemo : Component
                         TextBlock("Skips re-render when deps unchanged")
                             .FontSize(12).Opacity(0.6)
                     ).Padding(12)
-                ).Background("#f0f0f0").CornerRadius(8);
+                ).Background(Theme.CardBackground).CornerRadius(8);
             }, label)
         ).Padding(24);
     }
@@ -147,7 +147,8 @@ class ObservableTreeDemo : Component
                 header: "User Name"),
             ToggleSwitch(vm.DarkMode, v => vm.DarkMode = v,
                 header: "Dark Mode"),
-            Slider(vm.FontSize, 10, 32, v => vm.FontSize = (int)v),
+            Slider(vm.FontSize, 10, 32, v => vm.FontSize = (int)v)
+                .AutomationName("Font size"),
             TextBlock($"Preview: {vm.UserName}")
                 .FontSize(vm.FontSize).Bold()
         ).Padding(24);
@@ -158,8 +159,11 @@ class ObservableTreeDemo : Component
 // <snippet:observable-collection>
 class ObservableCollectionDemo : Component
 {
-    private static readonly ObservableCollection<string> _tasks = new()
-        { "Review pull request", "Update documentation" };
+    private record TaskItem(int Id, string Title);
+
+    private static int _nextId = 3;
+    private static readonly ObservableCollection<TaskItem> _tasks = new()
+        { new TaskItem(1, "Review pull request"), new TaskItem(2, "Update documentation") };
 
     public override Element Render()
     {
@@ -170,18 +174,21 @@ class ObservableCollectionDemo : Component
             SubHeading("UseCollection"),
             HStack(8,
                 TextBox(input, setInput, placeholderText: "New task")
+                    .AutomationName("New task")
                     .Width(200),
                 Button("Add", () => {
                     if (!string.IsNullOrWhiteSpace(input))
-                    { _tasks.Add(input.Trim()); setInput(""); }
+                    { _tasks.Add(new TaskItem(_nextId++, input.Trim())); setInput(""); }
                 })
             ),
             TextBlock($"{tasks.Count} tasks:").SemiBold(),
             VStack(4, tasks.Select((task, i) =>
                 HStack(8,
-                    TextBlock($"{i + 1}. {task}"),
-                    Button("Remove", () => _tasks.RemoveAt(i))
-                ).WithKey($"task-{i}-{task}")
+                    // The index is fine for display; it must not become the key.
+                    TextBlock($"{i + 1}. {task.Title}"),
+                    Button("Remove", () => _tasks.Remove(task))
+                        .AutomationName($"Remove {task.Title}")
+                ).WithKey(task.Id.ToString())   // stable identity survives removal
             ).ToArray())
         ).Padding(24);
     }
@@ -198,7 +205,9 @@ class ElementRefFocusDemo : Component
 
         return VStack(12,
             SubHeading("Imperative focus via ElementRef<T>"),
-            TextBox(name, setName, placeholderText: "Name").Ref(fieldRef),
+            TextBox(name, setName, placeholderText: "Name")
+                .AutomationName("Name")
+                .Ref(fieldRef),
             Button("Focus the field", () =>
                 fieldRef.Current?.Focus(FocusState.Programmatic))
         ).Padding(24);
@@ -226,9 +235,10 @@ class CustomHookDemo : Component
         var (isOn, toggle) = ctx.UseToggler();
         return VStack(8,
             SubHeading("Custom hook: UseToggler"),
-            Button(isOn ? "On" : "Off", toggle),
+            Button(isOn ? "On" : "Off", toggle)
+                .AutomationName("Toggle state"),
             TextBlock(isOn ? "State is on." : "State is off.")
-                .Foreground(isOn ? "#107c10" : "#666666")
+                .Foreground(isOn ? Theme.SystemSuccess : Theme.SecondaryText)
         ).Padding(24);
     });
 }
@@ -246,12 +256,12 @@ class ErrorBoundaryRetryDemo : Component
             ErrorBoundary(
                 Component<FlakyComponent>().WithKey($"flaky-{resetKey}"),
                 ex => VStack(8,
-                    TextBlock("Couldn't load.").Bold().Foreground("#d13438"),
+                    TextBlock("Couldn't load.").Bold().Foreground(Theme.SystemCritical),
                     TextBlock(ex.Message).FontSize(12).Opacity(0.7),
                     // Bumping resetKey reassigns identity to the child, so the
                     // ErrorBoundary mounts a fresh subtree on the next render.
                     Button("Retry", () => setResetKey(resetKey + 1))
-                ).Padding(12).Background("#fde7e9").CornerRadius(8)
+                ).Padding(12).Background(Theme.SystemCriticalBackground).CornerRadius(8)
             )
         ).Padding(24);
     }
@@ -263,7 +273,7 @@ class FlakyComponent : Component
     {
         var (attempt, _) = UseState(Random.Shared.Next(0, 3));
         if (attempt == 0) throw new InvalidOperationException("Service unavailable");
-        return TextBlock("Loaded.").Foreground("#107c10");
+        return TextBlock("Loaded.").Foreground(Theme.SystemSuccess);
     }
 }
 // </snippet:error-boundary-retry>
@@ -373,8 +383,12 @@ class MemoCellsDemo : Component
 // current when the closure was created.
 class WrongThisCaptureDemo : Component
 {
-    public override Element Render() =>
-        Button("Load").Set(b => b.Loaded += (s, e) => this.OnChildLoaded());
+    public override Element Render()
+    {
+        // Don't do this:
+        // return Button("Load").Set(b => b.Loaded += (s, e) => this.OnChildLoaded());
+        return Button("Load");
+    }
 
     void OnChildLoaded() { }
 }
