@@ -67,11 +67,19 @@ jobs:
           Write-Host "=== winget --version ==="
           winget --version
           Write-Host ""
-          Write-Host "=== Windows App Runtime 2.0 (winget list) ==="
+          Write-Host "=== Windows App Runtime (winget list) ==="
           # --accept-source-agreements: a fresh runner hasn't accepted the
           # msstore source terms. Without it, winget prompts and fails on a
           # non-interactive shell.
-          winget list --id Microsoft.WindowsAppRuntime.2.0 --exact --accept-source-agreements 2>&1
+          #
+          # The id comes from the same helper bootstrap.ps1 uses, so this
+          # diagnostic cannot report a different package than the one bootstrap
+          # actually checks.
+          . ./tools/WindowsAppRuntimeId.ps1
+          $sdk = Get-PinnedWindowsAppSdkVersion -PropsPath ./Directory.Build.props
+          $wartId = Get-WindowsAppRuntimeWingetId $sdk
+          Write-Host "WindowsAppSDKVersion=$sdk -> $wartId"
+          if ($wartId) { winget list --id $wartId --exact --accept-source-agreements 2>&1 }
           Write-Host "exit=$LASTEXITCODE"
           $global:LASTEXITCODE = 0
 
