@@ -2390,6 +2390,14 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
+### record EntranceTransition
+new()
+Equals(EntranceTransition other) → bool
+Equals(NavigationTransition other) → bool
+Equals(object obj) → bool
+GetHashCode() → int
+ToString() → string
+
 ### record ErrorBoundaryElement
 new(Element Child, Func<Exception, Element> Fallback)
 Element Child { get; init; }
@@ -3862,11 +3870,12 @@ ToString() → string
 ### record NavigationTransition
 Connected(string animationKey) → NavigationTransition
 DrillIn(TimeSpan? duration = null) → NavigationTransition
+Entrance() → NavigationTransition
 Equals(NavigationTransition other) → bool
 Equals(object obj) → bool
 Fade(TimeSpan? duration = null) → NavigationTransition
 GetHashCode() → int
-Slide(SlideDirection direction = SlideDirection.FromRight, TimeSpan? duration = null, CompositionEasingFunction easing = null, float? distance = null) → NavigationTransition
+Slide(SlideDirection direction = SlideDirection.FromBottom, TimeSpan? duration = null, CompositionEasingFunction easing = null, float? distance = null) → NavigationTransition
 Spring(float dampingRatio = 0.6f, float period = 0.08f, SlideDirection direction = SlideDirection.FromRight) → NavigationTransition
 ToString() → string
 
