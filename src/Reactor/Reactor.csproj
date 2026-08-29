@@ -60,6 +60,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Reactor.Tests" />
     <InternalsVisibleTo Include="Reactor.AppTests.Host" />
+    <InternalsVisibleTo Include="Reactor.PackagedTests.Host" />
     <InternalsVisibleTo Include="Reactor.Fuzz" />
     <!-- Spec 062 §7 Track B (B1/B2): the charting, docking, and markdown
          subsystems moved from this assembly into Reactor.Advanced. Each reaches
