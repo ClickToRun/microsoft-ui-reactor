@@ -53,6 +53,25 @@ public class PackagedSelfTestBatch
 
     internal sealed record FixtureOutcome(FixtureStatus Status, string Detail);
 
+    /// <summary>
+    /// The host's <c># Total not-applicable fixtures:</c> trailer. Duplicated from
+    /// <c>SelfTestRunner.NotApplicableCountMarker</c>, which this project cannot reference.
+    /// </summary>
+    internal const string NotApplicableCountMarker = "# Total not-applicable fixtures: ";
+
+    /// <summary>
+    /// The host's <c># Not applicable fixture list:</c> trailer. Duplicated from
+    /// <c>SelfTestRunner.NotApplicableListMarker</c>.
+    /// </summary>
+    internal const string NotApplicableListMarker = "# Not applicable fixture list: ";
+
+    /// <summary>
+    /// What the host said it deliberately did not run. A <see langword="null"/>
+    /// <paramref name="Count"/> means the trailer was absent, which is not the same fact as a
+    /// count of zero: absent means nothing reported, zero means everything applied.
+    /// </summary>
+    internal sealed record NotApplicableReport(int? Count, IReadOnlyList<string> Names);
+
     // ────────────────────────────────────────────────────────────────────
     //  Run
     // ────────────────────────────────────────────────────────────────────
@@ -173,18 +192,18 @@ public class PackagedSelfTestBatch
     /// The tier's own anti-vacuity gate.
     /// </summary>
     /// <remarks>
-    /// Every identity-dependent fixture self-skips when it is not running in the packaged
-    /// host, which is what lets the corpus stay shared between the two tiers. That skip is
-    /// correct in the unpackaged tier and catastrophic here: if this tier ever launched the
-    /// host without identity, the fixtures would skip, <c>Fixture</c> would report
-    /// Inconclusive rather than failed, and the suite would look fine while measuring
-    /// nothing. This asserts they actually ran assertions, so "the packaged tier did not run
-    /// packaged" can only ever surface as a failure.
-    /// <para>Checked across <b>every</b> <c>Packaged_</c> fixture rather than just the guard:
-    /// those fixtures are structurally identity-dependent (they all gate on
-    /// <c>RequirePackagedTier</c>), so a skip in the packaged host is always a bug, and
-    /// pinning the assertion to one hardcoded name left every fixture added later
-    /// unprotected.</para>
+    /// <para>The load-bearing half is the guard's <b>verdict</b>. <c>Packaged_IdentityGuard</c>
+    /// asserts <c>PackageRuntime.IsPackaged</c>, <c>Package.Current</c> and the install location,
+    /// so a tier launched without MSIX identity — from the build output rather than through the
+    /// execution alias — makes it <i>fail</i>. Requiring it to be present and Passed is what
+    /// stops "the packaged tier did not run packaged" from reporting green.</para>
+    /// <para><b>The skip sweep below is a backstop, not the identity check.</b>
+    /// <c>RequirePackagedTier</c> keys off the entry-assembly name, so inside this host it returns
+    /// true whether or not the process has identity and cannot produce a skip here. The sweep
+    /// therefore catches a different class: a <c>Packaged_</c> fixture that asserted nothing for
+    /// some other reason — an environmental skip added later, or the gate's semantics changing
+    /// under it. Checked across every <c>Packaged_</c> fixture rather than one hardcoded name, so
+    /// fixtures added later are covered too.</para>
     /// </remarks>
     [TestMethod]
     public void IdentityDependentFixtures_Actually_Asserted()
@@ -215,8 +234,108 @@ public class PackagedSelfTestBatch
             0, skipped.Length,
             $"These identity-dependent fixtures skipped inside the packaged tier, so they " +
             $"asserted nothing:\n  {string.Join("\n  ", skipped)}\n" +
-            "A fixture gated on RequirePackagedTier must always run here — a skip means the " +
-            "host lacked package identity or the gate itself is broken.");
+            "A fixture declared SelfTestTier.Packaged must always assert here. Note this cannot " +
+            "be the RequirePackagedTier gate firing — it keys off the entry-assembly name, which " +
+            "matches in this host regardless of identity — so look for an environmental skip " +
+            "inside the fixture, or a change to the gate's semantics.");
+    }
+
+    /// <summary>
+    /// The mirror of <c>SelfTestBatch.NotApplicableFixtures_AreExcludedFromThisTier</c>, and the
+    /// half that guards the dangerous direction.
+    /// </summary>
+    /// <remarks>
+    /// <para>Identity-dependent fixtures are declared <c>SelfTestTier.Packaged</c> in
+    /// <c>SelfTestFixtureRegistry.TierRequirements</c>, so the unpackaged host filters them out of
+    /// its corpus entirely (issue #1154). That filter keys off an entry-assembly probe, and if it
+    /// ever answered "unpackaged" <i>here</i>, this tier would run a corpus with no identity
+    /// fixtures in it.</para>
+    /// <para><b>The gap this closes is narrower than "the tier would go green having measured
+    /// nothing".</b> Dropping the <i>whole</i> <c>Packaged_</c> set is already caught by
+    /// <see cref="IdentityDependentFixtures_Actually_Asserted"/>, which fails outright when
+    /// <c>Packaged_IdentityGuard</c> is absent from the parsed results. What is <i>not</i> covered
+    /// there is a selectively misdeclared fixture — a non-guard one dropped while the guard
+    /// survives, so the guard still passes and the missing fixture is simply never asked about,
+    /// being neither a failure nor a skip nor a missing result. This also validates the trailer
+    /// itself, which nothing else in this tier reads.</para>
+    /// <para>The assertion is on the count the host reports rather than on the discovered set: the
+    /// trailer is emitted before any filtering this shim does, so it describes the host's own view
+    /// of its corpus.</para>
+    /// </remarks>
+    [TestMethod]
+    public void EveryFixture_IsApplicableToThePackagedTier()
+    {
+        FailIfNotInitialized();
+
+        var report = ExtractNotApplicableFixtures(_fullOutput);
+
+        // Pattern-matched into a non-nullable local rather than asserting and then dereferencing
+        // `report.Count`. `Assert.IsNotNull` is invisible to nullable flow analysis, so the reads
+        // below would each need a `!` — an unchecked claim, and one that would quietly become
+        // wrong if the guard were ever relaxed. This states the same test where the compiler and
+        // CodeQL can both see it.
+        if (report.Count is not { } reportedCount)
+        {
+            Assert.Fail(
+                $"The packaged host emitted no '{NotApplicableCountMarker.Trim()}' trailer, so nothing " +
+                "establishes that it considered its identity-dependent fixtures applicable. Either " +
+                "SelfTestRunner.WriteNotApplicableTrailer stopped being called, or the marker literal " +
+                "drifted between the host and this file — they are duplicated, not shared, because " +
+                $"the host is referenced with ReferenceOutputAssembly=false.\n{Tail(_fullOutput, 2000)}");
+            return;
+        }
+
+        Assert.AreEqual(
+            0, reportedCount,
+            "The packaged host excluded fixtures from its own corpus as 'not applicable to this " +
+            $"tier':\n  {string.Join("\n  ", report.Names)}\n" +
+            "Every fixture must be applicable here — this is the tier that runs the " +
+            $"'{IdentityFixturePrefix}' set for real. The most likely cause is " +
+            "PackagedIdentityFixtures.IsPackagedTier evaluating false inside the packaged host, " +
+            "which would remove exactly those fixtures from the run.");
+    }
+
+    /// <summary>
+    /// Reads the host's <c># Total not-applicable fixtures:</c> / <c># Not applicable fixture
+    /// list:</c> trailers. Marker literals duplicated from <c>SelfTestRunner</c>.
+    /// </summary>
+    /// <remarks>
+    /// A parseable count starts a new trailer and clears names carried from an earlier one: a zero
+    /// trailer legitimately omits its list line, so without the reset a later <c>0</c> would
+    /// inherit the previous trailer's names. That matters here because <c>_fullOutput</c> can hold
+    /// two host invocations — the main run and the identity-guard second pass — so two trailers in
+    /// one buffer is the normal case, not a pathological one.
+    /// <para>The count is parsed independently of the list rather than derived from it, so a
+    /// stream truncated between the two lines is visible as a disagreement instead of silently
+    /// reading as an empty exclusion set — which is the answer this tier wants to hear.</para>
+    /// </remarks>
+    internal static NotApplicableReport ExtractNotApplicableFixtures(string stdout)
+    {
+        if (string.IsNullOrEmpty(stdout)) return new NotApplicableReport(null, []);
+
+        int? count = null;
+        string[] names = [];
+
+        foreach (var line in stdout.Split('\n').Select(static raw => raw.Trim()))
+        {
+            if (line.StartsWith(NotApplicableCountMarker, StringComparison.Ordinal))
+            {
+                if (int.TryParse(line[NotApplicableCountMarker.Length..].Trim(),
+                        System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                {
+                    count = parsed;
+                    names = [];
+                }
+            }
+            else if (line.StartsWith(NotApplicableListMarker, StringComparison.Ordinal))
+            {
+                names = line[NotApplicableListMarker.Length..]
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            }
+        }
+
+        return new NotApplicableReport(count, names);
     }
 
     /// <summary>
