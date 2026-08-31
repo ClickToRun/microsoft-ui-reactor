@@ -9,6 +9,16 @@ internal static class SelfTestFixtureRegistry
 {
     public static readonly string[] AllFixtures =
     [
+        "SourceMapReadPath_Enabled",
+        "SourceMapReadPath_DistinctLines",
+        "SourceMapReadPath_Disabled",
+        "SourceMapReadPath_HandStamped",
+        "SourceMapReadPath_Callback",
+        "SourceMapReadPath_BranchSwitch",
+        "SourceMapReadPath_FlagOffClears",
+        "SourceMapReadPath_ComponentWrapper",
+        "SourceMapReadPath_Decorator",
+        "SourceMapReadPath_DecoratorBranch",
         "ErrorBoundary_CatchesRenderError",
         "ErrorBoundary_Recovery",
         "Reconciler_MountText",
@@ -338,6 +348,7 @@ internal static class SelfTestFixtureRegistry
         "EFR_Factory_SameItemReuse_PreservesRowComponentState",
         "EFR_Factory_RefreshKeyChange_RemountsRealizedRow",
         "EFR_Factory_RefreshKeyChange_ModifiedRootKeepsRefLive",
+        "EFR_Factory_SuccessfulAdoption_RefreshesTheReportedCallSite",
         "EFR_Factory_DecoratorSubstitution_IsNotSilentlyAdopted",
         "EFR_Factory_HostTypeKeyCycle_KeepsContainerSetBounded",
         "EFR_Factory_RetiredContainer_DetachesNestedStateAndOwnership",
@@ -2047,6 +2058,7 @@ internal static class SelfTestFixtureRegistry
         "EFR_Factory_SameItemReuse_PreservesRowComponentState" => new ElementFactoryRecyclingFixtures.Factory_SameItemReuse_PreservesRowComponentState(harness),
         "EFR_Factory_RefreshKeyChange_RemountsRealizedRow" => new ElementFactoryRecyclingFixtures.Factory_RefreshKeyChange_RemountsRealizedRow(harness),
         "EFR_Factory_RefreshKeyChange_ModifiedRootKeepsRefLive" => new ElementFactoryRecyclingFixtures.Factory_RefreshKeyChange_ModifiedRootKeepsRefLive(harness),
+        "EFR_Factory_SuccessfulAdoption_RefreshesTheReportedCallSite" => new ElementFactoryRecyclingFixtures.Factory_SuccessfulAdoption_RefreshesTheReportedCallSite(harness),
         "EFR_Factory_DecoratorSubstitution_IsNotSilentlyAdopted" => new ElementFactoryRecyclingFixtures.Factory_DecoratorSubstitution_IsNotSilentlyAdopted(harness),
         "EFR_Factory_HostTypeKeyCycle_KeepsContainerSetBounded" => new ElementFactoryRecyclingFixtures.Factory_HostTypeKeyCycle_KeepsContainerSetBounded(harness),
         "EFR_Factory_RetiredContainer_DetachesNestedStateAndOwnership" => new ElementFactoryRecyclingFixtures.Factory_RetiredContainer_DetachesNestedStateAndOwnership(harness),
@@ -2294,9 +2306,19 @@ internal static class SelfTestFixtureRegistry
         "AnimScope_NestingBehavior" => new AnimationScopeTests.NestingBehavior(harness),
         "AnimScope_NullCurveSuppresses" => new AnimationScopeTests.NullCurveSuppresses(harness),
         "AnimScope_WithAnimationIntegration" => new AnimationScopeTests.WithAnimationIntegration(harness),
+        // Spec 010 — source-map read path (UIElement → ReactorState → Element.CallSite)
+        "SourceMapReadPath_Enabled" => new SourceMapReadPathTests.LeafIsReadableWhenEnabled(harness),
+        "SourceMapReadPath_DistinctLines" => new SourceMapReadPathTests.DistinctLeavesReportDistinctLines(harness),
+        "SourceMapReadPath_Disabled" => new SourceMapReadPathTests.LeafIsNotTaggedWhenDisabled(harness),
+        "SourceMapReadPath_HandStamped" => new SourceMapReadPathTests.HandStampedLeafIsTaggedWithFlagOff(harness),
+        "SourceMapReadPath_Callback" => new SourceMapReadPathTests.CallbackControlAlsoCarriesSource(harness),
+        "SourceMapReadPath_BranchSwitch" => new SourceMapReadPathTests.BranchSwitchRefreshesTheReportedLine(harness),
+        "SourceMapReadPath_FlagOffClears" => new SourceMapReadPathTests.FlagOffClearsTheReportedLocation(harness),
+        "SourceMapReadPath_ComponentWrapper" => new SourceMapReadPathTests.ComponentWrapperIsResolvable(harness),
+        "SourceMapReadPath_Decorator" => new SourceMapReadPathTests.DecoratedControlReportsItsTargetsCallSite(harness),
+        "SourceMapReadPath_DecoratorBranch" => new SourceMapReadPathTests.DecoratedTargetBranchSwitchRefreshes(harness),
         // Animation system — .Animate() modifier
-        "Animate_ImplicitAnimationsCreated" => new AnimateModifierTests.ImplicitAnimationsCreated(harness),
-        "Animate_TargetedProperties" => new AnimateModifierTests.TargetedProperties(harness),
+        "Animate_ImplicitAnimationsCreated" => new AnimateModifierTests.ImplicitAnimationsCreated(harness),        "Animate_TargetedProperties" => new AnimateModifierTests.TargetedProperties(harness),
         "Animate_MergesWithLayoutAnimation" => new AnimateModifierTests.MergesWithLayoutAnimation(harness),
         // Animation system — InteractionStates
         "InterState_StateMachineTransitions" => new InteractionStatesTests.StateMachineTransitions(harness),
@@ -3411,3 +3433,9 @@ internal static class SelfTestFixtureRegistry
         _ => null,
     };
 }
+
+
+
+
+
+

@@ -604,11 +604,66 @@ public sealed partial class Reconciler : IDisposable
     /// <see cref="GetElementTag(FrameworkElement)"/> — see the helper's
     /// summary for the three categories.
     /// </summary>
+    /// <remarks>
+    /// Spec 010 deliberately adds NO arm here. A source-mapped element carries
+    /// its <see cref="Element.CallSite"/> in the <see cref="Element.Extensions"/>
+    /// bucket, so it already satisfies the <c>Extensions is not null</c> test
+    /// above and is tagged without further help. An arm keyed on the source-map
+    /// flag would only ever tag <em>unstamped</em> elements — which by
+    /// definition have no location to read back — while re-introducing exactly
+    /// the per-leaf <c>ReactorState</c> allocation PR #468 removed.
+    /// </remarks>
     private static bool NeedsTag(Element element) =>
         element.HasCallbacks
         || element.Key is not null
         || element.Extensions is not null
         || HasReferenceModifiers(element);
+
+    /// <summary>
+    /// Spec 010 — did the source location change across a shallow skip?
+    ///
+    /// <para><see cref="Element.ShallowEquals"/> deliberately ignores
+    /// <see cref="Element.CallSite"/>, so two structurally identical
+    /// callback-free leaves rendered from DIFFERENT lines (the two arms of a
+    /// conditional, say) compare equal and take the skip path. That is the right
+    /// call for rendering — nothing about the control needs to change — but the
+    /// control's back-pointer would keep naming the branch that is no longer
+    /// live, and <c>ReactorSourceMap.GetSource</c> would confidently report the
+    /// wrong line. Same class of problem as the #721 gesture/drag slots, and
+    /// handled the same way: refresh on skip.</para>
+    ///
+    /// <para>Compares the EFFECTIVE call site — the one <c>GetSource</c> would report —
+    /// which for a target-wrapping decorator is its innermost target's, not its own. A
+    /// stable <c>Flyout(...)</c> whose target switches between two otherwise-equal
+    /// elements built on different lines has an unchanged <c>CallSite</c> of its own, so
+    /// comparing only the outer element would take the skip and leave the control
+    /// reporting the target line that is no longer live.</para>
+    ///
+    /// <para>Costs one nullable-struct compare when source mapping is off, where
+    /// both sides are null and this is always false — so no control fetch and no
+    /// DependencyProperty write on the flag-off path. The decorator unwrap runs only
+    /// when one side actually is a decorator.</para>
+    /// </summary>
+    internal static bool CallSiteChangedOnSkip(Element oldEl, Element newEl)
+    {
+        if (oldEl.CallSite != newEl.CallSite) return true;
+
+        var oldTarget = global::Microsoft.UI.Reactor.Diagnostics.ReactorSourceMap.DecoratorTarget(oldEl);
+        var newTarget = global::Microsoft.UI.Reactor.Diagnostics.ReactorSourceMap.DecoratorTarget(newEl);
+        if (oldTarget is null && newTarget is null) return false;
+
+        return EffectiveCallSite(oldTarget ?? oldEl) != EffectiveCallSite(newTarget ?? newEl);
+    }
+
+    /// <summary>The call site <c>ReactorSourceMap.GetSource</c> would report for an element.</summary>
+    /// <remarks>
+    /// Shares <c>ReactorSourceMap.UnwrapDecorators</c> with <c>GetSource</c> so the two
+    /// cannot disagree, and so this path is cycle-safe: a third-party
+    /// <c>GetSourceTarget</c> that returns its own element would otherwise hang
+    /// reconciliation here, not merely the inspector.
+    /// </remarks>
+    private static SourceLocation? EffectiveCallSite(Element element)
+        => global::Microsoft.UI.Reactor.Diagnostics.ReactorSourceMap.UnwrapDecorators(element)?.CallSite;
 
     /// <summary>
     /// True when the element carries any reactive reference modifier — the imperative
@@ -2685,6 +2740,15 @@ public sealed partial class Reconciler : IDisposable
         node.Component = newComponent;
         node.SelfTriggered = true;
         ReconcileComponent(oldEl, newEl, existingControl, requestRerender);
+
+        // Spec 010 — the wrapper is PRESERVED across the migration (that is the whole
+        // point), so its back-pointer still names the pre-edit element. Refresh it, or
+        // the reported location survives an edit that moved the call site — which is
+        // exactly the staleness this route exists to avoid. ReconcileComponent is called
+        // directly here rather than through UpdateComponent, so it does not inherit that
+        // path's refresh.
+        if (existingControl is FrameworkElement migratedFe)
+            SetElementTagIfNeeded(migratedFe, newEl);
 
         Diagnostics.ReactorEventSource.Log.HotReloadStateMigrated(newType.FullName ?? newType.Name);
         return true;
@@ -5699,3 +5763,4 @@ public sealed partial class Reconciler : IDisposable
         _pool.Clear();
     }
 }
+

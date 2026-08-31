@@ -113,6 +113,8 @@ public sealed partial class Reconciler
             // (TextBlock, Image, Border, etc.) — which is most of them.
             if (newEl.HasCallbacks && control is FrameworkElement tagFeSE)
                 SetElementTag(tagFeSE, newEl);
+            else if (CallSiteChangedOnSkip(oldEl, newEl) && control is FrameworkElement srcFeSE)
+                SetElementTag(srcFeSE, newEl);   // spec 010 — keep the reported line live
             if (newEl.ThemeBindings is not null && control is FrameworkElement thFeSE)
                 ApplyThemeBindings(thFeSE, newEl.ThemeBindings);
             // Re-resolve ThemeRef-based resource overrides on theme change, against the
@@ -1492,12 +1494,20 @@ public sealed partial class Reconciler
         node.CaughtException = caughtEx;
         node.Fallback = newEb.Fallback;
 
+        // Spec 010 — same refresh as UpdateComponent: the wrapper survives, so its
+        // back-pointer must name the current element or GetSource reports a stale line.
+        SetElementTagIfNeeded(wrapper, newEb);
         return null;
     }
 
     private UIElement? UpdateComponent(Element oldEl, Element newEl, UIElement control, Action requestRerender)
     {
         ReconcileComponent(oldEl, newEl, control, requestRerender);
+        // Spec 010 — the wrapper survives the update, so refresh the back-pointer or
+        // it keeps naming the previous render's element and GetSource reports a stale
+        // call site. Same hazard the skip arms handle via CallSiteChangedOnSkip.
+        if (control is FrameworkElement fe)
+            SetElementTagIfNeeded(fe, newEl);
         return null;
     }
 

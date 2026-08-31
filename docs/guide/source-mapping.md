@@ -3,21 +3,29 @@
 
 "Source mapping" in Microsoft.UI.Reactor (Reactor) is the chain that ties a runtime artifact —
 an ETW event, a `--preview` overlay highlight, a thrown exception —
-back to the C# source that produced it. Today, attribution is at the
-*component* granularity: every render emits an ETW event carrying the
-component's type name, and exceptions log with the same name plus the
-exception type. Spec 010 designs the next step — per-*element* source
-tagging via `[CallerFilePath]` / `[CallerLineNumber]` attributes on
-the DSL factories, plumbed onto realized WinUI controls through an
-attached `DependencyProperty`. This page covers what's emitted now and
-how the design layers on top of it.
+back to the C# source that produced it. Two granularities ship today:
+*component* attribution, where every render emits an ETW event carrying
+the component's type name, and *per-element* attribution, where each DSL
+call site carries the file and line that produced it. This page covers
+both.
 
-> **Status.** Per-element source tagging (`Element.Source`,
-> `SourceInfo.LocationProperty`) is **designed but not implemented**.
-> The reference for the design is
-> [spec 010](https://github.com/microsoft/microsoft-ui-reactor/blob/main/docs/specs/010-source-mapping-design.md). This page treats
-> it as the next-step plan, not current behavior. Component-name
-> attribution via ETW is shipping today and is documented below.
+> **Status.** Per-element source tagging ships as `Element.CallSite` plus
+> `Microsoft.UI.Reactor.Diagnostics.ReactorSourceMap`. There are two
+> independent gates. The **build** gate decides whether interceptors are
+> generated at all: on by default in Debug, off in Release (an explicit
+> `<ReactorSourceMap>true</ReactorSourceMap>` does enable it there, and
+> embeds source paths — see below), mirroring how WPF gates XAML source
+> info behind `XamlDebuggingInformation`. The **runtime** gate,
+> `ReactorSourceMap.Enabled`, decides whether those interceptors actually
+> stamp anything, and it defaults to **false even in Debug** — the
+> devtools verb turns it on, and a host can set it directly or start the
+> process with `REACTOR_SOURCEMAP=1`. So a plain Debug build generates
+> interceptors but stamps no elements until something enables it. The
+> design reference is
+> [spec 010](https://github.com/microsoft/microsoft-ui-reactor/blob/main/docs/specs/010-source-mapping-design.md);
+> note that the shipped implementation uses C# interceptors rather than
+> the `[CallerFilePath]` approach the spec originally proposed, because
+> CallerInfo cannot reach the `params Element?[] children` factories.
 
 ## Component-name attribution via ETW
 
@@ -56,7 +64,7 @@ uses to label overlay frames. Per-component, not per-element — but
 sufficient for the common question "which component is re-rendering
 on every tick".
 
-![Source attribution today vs. spec 010 design: today the chain stops at Component.GetType().Name flowing into ETW; the design adds CallerInfo on the DSL factories, an Element.Source slot, and a WinUI attached DP that an inspector can read.](images/source-mapping/attribution.svg)
+![Source attribution: component-name attribution flows Component.GetType().Name into ETW, while per-element attribution stamps each DSL call site with file and line via the interceptor generator, readable from any realized control through ReactorSourceMap.GetSource.](images/source-mapping/attribution.svg)
 
 ## Reconcile-pass attribution
 
@@ -67,7 +75,7 @@ on every tick".
 | `EffectsFlushStart` / `Stop` | Component CLR type name | ETW `Render` keyword |
 | `StateChange` | Hook kind + value type | ETW `State` keyword |
 | `RenderError` | Component name + exception type only (message redacted) | ETW `Errors` keyword |
-| Per-element file:line | **Designed (spec 010)** — not shipping | Future: `Element.Source` + `SourceInfo.LocationProperty` |
+| Per-element file:line | Element call site | `Element.CallSite` / `ReactorSourceMap.GetSource` (when source mapping is enabled at build time) |
 
 The reconcile pass also emits a counter summary on stop:
 
@@ -119,35 +127,104 @@ public abstract class Component
     protected internal virtual bool ShouldUpdate() => false;
 ```
 
-`Component.Render()` returns an `Element` tree the reconciler walks;
-the element records currently carry `Key`, `Modifiers`, `Attached`,
-event handlers, and metadata — but no source location. The component
-type name is the closest available attribution because the reconciler
-has the `Component` instance in hand; everything finer would require
-the element to carry the location, which is exactly what spec 010
-adds.
+`Component.Render()` returns an `Element` tree the reconciler walks.
+The component type name is the coarsest attribution and is always
+available because the reconciler has the `Component` instance in hand;
+anything finer requires the element itself to carry a location, which is
+what `Element.CallSite` provides — see the next section.
 
-## The spec 010 design at a glance
+## Per-element source mapping
 
-Spec 010 settles on two coordinated pieces:
+Per-element attribution is produced by a Roslyn **interceptor generator**
+that ships in the `Microsoft.UI.Reactor` package under `buildTransitive/sourcemap`,
+and is added to your compilation only when `ReactorSourceMap` is true.
+(It deliberately does *not* live in `analyzers/dotnet/cs`, where everything
+is loaded into every build: this generator inspects every invocation in your
+project, so a Release build should not load it at all.) For each DSL factory
+call site in *your* project it
+emits an interceptor that calls the real factory and stamps the file and
+line onto the returned element. No factory signature changes and no call
+site is edited, which is what lets it cover the `params Element?[]
+children` family (`VStack`, `HStack`, `Grid`, …) that `[CallerFilePath]`
+structurally cannot reach.
 
-1. **CallerInfo on the DSL.** Every factory method
-   (`TextBlock(string)`, `Button(...)`, `VStack(...)`) gains optional
-   trailing `[CallerFilePath]` / `[CallerLineNumber]` parameters. C#
-   bakes the values into IL as constants, so call sites stay
-   `TextBlock("Hello")` and the runtime cost is zero. A `SourceLocation`
-   value rides on the element record (`Element.Source`).
-2. **Attached property on the WinUI control.** During reconcile, the
-   location string is written to a custom attached
-   `DependencyProperty` on the realized control, where the XAML Live
-   Visual Tree, the `--preview` inspector, and the
-   [devtools overlay](devtools-internals.md) can read it.
+**You do not turn it on.** It follows the build configuration by *default*, the
+same way WPF gates XAML source info behind `XamlDebuggingInformation`:
 
-The result is a runtime where right-clicking a `Button` in the
-preview inspector navigates to the `Button("Save", …)` call in C#,
-the same way Flutter's widget inspector navigates to a `Widget`
-constructor. Until that ships, attribution stops at the component
-name.
+| Configuration | Interceptors generated (default) | Locations populated |
+|---|---|---|
+| `Debug` | yes | when the runtime flag is on (see below) |
+| `Release` | no (unless explicitly opted in) | only if opted in — and then source paths ship in the binary |
+
+These are defaults, not a hard configuration lock: the generator is gated on the
+`ReactorSourceMap` property alone, so an explicit
+`<ReactorSourceMap>true</ReactorSourceMap>` generates interceptors in Release too.
+**That embeds mapped source paths in the shipped binary**, so only opt in for a
+Release build you do not distribute — a profiling or diagnostic drop. The reverse
+override, `<ReactorSourceMap>false</ReactorSourceMap>`, turns it off in Debug.
+Generation costs roughly 0.5–0.6 ms per intercepted call site; on the Reactor
+gallery (1,660 call sites) that is about one second on an incremental rebuild.
+
+A Debug build that never turns the runtime flag on allocates nothing extra
+per render: the interceptor checks `ReactorSourceMap.Enabled` and returns the
+original element untouched, measured as byte-identical to a build with no
+generator at all on the M12 control-model benchmark. The devtools verb sets that flag for you; a host embedding
+its own inspector can set `ReactorSourceMap.Enabled` directly, and a process that
+never goes through the CLI (a benchmark host, a repro) can start with
+`REACTOR_SOURCEMAP=1` in the environment.
+
+One cost is *not* zero, and the benchmark above cannot see it. `CallSite` lives in
+the shared `ElementExtras` bucket, and as a nullable struct it is stored inline, so
+it makes that bucket 24 bytes wider — 152 B/instance, measured. Any element carrying
+a behavioral extra (attached properties, theme bindings, animations, resource
+overrides, context values) allocates that bucket anyway and pays the 24 bytes whether
+or not source mapping is on. Elements with no extras, which is the common leaf and
+what M12 measures, allocate no bucket and pay nothing. The alternative — declaring
+`CallSite` inline on the record — measured +24 B on *every* element in every build,
+so this is the cheaper of the two.
+
+Read a location back from any realized control:
+
+```csharp
+SourceLocation? src = ReactorSourceMap.GetSource(target);
+string label = src is null
+    ? "(no source location)"
+    : $"{src.Value.ToShortString()}";   // e.g. "MainPage.cs:34"
+```
+
+`GetSource` walks `UIElement` -> the element back-pointer the reconciler
+already stores -> `Element.CallSite`. It returns `null` when the control
+was not produced by Reactor, when the assembly was built without source
+mapping, or when nothing stamped that element.
+
+### Known limitations
+
+- **Helper methods attribute to themselves.** A helper `MyHeader()` that
+  calls `TextBlock(...)` reports the line inside `MyHeader`, not the line
+  that called it — interceptors replace the call site, and that *is* the
+  call site. Wrap reusable UI in a named component when you want the
+  caller's identity.
+- **Bare-string children are not stamped.** `VStack("hi")` goes through
+  the implicit `string` → `Element` conversion, whose `TextBlock` call
+  lives in the framework, not your code. Those elements report `null`
+  rather than a misleading framework location. Write `TextBlock("hi")`
+  explicitly if you need the location.
+- **Wrapped third-party controls are not stamped.** A factory generated by
+  `[GenerateReactorWrapper]` lives on the element type
+  (`MyControlElement.MyControl(...)`), not on `Factories`, and is invisible
+  to the source-map generator: Roslyn runs every source generator against
+  the same input compilation, so one generator cannot see another's output.
+  Those elements report `null` rather than a wrong line. If you need a
+  location for a wrapped control, call it from a named component and use
+  the component's identity.
+- **Entry points outside `Factories` are not stamped.** A few
+  element-producing APIs live elsewhere — `Pending(fallback, child)`
+  (`PendingFactory`) and `intl.RichMessage(...)` (`IntlAccessor`) are the
+  built-in examples. They build their element by calling `Factories` from
+  inside Reactor's own assembly, where there is no call site in your
+  compilation to intercept, so the element they return reports `null`. The
+  elements you pass *into* them are ordinary call sites and are stamped
+  normally.
 
 ## Tips
 
