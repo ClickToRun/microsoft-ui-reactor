@@ -113,6 +113,28 @@ Conventions for contributors:
 
 ### Fixed
 
+- **`D3Color.ToRgb()` / `ToString()` no longer emit malformed CSS on comma-decimal locales
+  (issue #1159).** The `double` opacity was interpolated with the ambient culture, so
+  `rgba(...)` — a machine-readable format — came out as `rgba(128, 64, 32, 0,5)` on nl-NL,
+  de-DE, fr-FR, pt-BR and friends. Because `Parse` has always read invariant, that stray
+  comma also broke the round-trip in a silent way: `Parse` saw five components instead of
+  four and read the opacity from `"0"`, turning a half-transparent color fully transparent
+  rather than throwing. Both arms now format with `CultureInfo.InvariantCulture`, matching
+  `PathBuilder.F()` elsewhere in the same D3 port. Two `mur` sites had the same defect and
+  are fixed alongside: the `mur loc status` coverage column (`100,0%`), and the similarity
+  score in `mur check` suggestion evidence (`similarity 0,95`), which is printed to stdout
+  *and* written into the structured trace. Output on en-US hosts is unchanged,
+  which is exactly why CI — whose runner is en-US — was structurally blind to this. The
+  regression guards are `[CulturedFact(new[] { "nl-NL" })]`, which pins the culture per test
+  case and therefore bites on the en-US CI runner too; `REACTOR_TESTS_CULTURE` additionally
+  re-runs the whole suite under another locale to find the tests nobody thought to pin (see
+  [`TESTING.md`](TESTING.md)). Deliberately *not* changed: the user-facing formatting seams
+  — `CellRenderers.FormatValue`, `ColumnHelpers.FormatWithSpec`, `Editors.Combo`'s label
+  projection and `ChartSummarizer.FormatValue` — stay on the current culture, because a grid
+  cell, a choice label and a screen-reader summary are text a person reads: a Dutch user
+  should see `1,5`. Each of those now carries a comma-decimal test that fails if it is ever
+  "hardened" to invariant, which an en-US-pinned assertion cannot detect.
+
 - **A fully-skipped selftest fixture is no longer reported as PASSED (issue #1061).**
   `Harness.Skip` emits `ok <name> # SKIP <reason>`, and `SelfTestBatch.ParseTap` treated any
   `ok ` line as proof the fixture had asserted something — satisfying the very flag that exists
