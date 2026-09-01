@@ -27,6 +27,19 @@ Conventions for contributors:
 ## [Unreleased]
 
 ### Added
+
+- **`REACTOR_DSL_004` — a `.WithKey(...)` that only restates what `ForEach` already
+  supplies (spec 042 §5, issue #1156).** The complement to `ForEach`'s new auto-keying:
+  once the factory keys `IReactorKeyed` items itself, `.WithKey(item)` and
+  `.WithKey(item.Key)` inside that projection are noise. Info severity, and — like
+  `REACTOR_DSL_002` — no automatic fix: a key the receiver picks up inside a called
+  factory is invisible to syntax, so deleting the call cannot be proven safe to
+  automate. Deliberately narrow: only those two
+  spellings are reported, because they are the only ones provably equal to what the
+  factory assigns. `.WithKey(item.Id)` is left alone even where `Key => Id`, since
+  proving that means reading through the `Key` property body, and it is exactly how an
+  author expresses a deliberate override. Silent inside `Select`, which does no keying.
+
 - **`MinSize(double min)` and `MaxSize(double max)` (issue #1106).**
   Added fluent extension for `GridSize` to allow for defining minimum and maximum sizes. 
 - **Strict validation checks for `GridSize`.**
@@ -89,6 +102,22 @@ Conventions for contributors:
   style's full setters.
 
 ### Changed
+- **`ForEach` keys its elements from `IReactorKeyed` items, matching the templated
+  factories (spec 042 §5, issue #1156).** Spec 042 Phase 2 already defaults the key
+  selector to `t => t.Key` for `ListView<T>` / `GridView<T>` / `LazyVStack<T>` /
+  `LazyHStack<T>`; `ForEach` was left off that list, so the *same* `T` auto-keyed through
+  `ListView` but not through the hand-built path — and `REACTOR_DSL_001` then demanded a
+  key the author had no reason to think was missing. `ForEach` now fills a null key the
+  same way, so those lists take `ChildReconciler`'s keyed path — the difference between
+  moving a row and re-mounting it. **An explicit key still wins**, so `.WithKey(item.Id)`
+  or any deliberate override is untouched. The interface test is hoisted to a one-time
+  per-`T` static, so the per-item cost is a branch on a cached bool rather than a type
+  test that would box a struct `T` on every row. `REACTOR_DSL_001` no longer fires on a
+  `ForEach` over `IReactorKeyed` items, since there is nothing left to add — it still
+  fires for `Select`, which does no keying. Nothing is auto-keyed for items *without*
+  identity: an index key is the position, so it would reproduce positional matching while
+  forcing the LIS path, and sibling `ForEach` groups flatten into one parent, so `"0"`,
+  `"1"`, … would collide across them and trip the duplicate-key bailout.
 - **`GridSize` Allow for min and max size (issue 1106).**
   Changed the base constructor to `GridSize(double value, GridUnitType type, double? min = null, double? max = null)` to accomodate passing in the min and max value for `GridSize`. This will be passed on to WinUI's `ColumnDefinition` or `RowDefinition`. The old constructor is still valid but has no way of passing in min and max values.
 - **`GridSize` String value checks.**
@@ -151,6 +180,20 @@ Conventions for contributors:
 ### Removed
 
 ### Fixed
+
+- **`REACTOR_DSL_001` no longer false-positives on a non-Reactor `ForEach`, and the
+  guide's list samples are keyed (spec 042 Q2, issue #1156).** Follow-up to #1157, which
+  widened the rule from `Select(...)` to Reactor's `ForEach(items, item => …)`. Three
+  gaps remained. The `ForEach` arm matched on receiver *shape* alone, so a bare
+  `ForEach(items, lambda)` from any other `using static` — same shape, element-typed, in
+  a layout-child slot — raised a warning that `TreatWarningsAsErrors` turns into a build
+  break; it now confirms the callee's namespace through the semantic model, after every
+  cheap syntactic gate, and `REACTOR_DSL_002` shares that one helper so the two rules
+  cannot drift into disagreeing about what a Reactor projection is. An explicitly generic
+  `ForEach<T>(...)` was skipped entirely, because the name extraction handled
+  `IdentifierNameSyntax` but not `GenericNameSyntax`. And the 10 guide pages whose
+  snippets #1157 keyed were never regenerated, so the published docs still taught the
+  unkeyed `ForEach` the rule now flags — nothing in CI covers that today (see #1052).
 
 - **`D3Color.ToRgb()` / `ToString()` no longer emit malformed CSS on comma-decimal locales
   (issue #1159).** The `double` opacity was interpolated with the ambient culture, so

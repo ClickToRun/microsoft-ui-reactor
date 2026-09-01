@@ -658,6 +658,125 @@ public class ElementTests
         Assert.Equal("0:A", ((TextBlockElement)group.Children[0]).Content);
     }
 
+    // ── ForEach identity-on-data (spec 042 §5) ──────────────────────────
+
+    private sealed record KeyedRow(string Id, string Text) : IReactorKeyed
+    {
+        public string Key => Id;
+    }
+
+    [Fact]
+    public void ForEach_Keys_Elements_From_IReactorKeyed_Items()
+    {
+        var rows = new[] { new KeyedRow("a", "Alpha"), new KeyedRow("b", "Bravo") };
+
+        var group = (GroupElement)ForEach(rows, r => TextBlock(r.Text));
+
+        // The whole point: without this the children are unkeyed and
+        // ChildReconciler.Reconcile takes the positional arm.
+        Assert.Equal(["a", "b"], group.Children.Select(c => c.Key));
+    }
+
+    [Fact]
+    public void ForEach_Keys_From_IReactorKeyed_On_The_Indexed_Overload_Too()
+    {
+        var rows = new[] { new KeyedRow("a", "Alpha"), new KeyedRow("b", "Bravo") };
+
+        var group = (GroupElement)ForEach(rows, (r, i) => TextBlock($"{i}:{r.Text}"));
+
+        Assert.Equal(["a", "b"], group.Children.Select(c => c.Key));
+    }
+
+    [Fact]
+    public void ForEach_Does_Not_Override_An_Explicit_Key()
+    {
+        // A deliberate override must survive — the auto-key only fills a null.
+        var rows = new[] { new KeyedRow("a", "Alpha"), new KeyedRow("b", "Bravo") };
+
+        var group = (GroupElement)ForEach(rows, r => TextBlock(r.Text).WithKey($"row-{r.Id}"));
+
+        Assert.Equal(["row-a", "row-b"], group.Children.Select(c => c.Key));
+    }
+
+    [Fact]
+    public void ForEach_Leaves_NonKeyed_Items_Unkeyed()
+    {
+        // No identity on the data, so nothing to key from — and an index key
+        // would be a positional key wearing a disguise.
+        var group = (GroupElement)ForEach(new[] { "A", "B" }, item => TextBlock(item));
+
+        Assert.All(group.Children, c => Assert.Null(c.Key));
+    }
+
+    [Fact]
+    public void ForEach_Keys_From_IReactorKeyed_On_The_Enumerable_Path()
+    {
+        // The non-IReadOnlyList arm is a separate Select(...) branch (#170's
+        // fast path only covers lists), so it needs its own coverage.
+        IEnumerable<KeyedRow> rows = new[] { new KeyedRow("a", "Alpha"), new KeyedRow("b", "Bravo") }.Where(_ => true);
+
+        var group = (GroupElement)ForEach(rows, r => TextBlock(r.Text));
+
+        Assert.Equal(["a", "b"], group.Children.Select(c => c.Key));
+    }
+
+    [Fact]
+    public void ForEach_Keys_From_A_Struct_IReactorKeyed_Item()
+    {
+        // The per-T static cache exists so the interface probe doesn't box a
+        // struct on every row; this pins that the struct path still keys.
+        var rows = new[] { new KeyedStructRow("a"), new KeyedStructRow("b") };
+
+        var group = (GroupElement)ForEach(rows, r => TextBlock(r.Id));
+
+        Assert.Equal(["a", "b"], group.Children.Select(c => c.Key));
+    }
+
+    private readonly record struct KeyedStructRow(string Id) : IReactorKeyed
+    {
+        public string Key => Id;
+    }
+
+    [Fact]
+    public void ForEach_Handles_A_Source_Whose_Count_Disagrees_With_Its_Enumeration()
+    {
+        // TryGetNonEnumeratedCount is a snapshot. If the walk yields fewer items
+        // the array would keep trailing nulls; more, and it would throw. Both
+        // directions are pinned here because neither shows up on a well-behaved
+        // collection.
+        var shorter = new LyingCount<string>(["a", "b"], reportedCount: 5);
+        var longer = new LyingCount<string>(["a", "b", "c"], reportedCount: 1);
+        // Reports zero, so the buffer starts zero-length — doubling that would
+        // never grow, which is why the grow step uses Math.Max.
+        var zeroClaimed = new LyingCount<string>(["a", "b"], reportedCount: 0);
+
+        var shortGroup = (GroupElement)ForEach(shorter, s => TextBlock(s));
+        var longGroup = (GroupElement)ForEach(longer, (s, i) => TextBlock(s));
+        var zeroGroup = (GroupElement)ForEach(zeroClaimed, s => TextBlock(s));
+
+        Assert.Equal(2, shortGroup.Children.Length);
+        Assert.All(shortGroup.Children, Assert.NotNull);
+        Assert.Equal(3, longGroup.Children.Length);
+        Assert.All(longGroup.Children, Assert.NotNull);
+        Assert.Equal(2, zeroGroup.Children.Length);
+        Assert.All(zeroGroup.Children, Assert.NotNull);
+    }
+
+    // Reports one count and enumerates a different number of items. ICollection
+    // is what TryGetNonEnumeratedCount reads, so Count is the lie.
+    private sealed class LyingCount<T>(IReadOnlyList<T> actual, int reportedCount) : ICollection<T>
+    {
+        public int Count => reportedCount;
+        public bool IsReadOnly => true;
+        public IEnumerator<T> GetEnumerator() => actual.GetEnumerator();
+        global::System.Collections.IEnumerator global::System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+        public void Add(T item) => throw new NotSupportedException();
+        public void Clear() => throw new NotSupportedException();
+        public bool Contains(T item) => throw new NotSupportedException();
+        public void CopyTo(T[] array, int arrayIndex) => throw new NotSupportedException();
+        public bool Remove(T item) => throw new NotSupportedException();
+    }
+
     [Fact]
     public void ForEach_Group_Flattened_In_Parent()
     {

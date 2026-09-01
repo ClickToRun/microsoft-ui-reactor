@@ -157,18 +157,18 @@ public sealed class MissingWithKeyCodeFix : CodeFixProvider
     {
         lambda = null!;
 
-        var methodName = inv.Expression switch
-        {
-            MemberAccessExpressionSyntax member => member.Name.Identifier.ValueText,
-            IdentifierNameSyntax id => id.Identifier.ValueText,
-            _ => null,
-        };
+        // Same receiver test the analyzer applies, called rather than copied:
+        // a second private copy here is exactly the drift that let DSL_001 and
+        // DSL_002 disagree about `ForEach` in the first place (#1156). The
+        // symbol half isn't needed — this only runs on a diagnostic the
+        // analyzer already gated.
+        var methodName = MissingWithKeyAnalyzer.SimpleName(inv.Expression);
         if (methodName is null) return false;
 
         var lambdaIndex = methodName switch
         {
             "Select" => 0,
-            "ForEach" when IsReactorForEachReceiver(inv.Expression) => 1,
+            "ForEach" when MissingWithKeyAnalyzer.IsReactorForEachReceiver(inv.Expression) => 1,
             _ => -1,
         };
         if (lambdaIndex < 0) return false;
@@ -179,33 +179,14 @@ public sealed class MissingWithKeyCodeFix : CodeFixProvider
         return true;
     }
 
-    static bool IsReactorForEachReceiver(ExpressionSyntax invoked) => invoked switch
-    {
-        IdentifierNameSyntax => true,
-        MemberAccessExpressionSyntax m => SimpleName(m.Expression) == "Factories",
-        _ => false,
-    };
-
-    static string? SimpleName(ExpressionSyntax expr) => expr switch
-    {
-        IdentifierNameSyntax id => id.Identifier.ValueText,
-        MemberAccessExpressionSyntax m => m.Name.Identifier.ValueText,
-        QualifiedNameSyntax q => q.Right.Identifier.ValueText,
-        _ => null,
-    };
-
-    static bool ImplementsIReactorKeyed(ITypeSymbol type)
-    {
-        foreach (var iface in type.AllInterfaces)
-        {
-            // Match by name + containing namespace to avoid pulling a hard
-            // reference to Reactor.Core into the analyzer assembly.
-            if (iface.Name == "IReactorKeyed"
-                && iface.ContainingNamespace?.ToDisplayString() == "Microsoft.UI.Reactor.Core")
-                return true;
-        }
-        return false;
-    }
+    // Delegates to the analyzer's copy rather than keeping a second one. This
+    // file previously had its own AllInterfaces loop, which missed the case
+    // where the type IS IReactorKeyed (AllInterfaces excludes the type itself)
+    // — so a `Select` over an `IReadOnlyList<IReactorKeyed>` never got the
+    // `.WithKey(item)` offer. Same drift, one more copy: the reason #1156
+    // existed in the first place.
+    static bool ImplementsIReactorKeyed(ITypeSymbol type) =>
+        MissingWithKeyAnalyzer.ImplementsReactorKeyed(type);
 
     static bool HasPublicProperty(ITypeSymbol type, string name)
     {
