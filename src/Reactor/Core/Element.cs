@@ -928,6 +928,15 @@ public abstract record Element
                 && ta.IsBackButtonVisible == tb.IsBackButtonVisible
                 && ta.IsBackButtonEnabled == tb.IsBackButtonEnabled
                 && ta.IsPaneToggleButtonVisible == tb.IsPaneToggleButtonVisible
+                // Icon and SuppressIcon decide what the icon slot renders, so a change to
+                // either is a change to the element's own WinUI-mapped props — which is
+                // exactly what this method reports. Without them the highlight overlay
+                // would leave a title bar unmarked on a render that swapped its icon.
+                // (Note this method gates the devtools overlay only; the reconciler's
+                // skip gate is ShallowEquals, which has no TitleBarElement arm and so
+                // returns false for every TitleBar pair.)
+                && Equals(ta.Icon, tb.Icon)
+                && ta.SuppressIcon == tb.SuppressIcon
                 && SettersEqual(ta.Setters, tb.Setters),
 
             // Pure composition wrappers — they never write their own WinUI
@@ -5063,8 +5072,25 @@ public partial record TitleBarElement(
     /// <see cref="ImageIconData"/> / <see cref="BitmapIconData"/> for a
     /// bundled <c>.ico</c> / image (e.g. <c>new ImageIconData(new
     /// Uri("ms-appx:///Assets/AppIcon.ico"))</c>).
+    /// <para>Left unset, the title bar inherits the <b>window's</b> icon —
+    /// <see cref="WindowSpec.Icon"/> if declared, otherwise the
+    /// <c>Assets\AppIcon.ico</c> convention — so an app that already has an icon
+    /// need not restate it here. The WinUI control does not do this itself. An icon
+    /// that exists only as an executable PE resource is not inherited: that stage
+    /// yields a raw <c>HICON</c> with no path, and a XAML <c>IconSource</c> needs an
+    /// image source. Set <see cref="SuppressIcon"/> via <c>.NoIcon()</c> to show none.</para>
     /// </summary>
     public IconData? Icon { get; init; }
+    /// <summary>
+    /// Suppresses the icon entirely, including the one Reactor would otherwise
+    /// inherit from the window (see <see cref="Icon"/>). Set via <c>.NoIcon()</c>.
+    /// </summary>
+    /// <remarks>
+    /// A separate flag rather than a null <see cref="Icon"/>, because record
+    /// <c>init</c> properties make "never set an icon" and "explicitly set none"
+    /// indistinguishable — and those now mean opposite things.
+    /// </remarks>
+    public bool SuppressIcon { get; init; }
     internal Action<WinUI.TitleBar>[] Setters { get; init; } = [];
     internal override bool HasCallbacks => OnBackRequested is not null || OnPaneToggleRequested is not null;
 
@@ -5097,9 +5123,9 @@ public partial record TitleBarElement(
             },
         });
         return d
-            .OneWay(
-                get: static e => e.Icon,
-                set: static (c, v) => c.IconSource = global::Microsoft.UI.Reactor.Core.V1Protocol.IconResolver.ResolveIconSource(v))
+            .Imperative(
+                mount:  static (c, e) => global::Microsoft.UI.Reactor.Core.V1Protocol.TitleBarIconDefault.Apply(c, e, force: true),
+                update: static (c, _, e) => global::Microsoft.UI.Reactor.Core.V1Protocol.TitleBarIconDefault.Apply(c, e, force: false))
             .Imperative(
                 mount: static (c, e) => RegisterWindowTitleBar(c, e),
                 update: static (c, _, e) => ApplyTitleBarHeightOption(c, e))
@@ -5132,7 +5158,7 @@ public partial record TitleBarElement(
             // The control corrupts the heap on teardown when the window is NOT in
             // content-extended mode, so the window flips ExtendsContentIntoTitleBar
             // back to true just before native close. (issue #537)
-            owningWindow?.MarkTitleBarControlPresent();
+            owningWindow?.MarkTitleBarControlPresent(titleBar);
 
             var explicitValue = owningWindow?.Spec.ExtendsContentIntoTitleBar;
             if (explicitValue == false) return;

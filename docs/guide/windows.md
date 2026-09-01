@@ -272,6 +272,58 @@ visual clickable or `.IsDragRegion(true)` to force it draggable, and set
 }).AutoRefreshDragRegions();
 ```
 
+### Title bar icon
+
+A `TitleBar(...)` with no `.Icon(...)` shows the **window's** icon: `WindowSpec.Icon`
+if one was declared, otherwise the `Assets\AppIcon.ico` convention. An app that
+already ships an icon does not restate it:
+
+```csharp
+// A TitleBar(...) with no .Icon(...) inherits the window's icon, so an app that
+// already ships one does not restate it.
+static class TitleBarIconSetup
+{
+    public static void Run() =>
+        ReactorApp.Run<InheritedIconApp>("My app",
+            icon: WindowIcon.FromPath("Assets/AppIcon.ico"));
+}
+
+class InheritedIconApp : Component
+{
+    public override Element Render() =>
+        VStack(
+            TitleBar("My app"),          // shows Assets/AppIcon.ico, nothing to declare
+            TextBlock("Body"));
+}
+
+// Opt out where a bare title bar is what you want:
+class BareTitleBarApp : Component
+{
+    public override Element Render() =>
+        VStack(
+            TitleBar("My app").NoIcon(),
+            TextBlock("Body"));
+}
+```
+
+The WinUI control does not do this itself. Two limits are worth knowing:
+
+- An icon that exists *only* as an executable PE resource (`<ApplicationIcon>`) is
+  **not** inherited. That stage of the window's own icon chain yields a raw `HICON`
+  with no path, and a XAML `IconSource` needs an image source. The window caption and
+  Alt-Tab still show it; the in-window title bar does not.
+- An embedded window (`WindowSpec.Embed`) never receives a window icon, so its title
+  bar has none to inherit.
+
+`.Icon(...)` still wins where you want a different mark — a monochrome glyph in the
+title bar against a full-colour `.ico` in the caption, say. `.NoIcon()` is the
+opt-out for a deliberately bare title bar on an app that ships an icon.
+
+> **Behaviour change.** Before this, a `TitleBar(...)` without `.Icon(...)` always
+> rendered no icon. An existing app that ships a window icon — or an
+> `Assets\AppIcon.ico` — and deliberately wanted a bare title bar should add
+> `.NoIcon()` to keep that. Apps that set `.Icon(...)` explicitly are unaffected.
+
 ### Tall title bar
 
 A title bar that hosts navigation chrome — a back button, a pane toggle — uses the

@@ -140,6 +140,12 @@ public sealed partial class Reconciler
         if (global::Microsoft.UI.Reactor.Diagnostics.LayoutFootgunDetector.AlwaysOnInDebug || ReactorFeatureFlags.WarnLayoutFootguns)
             global::Microsoft.UI.Reactor.Diagnostics.LayoutFootgunDetector.Inspect(element);
 
+        if (control is WinUI.TitleBar preModCtl)
+        {
+            global::Microsoft.UI.Reactor.Core.V1Protocol.TitleBarIconDefault
+                .ObserveAfterSetters(preModCtl);
+        }
+
         // Apply inline modifiers after mounting
         if (modifiers is not null && control is FrameworkElement fe)
             ApplyModifiers(fe, modifiers, requestRerender);
@@ -149,8 +155,22 @@ public sealed partial class Reconciler
         // Re-apply the TitleBar's caption-derived height after modifiers so a
         // .Tall() without an explicit .Height(...) still sizes the control.
         // (issue #917)
-        if (element is TitleBarElement tbEl && control is WinUI.TitleBar tbCtl)
-            TitleBarElement.SyncControlHeightAfterModifiers(tbCtl, tbEl);
+        // Height sync is element-specific; the icon observation is not. A transparent
+        // Component/Memo wrapper whose native control is a TitleBar still has its own
+        // modifiers applied to that control, so gating the observer on the element would
+        // leave a wrapper-level .OnMount(...) icon write unrecorded — and therefore
+        // clobberable — while the pre-modifier observation above (gated on the control)
+        // already saw it.
+        if (control is WinUI.TitleBar tbCtl)
+        {
+            if (element is TitleBarElement tbEl)
+                TitleBarElement.SyncControlHeightAfterModifiers(tbCtl, tbEl);
+
+            // Anything that changed since the pre-modifier observation came from a
+            // modifier; whether it recurs depends on the phase.
+            global::Microsoft.UI.Reactor.Core.V1Protocol.TitleBarIconDefault
+                .ObserveAfterModifiers(tbCtl, isMount: true);
+        }
 
         // After modifiers + setters have had a chance to set an explicit
         // AutomationName, fall back to the control's visible caption so UIA

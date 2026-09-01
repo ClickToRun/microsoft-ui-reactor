@@ -245,6 +245,14 @@ public sealed partial class Reconciler
             && _highlightModified is not null
             && (!Element.OwnPropsEqual(oldEl, newEl) || !Element.ModifiersEqual(oldModifiers, modifiers)))
             _highlightModified.Add(control);
+        if (target is WinUI.TitleBar preModCtl)
+        {
+            // Setters have already run (inside the descriptor handler) but modifiers have
+            // not, so a divergence observed here is a setter's by construction.
+            global::Microsoft.UI.Reactor.Core.V1Protocol.TitleBarIconDefault
+                .ObserveAfterSetters(preModCtl);
+        }
+
         if ((modifiers is not null || oldModifiers is not null) && target is FrameworkElement fe)
             ApplyModifiers(fe, oldModifiers, modifiers ?? new ElementModifiers(), requestRerender);
         if (target is FrameworkElement dragFe)
@@ -253,8 +261,18 @@ public sealed partial class Reconciler
         // Re-apply the TitleBar's caption-derived height after modifiers so
         // removing an explicit .Height(...) from a still-tall TitleBar falls
         // back to the implied tall height rather than to auto. (issue #917)
-        if (newEl is TitleBarElement tbEl && target is WinUI.TitleBar tbCtl)
-            TitleBarElement.SyncControlHeightAfterModifiers(tbCtl, tbEl);
+        // Height sync is element-specific; the icon observation is not — see the matching
+        // note in Reconciler.Mount.cs.
+        if (target is WinUI.TitleBar tbCtl)
+        {
+            if (newEl is TitleBarElement tbEl)
+                TitleBarElement.SyncControlHeightAfterModifiers(tbCtl, tbEl);
+
+            // Anything that changed since the pre-modifier observation came from a
+            // modifier; whether it recurs depends on the phase.
+            global::Microsoft.UI.Reactor.Core.V1Protocol.TitleBarIconDefault
+                .ObserveAfterModifiers(tbCtl, isMount: false);
+        }
 
         // Re-apply the caption-derived default after modifiers have run so a
         // label change ("+ 1" → "+ 2") updates UIA Name when the author never
